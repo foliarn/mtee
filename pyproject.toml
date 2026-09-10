@@ -1,0 +1,60 @@
+[project]
+name = "mtee"
+version = "0.1.0"
+description = "Music Tagging and Editing Explorer — desktop application for a local audio collection"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "NOASSERTION" }
+dependencies = [
+    # Essentials only: the add-ons of the full PySide6 wheel bring Qt WebEngine
+    # and Quick3D, which MTEE does not use and which weigh on the distribution.
+    "PySide6-Essentials>=6.8,<6.10",
+    "mutagen>=1.47",
+]
+
+[project.scripts]
+mtee = "mtee.app:run"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-qt>=4.4",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+    "pyinstaller>=6.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mtee"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+qt_api = "pyside6"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Qt imposes the name of the overridden methods, of the signals and of the
+# properties read by QML; renaming them would break the binding.
+"src/mtee/models/*.py" = ["N802", "N815"]
+"src/mtee/services/jobs.py" = ["N815"]
+"tests/*" = ["S101"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+venvPath = "."
+venv = ".venv"
