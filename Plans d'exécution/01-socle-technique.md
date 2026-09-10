@@ -9,16 +9,29 @@ Ce plan vivant respecte `PLANS.md` à la racine et couvre `PLAN.md` §1, §4.0 e
 ## Progress
 
 - [x] (2026-09-10) Plan préparé ; aucun code du socle n'est encore réalisé.
-- [ ] Vérifier les dépendances Python/QML et la stratégie de distribution Windows.
-- [ ] Créer le paquet, la fenêtre et le thème local.
-- [ ] Créer les contrats de données, la persistance et les tâches en arrière-plan.
-- [ ] Documenter l'étude Rekordbox et les décisions de dépendances natives.
-- [ ] Exécuter les tests, fabriquer et vérifier la distribution Windows autonome.
-- [ ] Mettre à jour les preuves, créer le commit détaillé et confirmer le push.
+- [x] (2026-09-10) Vérifier les dépendances Python/QML et la stratégie de distribution Windows.
+- [x] (2026-09-10) Créer le paquet, la fenêtre et le thème local.
+- [x] (2026-09-10) Créer les contrats de données, la persistance et les tâches en arrière-plan.
+- [x] (2026-09-10) Documenter l'étude Rekordbox et les décisions de dépendances natives.
+- [x] (2026-09-10) Exécuter les tests et fabriquer la distribution Windows ; contrôle après empaquetage réussi sur le poste de développement.
+- [ ] Vérifier la distribution sur une machine Windows propre, sans Python, uv ni Qt.
+- [ ] Faire vérifier le parcours interactif de la fenêtre par l'utilisateur.
+- [x] (2026-09-10) Mettre à jour les preuves et créer le commit détaillé.
+- [ ] Confirmer le push de l'étape.
 
 ## Surprises & Discoveries
 
-Au moment de la planification, le dépôt n'a pas de `pyproject.toml`, `uv.lock`, code applicatif ni tests. Les chemins et commandes ci-dessous sont des livrables à créer. La compatibilité des versions et du packaging n'est pas encore observée.
+Au moment de la planification, le dépôt n'a pas de `pyproject.toml`, `uv.lock`, code applicatif ni tests. Les chemins et commandes ci-dessous étaient des livrables à créer.
+
+Réalisation du 10 septembre 2026 : `uv` était absent de la machine, qui ne disposait que de Python 3.14. Il a été installé dans l'espace utilisateur après accord explicite, et son répertoire `Scripts` reste hors du `PATH` : chaque commande de la recette l'ajoute à la session.
+
+Un modèle Qt exposé à QML sans référence Python est supprimé par le ramasse-miettes : la table apparaissait vide, sans message d'erreur. Les modèles sont désormais retenus par l'objet d'exécution d'`app.py`.
+
+`Connection.executescript` valide la transaction en cours avant d'exécuter son script, ce qui priverait les migrations de leur caractère transactionnel. Les scripts sont découpés avec `sqlite3.complete_statement` et rejoués instruction par instruction.
+
+La plateforme Qt `offscreen` des tests ne fournit aucune police : le texte s'affiche en caractères manquants. Les captures de recette sont donc prises avec la plateforme Windows réelle.
+
+Le paquet complet `PySide6` embarquait 190 Mo de `Qt6WebEngineCore.dll` inutilisé, pour une distribution de 377 Mo.
 
 ## Decision Log
 
@@ -28,9 +41,21 @@ Décision du 10 septembre 2026, Codex : privilégier d'abord une distribution Py
 
 Décision du 10 septembre 2026, Codex : introduire les identifiants et révisions de source sans développer les tables de toutes les fonctions futures. Les migrations ultérieures ajoutent leur propre schéma.
 
+Décision du 10 septembre 2026, Claude : retenir `PySide6-Essentials` plutôt que le paquet complet. Les add-ons apportent Qt WebEngine et Quick3D, inutilisés par MTEE ; la distribution passe de 377 Mo à 138 Mo et le contrôle après empaquetage reste vert. Un module d'add-on redevenu nécessaire ferait l'objet d'une nouvelle décision et d'un nouveau verrou.
+
+Décision du 10 septembre 2026, Claude : placer le module QML sous `src/mtee/qml/Mtee/` avec son `qmldir`, au lieu du `qml/theme/Theme.qml` proposé. Le nom du répertoire doit correspondre à l'URI du module importé, y compris sur un système sensible à la casse ; `Main.qml` reste à la racine de `qml/`.
+
+Décision du 10 septembre 2026, Claude : ne pas télécharger les fichiers de Geist Sans. Le mécanisme d'enregistrement est livré et la police de repli du système est utilisée ; l'ajout des fichiers et de leur licence est décrit dans `LICENSES/README.md`.
+
+Décision du 10 septembre 2026, Claude : ajouter `scripts/smoke_packaged.ps1`. L'exécutable distribué est fenêtré, donc un appel direct depuis un shell rend la main sans code de sortie lisible ; le script attend le processus et propage son code.
+
+Décision du 10 septembre 2026, Claude : renoncer aux noms `JobCancelled` et `FileAccessTimeout` au profit de `JobCancelledError` et `FileAccessTimeoutError`, conformément à la règle de nommage des exceptions appliquée par Ruff.
+
 ## Outcomes & Retrospective
 
-Résultat attendu : fenêtre et distribution de base vérifiées, dépendances verrouillées, contrats utilisables par les prochaines étapes. Résultat actuel : plan disponible seulement. Inscrire les versions, écarts et limites après expérience.
+Résultat obtenu le 10 septembre 2026 sur Windows 11 10.0.26200 (AMD64) : la fenêtre QML s'ouvre avec ses zones nommées et des données fictives, écrit ses réglages dans le répertoire prévu, conserve un réglage après redémarrage et se ferme proprement. Contrôles verts : `uv sync --locked`, `ruff check`, `ruff format --check`, `pyright`, 59 tests, démarrage `--smoke-test` depuis les sources, construction `dist/MTEE/MTEE.exe` et contrôle après empaquetage. Versions verrouillées dans `uv.lock` et expliquées dans `docs/architecture/dependencies.md` ; recette détaillée dans `docs/validation/01-socle-technique.md`.
+
+Limites assumées : la distribution n'a pas été essayée sur une machine Windows propre, faute d'une telle machine ; le parcours interactif n'a pas été exercé par un humain ; les fichiers de Geist Sans ne sont pas versionnés et `Segoe UI` sert de repli ; l'intégration continue n'a pas encore été exécutée ; les études Rekordbox et libmpv restent des questions documentées, sans export ni binaire observés. L'étape n'est donc pas déclarée entièrement recettée sur ces points.
 
 ## Contexte et prérequis
 
@@ -149,3 +174,5 @@ Adapter ce message aux preuves constatées ; les lignes de validation ne sont pa
 Les deux hashes doivent concorder. Si le distant a avancé ou si le push échoue, appliquer la reprise de `PLANS.md` sans forcer ni créer de faux commit de livraison.
 
 Note de révision — 2026-09-10, Codex : création du plan ; avancer la lecture Mutagen pour satisfaire A et rendre explicites le packaging précoce, les études et les contrats partagés.
+
+Note de révision — 2026-09-10, Claude : réalisation de l'étape ; suivi, découvertes, décisions et limites mis à jour d'après les commandes réellement exécutées.

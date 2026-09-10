@@ -1,0 +1,10 @@
+module Mtee
+singleton Theme 1.0 Theme.qml
+Panel 1.0 Panel.qml
+SectionLabel 1.0 SectionLabel.qml
+ToolButton 1.0 ToolButton.qml
+TrackTable 1.0 TrackTable.qml
+JobStrip 1.0 JobStrip.qml
+PlayerBar 1.0 PlayerBar.qml
+DetailsPanel 1.0 DetailsPanel.qml
+ExplorerPanel 1.0 ExplorerPanel.qml
