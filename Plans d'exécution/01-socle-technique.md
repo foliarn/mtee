@@ -17,7 +17,7 @@ Ce plan vivant respecte `PLANS.md` à la racine et couvre `PLAN.md` §1, §4.0 e
 - [ ] Vérifier la distribution sur une machine Windows propre, sans Python, uv ni Qt.
 - [ ] Faire vérifier le parcours interactif de la fenêtre par l'utilisateur.
 - [x] (2026-09-10) Mettre à jour les preuves et créer le commit détaillé.
-- [ ] Confirmer le push de l'étape.
+- [x] (2026-09-10) Confirmer le push de l'étape.
 
 ## Surprises & Discoveries
 
@@ -56,6 +56,8 @@ Décision du 10 septembre 2026, Claude : renoncer aux noms `JobCancelled` et `Fi
 Résultat obtenu le 10 septembre 2026 sur Windows 11 10.0.26200 (AMD64) : la fenêtre QML s'ouvre avec ses zones nommées et des données fictives, écrit ses réglages dans le répertoire prévu, conserve un réglage après redémarrage et se ferme proprement. Contrôles verts : `uv sync --locked`, `ruff check`, `ruff format --check`, `pyright`, 59 tests, démarrage `--smoke-test` depuis les sources, construction `dist/MTEE/MTEE.exe` et contrôle après empaquetage. Versions verrouillées dans `uv.lock` et expliquées dans `docs/architecture/dependencies.md` ; recette détaillée dans `docs/validation/01-socle-technique.md`.
 
 Limites assumées : la distribution n'a pas été essayée sur une machine Windows propre, faute d'une telle machine ; le parcours interactif n'a pas été exercé par un humain ; les fichiers de Geist Sans ne sont pas versionnés et `Segoe UI` sert de repli ; l'intégration continue n'a pas encore été exécutée ; les études Rekordbox et libmpv restent des questions documentées, sans export ni binaire observés. L'étape n'est donc pas déclarée entièrement recettée sur ces points.
+
+Publication : commit `807803a974769b730065ea59dad5be7e342a6375` poussé sur `origin/main` (`https://github.com/foliarn/mtee.git`), `git rev-parse HEAD` et `git rev-parse origin/main` identiques après `git fetch origin`.
 
 ## Contexte et prérequis
 
@@ -176,3 +178,5 @@ Les deux hashes doivent concorder. Si le distant a avancé ou si le push échoue
 Note de révision — 2026-09-10, Codex : création du plan ; avancer la lecture Mutagen pour satisfaire A et rendre explicites le packaging précoce, les études et les contrats partagés.
 
 Note de révision — 2026-09-10, Claude : réalisation de l'étape ; suivi, découvertes, décisions et limites mis à jour d'après les commandes réellement exécutées.
+
+Note de révision — 2026-09-10, Claude : ajout de la preuve de publication du socle.
