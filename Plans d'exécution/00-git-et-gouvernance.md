@@ -12,8 +12,8 @@ Ce plan est un document vivant régi par `PLANS.md`, à la racine. Mettre à jou
 - [x] (2026-09-10 08:54 UTC) Vérifier que le distant est accessible et sans références ; initialiser la branche locale `main` et le remote `origin`.
 - [x] (2026-09-10) Rédiger les seize plans, leurs règles et l'index de couverture.
 - [x] (2026-09-10) Contrôler les liens, la couverture fonctionnelle, la cohérence des contrats et le diff.
-- [ ] Créer le commit documentaire détaillé.
-- [ ] Pousser et vérifier la correspondance de `HEAD` avec `origin/main`.
+- [x] (2026-09-10) Créer le commit documentaire détaillé.
+- [x] (2026-09-10) Pousser et vérifier la correspondance de `HEAD` avec `origin/main`.
 
 ## Surprises & Discoveries
 
@@ -32,7 +32,9 @@ Décision du 10 septembre 2026, Claude : retirer l'unique ligne vide finale de `
 
 ## Outcomes & Retrospective
 
-Initialisation locale réalisée. Rédaction, recette documentaire, commit et push restent à confirmer dans le suivi. Aucune fonctionnalité applicative n'est déclarée livrée.
+Initialisation locale réalisée, ensemble documentaire rédigé et recette documentaire exécutée : seize plans numérotés et leur index, quatre sections de suivi par plan, liens de l'index résolus, encodage UTF-8 et fins de ligne LF, `git diff --cached --check` sans erreur.
+
+Livraison du 10 septembre 2026 : commit `06e993cad06bdde2ead8df705998f794c61d2e9e` publié sur `https://github.com/foliarn/mtee.git`, branche `main`, avec `git rev-parse HEAD` et `git rev-parse origin/main` identiques après `git fetch origin`. Aucune fonctionnalité applicative n'est déclarée livrée ; l'étape 01 ouvre le développement.
 
 ## Contexte et prérequis
 
@@ -137,3 +139,5 @@ Cette étape utilise seulement Git, PowerShell et Markdown. `AGENTS.md` constitu
 Preuves initiales observées le 10 septembre 2026 : dépôt distant sans références ; `Initialized empty Git repository` ; branche `main` sans commit ; `origin` pointant vers `https://github.com/foliarn/mtee.git`. Compléter ici ou dans le compte rendu de livraison les contrôles effectivement réalisés. Le message et la séquence du jalon 3 sont ceux de cette étape, et non ceux d'une application déjà fonctionnelle.
 
 Note de révision — 2026-09-10, Codex : création du plan à partir de l'état réel du dossier et de la demande d'initialisation, afin de distinguer préparation des plans et développement futur.
+
+Note de révision — 2026-09-10, Claude : clôture de l'étape après recette documentaire, commit et push vérifié.
