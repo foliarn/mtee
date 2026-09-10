@@ -1,0 +1,40 @@
+# Python et outils
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
+
+# Distributions et dépendances natives téléchargées
+build/
+dist/
+vendor/
+
+# Données personnelles, corpus et résultats locaux
+.local/
+data/
+corpus-private/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+
+# Configuration privée
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Système
+.DS_Store
+Thumbs.db
+Desktop.ini
