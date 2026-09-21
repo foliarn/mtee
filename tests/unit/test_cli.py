@@ -15,14 +15,18 @@ def test_a_run_without_argument_uses_the_normal_mode() -> None:
     assert options.data_dir is None
     assert options.demo is False
     assert options.smoke_test is False
+    assert options.scenario == "browser"
 
 
 def test_the_recipe_options_are_recognised(tmp_path: Path) -> None:
-    options = parse_arguments(["--data-dir", str(tmp_path), "--demo", "--smoke-test"])
+    options = parse_arguments(
+        ["--data-dir", str(tmp_path), "--demo", "--smoke-test", "--scenario", "convert-error"]
+    )
 
     assert options.data_dir == tmp_path
     assert options.demo is True
     assert options.smoke_test is True
+    assert options.scenario == "convert-error"
 
 
 def test_an_unknown_argument_is_refused_with_the_usage(capsys: pytest.CaptureFixture[str]) -> None:
@@ -42,3 +46,4 @@ def test_the_help_lists_the_supported_options(capsys: pytest.CaptureFixture[str]
     assert "--data-dir" in printed
     assert "--demo" in printed
     assert "--smoke-test" in printed
+    assert "--scenario" in printed
