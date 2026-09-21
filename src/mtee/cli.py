@@ -24,6 +24,7 @@ class AppOptions:
     data_dir: Path | None = None
     demo: bool = False
     smoke_test: bool = False
+    scenario: str = "browser"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,6 +47,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Load the window, then quit with a success or failure exit code.",
     )
+    parser.add_argument(
+        "--scenario",
+        choices=(
+            "browser",
+            "browser-inspector",
+            "browser-split",
+            "browser-multi",
+            "browser-no-artwork",
+            "listening",
+            "convert",
+            "convert-error",
+        ),
+        default="browser",
+        help="Open a deterministic demo review scenario.",
+    )
     return parser
 
 
@@ -59,4 +75,5 @@ def parse_arguments(argv: Sequence[str] | None = None) -> AppOptions:
         data_dir=parsed.data_dir,
         demo=bool(parsed.demo),
         smoke_test=bool(parsed.smoke_test),
+        scenario=str(parsed.scenario),
     )

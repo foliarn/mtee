@@ -20,6 +20,7 @@ from mtee.assets import main_qml, qml_dir
 from mtee.cli import AppOptions, parse_arguments
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.demo_tracks_model import DemoTracksModel
+from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.jobs_model import JobsListModel
 from mtee.models.shell_controller import ShellController
 from mtee.persistence.database import Database, DatabaseError
@@ -55,6 +56,7 @@ class _Runtime:
     controller: ShellController
     jobs_model: JobsListModel
     tracks_model: DemoTracksModel
+    workspace: DemoWorkspace
 
 
 def create_application(argv: Sequence[str] | None = None) -> QGuiApplication:
@@ -113,6 +115,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     jobs = JobService(application)
     jobs_model = JobsListModel(jobs)
     tracks_model = DemoTracksModel()
+    workspace = DemoWorkspace(options.scenario if options.demo else "browser")
     controller = ShellController(
         paths=paths,
         settings=settings,
@@ -127,6 +130,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     context.setContextProperty("shell", controller)
     context.setContextProperty("jobsModel", jobs_model)
     context.setContextProperty("tracksModel", tracks_model)
+    context.setContextProperty("workspace", workspace)
 
     window_file = main_qml()
     if not window_file.is_file():
@@ -145,6 +149,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         controller=controller,
         jobs_model=jobs_model,
         tracks_model=tracks_model,
+        workspace=workspace,
     )
 
 

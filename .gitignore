@@ -17,6 +17,7 @@ vendor/
 
 # Données personnelles, corpus et résultats locaux
 .local/
+.data/
 data/
 corpus-private/
 *.sqlite

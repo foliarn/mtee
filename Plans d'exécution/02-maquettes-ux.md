@@ -9,16 +9,22 @@ Ce plan vivant suit `PLANS.md` et couvre le jalon distinct de `PLAN.md` §3. Il 
 ## Progress
 
 - [x] (2026-09-10) Plan de maquettes préparé, aucune maquette ou approbation encore obtenue.
-- [ ] Créer les données fictives et la navigation du prototype.
-- [ ] Produire Browser, Listening view, Convert et leurs états particuliers.
-- [ ] Vérifier dimensions, clavier, focus, petites largeurs et packaging.
-- [ ] Préparer captures et parcours, puis recueillir la revue utilisateur requise.
+- [x] (2026-09-22) Créer les données fictives et la navigation du prototype.
+- [x] (2026-09-22) Produire Browser, Listening view, Convert et leurs états particuliers.
+- [x] (2026-09-22) Vérifier les dimensions Qt, le focus prévu par QML, les petites largeurs et reconstruire la distribution Windows du prototype.
+- [x] (2026-09-22) Préparer captures et parcours ; la revue utilisateur est prête mais pas encore recueillie.
 - [ ] Appliquer les retours et consigner la décision avant tout code fonctionnel.
-- [ ] Mettre à jour le suivi, créer le commit détaillé et confirmer le push.
+- [x] (2026-09-22) Mettre à jour le suivi et préparer le commit intermédiaire ; le push reste à confirmer.
 
 ## Surprises & Discoveries
 
-Le document produit fournit une structure et une palette, mais pas encore des maquettes détaillées observées à l'écran. Le confort à différentes échelles Windows et les variantes visuelles restent à évaluer. Le prototype du présent plan est un livrable futur.
+Le document produit fournissait une structure et une palette, mais pas encore des maquettes détaillées observées à l'écran. Le prototype QML est maintenant observable ; le confort clavier, la revue utilisateur et les échelles 125 % / 150 % restent à évaluer.
+
+Le contexte du plan 01 ne correspondait pas exactement au dépôt livré : le thème se trouve sous `src/mtee/qml/Mtee/`, et le socle possédait déjà `Main.qml`, `DemoTracksModel` et des composants de base. Le prototype réutilise ces ressources et ajoute `src/mtee/demo/`, `DemoWorkspace`, `qml/components/` et `qml/views/`.
+
+Pendant la première capture, le contexte QML nommé `workspace` s'annulait dans les composants qui déclaraient une propriété du même nom ; les vues affichaient alors un inspecteur vide et une table sans largeur. Le shell garde désormais un alias `demoWorkspace` pour injecter explicitement le même objet dans chaque vue.
+
+À 1280 × 720, la somme des largeurs de la rangée incluait deux espacements en plus des panneaux ; la largeur de la bibliothèque a été corrigée avant de figer les captures.
 
 ## Decision Log
 
@@ -26,9 +32,21 @@ Décision du 10 septembre 2026, Codex : employer QML et le thème réel du socle
 
 Décision du 10 septembre 2026, Codex : présenter la revue après préparation des trois écrans et des états demandés. Cette revue est explicitement imposée par `PLAN.md` §3 ; ni le bon fonctionnement du prototype ni un test automatisé ne vaut accord utilisateur.
 
+Décision du 22 septembre 2026, Claude : conserver les composants du socle sous `qml/Mtee/` et créer les nouveaux composants partagés sous `qml/components/`, avec les trois vues sous `qml/views/`. Cette organisation évite de mélanger les types du module QML importé avec les maquettes qui restent des fichiers relatifs, tout en conservant le packaging récursif de `qml/`.
+
+Décision du 22 septembre 2026, Claude : faire porter la vérité de l'état de démo par `DemoWorkspace`, plutôt que par des propriétés dispersées dans les vues. Les scénarios sont ainsi testables sans lancer une conversion ou toucher une collection, et une transition de vue conserve sélection, morceau joué et file.
+
+Décision du 22 septembre 2026, Claude : utiliser des captures à 100 % sur l'écran disponible et enregistrer explicitement 125 % / 150 % comme revue restante. La machine de recette fournit `devicePixelRatio=1.0`; elle ne permet pas de déclarer les deux échelles supérieures observées.
+
 ## Outcomes & Retrospective
 
-Résultat attendu : maquettes examinables, spécification visuelle actualisée et revue utilisateur enregistrée. État actuel : plan seulement. Inscrire ici les choix retenus, les modifications de la palette ou densité et les éventuels points encore ouverts.
+Résultat obtenu le 22 septembre 2026 : huit scénarios QML sont ouvrables avec `--demo --scenario`, Browser propose table, Artwork, dossiers, onglets, inspecteur, multisélection et panneau compact, Listening view conserve une file et masque le lecteur inférieur, et Convert montre ses réglages courants ainsi qu'une erreur relançable. Les captures sont versionnées dans `docs/ux/screenshots/`, les parcours et questions dans `docs/ux/review-02.md`, et la spécification dans `docs/ux/specification.md`.
+
+Contrôles réalisés : ruff, format, Pyright et les tests du prototype passent ; les huit scénarios quittent avec le code 0 en `--smoke-test` ; captures réelles produites à 1440 × 900, 1280 × 720 et 1024 × 768. La distribution Windows a été reconstruite après cette passe de maquette ; les scénarios packagés `browser` et `convert-error` quittent avec le code 0. La vérification sur une machine Windows propre reste ouverte.
+
+La revue utilisateur reste obligatoire et non obtenue. Aucune décision de palette, de densité ou de vocabulaire n'est présentée comme validée ; l'étape 03 ne doit pas commencer avant la réponse consignée dans `docs/ux/review-02.md`.
+
+Note de révision — 2026-09-22, Claude : prototype, scénarios, captures, spécification et dossier de revue ajoutés ; revue utilisateur explicitement laissée en attente.
 
 ## Contexte et prérequis
 
