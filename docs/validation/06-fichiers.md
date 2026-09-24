@@ -2,16 +2,19 @@
 
 ## Résultat
 
-La tranche vérifiée permet de prévisualiser puis de renommer ou déplacer des
-fichiers audio à l'intérieur d'une bibliothèque enregistrée, sur le même
-volume. Le déplacement natif refuse une destination existante ; l'UUID reste
-stable, les références SQLite suivent le nouveau chemin et Undo vérifie la
-révision, l'empreinte et l'absence de collision avant le retour.
+La tranche permet de prévisualiser puis de renommer ou déplacer des fichiers
+audio à l'intérieur d'une bibliothèque enregistrée. Le même volume utilise un
+déplacement natif sans remplacement. Entre volumes, le service copie sur le
+volume cible, vérifie taille et SHA-256, publie sans remplacement, puis retire
+la source par handle après vérification ; l'UUID reste stable et SQLite suit
+le nouvel emplacement. L'Undo revalide révision, empreinte et collision.
 
 La livraison ne valide pas tout le plan 06. Le poste expose C: en NTFS, plus un
 volume NTFS sans lettre qui n'est pas accessible comme disque de recette ;
-`Win32_LogicalDisk` ne liste que C:. Il n'y a donc pas de preuve d'un
-déplacement intervolume. Une sonde native de corbeille a échoué à démontrer le
+`Win32_LogicalDisk` ne liste que C:. Les tests forcent le parcours de copie
+intervolume sur C: pour exercer le protocole, mais ils ne prouvent pas son
+fonctionnement sur deux volumes distincts. Une sonde native de corbeille a
+échoué à démontrer le
 recyclage : `IFileOperation` a renvoyé succès et `GetAnyOperationsAborted`
 faux, mais la source a disparu et l'espace de noms Shell de la Corbeille était
 vide. Une sauvegarde séparée du fichier d'essai a permis de restaurer et
@@ -35,14 +38,18 @@ définitive comme solution de repli.
 ## Changements vérifiés
 
 - Aperçu avec chemin source et destination, nom Windows invalide/réservé,
-  conservation du suffixe audio, racine enregistrée, volume identique et
-  collision revalidés au moment de l'exécution.
+  conservation du suffixe audio, racine enregistrée et collision revalidée au
+  moment de l'exécution.
 - Adaptateur Windows fondé sur `MoveFileW`, qui exige un nom de destination
   libre ; l'essai de collision créée après l'aperçu laisse intact le fichier
   préexistant.
-- Migration SQLite 005 et journal par opération : UUID, chemins, révision,
-  SHA-256 et état. Un renommage où seule la casse change passe par un nom
-  temporaire unique ; son chemin est journalisé si le retour échoue.
+- Migrations SQLite 005–006 et journal par opération : UUID, chemins, révision,
+  SHA-256, phase et état. Un renommage où seule la casse change passe par un
+  nom temporaire unique ; son chemin est journalisé si le retour échoue.
+- Parcours intervolume testé en le forçant sur C: NTFS : copie vérifiée,
+  conservation de l'UUID et des horodatages/attributs de base, annulation en
+  cours qui laisse la source, et échec injecté du retrait qui conserve les
+  deux copies pour inspection. Le test n'a pas traversé deux volumes réels.
 - Après déplacement réussi, la bibliothèque met à jour le chemin et les
   appartenances aux racines dans une transaction sans changer l'UUID. Un lot
   de scan ancien qui présente ensuite l'ancien chemin ne crée pas un deuxième
@@ -64,18 +71,24 @@ définitive comme solution de repli.
 
 | Contrôle | Résultat |
 | --- | --- |
-| `uv sync --locked` | Réussi après redirection du cache dans `.local/uv-cache` et accès au backend Hatchling verrouillé. Aucun changement de `uv.lock`. |
+| `uv sync --locked` | Réussi avec le cache redirigé vers `.local/validation/uv-cache` et accès au backend Hatchling verrouillé. Aucun changement de `uv.lock`. |
 | `uv run ruff check .` | Réussi. |
 | `uv run ruff format --check .` | Réussi ; 132 fichiers formatés. |
 | `uv run pyright` | 0 erreur, 0 avertissement. |
-| `pytest tests/unit tests/integration -m "not native_audio"` | 128 réussis, 2 ignorés (liens symboliques non disponibles), 1 désélectionné (audio natif). |
+| `pytest tests/unit tests/integration -m "not native_audio"` | 131 réussis, 2 ignorés (liens symboliques non disponibles), 1 désélectionné (audio natif). Inclut le parcours de copie intervolume forcé sur C:. |
 | UI, chaque fichier exécuté séparément | 29 réussis : file actions (2), smoke (6), démonstration (16), navigation navigateur (1), éditeur de métadonnées (2), vues du lecteur (2). |
 | `pwsh -NoProfile -File scripts/build_windows.ps1` | Réussi sur Windows 11 avec PyInstaller 6.22.2 ; `dist/MTEE/MTEE.exe` fait 2,25 MB. |
-| Smoke de `dist/MTEE/MTEE.exe` avec `--data-dir .local/validation/06-package-current --smoke-test` | Code de sortie 0 ; la base isolée est au schéma 5 et contient `file_operations`. Le paquet contient `FileOperationDialog.qml`. |
+| Smoke de `dist/MTEE/MTEE.exe` avec `--data-dir .local/validation/06-package-final --smoke-test` | Code de sortie 0 ; la base isolée est au schéma 6 et `file_operations` contient la colonne `phase`. Le paquet contient `FileOperationDialog.qml`. |
 | Tous les fichiers `tests/ui` dans un seul processus Pytest | Bloqués après le premier test pendant plus de 60 secondes ; processus interrompu. Les fichiers UI passent séparément. |
 
-Les vérifications UI sont automatisées/offscreen. L'application Windows n'a pas
-été pilotée manuellement sur ce poste. Les opérations sur fichiers sont
+Les vérifications UI sont automatisées/offscreen. Une tentative de recette
+manuelle a lancé le paquet avec une bibliothèque isolée et un fichier WAV
+généré, mais l'outil d'automatisation n'a pas retourné la fenêtre MTEE dans son
+inventaire des fenêtres sélectionnables, malgré le processus visible dans
+Windows. Selon la consigne du skill `computer-use`, seules les fenêtres
+retournées par cet inventaire peuvent être ciblées ; aucun clic, glisser-déposer
+ou déplacement de fichier n'a donc été tenté, puis le processus a été fermé.
+L'application Windows n'a pas été pilotée manuellement sur ce poste. Les opérations sur fichiers sont
 exercées par des tests sur copies audio temporaires. La sonde IFileOperation
 STA a utilisé le seul nom `mtee-trash-probe-20260924.wav` dans un dossier
 temporaire dédié, avec une copie de sauvegarde distincte ; le fichier original
@@ -83,9 +96,12 @@ a été rétabli par copie et son SHA-256 correspondait à la sauvegarde.
 
 ## Limites et suites requises
 
-- Déplacement sur deux volumes : non implémenté et non validé. Il faut un
-  second volume de recette pour définir et tester la copie, la publication,
-  l'annulation et la reprise avant d'activer cette capacité.
+- Déplacement sur deux volumes : le protocole copy-first, le journal de phase,
+  l'annulation et le retrait par handle sont implémentés et testés en forçant
+  cette route sur C: NTFS. Aucun déplacement n'a été exécuté sur deux volumes
+  distincts ; il reste à vérifier cette capacité sur un volume de recette,
+  notamment déconnexion, manque d'espace, permissions, reprise après
+  redémarrage et attributs non pris en charge.
 - Corbeille : un appel `IFileOperation` a été essayé en STA avec
   `FOFX_RECYCLEONDELETE`, sans binding ajouté au produit. Malgré le succès
   HRESULT et l'absence d'abandon, la copie a quitté son chemin et aucune entrée
@@ -96,8 +112,8 @@ a été rétabli par copie et son SHA-256 correspondait à la sauvegarde.
   déconnexion du support, geste drag-and-drop, lecture réelle pendant mutation
   ni sélection/file après redémarrage. Le verrou Busy est vérifié avec
   `FileAccessCoordinator`, pas avec une lecture mpv active.
-- La suite UI combinée doit être diagnostiquée ; ses tests isolés, dont le
-  nouveau parcours fichier, passent.
+- La suite UI combinée s'est bloquée lors d'une tentative précédente ; les six
+  fichiers UI, dont le parcours fichier, passent chacun séparément.
 
 ## Références natives
 

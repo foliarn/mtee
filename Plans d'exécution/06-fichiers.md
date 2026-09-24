@@ -1,7 +1,7 @@
 # 06 — Renommage, déplacement et corbeille — livraison C
 
 
-Ce plan vivant suit [PLANS.md](../PLANS.md) et traduit `PLAN.md`, §4.4 et les règles de navigation du §3. Préparé le 2026-09-10. Le 2026-09-24, une première tranche Windows a été implémentée et vérifiée par tests automatisés et paquet isolé. Le renommage, le déplacement même volume et l'aperçu de dépôt entre groupes sont disponibles ; la corbeille et l'intervolume restent hors livraison.
+Ce plan vivant suit [PLANS.md](../PLANS.md) et traduit `PLAN.md`, §4.4 et les règles de navigation du §3. Préparé le 2026-09-10. Le 2026-09-24, les opérations même volume, l'aperçu de dépôt entre groupes et le protocole copy-first intervolume ont été implémentés. Le protocole intervolume a été exercé sur C: via une route de test forcée ; sa recette sur deux volumes distincts, la corbeille et plusieurs cas manuels restent ouverts.
 
 ## Objectif et résultat observable
 
@@ -19,10 +19,11 @@ Les opérations s'effectuent hors thread UI avec état, progression et résultat
 - [x] (2026-09-24) Vérifier UUID, révisions, accès exclusifs et journaux du plan 05 ; le déplacement conserve l'UUID et utilise `FileAccessCoordinator`.
 - [x] (2026-09-24) Définir et tester l'adaptateur Windows sans écrasement : `MoveFileW` sur le même volume, sans repli de suppression.
 - [x] (2026-09-24) Implémenter l'aperçu, Rename, le déplacement sur un volume et son journal de reprise.
-- [ ] (2026-09-24) Rename/Move sont reliés aux menus et raccourcis ; le dépôt entre deux groupes ouvre l'aperçu Move avec confirmation. Delete n'ouvre qu'une explication ; corbeille non livrée, geste natif non vérifié manuellement.
+- [x] (2026-09-24) Rename/Move sont reliés aux menus et raccourcis ; le dépôt entre deux groupes ouvre l'aperçu Move avec confirmation. Delete n'ouvre qu'une explication ; corbeille indisponible par décision de sûreté.
+- [x] (2026-09-24) Implémenter la copie vérifiée intervolume, annulation pendant copie, publication sans remplacement, retrait de source par handle et journal des phases dans la migration 006.
 - [x] (2026-09-24) Maintenir les références et permettre Undo lorsque la destination est inchangée et l'ancien chemin libre.
-- [x] (2026-09-24) `uv sync --locked`, Ruff, Pyright, tests unitaires/intégration (128 réussis, 2 ignorés, 1 désélectionné), tests UI par fichier (29 réussis), copie isolée et paquet Windows avec smoke vérifiés.
-- [ ] (2026-09-24) Recette manuelle, geste souris, second volume, opérations intervolumes et corbeille native restent à faire ou à implémenter.
+- [x] (2026-09-24) `uv sync --locked`, Ruff, Pyright, tests unitaires/intégration (131 réussis, 2 ignorés, 1 désélectionné), tests UI par fichier (29 réussis), copie isolée et paquet Windows avec smoke vérifiés.
+- [ ] (2026-09-24) Recette manuelle, geste souris, vrai déplacement sur deux volumes, reprise après redémarrage, erreur de support/espace/permissions et corbeille native restent à vérifier ou à implémenter.
 - [x] (2026-09-24) Mettre à jour les preuves, committer la tranche et confirmer le push : `7d10b05dad89d9d00141a31cc0851552bbaa2a0d` est présent sur `origin/main`.
 - [x] (2026-09-24) Ajouter l'aperçu Move par dépôt entre groupes ; `4da180c7c3d75b64374f1d95331dc944f9e712ff` est présent sur `origin/main` après fetch et comparaison des hashes.
 
@@ -35,6 +36,7 @@ Les opérations s'effectuent hors thread UI avec état, progression et résultat
 - 2026-09-24 — Les tests UI passent fichier par fichier, mais l'ensemble `tests/ui` dans un seul processus s'est arrêté après le premier test pendant plus de 60 secondes. Il a été interrompu ; ce résultat n'est pas un succès de suite complète.
 - 2026-09-24 — Une sonde STA a appelé `IFileOperation` avec `FOFX_RECYCLEONDELETE` sur une copie WAV. HRESULT réussi et aucun abandon, mais la source a disparu et l'espace de noms Shell de la Corbeille est resté vide ; une sauvegarde séparée a restauré le même SHA-256. Pas de binding produit ni de capacité de corbeille activée sans résultat natif fiable par élément et restauration démontrée.
 - 2026-09-24 — Le dépôt d'une sélection d'un groupe éditeur sur un onglet dossier distinct appelle la même prévisualisation Move. Le test offscreen appelle la route QML et vérifie la destination ; le geste souris n'a pas été vérifié manuellement.
+- 2026-09-24 — La recette du paquet Windows avec données isolées a bien lancé le processus MTEE, mais la fenêtre n'a pas été retournée par l'inventaire `computer-use` ; ce skill interdit de cibler une fenêtre absente de cet inventaire. Aucun geste souris ni déplacement de fichier n'a été tenté. Voir [`docs/validation/06-fichiers.md`](../docs/validation/06-fichiers.md).
 
 ## Decision Log
 
@@ -47,6 +49,7 @@ Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; tou
 - 2026-09-10 — Utiliser un journal durable par fichier pour les mouvements, notamment entre volumes. Motif : une opération disque et une transaction SQLite ne peuvent pas constituer une transaction atomique commune.
 - 2026-09-10 — Exposer une capacité de corbeille stricte, vérifiée sur Windows. Motif : une bibliothèque qui efface définitivement lorsque le recyclage échoue ne satisfait pas `PLAN.md`.
 - 2026-09-24 — Livrer Rename et Move sur le seul volume accessible, avec `MoveFileW` et aucun binding supplémentaire. Motif : l'API refuse la destination déjà existante et le protocole couvre les déplacements atomiques sur le même volume ; la preuve intervolume manque.
+- 2026-09-24 — Ajouter le protocole intervolume copy-first avec temporaire exclusif, taille/hash, horodatages et attributs de base, phases SQLite et retrait par handle. Motif : le deuxième volume réel n'est pas accessible, mais le parcours peut être testé sur copies en forçant la branche ; les garanties distinct-volume restent explicitement non prouvées.
 - 2026-09-24 — Laisser Move to trash indisponible après l'échec de l'expérience native `IFileOperation` ; conserver l'absence de binding COM produit. Motif : la copie a disparu sans élément Shell observable ni restauration démontrée.
 - 2026-09-24 — Raccorder `FileActionsMenu` au menu contextuel de la liste et charger le dialogue depuis `Main.qml`, plutôt que de modifier `EditorArea.qml`. Motif : les actions appartiennent aux morceaux sélectionnés dans `TrackListView` et les raccourcis sont gérés à la fenêtre ; l'aperçu conserve une liste d'UUID immuable.
 - 2026-09-24 — Vérifier l'existence et la révision d'un fichier à l'écriture du lot de scan. Motif : un lot ancien qui arrive après Move ne doit pas recréer l'ancien chemin comme un nouvel UUID.
@@ -54,9 +57,9 @@ Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; tou
 ## Outcomes & Retrospective
 
 
-La tranche livrée comprend l'aperçu, le renommage, le déplacement sur le même volume, le journal de reprise, les résultats par fichier, l'annulation d'un lot entre deux fichiers, la vérification d'un lot de scan ancien, l'Undo conditionnel et l'ouverture de l'aperçu Move après dépôt entre groupes. Les tests Windows confirment la conservation de l'UUID, la casse seule, l'absence d'écrasement et la visibilité d'une panne après le déplacement. Le parcours UI simulé relie le dépôt à la même prévisualisation confirmée. La migration 005 crée le journal dans la base et le paquet autonome le charge au schéma 5.
+La tranche livrée comprend l'aperçu, le renommage, les déplacements même volume, le journal de reprise, les résultats par fichier, l'annulation entre fichiers et pendant une copie, la vérification d'un lot de scan ancien, l'Undo conditionnel, le dépôt entre groupes et le protocole copy-first intervolume. Le protocole vérifie le contenu, préserve les horodatages et les attributs Windows de base pris en charge, publie sans remplacement, puis marque pour suppression le handle de la source restée verrouillée. Des tests Windows forcent cette route sur C: NTFS et couvrent succès, annulation et échec injecté après publication ; ils ne traversent pas deux volumes distincts. Les migrations 005–006 journalisent les phases et le paquet autonome charge le schéma 6.
 
-La phase ne satisfait pas encore le plan entier : déplacement intervolume avec copie et reprise, recyclage réel et restauration, erreurs de support/permissions/espace, test pendant lecture mpv, geste drag-and-drop réel et recette manuelle restent non validés. Le dépôt entre groupes ouvre un aperçu et demande confirmation, mais son geste n'a pas été vérifié manuellement. La corbeille et l'intervolume ne sont pas annoncés comme livrés. Le rapport [`docs/validation/06-fichiers.md`](../docs/validation/06-fichiers.md) distingue les preuves exécutées des limites.
+La phase ne satisfait pas encore le plan entier : recette sur deux volumes réels, reprise après redémarrage, erreurs de support/permissions/espace, test pendant lecture mpv, geste drag-and-drop réel, recyclage/restauration et vérification manuelle restent ouverts. Move to trash reste indisponible. Le rapport [`docs/validation/06-fichiers.md`](../docs/validation/06-fichiers.md) distingue les preuves exécutées des limites.
 
 ## Contexte et prérequis
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
@@ -42,6 +43,7 @@ class FileOperationModel(QObject):
         self._state = "idle"
         self._message = ""
         self._results: list[dict[str, Any]] = []
+        self._progress = 0.0
         self._recovery: list[dict[str, Any]] = []
         self._undo_ids: list[str] = []
         self._busy_ids: set[str] = set()
@@ -65,6 +67,10 @@ class FileOperationModel(QObject):
     @Property(str, notify=changed)
     def message(self) -> str:
         return self._message
+
+    @Property(float, notify=changed)
+    def progress(self) -> float:
+        return self._progress
 
     @Property(str, notify=changed)
     def kind(self) -> str:
@@ -151,6 +157,7 @@ class FileOperationModel(QObject):
             return
         captured_preview = preview
         self._state = "running"
+        self._progress = 0.0
         self._can_cancel = True
         self._message = "Working…"
         self.changed.emit()
@@ -159,11 +166,24 @@ class FileOperationModel(QObject):
             results: list[FileOperationResult] = []
             failure: Exception | None = None
             try:
-                for target in captured_preview.targets:
+                for index, target in enumerate(captured_preview.targets):
                     if context.is_cancelled:
                         break
-                    results.append(self._service.execute_target(captured_preview.kind, target))
-                    context.report_progress(len(results) / max(1, len(captured_preview.targets)))
+                    target_count = max(1, len(captured_preview.targets))
+                    results.append(
+                        self._service.execute_target(
+                            captured_preview.kind,
+                            target,
+                            is_cancelled=lambda: context.is_cancelled,
+                            report_progress=partial(
+                                _report_target_progress,
+                                context,
+                                index,
+                                target_count,
+                            ),
+                        )
+                    )
+                    context.report_progress(len(results) / target_count)
             except Exception as error:
                 failure = error
                 remaining = next(
@@ -202,7 +222,7 @@ class FileOperationModel(QObject):
         except LookupError:
             return
         self._can_cancel = False
-        self._message = "Stopping after the current file…"
+        self._message = "Stopping at the next safe point…"
         self.changed.emit()
 
     @Slot()
@@ -305,6 +325,8 @@ class FileOperationModel(QObject):
     def _on_job_updated(self, value: object) -> None:
         if not isinstance(value, JobStatus) or value.job_id != self._active_job_id:
             return
+        self._progress = value.progress
+        self.changed.emit()
         if value.state is JobState.CANCELLED:
             self._active_job_id = None
             self._can_cancel = False
@@ -366,10 +388,22 @@ class FileOperationModel(QObject):
             isinstance(result, FileOperationResult) and result.status == "failed"
             for result in results
         )
-        was_cancelled = len(results) < len(self._preview.targets) and not is_undo and not has_failed
+        has_cancelled = any(
+            isinstance(result, FileOperationResult) and result.status == "cancelled"
+            for result in results
+        )
+        was_cancelled = (
+            (len(results) < len(self._preview.targets) or has_cancelled)
+            and not is_undo
+            and not has_failed
+        )
         self._state = "recovery" if has_recovery else "cancelled" if was_cancelled else "result"
         if was_cancelled:
-            self._message = "Stopped after the current file. Unprocessed files were left unchanged."
+            self._message = (
+                "The copy was cancelled; its source and library location were left unchanged."
+                if has_cancelled
+                else "Stopped after the current file. Unprocessed files were left unchanged."
+            )
         else:
             self._message = _result_message(self._results)
             if has_failed and len(results) < len(self._preview.targets):
@@ -397,3 +431,15 @@ def _result_message(results: list[dict[str, Any]]) -> str:
         status = str(result.get("status", "unknown"))
         counts[status] = counts.get(status, 0) + 1
     return " · ".join(f"{count} {status}" for status, count in counts.items())
+
+
+def _report_target_progress(
+    context: JobContext,
+    index: int,
+    target_count: int,
+    copied: int,
+    total: int,
+) -> None:
+    """Combine byte progress for one file with progress across its batch."""
+    fraction = min(1.0, copied / max(1, total))
+    context.report_progress((index + fraction) / target_count)

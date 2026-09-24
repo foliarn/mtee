@@ -1,10 +1,11 @@
-"""Previewed, no-overwrite rename and same-volume move operations."""
+"""Previewed, no-overwrite renames and verified file moves."""
 
 from __future__ import annotations
 
 import os
 import re
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,8 @@ from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutEr
 from mtee.services.metadata_reader import MetadataReader
 from mtee.services.platform.windows_file_ops import (
     FileOperationAdapter,
+    FileOperationCancelledError,
+    FileOperationNativeError,
     FileOperationRecoveryError,
     WindowsFileOps,
 )
@@ -90,6 +93,8 @@ class FileOperationService:
         target: FileOperationTarget,
         *,
         undo_of: str = "",
+        is_cancelled: Callable[[], bool] | None = None,
+        report_progress: Callable[[int, int], None] | None = None,
     ) -> FileOperationResult:
         if target.status != "ready":
             return FileOperationResult(
@@ -104,7 +109,13 @@ class FileOperationService:
             with self._file_access.acquire(
                 _track_id(target.track_id), "file move", timeout_seconds=0
             ):
-                return self._execute_locked(kind, target, undo_of=undo_of)
+                return self._execute_locked(
+                    kind,
+                    target,
+                    undo_of=undo_of,
+                    is_cancelled=is_cancelled or (lambda: False),
+                    report_progress=report_progress or (lambda _copied, _total: None),
+                )
         except FileAccessTimeoutError:
             return FileOperationResult(
                 target.track_id,
@@ -204,11 +215,22 @@ class FileOperationService:
                 int(operation["expected_generation"]),
             )
             source_state = _journal_path_state(source, str(operation["source_sha256"]), expected)
+            destination_revision = SourceRevision(
+                expected.size_bytes, expected.mtime_ns, None, expected.generation
+            )
             destination_state = _journal_path_state(
-                destination, str(operation["source_sha256"]), expected
+                destination,
+                str(operation["source_sha256"]),
+                destination_revision,
+                check_revision=False,
             )
             recovery_state = (
-                _journal_path_state(recovery_path, str(operation["source_sha256"]), expected)
+                _journal_path_state(
+                    recovery_path,
+                    str(operation["source_sha256"]),
+                    destination_revision,
+                    check_revision=False,
+                )
                 if recovery_path
                 else "missing"
             )
@@ -219,6 +241,8 @@ class FileOperationService:
                 situation = "both_copies_present"
             elif recovery_matches:
                 situation = "temporary_present"
+            elif recovery_path is not None and recovery_state != "missing":
+                situation = "temporary_changed"
             elif source_matches:
                 situation = "source_present"
             elif destination_matches:
@@ -323,13 +347,8 @@ class FileOperationService:
                 "The destination must stay inside a registered library root.",
             )
         try:
-            if os.stat(source).st_dev != os.stat(parent).st_dev:
-                return _blocked(
-                    track_id,
-                    source,
-                    final,
-                    "Moves between volumes are disabled until cross-volume recovery is verified.",
-                )
+            os.stat(source)
+            os.stat(parent)
         except OSError as error:
             return _blocked(
                 track_id, source, final, f"Could not verify the destination volume: {error}"
@@ -349,7 +368,11 @@ class FileOperationService:
         target: FileOperationTarget,
         *,
         undo_of: str = "",
+        is_cancelled: Callable[[], bool],
+        report_progress: Callable[[int, int], None],
     ) -> FileOperationResult:
+        if is_cancelled():
+            return _result(target, "cancelled", "The move was cancelled before it started.")
         source_record = self._library.source_record(target.track_id)
         if source_record is None:
             return _result(target, "conflict", "The track is no longer in the library.")
@@ -388,6 +411,8 @@ class FileOperationService:
             )
 
         operation_id = str(uuid.uuid4())
+        temporary = refreshed.destination.parent / f".mtee-move-{operation_id}.tmp"
+        cross_volume = not self._same_volume(refreshed.source, refreshed.destination.parent)
         try:
             self._history.create(
                 operation_id=operation_id,
@@ -396,7 +421,23 @@ class FileOperationService:
                 source_sha256=source_hash,
                 undo_of=undo_of,
             )
-            self._platform.move_no_replace(refreshed.source, refreshed.destination)
+            if cross_volume:
+                self._history.update_phase(operation_id, "copying", recovery_path=temporary)
+                self._platform.move_cross_volume(
+                    refreshed.source,
+                    temporary,
+                    refreshed.destination,
+                    expected_revision=source_record.revision,
+                    expected_sha256=source_hash,
+                    is_cancelled=is_cancelled,
+                    report_progress=report_progress,
+                    phase_changed=lambda phase, recovery_path: self._history.update_phase(
+                        operation_id, phase, recovery_path=recovery_path
+                    ),
+                )
+            else:
+                self._platform.move_no_replace(refreshed.source, refreshed.destination)
+                self._history.update_phase(operation_id, "source_removed")
             if _hash_or_empty(refreshed.destination) != source_hash:
                 self._history.set_status(
                     operation_id,
@@ -418,7 +459,9 @@ class FileOperationService:
                 refreshed.destination,
                 generation=source_record.revision.generation + 1,
             )
-            if not source_record.revision.matches(result_revision):
+            if result_revision.size_bytes != source_record.revision.size_bytes or (
+                not cross_volume and not source_record.revision.matches(result_revision)
+            ):
                 self._history.set_status(
                     operation_id,
                     "needs_recovery",
@@ -463,12 +506,49 @@ class FileOperationService:
                     "needs_recovery",
                     error=str(error),
                     recovery_path=error.recovery_path,
+                    phase=error.phase,
                 )
             return FileOperationResult(
                 target.track_id,
                 operation_id,
                 "recovery",
-                f"The file is at {error.recovery_path}; inspect the operation before continuing.",
+                (
+                    f"The move stopped during {error.phase}. Inspect the source and destination"
+                    + (f"; temporary copy: {error.recovery_path}." if error.recovery_path else ".")
+                ),
+                refreshed.source,
+                refreshed.destination,
+            )
+        except FileOperationCancelledError as error:
+            with suppress(Exception):
+                self._history.set_status(
+                    operation_id,
+                    "failed",
+                    error=str(error),
+                    phase="cancelled",
+                )
+            return FileOperationResult(
+                target.track_id,
+                operation_id,
+                "cancelled",
+                str(error),
+                refreshed.source,
+                refreshed.destination,
+            )
+        except FileOperationNativeError as error:
+            with suppress(Exception):
+                self._history.set_status(
+                    operation_id,
+                    "failed",
+                    error=str(error),
+                    phase="failed",
+                    recovery_path=temporary if temporary.exists() else None,
+                )
+            return FileOperationResult(
+                target.track_id,
+                operation_id,
+                "failed",
+                str(error),
                 refreshed.source,
                 refreshed.destination,
             )
@@ -486,12 +566,25 @@ class FileOperationService:
         except Exception as error:
             destination_present = _hash_or_empty(refreshed.destination) == source_hash
             source_present = _hash_or_empty(refreshed.source) == source_hash
-            status = "needs_recovery" if destination_present or not source_present else "failed"
+            temporary_present = temporary.exists() or temporary.is_symlink()
+            status = (
+                "needs_recovery"
+                if destination_present or not source_present or temporary_present
+                else "failed"
+            )
             with suppress(Exception):
                 self._history.set_status(
                     operation_id,
                     status,
                     error=f"{type(error).__name__}: {error}",
+                    phase=(
+                        "destination_published"
+                        if destination_present
+                        else "copying"
+                        if temporary_present
+                        else "failed"
+                    ),
+                    recovery_path=temporary if temporary_present else None,
                 )
             return FileOperationResult(
                 target.track_id,
@@ -501,6 +594,10 @@ class FileOperationService:
                 refreshed.source,
                 refreshed.destination,
             )
+
+    @staticmethod
+    def _same_volume(source: Path, destination_folder: Path) -> bool:
+        return os.stat(source).st_dev == os.stat(destination_folder).st_dev
 
 
 def _renamed_path(source: Path, requested: str) -> tuple[Path, str]:
@@ -559,7 +656,13 @@ def _hash_or_empty(path: Path) -> str:
         return ""
 
 
-def _journal_path_state(path: Path, expected_sha256: str, expected_revision: SourceRevision) -> str:
+def _journal_path_state(
+    path: Path,
+    expected_sha256: str,
+    expected_revision: SourceRevision,
+    *,
+    check_revision: bool = True,
+) -> str:
     if path.is_symlink() or not path.is_file():
         return "missing"
     try:
@@ -568,7 +671,9 @@ def _journal_path_state(path: Path, expected_sha256: str, expected_revision: Sou
         observed = SourceRevision.observe(path, generation=expected_revision.generation)
     except OSError:
         return "unreadable"
-    return "matches" if expected_revision.matches(observed) else "changed"
+    if check_revision:
+        return "matches" if expected_revision.matches(observed) else "changed"
+    return "matches" if expected_revision.size_bytes == observed.size_bytes else "changed"
 
 
 def _track_id(track_id: str):

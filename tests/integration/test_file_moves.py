@@ -14,6 +14,42 @@ from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_operation_service import FileOperationService
 from mtee.services.metadata_reader import MetadataReader
+from mtee.services.platform.windows_file_ops import (
+    FileOperationRecoveryError,
+    WindowsFileOps,
+)
+
+
+class ForcedCrossVolumeService(FileOperationService):
+    @staticmethod
+    def _same_volume(source: Path, destination_folder: Path) -> bool:
+        """Exercise copy choreography on this host when no second volume is mounted."""
+        del source, destination_folder
+        return False
+
+
+class PublishThenFailToRemoveSource(WindowsFileOps):
+    def move_cross_volume(
+        self,
+        source: Path,
+        temporary: Path,
+        destination: Path,
+        *,
+        expected_revision: SourceRevision,
+        expected_sha256: str,
+        is_cancelled,
+        report_progress,
+        phase_changed,
+    ) -> None:
+        temporary.write_bytes(source.read_bytes())
+        phase_changed("copying", temporary)
+        self.move_no_replace(temporary, destination)
+        phase_changed("destination_published", None)
+        raise FileOperationRecoveryError(
+            "simulated source-removal failure",
+            None,
+            phase="destination_published",
+        )
 
 
 @pytest.fixture
@@ -118,6 +154,112 @@ def test_playback_or_another_reader_returns_a_busy_result(library_case) -> None:
     assert "Stop playback" in result.message
     assert source.is_file()
     assert not (folder / source.name).exists()
+
+
+@pytest.mark.windows_file_ops
+def test_cross_volume_copy_verifies_content_and_keeps_the_track_uuid(library_case) -> None:
+    database, library, _service, history, access, track_id, root, source = library_case
+    folder = root / "other-library"
+    folder.mkdir()
+    service = ForcedCrossVolumeService(library, history, access)
+    target = service.preview("move", [track_id], str(folder)).targets[0]
+    expected_revision = target.revision
+    supported_attributes = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000020 | 0x00002000
+    original_attributes = (
+        int(getattr(source.stat(), "st_file_attributes", 0)) & supported_attributes
+    )
+    original_creation_time = source.stat().st_ctime_ns
+
+    result = service.execute_target("move", target)
+
+    destination = folder / source.name
+    assert result.status == "completed", (result.message, history.get(result.operation_id))
+    assert not source.exists() and destination.read_bytes()
+    assert destination.stat().st_mtime_ns == expected_revision.mtime_ns
+    assert destination.stat().st_ctime_ns == original_creation_time
+    assert int(getattr(destination.stat(), "st_file_attributes", 0)) & supported_attributes == (
+        original_attributes
+    )
+    assert library.source_record(track_id).path == destination
+    assert library.track(track_id)["id"] == track_id
+    journal = history.get(result.operation_id)
+    assert journal["status"] == "completed"
+    assert journal["phase"] == "completed"
+    database.close()
+
+
+@pytest.mark.windows_file_ops
+def test_cross_volume_copy_can_be_cancelled_without_losing_the_source(library_case) -> None:
+    database, library, _service, history, access, track_id, root, source = library_case
+    with wave.open(str(source), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8_000)
+        audio.writeframes(b"\x00\x00" * (1024 * 1024))
+    root_id = str(library.roots()[0]["id"])
+    scan_generation = library.begin_scan(root_id)
+    refreshed_id = library.upsert_location(
+        root_id,
+        source.name,
+        source,
+        SourceRevision.observe(source),
+        MetadataReader().read(source),
+        scan_generation,
+    )
+    library.finish_scan(root_id, scan_generation, complete=True)
+    assert refreshed_id == track_id
+    folder = root / "other-library"
+    folder.mkdir()
+    service = ForcedCrossVolumeService(library, history, access)
+    target = service.preview("move", [track_id], str(folder)).targets[0]
+    progress: list[tuple[int, int]] = []
+
+    def report_progress(copied: int, total: int) -> None:
+        progress.append((copied, total))
+
+    result = service.execute_target(
+        "move",
+        target,
+        is_cancelled=lambda: bool(progress),
+        report_progress=report_progress,
+    )
+
+    assert result.status == "cancelled"
+    assert source.is_file() and not (folder / source.name).exists()
+    assert not list(folder.glob(".mtee-move-*.tmp"))
+    assert library.source_record(track_id).path == source
+    assert progress and 0 < progress[0][0] < progress[0][1]
+    journal = history.get(result.operation_id)
+    assert journal["status"] == "failed"
+    assert journal["phase"] == "cancelled"
+    assert journal["recovery_path"] is None
+    database.close()
+
+
+@pytest.mark.windows_file_ops
+def test_source_removal_failure_retains_both_copies_for_recovery(library_case) -> None:
+    database, library, _service, history, access, track_id, root, source = library_case
+    folder = root / "other-library"
+    folder.mkdir()
+    service = ForcedCrossVolumeService(
+        library,
+        history,
+        access,
+        platform_ops=PublishThenFailToRemoveSource(),
+    )
+    target = service.preview("move", [track_id], str(folder)).targets[0]
+
+    result = service.execute_target("move", target)
+
+    destination = folder / source.name
+    assert result.status == "recovery"
+    assert source.is_file() and destination.read_bytes() == source.read_bytes()
+    assert library.source_record(track_id).path == source
+    journal = history.get(result.operation_id)
+    assert journal["status"] == "needs_recovery"
+    assert journal["phase"] == "destination_published"
+    assert service.incomplete_operations()[0]["recovery_situation"] == "both_copies_present"
+    database.close()
 
 
 @pytest.mark.windows_file_ops

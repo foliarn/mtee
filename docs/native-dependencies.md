@@ -93,9 +93,21 @@ Le renommage et les déplacements sur un même volume passent par
 `MoveFileW`, appelé directement via `ctypes` dans
 `src/mtee/services/platform/windows_file_ops.py`. La documentation Microsoft
 précise que le nom de destination ne doit pas déjà exister ; MTEE revalide
-l'absence de collision avant l'appel et l'API native refuse elle-même une
-destination occupée. Les déplacements entre volumes restent bloqués jusqu'à
-la validation séparée de leur copie, de leur empreinte et de leur reprise.
+l'absence de collision avant l'appel et l'API native refuse une destination
+occupée. Entre volumes, le service copie vers un temporaire exclusif du volume
+cible, vérifie taille, SHA-256 et attributs de base, publie sans remplacement,
+puis retire la source via son handle Windows verrouillé et vérifié. Les phases
+sont journalisées. Cette routine a été testée en forçant ce parcours sur C:
+NTFS ; aucun second volume de recette n'est accessible ici, donc le déplacement
+sur deux volumes distincts reste à valider. Les fichiers chiffrés sont refusés.
+
+Le retrait vérifié de la source utilise
+[`SetFileInformationByHandle`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)
+avec `FILE_DISPOSITION_INFO` sur un handle ouvert pour lecture et suppression,
+sans partage d'écriture ou de suppression. Les horodatages et attributs de
+base pris en charge sont obtenus et posés par handle via
+[`GetFileInformationByHandleEx`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex)
+et `SetFileInformationByHandle`.
 
 Cette livraison n'ajoute aucun binding COM. Une sonde temporaire exécutée en
 STA a appelé `IFileOperation` avec `FOFX_RECYCLEONDELETE` sur un fichier
