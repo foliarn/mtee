@@ -6,7 +6,7 @@ import os
 import re
 import sqlite3
 from contextlib import suppress
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
@@ -418,6 +418,40 @@ class WorkspaceModel(QObject):
     @Slot(str, result=dict)
     def track(self, track_id: str) -> dict[str, Any]:
         return self._library.track(track_id)
+
+    @Slot(int, int, list, str, result=bool)
+    def previewMoveBetweenGroups(
+        self,
+        source_group_index: int,
+        destination_group_index: int,
+        track_ids: list,
+        destination_ref: str,
+    ) -> bool:
+        """Open a confirmed move preview for selected tracks dropped onto another folder tab."""
+        if (
+            self._file_operations is None
+            or source_group_index == destination_group_index
+            or not 0 <= source_group_index < len(self._groups)
+            or not 0 <= destination_group_index < len(self._groups)
+        ):
+            return False
+        source_tab = str(self._groups[source_group_index]["active"])
+        destination_tab = str(self._groups[destination_group_index]["active"])
+        if not source_tab.startswith("folder:") or destination_tab != f"folder:{destination_ref}":
+            return False
+        selected = self._selection_by_tab.get((source_group_index, source_tab), [])
+        captured = list(dict.fromkeys(str(track_id) for track_id in track_ids if str(track_id)))
+        if not captured or any(track_id not in selected for track_id in captured):
+            return False
+        try:
+            root_id, relative = _parse_folder_ref(destination_ref)
+        except ValueError:
+            return False
+        root = next((item for item in self._library.roots() if item["id"] == root_id), None)
+        if root is None:
+            return False
+        destination = str(Path(str(root["path"])).joinpath(*PurePosixPath(relative).parts))
+        return self._file_operations.openOperation("move", destination, captured)
 
     def attach_metadata_editor(self, editor: MetadataEditorModel) -> None:
         """Attach the single editor shared by the inspector and Fullscreen player."""

@@ -94,9 +94,27 @@ FocusScope {
                 workspace.selectTrack(trackId, "single", [])
             return
         }
+        if (
+            !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))
+            && workspace.selectedIds.indexOf(trackId) >= 0
+        )
+            return
         const mode = (event.modifiers & Qt.ShiftModifier) ? "range"
             : (event.modifiers & Qt.ControlModifier) ? "toggle" : "single"
         workspace.selectTrack(trackId, mode, orderedIds)
+    }
+
+    function acceptTrackDrop(sourceGroupIndex, trackIds) {
+        if (
+            !view.modelBacked || view.tab.kind !== "folder"
+            || view.workspace.groups.length < 2 || sourceGroupIndex === view.groupIndex
+            || !trackIds || typeof trackIds.length !== "number"
+        )
+            return false
+        const ids = Array.from(trackIds, String).filter(id => id.length > 0)
+        return ids.length > 0 && view.workspace.previewMoveBetweenGroups(
+            sourceGroupIndex, view.groupIndex, ids, view.tab.ref
+        )
     }
 
     function play(index) {
@@ -353,6 +371,8 @@ FocusScope {
                     width: ListView.view.width
                     track: modelData
                     columns: view.columns
+                    workspace: view.workspace
+                    groupIndex: view.groupIndex
                     separateArtist: view.modelBacked
                     selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
                     playing: view.workspace.playingId === modelData.id
@@ -458,6 +478,70 @@ FocusScope {
                         contextMenu.trackIds = view.workspace.selectedIds
                         contextMenu.popup(tile, event.x, event.y)
                     }
+                }
+            }
+        }
+    }
+
+    DropArea {
+        id: moveDropArea
+        objectName: "fileMoveDropArea"
+        anchors.fill: parent
+        z: 20
+        enabled: view.modelBacked && view.tab.kind === "folder" && view.workspace.groups.length > 1
+        keys: ["application/x-mtee-track-ids"]
+        property bool validDrag: false
+
+        onEntered: (drag) => {
+            const source = drag.source
+            validDrag = source !== null && typeof source.groupIndex !== "undefined"
+                && source.workspace === view.workspace && source.groupIndex !== view.groupIndex
+                && source.dragTrackIds.length > 0
+        }
+        onExited: validDrag = false
+        onDropped: (drop) => {
+            const source = drop.source
+            let ids = []
+            try {
+                ids = JSON.parse(drop.getDataAsString("application/x-mtee-track-ids"))
+            } catch (_error) {
+                ids = []
+            }
+            if (
+                validDrag && source !== null
+                && view.acceptTrackDrop(Number(source.groupIndex), ids)
+            )
+                drop.acceptProposedAction()
+            validDrag = false
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 18
+            visible: moveDropArea.validDrag
+            color: Theme.surface
+            opacity: 0.96
+            border.width: 2
+            border.color: Theme.primary
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 8
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Drop to preview the move"
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeHeading
+                    font.weight: Font.DemiBold
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "MTEE will show the destination and ask you to confirm."
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
                 }
             }
         }
