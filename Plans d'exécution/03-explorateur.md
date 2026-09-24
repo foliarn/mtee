@@ -1,7 +1,7 @@
 # 03 — Explorateur et métadonnées en lecture seule — livraison A
 
 
-Ce plan d'exécution est un document vivant à maintenir selon [PLANS.md](../PLANS.md), à la racine du dépôt. Il traduit `PLAN.md`, §2 livraison A, §3 navigation et §4.1. Préparé le 2026-09-10 ; aucune fonctionnalité ni validation ci-dessous n'est déclarée réalisée.
+Ce plan d'exécution est un document vivant à maintenir selon [PLANS.md](../PLANS.md), à la racine du dépôt. Il traduit `PLAN.md`, §2 livraison A, §3 navigation et §4.1. Préparé le 2026-09-10 et exécuté le 2026-09-24 ; les fonctionnalités, validations et limites constatées sont consignées ci-dessous.
 
 ## Objectif et résultat observable
 
@@ -15,7 +15,7 @@ La lecture sonore appartient au plan 04 et l'écriture des tags au plan 05. Cett
 ## Progress
 
 
-- [x] (2026-09-10) Plan préparé à partir de `PLAN.md` ; développement et mesures à effectuer.
+- [x] (2026-09-10) Plan préparé à partir de `PLAN.md`.
 - [x] (2026-09-24) Vérifier les prérequis des plans 01 et 02 ; le plan 02 consigne la validation des maquettes.
 - [x] (2026-09-24) Implémenter l'inventaire asynchrone, les racines et les identifiants persistants.
 - [x] (2026-09-24) Lire les métadonnées et charger les pochettes à la demande.
@@ -24,7 +24,7 @@ La lecture sonore appartient au plan 04 et l'écriture des tags au plan 05. Cett
 - [x] (2026-09-24) Exécuter la suite automatisée, mesurer 10 000 fichiers, construire la distribution Windows et réussir le smoke test empaqueté.
 - [ ] Effectuer le parcours manuel de l'application empaquetée et la comparaison aux maquettes sur une installation propre sans Python ni réseau.
 - [x] (2026-09-24) Mettre à jour les preuves d'exécution dans `docs/validation/03-explorateur.md`.
-- [ ] Créer le commit détaillé, pousser `origin/main`, puis vérifier la révision distante.
+- [x] (2026-09-24) Commit de livraison `5fbc4fe`, push vers `origin/main` et vérification après fetch : `HEAD` et `origin/main` valent `5fbc4fe424b809acd960befdb1c97e96c7dd28d6`.
 
 ## Surprises & Discoveries
 
