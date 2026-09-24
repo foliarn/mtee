@@ -37,7 +37,8 @@ def test_published_destination_with_old_database_record_needs_recovery(
         audio.setframerate(8_000)
         audio.writeframes(b"\x00\x00" * 80)
 
-    database = Database(tmp_path / "data" / "mtee.sqlite3")
+    database_path = tmp_path / "data" / "mtee.sqlite3"
+    database = Database(database_path)
     database.migrate()
     library = LibraryRepository(database)
     root_record = library.add_root(root)
@@ -73,3 +74,24 @@ def test_published_destination_with_old_database_record_needs_recovery(
     assert operation["status"] == "needs_recovery"
     assert service.incomplete_operations()[0]["recovery_situation"] == "destination_present"
     database.close()
+
+    reopened_database = Database(database_path)
+    reopened_database.migrate()
+    reopened_library = LibraryRepository(reopened_database)
+    reopened_history = FileOperationRepository(reopened_database, reopened_library)
+    reopened_service = FileOperationService(
+        reopened_library,
+        reopened_history,
+        FileAccessCoordinator(),
+    )
+
+    pending = reopened_service.incomplete_operations()
+
+    assert len(pending) == 1
+    assert pending[0]["operation_id"] == result.operation_id
+    assert pending[0]["recovery_situation"] == "destination_present"
+    reopened_record = reopened_library.source_record(track_id)
+    assert reopened_record is not None
+    assert reopened_record.path == source
+    assert destination.is_file()
+    reopened_database.close()
