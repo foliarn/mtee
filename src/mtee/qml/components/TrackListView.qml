@@ -254,6 +254,7 @@ FocusScope {
         }
 
         TextField {
+            objectName: "folderSearchField"
             visible: view.modelBacked
             anchors.top: parent.top
             anchors.topMargin: 14

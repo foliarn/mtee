@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "provider": "zhongfly/mpv-winbuild",
+  "release_tag": "2026-09-23-6fd80b2003",
+  "architecture": "x86_64",
+  "mpv_commit": "6fd80b2003873ef2bed09e78374549687a143236",
+  "ffmpeg_commit": "a6e5d5ff9",
+  "archive": {
+    "name": "mpv-dev-lgpl-x86_64-20260923-git-6fd80b2003.7z",
+    "url": "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-09-23-6fd80b2003/mpv-dev-lgpl-x86_64-20260923-git-6fd80b2003.7z",
+    "sha256": "8d65bab888f5dfff059c50431d2c72c4c6ab78706c363056697176694563321d",
+    "size_bytes": 28242857
+  },
+  "library": {
+    "archive_member": "libmpv-2.dll",
+    "sha256": "85071ee7c8bfc9f3690aeb140f15bbb697cdf81bc96e9c905dc8a54cfff8c10d",
+    "size_bytes": 100392960,
+    "runtime_path": "vendor/mpv/libmpv-2.dll",
+    "packaged_path": "mtee/native/mpv/libmpv-2.dll"
+  },
+  "licenses": [
+    {
+      "component": "libmpv",
+      "license": "LGPL-2.1-or-later",
+      "source": "https://github.com/mpv-player/mpv"
+    },
+    {
+      "component": "statically linked FFmpeg",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://github.com/FFmpeg/FFmpeg"
+    },
+    {
+      "component": "Windows build scripts",
+      "license": "MIT",
+      "source": "https://github.com/zhongfly/mpv-winbuild"
+    }
+  ],
+  "notes": [
+    "The upstream builder describes this LGPL build as libmpv under LGPL-2.1-or-later with static LGPL-3.0-or-later FFmpeg.",
+    "The builder cautions that it cannot guarantee every LGPL-incompatible package is disabled; review the full dependency and source obligations before public redistribution.",
+    "The imported Windows Vulkan loader is not included in the dev archive; verify whether PyInstaller includes it or the target Windows graphics driver provides it."
+  ]
+}

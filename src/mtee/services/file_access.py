@@ -1,14 +1,9 @@
-"""Coordination of the concurrent accesses to one track.
-
-Editing, moving, decoding and native playback must not touch the same file at
-the same time. ``FileAccessCoordinator`` serialises them by ``track_id``, with a
-bounded acquisition and a guaranteed release, so a failing operation never
-leaves an access locked.
-"""
+"""Coordinate shared reads and exclusive changes to one track at a time."""
 
 from __future__ import annotations
 
 import threading
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -33,25 +28,30 @@ class FileAccessTimeoutError(TimeoutError):
 
 @dataclass(frozen=True, slots=True)
 class FileLease:
-    """Proof that the caller currently owns the access to a track."""
+    """Proof that the caller currently owns shared read or exclusive access."""
 
     track_id: TrackId
     purpose: str
+    shared: bool = False
 
 
 class _TrackLock:
-    """Lock of one track and the purpose currently holding it."""
+    """A writer-preferring read/write lock for a single track."""
 
-    __slots__ = ("holder", "lock", "waiters")
+    __slots__ = ("condition", "holder", "reader_purposes", "readers", "users", "waiting_writers")
 
     def __init__(self) -> None:
-        self.lock = threading.Lock()
+        self.condition = threading.Condition()
         self.holder: str | None = None
-        self.waiters = 0
+        self.readers = 0
+        self.reader_purposes: Counter[str] = Counter()
+        self.waiting_writers = 0
+        # Counts both holders and waiters, so registry cleanup cannot race a waiter.
+        self.users = 0
 
 
 class FileAccessCoordinator:
-    """Serialises the accesses to the file of a track."""
+    """Allows concurrent playback reads but serialises every exclusive operation."""
 
     def __init__(self, *, default_timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._default_timeout_seconds = default_timeout_seconds
@@ -66,41 +66,101 @@ class FileAccessCoordinator:
         *,
         timeout_seconds: float | None = None,
     ) -> Iterator[FileLease]:
-        """Own the access to ``track_id`` for the duration of the block.
+        """Acquire exclusive access, waiting at most ``timeout_seconds``.
 
-        Raises ``FileAccessTimeoutError`` when the access stays taken longer than the
-        timeout. The release happens even when the block raises.
+        This remains the mutation API used by editing and move jobs. Passing a zero
+        timeout makes it a non-blocking Busy check for callers such as the player.
         """
-        timeout = self._default_timeout_seconds if timeout_seconds is None else timeout_seconds
+        timeout = self._timeout(timeout_seconds)
         entry = self._entry_for(track_id)
-        holder_at_request = entry.holder
-        if not entry.lock.acquire(timeout=max(0.0, timeout)):
-            self._release_entry(track_id)
-            raise FileAccessTimeoutError(track_id, purpose, holder_at_request)
-        entry.holder = purpose
+        acquired = False
         try:
+            with entry.condition:
+                entry.waiting_writers += 1
+                try:
+                    acquired = entry.condition.wait_for(
+                        lambda: entry.holder is None and entry.readers == 0,
+                        timeout=timeout,
+                    )
+                    if not acquired:
+                        holder = self._holder(entry)
+                        raise FileAccessTimeoutError(track_id, purpose, holder)
+                    entry.holder = purpose
+                finally:
+                    entry.waiting_writers -= 1
+                    entry.condition.notify_all()
             yield FileLease(track_id=track_id, purpose=purpose)
         finally:
-            entry.holder = None
-            entry.lock.release()
-            self._release_entry(track_id)
+            if acquired:
+                with entry.condition:
+                    entry.holder = None
+                    entry.condition.notify_all()
+            self._release_entry(track_id, entry)
+
+    @contextmanager
+    def acquire_read(
+        self,
+        track_id: TrackId,
+        purpose: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> Iterator[FileLease]:
+        """Acquire shared read access, yielding to queued writers to prevent starvation."""
+        timeout = self._timeout(timeout_seconds)
+        entry = self._entry_for(track_id)
+        acquired = False
+        try:
+            with entry.condition:
+                acquired = entry.condition.wait_for(
+                    lambda: entry.holder is None and entry.waiting_writers == 0,
+                    timeout=timeout,
+                )
+                if not acquired:
+                    holder = self._holder(entry)
+                    raise FileAccessTimeoutError(track_id, purpose, holder)
+                entry.readers += 1
+                entry.reader_purposes[purpose] += 1
+            yield FileLease(track_id=track_id, purpose=purpose, shared=True)
+        finally:
+            if acquired:
+                with entry.condition:
+                    entry.readers -= 1
+                    entry.reader_purposes[purpose] -= 1
+                    if entry.reader_purposes[purpose] <= 0:
+                        del entry.reader_purposes[purpose]
+                    entry.condition.notify_all()
+            self._release_entry(track_id, entry)
 
     def is_busy(self, track_id: TrackId) -> bool:
-        """Return whether an access to ``track_id`` is currently held."""
+        """Return whether any reader or writer currently owns the track."""
         with self._registry_lock:
             entry = self._locks.get(track_id)
-            return entry is not None and entry.lock.locked()
+        if entry is None:
+            return False
+        with entry.condition:
+            return entry.holder is not None or entry.readers > 0
 
     def holder_of(self, track_id: TrackId) -> str | None:
-        """Return the purpose currently holding ``track_id``, when there is one."""
+        """Return the exclusive holder or a concise list of shared readers."""
         with self._registry_lock:
             entry = self._locks.get(track_id)
-            return entry.holder if entry is not None else None
+        if entry is None:
+            return None
+        with entry.condition:
+            if entry.holder is not None:
+                return entry.holder
+            if entry.reader_purposes:
+                return ", ".join(sorted(entry.reader_purposes))
+            return None
 
     def tracked_count(self) -> int:
         """Return how many tracks still own an entry, to detect a leak in tests."""
         with self._registry_lock:
             return len(self._locks)
+
+    def _timeout(self, timeout_seconds: float | None) -> float:
+        timeout = self._default_timeout_seconds if timeout_seconds is None else timeout_seconds
+        return max(0.0, timeout)
 
     def _entry_for(self, track_id: TrackId) -> _TrackLock:
         with self._registry_lock:
@@ -108,14 +168,19 @@ class FileAccessCoordinator:
             if entry is None:
                 entry = _TrackLock()
                 self._locks[track_id] = entry
-            entry.waiters += 1
+            entry.users += 1
             return entry
 
-    def _release_entry(self, track_id: TrackId) -> None:
+    @staticmethod
+    def _holder(entry: _TrackLock) -> str | None:
+        if entry.holder is not None:
+            return entry.holder
+        if entry.reader_purposes:
+            return ", ".join(sorted(entry.reader_purposes))
+        return None
+
+    def _release_entry(self, track_id: TrackId, entry: _TrackLock) -> None:
         with self._registry_lock:
-            entry = self._locks.get(track_id)
-            if entry is None:
-                return
-            entry.waiters -= 1
-            if entry.waiters <= 0 and not entry.lock.locked():
+            entry.users -= 1
+            if entry.users <= 0 and self._locks.get(track_id) is entry:
                 del self._locks[track_id]

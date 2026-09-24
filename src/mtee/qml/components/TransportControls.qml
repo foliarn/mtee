@@ -6,7 +6,7 @@ import Mtee
 Row {
     id: controls
 
-    required property var workspace
+    required property var player
     property int buttonSize: 32
     property int iconSize: 18
     property int playSize: 32
@@ -20,10 +20,10 @@ Row {
         hoverBackground: false
         icon: "shuffle"
         iconSize: controls.iconSize
-        active: controls.workspace.shuffle
-        showDot: controls.workspace.shuffle
-        tip: controls.workspace.shuffle ? "Disable shuffle" : "Enable shuffle"
-        onClicked: controls.workspace.toggleShuffle()
+        active: controls.player.shuffle
+        showDot: controls.player.shuffle
+        tip: controls.player.shuffle ? "Disable shuffle" : "Enable shuffle"
+        onClicked: controls.player.toggleShuffle()
     }
 
     IconButton {
@@ -34,7 +34,7 @@ Row {
         icon: "previous"
         iconSize: controls.iconSize
         tip: "Previous"
-        onClicked: controls.workspace.previous()
+        onClicked: controls.player.previous()
     }
 
     Rectangle {
@@ -48,7 +48,7 @@ Row {
 
         Icon {
             anchors.centerIn: parent
-            name: controls.workspace.isPlaying ? "pause" : "play"
+            name: controls.player.isPlaying ? "pause" : "play"
             size: Math.round(controls.playSize * 0.5)
             color: Theme.textOnColor
         }
@@ -58,12 +58,12 @@ Row {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: controls.workspace.togglePlay()
+            onClicked: controls.player.togglePlay()
         }
 
         HoverTip {
             visible: playMouse.containsMouse
-            text: controls.workspace.isPlaying ? "Pause (Space)" : "Play (Space)"
+            text: controls.player.isPlaying ? "Pause (Space)" : "Play (Space)"
         }
     }
 
@@ -75,7 +75,7 @@ Row {
         icon: "next"
         iconSize: controls.iconSize
         tip: "Next"
-        onClicked: controls.workspace.next()
+        onClicked: controls.player.next()
     }
 
     IconButton {
@@ -83,12 +83,12 @@ Row {
         width: controls.buttonSize
         height: controls.buttonSize
         hoverBackground: false
-        icon: controls.workspace.repeat === "one" ? "repeat-one" : "repeat"
+        icon: controls.player.repeat === "one" ? "repeat-one" : "repeat"
         iconSize: controls.iconSize
-        active: controls.workspace.repeat !== "off"
-        showDot: controls.workspace.repeat !== "off"
-        tip: controls.workspace.repeat === "off" ? "Repeat all"
-            : controls.workspace.repeat === "all" ? "Repeat one" : "Disable repeat"
-        onClicked: controls.workspace.cycleRepeat()
+        active: controls.player.repeat !== "off"
+        showDot: controls.player.repeat !== "off"
+        tip: controls.player.repeat === "off" ? "Repeat all"
+            : controls.player.repeat === "all" ? "Repeat one" : "Disable repeat"
+        onClicked: controls.player.cycleRepeat()
     }
 }

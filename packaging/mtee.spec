@@ -11,6 +11,12 @@ from pathlib import Path
 
 project_root = Path(SPECPATH).resolve().parent
 package_dir = project_root / "src" / "mtee"
+mpv_library = project_root / "vendor" / "mpv" / "libmpv-2.dll"
+if not mpv_library.is_file():
+    raise SystemExit(
+        f"The verified libmpv runtime is missing: {mpv_library}. "
+        "Run scripts/fetch_mpv.ps1 before building the Windows distribution."
+    )
 
 datas = [
     (str(package_dir / "qml"), "mtee/qml"),
@@ -46,7 +52,7 @@ keep_console = os.environ.get("MTEE_BUILD_CONSOLE", "0") == "1"
 analysis = Analysis(
     [str(package_dir / "__main__.py")],
     pathex=[str(project_root / "src")],
-    binaries=[],
+    binaries=[(str(mpv_library), "mtee/native/mpv")],
     datas=datas,
     hiddenimports=["mtee.app"],
     hookspath=[],

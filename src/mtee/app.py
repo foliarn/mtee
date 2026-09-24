@@ -24,6 +24,7 @@ from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.models.jobs_model import JobsListModel
+from mtee.models.player_model import PlayerModel
 from mtee.models.shell_controller import ShellController
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.database import Database, DatabaseError
@@ -32,7 +33,11 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.windows_frame import WindowFrame
 from mtee.services.app_paths import AppPaths, resolve_app_paths
+from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.jobs import JobService
+from mtee.services.mpv_backend import MpvBackend
+from mtee.services.player_backend import PlayerBackendError
+from mtee.services.player_service import PlayerService
 
 __all__ = ["EXIT_OK", "create_application", "main", "run"]
 
@@ -58,6 +63,7 @@ class _Runtime:
     paths: AppPaths
     database: Database
     jobs: JobService
+    player_service: PlayerService | None
     engine: QQmlApplicationEngine
     controller: ShellController
     jobs_model: JobsListModel
@@ -124,15 +130,32 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     jobs_model = JobsListModel(jobs)
     tracks_model = DemoTracksModel()
     artwork_provider = None
+    player_service = None
     if options.demo:
         workspace: QObject = DemoWorkspace(options.scenario)
     else:
         library = LibraryRepository(database)
         workspace_repository = WorkspaceRepository(database)
+        file_access = FileAccessCoordinator()
+        backend = None
+        backend_error = ""
+        try:
+            backend = MpvBackend()
+        except PlayerBackendError as error:
+            backend_error = str(error)
+        player_service = PlayerService(
+            library.track,
+            file_access,
+            backend,
+            backend_error=backend_error,
+            parent=application,
+        )
+        player_model = PlayerModel(player_service, application)
         workspace = WorkspaceModel(
             library=library,
             session=workspace_repository,
             jobs=jobs,
+            player=player_model,
         )
         artwork_provider = ArtworkProvider(library)
     frame = WindowFrame()
@@ -159,10 +182,12 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     window_file = main_qml()
     if not window_file.is_file():
         _report(f"MTEE cannot find its interface file: {window_file}")
+        _discard_partial_startup(database, jobs, player_service, engine)
         return None
     engine.load(QUrl.fromLocalFile(str(window_file)))
     if not engine.rootObjects():
         _report(f"MTEE could not load its interface from {window_file}")
+        _discard_partial_startup(database, jobs, player_service, engine)
         return None
     window = engine.rootObjects()[0]
     if isinstance(window, QWindow):
@@ -172,6 +197,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         paths=paths,
         database=database,
         jobs=jobs,
+        player_service=player_service,
         engine=engine,
         controller=controller,
         jobs_model=jobs_model,
@@ -187,10 +213,34 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
 
 def _shutdown(runtime: _Runtime) -> None:
     """Stop the background work and close the storage before leaving."""
-    interrupted = runtime.jobs.shutdown(_SHUTDOWN_TIMEOUT_MS)
+    _shutdown_services(runtime.database, runtime.jobs, runtime.player_service)
+
+
+def _discard_partial_startup(
+    database: Database,
+    jobs: JobService,
+    player_service: PlayerService | None,
+    engine: QQmlApplicationEngine,
+) -> None:
+    """Release native services if startup fails before a runtime is returned."""
+    _shutdown_services(database, jobs, player_service)
+    engine.deleteLater()
+
+
+def _shutdown_services(
+    database: Database,
+    jobs: JobService,
+    player_service: PlayerService | None,
+) -> None:
+    if player_service is not None:
+        try:
+            player_service.close()
+        except Exception as error:
+            _report(f"The audio player did not close cleanly: {error}")
+    interrupted = jobs.shutdown(_SHUTDOWN_TIMEOUT_MS)
     for status in interrupted:
         _report(f"Background task not finished: {status.label} ({status.state.value}).")
-    runtime.database.close()
+    database.close()
 
 
 def _report(message: str) -> None:

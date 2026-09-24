@@ -50,6 +50,9 @@ class TrackListModel(QAbstractListModel):
 
     @Property(list, notify=rowsChanged)
     def trackIds(self) -> list[str]:
+        return self.track_ids_snapshot()
+
+    def track_ids_snapshot(self) -> list[str]:
         return [str(row["id"]) for row in self._rows]
 
     @Property(int, notify=rowsChanged)

@@ -1,7 +1,7 @@
 # 04 — Lecteur commun et Fullscreen player initial — livraison B, partie 1
 
 
-Ce plan vivant suit [PLANS.md](../PLANS.md) et couvre `PLAN.md`, §3 « Vue Écoute » et « Sélection, lecture et édition », ainsi que §4.2. Préparé le 2026-09-10 ; le travail, les tests audio et la livraison Git restent à exécuter.
+Ce plan vivant suit [PLANS.md](../PLANS.md) et couvre `PLAN.md`, §3 « Vue Écoute » et « Sélection, lecture et édition », ainsi que §4.2. Préparé le 2026-09-10 et mis en œuvre le 2026-09-24 ; la validation audio/Windows propre et la livraison Git restent à terminer.
 
 ## Objectif et résultat observable
 
@@ -16,18 +16,24 @@ La livraison teste les codecs effectivement décodés par la distribution de lib
 
 
 - [x] (2026-09-10) Plan préparé ; aucune lecture audio ni distribution validée à ce stade.
-- [ ] Vérifier la disponibilité de l'explorateur et les contrats du socle.
-- [ ] Choisir, verrouiller et distribuer un runtime libmpv Windows reproductible.
-- [ ] Implémenter l'adaptateur libmpv et les transitions du lecteur commun.
-- [ ] Implémenter la file figée au lancement et la séparation lecture/sélection.
-- [ ] Relier l'îlot de lecture, Fullscreen player, les raccourcis et les erreurs.
-- [ ] Exécuter les tests, la matrice de formats et le parcours de la distribution Windows.
+- [x] (2026-09-24) Vérifier la disponibilité de l'explorateur et les contrats du socle.
+- [x] (2026-09-24) Épingler l'archive libmpv Windows et créer l'acquisition contrôlée ; build autonome, smoke test et décodage du DLL empaqueté vérifiés localement. La recette sur Windows propre reste ouverte.
+- [x] (2026-09-24) Implémenter l'adaptateur libmpv, les transitions du lecteur, le modèle Qt et la file.
+- [x] (2026-09-24) Figer l'ordre à la lecture et séparer le lecteur de la sélection d'explorateur.
+- [x] (2026-09-24) Relier l'îlot, Fullscreen player, la file et les erreurs ; conserver l'état pendant le changement de présentation.
+- [ ] Exécuter les tests, la matrice de formats et le parcours de la distribution Windows. Tests automatisés et smoke test local réussis ; formats réels, écoute WASAPI, exception LuaJIT et parcours sur Windows propre restent ouverts.
 - [ ] Mettre à jour les preuves, committer puis vérifier le push distant.
 
 ## Surprises & Discoveries
 
 
-Aucun résultat connu. Ajouter pendant l'exécution les noms réels des DLL chargées, erreurs de sortie audio, propriétés absentes suivant les formats, précision des seeks et différences entre fichiers AAC et ALAC dans M4A. Fournir le morceau de reproduction autorisé ou son identifiant dans le manifeste et les versions du runtime.
+- Le dépôt du plan 03 fournit `WorkspaceModel`, le modèle de pistes, l'ordre visible et un `FileAccessCoordinator`; le contrôle QML existant était une maquette/démo, pas un backend de lecture.
+- Le runtime retenu est `zhongfly/mpv-winbuild`, release `2026-09-23-6fd80b2003`, x86-64. L'archive et la DLL ont des SHA-256 épinglés dans `resources/native/mpv/manifest.json`; l'archive ne contient pas l'exécutable mpv ni un exécutable ffmpeg/ffprobe.
+- La DLL importe `vulkan-1.dll`; ce chargeur n'est pas dans l'archive ni dans le paquet. Il est présent sur la machine de développement, pas encore vérifié sur une installation propre.
+- Le build comporte LuaJIT. Avec le gestionnaire `faulthandler` de Pytest actif, les tests affichent l'exception Windows de premier passage `0xe24c4a02` depuis `mpv_wait_event`. Le test passe avec le gestionnaire désactivé ; le smoke test de l'exécutable de production passe avec code 0. Le [signalement amont](https://github.com/shinchiro/mpv-winbuild-cmake/issues/811) documente notamment un risque lié à l'API de rendu, que MTEE n'utilise pas. Le comportement doit rester observé lors de l'acceptation manuelle, sans assimiler ce contournement du diagnostic à la validation du lecteur.
+- La fixture WAV générée est décodée par libmpv avec sortie `null`. Aucun échantillon autorisé pour MP3, FLAC, AAC, AIFF, Vorbis, Opus, M4A/AAC et M4A/ALAC n'a été ajouté ; la matrice demeure partielle.
+- Le fournisseur annonce LGPL-2.1-or-later pour libmpv et LGPL-3.0-or-later pour FFmpeg statiquement lié, mais ne garantit pas l'exclusion de chaque paquet incompatible. Audit de licences/dépendances transitives et obligations de redistribution à finaliser avant publication.
+- La fermeture avec changement de piste conserve maintenant le bail lecture de l'ancien UUID jusqu'à l'événement `stopped` ou jusqu'au chargement de la nouvelle session, qui confirme que l'ancienne source est fermée.
 
 ## Decision Log
 
@@ -39,11 +45,16 @@ Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; les
 - 2026-09-10 — Évaluer d'abord le binding Python `python-mpv`, isolé derrière un protocole interne. Motif : garder une intégration simple sans lier QML ou les tests au binding retenu.
 - 2026-09-10 — Arrêter la progression automatique après une erreur de décodage, en laissant Next et Retry disponibles. Motif : rendre l'erreur visible et éviter de parcourir silencieusement une file de fichiers indisponibles.
 - 2026-09-10 — Au lancement de l'application, restaurer éventuellement le volume mais ne pas démarrer de son automatiquement. La reprise persistante d'une session de lecture n'est pas un prérequis de cette livraison.
+- 2026-09-24 — Employer l'API C libmpv directement par `ctypes`, sans dépendance Python `python-mpv`. Motif : conserver un protocole backend étroit et éviter un binding dynamique, en transmettant ses événements vers Qt via un signal en file d'attente.
+- 2026-09-24 — Épingler le build `mpv-dev-lgpl` de zhongfly et distribuer seulement son DLL `libmpv-2.dll`. Motif : aucun mpv personnel/PATH et aucun exécutable FFmpeg/ffprobe dans le paquet. La licence transitive reste à auditer.
+- 2026-09-24 — Garder les baux lecture par session jusqu'à la confirmation backend d'arrêt/fin. Motif : un appel asynchrone `stop` ne prouve pas que libmpv a fermé le fichier ; un writer doit rester Busy jusque-là.
 
 ## Outcomes & Retrospective
 
 
-À compléter avec formats réellement validés, runtime et provenance, comportement des changements de vue, limites de positionnement et résultat du test sur Windows sans environnement Python. Distinguer test avec faux backend, décodage libmpv automatisé et écoute réelle : ces preuves ne sont pas interchangeables.
+Le cœur de lecture commun, la file capturée, les contrôles QML et l'adaptateur natif sont implémentés. Ruff, le formatage et Pyright passent ; la suite finale rapporte 137 tests réussis et 2 tests de liens symboliques ignorés (non disponibles sous cet environnement). Les tests UI automatisés couvrent la bascule partagée et la saisie d'un espace dans Search pendant la lecture. Une fixture WAV PCM synthétique passe le décodage, la durée, le codec, la pause/reprise et un seek dans la tolérance, sur sortie `null`.
+
+Le build PyInstaller en répertoire a réussi avec et sans console. Le rebuild final après les changements de démarrage et de raccourci a réussi ; `MTEE.exe --data-dir .local/validation/04-package-final --smoke-test` sur ce poste a retourné 0 et créé les données isolées. Le paquet contient une seule DLL, dont le hash correspond au manifeste, et sa notice tierce est présente. Le DLL empaqueté a décodé/seeké la fixture WAV avec sortie `null`. Ce test ne confirme pas une écoute audible. La validation interactive, les formats autres que WAV, l'installation Windows propre hors réseau, la résolution de `vulkan-1.dll`, le signal LuaJIT et l'audit de redistribution restent des réserves explicites. Voir `docs/validation/04-lecteur.md` et `docs/native-dependencies.md`.
 
 ## Contexte et prérequis
 
@@ -54,7 +65,7 @@ Le dépôt est documentaire au moment où ce plan est rédigé. Le [plan 01](01-
 
 Les données utilisateur restent dans `QStandardPaths`, surchargeables par `--data-dir`. Utiliser `.local/validation/04` pour l'essai. `--demo` n'ouvre que des données fictives sans accès aux fichiers utilisateur et ne peut donc pas prouver une lecture sonore. `--smoke-test` vérifie seulement que la fenêtre est prête. La distribution est attendue dans `dist/MTEE/MTEE.exe`.
 
-Vérifier au début de l'implémentation les versions effectivement retenues dans le [manuel officiel mpv](https://mpv.io/manual/master/) et la [documentation du binding python-mpv](https://github.com/jaseg/python-mpv). Les callbacks du binding peuvent arriver depuis son thread d'événements : ils devront rejoindre le thread Qt avant de modifier les modèles. Consigner les versions, URLs précises, empreintes des binaires et licences dans `docs/native-dependencies.md`.
+Vérifier au début de l'implémentation les versions effectivement retenues dans le [manuel officiel mpv](https://mpv.io/manual/master/) et évaluer [python-mpv](https://github.com/jaseg/python-mpv). Si un binding est retenu, ses callbacks rejoignent le thread Qt avant de modifier les modèles. Consigner le runtime, l'API choisie, les URLs précises, les empreintes des binaires et les licences dans `docs/native-dependencies.md`.
 
 ## Plan de travail et jalons
 
@@ -62,9 +73,9 @@ Vérifier au début de l'implémentation les versions effectivement retenues dan
 ### Jalon 1 — Runtime distribué et backend isolé
 
 
-Ajouter `src/mtee/services/mpv_backend.py` et `src/mtee/services/player_backend.py`. Le premier adapte le binding retenu ; le second définit un protocole que les tests peuvent remplacer par un faux backend. Résoudre la DLL depuis un emplacement contrôlé de la distribution et compléter le mécanisme de chargement natif du socle. Ne pas dépendre d'une installation mpv personnelle ou d'un PATH particulier.
+Ajouter `src/mtee/services/mpv_backend.py` et `src/mtee/services/player_backend.py`. Le premier adapte l'API C libmpv (le binding `python-mpv` a été évalué mais non retenu) ; le second définit un protocole que les tests peuvent remplacer par un faux backend. Résoudre la DLL depuis un emplacement contrôlé de la distribution et compléter le mécanisme de chargement natif du socle. Ne pas dépendre d'une installation mpv personnelle ou d'un PATH particulier.
 
-Ajouter la dépendance Python validée à `pyproject.toml` puis régénérer `uv.lock`. Compléter `packaging/mtee.spec`, `scripts/build_windows.ps1` et les notices de distribution pour le runtime mpv choisi. Un manifeste versionné `resources/native/mpv/manifest.json` fixe architecture, version, URL précise, empreinte SHA-256, licences et emplacement attendu. Créer `scripts/fetch_mpv.ps1` pour télécharger uniquement cette ressource, vérifier l'empreinte avant extraction sous `vendor/mpv` ignoré par Git, et retourner un code non nul à toute erreur ; le packaging reprend ensuite le runtime vérifié.
+N'ajouter une dépendance Python et modifier `uv.lock` que si le binding retenu en nécessite une ; l'implémentation `ctypes` n'a pas ajouté de dépendance Python. Compléter `packaging/mtee.spec`, `scripts/build_windows.ps1` et les notices de distribution pour le runtime mpv choisi. Un manifeste versionné `resources/native/mpv/manifest.json` fixe architecture, version, URL précise, empreinte SHA-256, licences et emplacement attendu. Créer `scripts/fetch_mpv.ps1` pour télécharger uniquement cette ressource, vérifier l'empreinte avant extraction sous `vendor/mpv` ignoré par Git, et retourner un code non nul à toute erreur ; le packaging reprend ensuite le runtime vérifié.
 
 Initialiser mpv en audio seulement, sans fenêtre vidéo ni chargement implicite de configuration personnelle. En cas de DLL absente, architecture incorrecte ou sortie audio indisponible, garder l'explorateur utilisable et afficher un état explicite du lecteur. Tester le démarrage et la terminaison du backend sans bloquer la boucle Qt.
 
@@ -152,7 +163,7 @@ Réexécuter les tests sur les mêmes fixtures ne modifie pas leurs octets. Les 
 
 `PlayerService.play_queue(track_ids, start_index)`, `pause()`, `resume()`, `previous()`, `next()`, `seek(position_us)` et `stop_and_release(track_id)` alimentent un `PlaybackState` immuable. `PlayerModel` transforme cet état en propriétés Qt. `TrackRepository` résout chaque UUID au moment nécessaire, et les signaux de changement d'emplacement restent compatibles avec le plan 06.
 
-`FileAccessCoordinator` arbitre utilisation en lecture et mutation exclusive par UUID, et rend un résultat Busy explicite. Les jobs futurs réutiliseront ce contrat. Ajouter uniquement le binding mpv et les ressources natives validées à cette étape ; aucune installation d'exécutable FFmpeg ou ffprobe, aucune analyse et aucun service réseau.
+`FileAccessCoordinator` arbitre utilisation en lecture et mutation exclusive par UUID, et rend un résultat Busy explicite. Les jobs futurs réutiliseront ce contrat. Ajouter uniquement l'adaptateur libmpv et les ressources natives validées à cette étape ; aucune installation d'exécutable FFmpeg ou ffprobe, aucune analyse et aucun service réseau.
 
 ## Preuves et livraison Git
 

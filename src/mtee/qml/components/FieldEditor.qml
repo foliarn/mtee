@@ -37,6 +37,7 @@ Column {
 
         TextInput {
             id: input
+            objectName: "fieldEditorInput"
             anchors.fill: parent
             anchors.leftMargin: 10
             anchors.rightMargin: 10
