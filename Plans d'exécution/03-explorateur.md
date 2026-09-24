@@ -16,20 +16,30 @@ La lecture sonore appartient au plan 04 et l'écriture des tags au plan 05. Cett
 
 
 - [x] (2026-09-10) Plan préparé à partir de `PLAN.md` ; développement et mesures à effectuer.
-- [ ] Vérifier les prérequis des plans 01 et 02 et consigner la validation des maquettes.
-- [ ] Implémenter l'inventaire asynchrone, les racines et les identifiants persistants.
-- [ ] Lire les métadonnées et charger les pochettes à la demande.
-- [ ] Relier arborescence, onglets, deux panneaux, Table, Artwork et sélection.
-- [ ] Persister et restaurer les réglages de navigation.
-- [ ] Exécuter tests, parcours Windows, mesure sur 10 000 fichiers et distribution autonome.
-- [ ] Mettre à jour les preuves, créer le commit détaillé et confirmer le push.
+- [x] (2026-09-24) Vérifier les prérequis des plans 01 et 02 ; le plan 02 consigne la validation des maquettes.
+- [x] (2026-09-24) Implémenter l'inventaire asynchrone, les racines et les identifiants persistants.
+- [x] (2026-09-24) Lire les métadonnées et charger les pochettes à la demande.
+- [x] (2026-09-24) Relier arborescence, onglets, deux panneaux, Table, Artwork et sélection.
+- [x] (2026-09-24) Persister et restaurer les réglages de navigation.
+- [x] (2026-09-24) Exécuter la suite automatisée, mesurer 10 000 fichiers, construire la distribution Windows et réussir le smoke test empaqueté.
+- [ ] Effectuer le parcours manuel de l'application empaquetée et la comparaison aux maquettes sur une installation propre sans Python ni réseau.
+- [x] (2026-09-24) Mettre à jour les preuves d'exécution dans `docs/validation/03-explorateur.md`.
+- [ ] Créer le commit détaillé, pousser `origin/main`, puis vérifier la révision distante.
 
 ## Surprises & Discoveries
 
 
-Aucun résultat d'exécution à ce stade. Lors du développement, noter ici les particularités découvertes : temps de lecture des tags, sensibilité des chemins Windows, fichiers corrompus, consommation mémoire des pochettes et comportement des disques amovibles. Associer chaque constat à une reproduction ou une mesure, pas à une supposition.
+- La suite complète passe : 124 tests réussis ; les deux vérifications de liens de répertoire sont ignorées car Windows a refusé leur création dans cet environnement. Le détail des commandes et résultats est dans [les preuves de validation](../docs/validation/03-explorateur.md).
+- Le benchmark synthétique a indexé 10 000 WAV en 22,17 s. Le retard Qt p95 de 108,66 ms est un proxy par `QTimer` et passe le budget proposé de 250 ms ; le maximum atteint 295,45 ms et le premier lot 261,9 ms. Ce n'est pas une mesure de clic réel.
+- L'exécutable autonome de 2 239 236 octets charge une fenêtre puis quitte avec le code 0 au smoke test. La revue interactive empaquetée, la capture comparative et l'essai sur machine propre ne sont pas réalisés : la session de Computer Use ne fournissait aucun inventaire de fenêtres natives.
+- Une première reconstruction a échoué car l'instance locale de MTEE encore ouverte verrouillait `dist/MTEE/_internal/PySide6/plugins/platforms/qwindows.dll` pendant le nettoyage PyInstaller. Après fermeture de cette instance de test, le rebuild complet et le smoke test ont réussi.
+- Les WAV synthétiques avec tags ID3/APIC vérifient la lecture sans modification des octets. Les familles autres que WAV/ID3 ne disposent pas d'une validation sur corpus réel. Aucun comportement de volume amovible ni aucune collection réelle n'a été observé.
 
 ## Decision Log
+
+Décision de Codex du 2026-09-24.
+
+Le Table est réalisé avec un `ListView` virtualisé de rangées composites `TrackRow` et un en-tête QML personnalisé, tandis qu'Artwork et l'arborescence réutilisent leurs délégués. Ce choix adapte la proposition initiale de `TableView` : les cellules et actions de la rangée restent dans un seul délégué ; l'ordre, le redimensionnement et le tri des colonnes restent pilotés par la session persistante. Le benchmark et le parcours UI automatisé couvrent le modèle et l'échelle, mais la recette interactive empaquetée reste ouverte.
 
 
 Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; les révisions ultérieures préciseront leur auteur.
@@ -38,16 +48,18 @@ Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; les
 - 2026-09-10 — Conserver un UUID `track_id` indépendant du chemin. Motif : les opérations physiques ultérieures doivent maintenir la sélection, la file et les références sans recréer les morceaux.
 - 2026-09-10 — Énumérer les fichiers par lots et utiliser des vues virtualisées. Motif : la réactivité doit dépendre du contenu visible et non d'un composant QML permanent pour chacun des 10 000 morceaux.
 - 2026-09-10 — Fixer une première cible de réactivité mesurable sur la machine de validation : délai de traitement d'une interaction inférieur à 250 ms au percentile 95 pendant le scan. C'est un budget proposé à mesurer et à ajuster explicitement, pas une performance acquise.
+- 2026-09-24 — Pour la mesure disponible, utiliser le retard d'un `QTimer` de 10 ms comme proxy de réactivité pendant l'indexation et le nommer comme tel. La cible p95 est satisfaite dans cette mesure, mais l'interaction utilisateur réelle reste à mesurer manuellement.
+- 2026-09-24 — Rejeter une pochette au-delà de 20 MiB ou 100 millions de pixels et limiter le cache LRU à 128 MiB ; ces bornes sont couvertes par le service/provider et consignées dans les preuves.
 
 ## Outcomes & Retrospective
 
 
-À compléter après exécution : parcours disponibles, mesures de réactivité et mémoire, couverture des formats réellement lus, anomalies restantes et différences avec les maquettes validées. La livraison A n'est terminée qu'après l'essai de la distribution Windows, pas après les seuls tests des modèles.
+Le flux de navigation et de métadonnées en lecture seule est implémenté : scans de dossiers, identifiants stables, modèles Qt, Table/Artwork, sélection et onglets/groupes persistants. La validation automatisée, le benchmark de 10 000 WAV, la construction Windows et le smoke test empaqueté sont réussis. La recette manuelle du binaire sur installation propre, les captures et la comparaison aux maquettes restent requises ; cette exécution ne clôt donc pas tous les critères de livraison A. Aucun média réel ni tag hors WAV/ID3 n'a été validé. Voir [les preuves et limites](../docs/validation/03-explorateur.md).
 
 ## Contexte et prérequis
 
 
-Le dépôt est actuellement documentaire. Les chemins `src/mtee/...`, `tests/...` et `scripts/...` cités ci-dessous sont des fichiers à créer ou à compléter lors de l'exécution des plans, pas des composants déjà disponibles. Le [plan 01](01-socle-technique.md) doit auparavant fournir Python 3.12, uv, PySide6, Mutagen, SQLite, `JobService`, le démarrage `python -m mtee`, le thème et le packaging Windows. Le [plan 02](02-maquettes-ux.md) doit avoir obtenu et consigné la validation distincte des maquettes requise par `PLAN.md` §3.
+Le plan 01 fournit l'environnement Python 3.12, uv, PySide6, Mutagen, SQLite, `JobService`, le démarrage `python -m mtee`, le thème et le packaging Windows. Le plan 02 consigne la validation distincte des maquettes requise par `PLAN.md` §3. Les chemins et contrats ci-dessous sont désormais implémentés comme décrit dans les jalons ; les preuves d'exécution et limites de recette sont liées plus haut.
 
 Le socle place les données utilisateur via `QStandardPaths` ; `--data-dir` permet une base isolée et `--demo` présente des données fictives sans accès aux fichiers utilisateur. `--smoke-test` quitte après la disponibilité de la fenêtre. Pour ce plan, les données de validation vont dans `.local/validation/03`, et les sources d'essai dans `.local/fixtures/03` ; ces chemins sont ignorés par Git.
 
@@ -79,7 +91,7 @@ Les fichiers dont les tags ont plusieurs valeurs conservent cette information da
 ### Jalon 3 — Navigation complète
 
 
-Créer `src/mtee/models/folder_tree_model.py`, `track_list_model.py` et `workspace_model.py`, puis brancher les composants du plan 02 : `src/mtee/qml/components/ExplorerPane.qml`, `EditorGroup.qml`, `TrackListView.qml`, `TrackRow.qml`, `InfoPanel.qml` et `src/mtee/qml/components/EditorArea.qml`. Une liste visible se fonde sur des rôles Qt stables comprenant au minimum UUID, libellés, disponibilité et référence de pochette. Utiliser TableView et GridView avec réutilisation de délégués, et un modèle d'arbre chargé à la demande.
+Créer `src/mtee/models/folder_tree_model.py`, `track_list_model.py` et `workspace_model.py`, puis brancher les composants du plan 02 : `src/mtee/qml/components/ExplorerPane.qml`, `EditorGroup.qml`, `TrackListView.qml`, `TrackRow.qml`, `InfoPanel.qml` et `src/mtee/qml/components/EditorArea.qml`. Une liste visible se fonde sur des rôles Qt stables comprenant au minimum UUID, libellés, disponibilité et référence de pochette. L'arborescence utilise un ListView réutilisable ; Artwork utilise GridView réutilisable. Pour Table, la livraison emploie un ListView virtualisé de `TrackRow` composites et un en-tête personnalisé, afin de conserver ensemble les actions et champs de chaque rangée tout en permettant l'ordre, le redimensionnement et le tri persistants des colonnes. Ce choix est une adaptation documentée de TableView ; les interactions et l'échelle sont exercées par tests et mesure dédiés.
 
 Un clic sélectionne ; Ctrl et Shift étendent la sélection ; l'inspecteur suit le panneau actif. Conserver `selected_track_ids` séparé d'un futur `playing_track_id`. Un double-clic peut émettre `activationRequested(track_id, ordered_track_ids)` ; avant le plan 04, indiquer explicitement que le lecteur n'est pas disponible. La liste ordonnée transmise est un instantané, destiné à empêcher une reconstruction silencieuse de la file lors d'un tri ultérieur.
 
@@ -148,7 +160,7 @@ Réutiliser `--data-dir` pour tester les migrations, puis choisir un nouveau ré
 ## Preuves et livraison Git
 
 
-Mettre à jour Progress, Outcomes & Retrospective et `docs/validation/03-explorateur.md` avec commandes, résultats réels, mesures et limites. Documenter les formats effectivement lus et les captures pertinentes. Les fichiers audio de validation privés, `.local`, caches et `dist` ne sont pas suivis. Cette étape est committée après ces mises à jour ; un résultat de push ou son hash ne doit pas être inventé dans le commit qui le précède.
+Mettre à jour Progress, Outcomes & Retrospective et `docs/validation/03-explorateur.md` avec commandes, résultats réels, mesures et limites. Documenter les formats effectivement lus et signaler les captures manquantes. Les fichiers audio de validation privés, `.local`, caches et `dist` ne sont pas suivis. Cette étape est committée après ces mises à jour ; un résultat de push ou son hash ne doit pas être inventé dans le commit qui le précède.
 
 Vérifier que le dépôt utilise `origin` vers `https://github.com/foliarn/mtee.git` et la branche `main`, selon le plan 00. Ajouter uniquement les chemins réellement modifiés par cette étape, après revue ; adapter la liste si le socle leur a donné d'autres noms.
 

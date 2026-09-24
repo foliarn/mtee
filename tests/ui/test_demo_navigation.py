@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QObject
@@ -11,6 +12,7 @@ from PySide6.QtQuick import QQuickItem, QQuickWindow
 from mtee.app import _build_runtime, create_application
 from mtee.cli import AppOptions
 from mtee.demo.scenarios import SCENARIO_NAMES
+from mtee.models.demo_workspace import DemoWorkspace
 
 
 def _runtime(qapp, tmp_path: Path, scenario: str):
@@ -24,7 +26,9 @@ def _runtime(qapp, tmp_path: Path, scenario: str):
     window = runtime.engine.rootObjects()[0]
     assert isinstance(window, QQuickWindow)
     window.resize(1440, 900)
-    runtime.workspace.loadScenario(scenario)  # undo the fold applied at the small size
+    cast(DemoWorkspace, runtime.workspace).loadScenario(
+        scenario
+    )  # undo the fold applied at the small size
     QCoreApplication.processEvents()
     return application, runtime
 
@@ -63,7 +67,7 @@ def test_every_scenario_loads_the_window(qapp, tmp_path: Path, scenario: str) ->
         QCoreApplication.processEvents()
         root = runtime.engine.rootObjects()[0]
         assert root.objectName() == "mteeWindow"
-        assert runtime.workspace.scenarioName == scenario
+        assert cast(DemoWorkspace, runtime.workspace).scenarioName == scenario
     finally:
         _close(application, runtime)
 
@@ -73,7 +77,7 @@ def test_convert_error_scenario_loads_the_convert_tab(qapp, tmp_path: Path) -> N
     try:
         QCoreApplication.processEvents()
         root = runtime.engine.rootObjects()[0]
-        assert runtime.workspace.conversionError is True
+        assert cast(DemoWorkspace, runtime.workspace).conversionError is True
         assert _visible(root, "convertView")
         assert _visible(root, "convertPane")
     finally:
@@ -88,17 +92,18 @@ def test_fullscreen_hides_the_island_and_restores_the_editor(qapp, tmp_path: Pat
         assert _visible(root, "playerIsland")
         assert _visible(root, "rightPanel")
 
-        runtime.workspace.setFullscreen(True)
+        workspace = cast(DemoWorkspace, runtime.workspace)
+        workspace.setFullscreen(True)
         QCoreApplication.processEvents()
         assert _visible(root, "fullscreenPlayer")
         assert not _visible(root, "playerIsland")
         assert not _visible(root, "rightPanel")
 
-        runtime.workspace.setFullscreen(False)
+        workspace.setFullscreen(False)
         QCoreApplication.processEvents()
         assert _visible(root, "playerIsland")
         assert _visible(root, "rightPanel")
-        assert runtime.workspace.selectedIds == ["dnb03"]
+        assert workspace.selectedIds == ["dnb03"]
     finally:
         _close(application, runtime)
 
@@ -107,7 +112,7 @@ def test_placeholder_activities_show_coming_later(qapp, tmp_path: Path) -> None:
     application, runtime = _runtime(qapp, tmp_path, "explorer")
     try:
         root = runtime.engine.rootObjects()[0]
-        runtime.workspace.setActivity("plugins")
+        cast(DemoWorkspace, runtime.workspace).setActivity("plugins")
         QCoreApplication.processEvents()
         assert _visible(root, "placeholderPane")
     finally:
@@ -120,7 +125,7 @@ def test_the_island_setting_hides_the_island(qapp, tmp_path: Path) -> None:
         root = runtime.engine.rootObjects()[0]
         QCoreApplication.processEvents()
         assert _visible(root, "settingsView")
-        runtime.workspace.setIslandEnabled(False)
+        cast(DemoWorkspace, runtime.workspace).setIslandEnabled(False)
         QCoreApplication.processEvents()
         assert not _visible(root, "playerIsland")
     finally:

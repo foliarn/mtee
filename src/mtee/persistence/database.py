@@ -119,7 +119,7 @@ class Database:
         if existing is not None:
             return existing
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        created = sqlite3.connect(self._path, isolation_level=None)
+        created = sqlite3.connect(self._path, isolation_level=None, check_same_thread=False)
         created.row_factory = sqlite3.Row
         created.execute("PRAGMA journal_mode = WAL")
         created.execute("PRAGMA foreign_keys = ON")

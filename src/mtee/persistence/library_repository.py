@@ -1,0 +1,412 @@
+"""Durable catalog of selected roots, stable tracks and source snapshots."""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import sqlite3
+import uuid
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from mtee.domain.metadata import MetadataSnapshot
+from mtee.domain.tracks import SourceRevision, TrackId
+from mtee.persistence.database import Database
+
+__all__ = ["LibraryRepository"]
+
+
+class LibraryRepository:
+    """Store file references and read-only metadata without touching audio bytes."""
+
+    def __init__(self, database: Database) -> None:
+        self._database = database
+
+    def add_root(self, path: Path | str) -> dict[str, Any]:
+        source = Path(path).expanduser().resolve(strict=False)
+        key = normalize_path(source)
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM library_roots WHERE path_key = ?", (key,)
+            ).fetchone()
+            if row is None:
+                root_id = str(uuid.uuid4())
+                connection.execute(
+                    "INSERT INTO library_roots(root_id,path,path_key,name) VALUES(?,?,?,?)",
+                    (root_id, str(source), key, source.name or str(source)),
+                )
+                row = connection.execute(
+                    "SELECT * FROM library_roots WHERE root_id = ?", (root_id,)
+                ).fetchone()
+            return _root_dict(row)
+
+    def begin_scan(self, root_id: str) -> int:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT scan_generation FROM library_roots WHERE root_id = ?", (root_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown library root: {root_id}")
+            generation = int(row[0]) + 1
+            connection.execute(
+                "UPDATE library_roots SET availability='scanning', scan_generation=? "
+                "WHERE root_id=?",
+                (generation, root_id),
+            )
+        return generation
+
+    def upsert_location(
+        self,
+        root_id: str,
+        relative_path: str,
+        path: Path | str,
+        revision: SourceRevision,
+        metadata: MetadataSnapshot,
+        scan_generation: int,
+    ) -> str:
+        return self.upsert_locations(
+            root_id,
+            [(relative_path, path, revision, metadata)],
+            scan_generation,
+        )[0]
+
+    def upsert_locations(
+        self,
+        root_id: str,
+        entries: Sequence[tuple[str, Path | str, SourceRevision, MetadataSnapshot]],
+        scan_generation: int,
+    ) -> list[str]:
+        """Upsert one bounded scan batch in a single SQLite transaction."""
+        with self._database.transaction() as connection:
+            root = connection.execute(
+                "SELECT scan_generation FROM library_roots WHERE root_id = ?", (root_id,)
+            ).fetchone()
+            if root is None:
+                raise KeyError(f"Unknown library root: {root_id}")
+            if int(root["scan_generation"]) != scan_generation:
+                return [""] * len(entries)
+            identities: list[str] = []
+            for relative_path, path, revision, metadata in entries:
+                source = Path(path).resolve(strict=False)
+                key = normalize_path(source)
+                encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
+                existing = connection.execute(
+                    "SELECT * FROM track_locations WHERE path_key = ?", (key,)
+                ).fetchone()
+                if existing is None:
+                    track_id = str(TrackId.new())
+                    generation = 0
+                    connection.execute("INSERT INTO tracks(track_id) VALUES(?)", (track_id,))
+                else:
+                    track_id = str(existing["track_id"])
+                    previous = SourceRevision(
+                        size_bytes=int(existing["size_bytes"]),
+                        mtime_ns=int(existing["mtime_ns"]),
+                        file_id=existing["file_id"],
+                        generation=int(existing["generation"]),
+                    )
+                    generation = previous.generation + (0 if previous.matches(revision) else 1)
+                    if previous.matches(revision):
+                        encoded = str(existing["metadata_json"])
+                        metadata = MetadataSnapshot.from_dict(json.loads(encoded))
+                connection.execute(
+                    "INSERT INTO track_locations(path_key,track_id,path,size_bytes,mtime_ns,"
+                    "file_id,generation,duration_us,status,metadata_json) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path_key) DO UPDATE SET "
+                    "path=excluded.path,size_bytes=excluded.size_bytes,mtime_ns=excluded.mtime_ns,"
+                    "file_id=excluded.file_id,generation=excluded.generation,duration_us=excluded.duration_us,"
+                    "status=excluded.status,metadata_json=excluded.metadata_json",
+                    (
+                        key,
+                        track_id,
+                        str(source),
+                        revision.size_bytes,
+                        revision.mtime_ns,
+                        revision.file_id,
+                        generation,
+                        metadata.technical.duration_us,
+                        metadata.status,
+                        encoded,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO root_tracks(root_id,track_id,relative_path,seen_generation,"
+                    "present) "
+                    "VALUES(?,?,?,?,1) "
+                    "ON CONFLICT(root_id,track_id) DO UPDATE SET "
+                    "relative_path=excluded.relative_path, "
+                    "seen_generation=excluded.seen_generation,present=1",
+                    (root_id, track_id, relative_path, scan_generation),
+                )
+                identities.append(track_id)
+        return identities
+
+    def upsert_folders(self, root_id: str, folders: Sequence[str], scan_generation: int) -> None:
+        """Remember discovered folders, including empty ones, in one transaction."""
+        if not folders:
+            return
+        with self._database.transaction() as connection:
+            root = connection.execute(
+                "SELECT scan_generation FROM library_roots WHERE root_id=?", (root_id,)
+            ).fetchone()
+            if root is None:
+                raise KeyError(f"Unknown library root: {root_id}")
+            if int(root[0]) != scan_generation:
+                return
+            connection.executemany(
+                "INSERT INTO library_folders(root_id,relative_path,seen_generation,present) "
+                "VALUES(?,?,?,1) "
+                "ON CONFLICT(root_id,relative_path) DO UPDATE SET "
+                "seen_generation=excluded.seen_generation,present=1",
+                [(root_id, folder, scan_generation) for folder in folders],
+            )
+
+    def finish_scan(
+        self, root_id: str, generation: int, *, complete: bool, available: bool = True
+    ) -> None:
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        status = (
+            "available" if complete and available else "partial" if available else "unavailable"
+        )
+        with self._database.transaction() as connection:
+            current = connection.execute(
+                "SELECT scan_generation FROM library_roots WHERE root_id=?", (root_id,)
+            ).fetchone()
+            if current is None or int(current[0]) != generation:
+                return
+            if complete:
+                connection.execute(
+                    "UPDATE root_tracks SET present=0 WHERE root_id=? AND seen_generation<>?",
+                    (root_id, generation),
+                )
+                connection.execute(
+                    "UPDATE library_folders SET present=0 WHERE root_id=? AND seen_generation<>?",
+                    (root_id, generation),
+                )
+            connection.execute(
+                "UPDATE library_roots SET availability=?,last_scan_utc=? WHERE root_id=?",
+                (status, now, root_id),
+            )
+
+    def mark_root_unavailable(self, root_id: str) -> None:
+        with self._database.transaction() as connection:
+            connection.execute(
+                "UPDATE library_roots SET availability='unavailable' WHERE root_id=?", (root_id,)
+            )
+
+    def roots(self) -> list[dict[str, Any]]:
+        rows = (
+            self._database.connection()
+            .execute("SELECT * FROM library_roots ORDER BY name COLLATE NOCASE,path_key")
+            .fetchall()
+        )
+        return [_root_dict(row) for row in rows]
+
+    def folders(self, root_id: str) -> list[str]:
+        folders: set[str] = {""}
+        connection = self._database.connection()
+        saved_folders = connection.execute(
+            "SELECT relative_path FROM library_folders WHERE root_id=? AND present=1",
+            (root_id,),
+        ).fetchall()
+        tracks = connection.execute(
+            "SELECT relative_path FROM root_tracks WHERE root_id=? AND present=1",
+            (root_id,),
+        ).fetchall()
+        for row in saved_folders:
+            relative = str(row[0])
+            parts = relative.split("/")
+            folders.add(relative)
+            for index in range(1, len(parts) + 1):
+                folders.add("/".join(parts[:index]))
+        for row in tracks:
+            parent = str(Path(str(row[0])).parent.as_posix())
+            if parent == ".":
+                continue
+            parts = parent.split("/")
+            for index in range(1, len(parts) + 1):
+                folders.add("/".join(parts[:index]))
+        return sorted(folders, key=lambda item: (item.casefold(), item))
+
+    def tracks_in_folder(self, root_id: str, relative_folder: str) -> list[dict[str, Any]]:
+        where, parameters = _folder_filter(root_id, relative_folder)
+        rows = (
+            self._database.connection()
+            .execute(
+                "SELECT t.track_id,l.path,l.size_bytes,l.mtime_ns,l.file_id,l.generation,"
+                "l.status,l.metadata_json,rt.relative_path "
+                "FROM root_tracks rt JOIN tracks t ON t.track_id=rt.track_id "
+                "JOIN track_locations l ON l.track_id=t.track_id "
+                f"WHERE rt.root_id=? AND rt.present=1 AND {where} "
+                "ORDER BY rt.relative_path COLLATE NOCASE,rt.relative_path",
+                parameters,
+            )
+            .fetchall()
+        )
+        return [_track_dict(row, root_id) for row in rows]
+
+    def folder_stats(self, root_id: str, relative_folder: str) -> tuple[int, int, int]:
+        """Return direct child track count, bytes and duration in one indexed query."""
+        where, parameters = _folder_filter(root_id, relative_folder)
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT COUNT(*),COALESCE(SUM(l.size_bytes),0),COALESCE(SUM(l.duration_us),0) "
+                "FROM root_tracks rt JOIN track_locations l ON l.track_id=rt.track_id "
+                f"WHERE rt.root_id=? AND rt.present=1 AND {where}",
+                parameters,
+            )
+            .fetchone()
+        )
+        return int(row[0]), int(row[1]), int(row[2])
+
+    def track(self, track_id: str) -> dict[str, Any]:
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT l.path,l.size_bytes,l.mtime_ns,l.file_id,l.generation,l.status,"
+                "l.metadata_json,"
+                "rt.root_id,COALESCE(rt.relative_path,'') AS relative_path "
+                "FROM track_locations l LEFT JOIN root_tracks rt ON rt.track_id=l.track_id "
+                "AND rt.present=1 "
+                "WHERE l.track_id=? ORDER BY rt.root_id LIMIT 1",
+                (track_id,),
+            )
+            .fetchone()
+        )
+        if row is None:
+            return {}
+        return _track_dict(row, str(row["root_id"] or ""), track_id=track_id)
+
+    def artwork_source(self, track_id: str) -> tuple[Path, SourceRevision] | None:
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT path,size_bytes,mtime_ns,file_id,generation FROM track_locations "
+                "WHERE track_id=?",
+                (track_id,),
+            )
+            .fetchone()
+        )
+        if row is None:
+            return None
+        revision = SourceRevision(
+            size_bytes=int(row["size_bytes"]),
+            mtime_ns=int(row["mtime_ns"]),
+            file_id=row["file_id"],
+            generation=int(row["generation"]),
+        )
+        return Path(str(row["path"])), revision
+
+
+def normalize_path(path: Path | str) -> str:
+    """Canonical comparison key; keep the user's spelling in the stored path."""
+    return os.path.normcase(str(Path(path).expanduser().resolve(strict=False)))
+
+
+def _folder_filter(root_id: str, relative_folder: str) -> tuple[str, tuple[Any, ...]]:
+    if not relative_folder:
+        return "instr(rt.relative_path,'/')=0", (root_id,)
+    prefix = relative_folder.rstrip("/") + "/"
+    return (
+        "substr(rt.relative_path,1,?)=? AND instr(substr(rt.relative_path,?+1),'/')=0",
+        (root_id, len(prefix), prefix, len(prefix)),
+    )
+
+
+def _root_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": str(row["root_id"]),
+        "path": str(row["path"]),
+        "pathKey": str(row["path_key"]),
+        "name": str(row["name"]),
+        "availability": str(row["availability"]),
+        "scanGeneration": int(row["scan_generation"]),
+    }
+
+
+def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) -> dict[str, Any]:
+    identity = track_id or str(row["track_id"])
+    path = Path(str(row["path"]))
+    relative = str(row["relative_path"])
+    values = MetadataSnapshot.from_dict(json.loads(str(row["metadata_json"])))
+    technical = values.technical
+    title = _first(values.title) or path.stem
+    artist = _joined(values.artist)
+    album = _first(values.album)
+    genre = _joined(values.genre)
+    duration = technical.duration_us or 0
+    seconds = round(duration / 1_000_000)
+    parent = _folder_of(relative)
+    folder_id = f"folder:{root_id}/{parent}"
+    return {
+        "id": identity,
+        "folder": folder_id,
+        "rootId": root_id,
+        "relativePath": relative,
+        "title": title,
+        "artist": artist,
+        "album": album,
+        "genre": genre,
+        "bpm": _number(_first(values.bpm)),
+        "key": _first(values.key),
+        "seconds": seconds,
+        "duration": _duration(seconds),
+        "format": technical.container,
+        "codec": technical.codec,
+        "bitrate": technical.bitrate or 0,
+        "sampleRate": technical.sample_rate or 0,
+        "bitsPerSample": technical.bits_per_sample or 0,
+        "sizeBytes": int(row["size_bytes"]),
+        "sizeMb": int(row["size_bytes"]) / (1024 * 1024),
+        "size": _size(int(row["size_bytes"])),
+        "filename": path.name,
+        "path": str(path),
+        "dateAdded": "",
+        "cover": -1,
+        "coverUrl": f"image://artwork/{identity}/{int(row['generation'])}/96",
+        "year": _first(values.date),
+        "trackNumber": _first(values.track_number),
+        "comment": _joined(values.comment),
+        "status": str(row["status"]),
+        "error": values.error,
+        "revision": int(row["generation"]),
+    }
+
+
+def _folder_of(relative: str) -> str:
+    parent = str(Path(relative).parent.as_posix())
+    return "" if parent == "." else parent
+
+
+def _first(values: tuple[str, ...]) -> str:
+    return values[0] if values else ""
+
+
+def _joined(values: tuple[str, ...]) -> str:
+    return ", ".join(values)
+
+
+def _number(value: str) -> int | str:
+    try:
+        number = float(value)
+        return round(number) if math.isfinite(number) else value
+    except (TypeError, ValueError, OverflowError):
+        return value
+
+
+def _duration(seconds: int) -> str:
+    minutes, secs = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def _size(size_bytes: int) -> str:
+    return (
+        f"{size_bytes / (1024**3):.1f} GB"
+        if size_bytes >= 1024**3
+        else f"{size_bytes / (1024**2):.1f} MB"
+    )

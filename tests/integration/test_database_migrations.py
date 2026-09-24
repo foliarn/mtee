@@ -41,8 +41,8 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
 
     applied = database.migrate()
 
-    assert [migration.version for migration in applied] == [1]
-    assert database.schema_version() == 1
+    assert [migration.version for migration in applied] == [1, 2, 3]
+    assert database.schema_version() == 3
     tables = {
         str(row["name"])
         for row in database.connection().execute(

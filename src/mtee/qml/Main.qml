@@ -15,8 +15,11 @@ Window {
     readonly property bool compactSidebar: width < Theme.compactSidebarWidth
     readonly property bool singleGroup: width < Theme.singleGroupWidth
     readonly property bool islandVisible: ws.playingId.length > 0 && ws.islandEnabled && !ws.fullscreen
-    property int sidebarWidth: Theme.sidebarWidth
-    property int rightPanelWidth: Theme.rightPanelWidth
+    property int sidebarWidth: shell.demoMode ? Theme.sidebarWidth : root.ws.sidebarWidth
+    property int rightPanelWidth: shell.demoMode ? Theme.rightPanelWidth : root.ws.rightPanelWidth
+
+    onSidebarWidthChanged: if (!shell.demoMode && sidebarWidth !== root.ws.sidebarWidth) root.ws.setSidebarWidth(sidebarWidth)
+    onRightPanelWidthChanged: if (!shell.demoMode && rightPanelWidth !== root.ws.rightPanelWidth) root.ws.setRightPanelWidth(rightPanelWidth)
 
     // Reference size 1440 × 900, reduced to fit a smaller or scaled screen.
     width: Math.max(minimumWidth, Math.min(1440, Screen.desktopAvailableWidth - 32))
@@ -126,6 +129,38 @@ Window {
             workspace: root.ws
             bottomInset: 0
             onResizeRequested: (delta) => root.rightPanelWidth = Math.max(260, Math.min(480, root.rightPanelWidth + delta))
+        }
+    }
+
+    Rectangle {
+        id: statusToast
+        visible: !shell.demoMode && root.ws.message.length > 0
+        z: 90
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 20
+        width: Math.min(560, parent.width - 48)
+        height: 42
+        color: Theme.surface
+        border.width: 1
+        border.color: Theme.separator
+
+        Text {
+            anchors.fill: parent
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
+            verticalAlignment: Text.AlignVCenter
+            text: root.ws.message
+            elide: Text.ElideRight
+            color: Theme.textPrimary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSecondary
+        }
+
+        Timer {
+            interval: 5000
+            running: statusToast.visible
+            onTriggered: root.ws.clearMessage()
         }
     }
 
