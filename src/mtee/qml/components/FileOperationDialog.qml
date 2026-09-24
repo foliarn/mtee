@@ -192,7 +192,7 @@ Dialog {
 
         Rectangle {
             width: parent.width
-            height: 54
+            height: dialog.operations.recoveryOperations.length > 0 ? 118 : 0
             visible: dialog.operations.recoveryOperations.length > 0
             color: Theme.surface
             border.width: 1
@@ -201,7 +201,7 @@ Dialog {
             Column {
                 anchors.fill: parent
                 anchors.margins: 8
-                spacing: 2
+                spacing: 6
                 Text {
                     text: "File operations need inspection"
                     color: Theme.danger
@@ -209,15 +209,44 @@ Dialog {
                     font.pixelSize: Theme.fontSizeSmall
                     font.weight: Font.DemiBold
                 }
-                Text {
+
+                ListView {
                     width: parent.width
-                    text: dialog.operations.recoveryOperations.map(item =>
-                        item.situation + ": " + item.source + " → "
-                            + (item.recoveryPath || item.destination)).join("\n")
-                    elide: Text.ElideMiddle
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeCaption
+                    height: parent.height - 30
+                    clip: true
+                    model: dialog.operations.recoveryOperations
+                    delegate: Item {
+                        required property var modelData
+                        width: ListView.view.width
+                        height: 42
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.right: completeRecovery.left
+                            anchors.rightMargin: completeRecovery.visible ? 8 : 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: modelData.situation + ": " + modelData.source + " → "
+                                + (modelData.recoveryPath || modelData.destination)
+                            elide: Text.ElideMiddle
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeCaption
+                        }
+
+                        TextButton {
+                            id: completeRecovery
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: modelData.canCompleteDestination
+                            kind: "neutral"
+                            text: "Use verified destination"
+                            enabledAction: dialog.operations.state !== "running"
+                            tip: "Recheck the file and update the track location without replacing either path."
+                            onClicked: dialog.operations.completeRecoveryToDestination(
+                                modelData.operationId
+                            )
+                        }
+                    }
                 }
             }
         }

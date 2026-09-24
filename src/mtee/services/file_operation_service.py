@@ -260,6 +260,136 @@ class FileOperationService:
             )
         return results
 
+    def complete_recovery_to_destination(self, operation_id: str) -> FileOperationResult:
+        """Finalize only a destination-only move whose bytes and old UUID still match."""
+        operation = self._history.get(operation_id)
+        if (
+            operation is None
+            or operation["status"] != "needs_recovery"
+            or operation["undo_of"] is not None
+        ):
+            return FileOperationResult(
+                "", operation_id, "conflict", "This file operation cannot be recovered here."
+            )
+
+        track_id = str(operation["track_id"])
+        source = Path(str(operation["source_path"]))
+        destination = Path(str(operation["destination_path"]))
+        record = self._library.source_record(track_id)
+        if record is None:
+            return FileOperationResult(
+                track_id, operation_id, "conflict", "The track is no longer in the library."
+            )
+        expected = SourceRevision(
+            int(operation["expected_size_bytes"]),
+            int(operation["expected_mtime_ns"]),
+            operation["expected_file_id"],
+            int(operation["expected_generation"]),
+        )
+        try:
+            destination_registered = bool(self._library.registered_roots_for(destination))
+        except OSError:
+            destination_registered = False
+        if (
+            record.path.resolve(strict=False) != source.resolve(strict=False)
+            or not record.revision.matches(expected)
+            or source.exists()
+            or source.is_symlink()
+            or destination.is_symlink()
+            or not destination.is_file()
+            or not destination_registered
+        ):
+            return FileOperationResult(
+                track_id,
+                operation_id,
+                "conflict",
+                "The source, library record, or destination changed; inspect both paths manually.",
+                source,
+                destination,
+            )
+
+        expected_destination = SourceRevision(
+            int(operation["expected_size_bytes"]),
+            int(operation["expected_mtime_ns"]),
+            None,
+            int(operation["expected_generation"]),
+        )
+        try:
+            state = _journal_path_state(
+                destination,
+                str(operation["source_sha256"]),
+                expected_destination,
+                check_revision=False,
+            )
+            if state != "matches":
+                return FileOperationResult(
+                    track_id,
+                    operation_id,
+                    "conflict",
+                    f"The destination is {state}; no library reference was changed.",
+                    source,
+                    destination,
+                )
+            before_read = SourceRevision.observe(destination, generation=expected.generation + 1)
+            metadata = self._reader.read(destination)
+            after_read = SourceRevision.observe(destination, generation=expected.generation + 1)
+            digest = sha256_of_file(destination)
+            result_revision = SourceRevision.observe(
+                destination, generation=expected.generation + 1
+            )
+        except OSError as error:
+            return FileOperationResult(
+                track_id,
+                operation_id,
+                "conflict",
+                f"The destination could not be reverified: {error}",
+                source,
+                destination,
+            )
+        if (
+            metadata.status != "readable"
+            or not before_read.matches(after_read)
+            or not after_read.matches(result_revision)
+            or digest != str(operation["source_sha256"])
+        ):
+            return FileOperationResult(
+                track_id,
+                operation_id,
+                "conflict",
+                "The verified destination changed during recovery; "
+                "no library reference was changed.",
+                source,
+                destination,
+            )
+        try:
+            self._history.complete_recovery_from_destination(
+                operation_id=operation_id,
+                track_id=track_id,
+                expected_revision=expected,
+                destination=destination,
+                result_revision=result_revision,
+                metadata=metadata,
+            )
+        except (FileOperationJournalConflictError, OSError, ValueError) as error:
+            return FileOperationResult(
+                track_id,
+                operation_id,
+                "recovery",
+                "The verified copy remains available, but its library reference "
+                f"was not updated: {error}",
+                source,
+                destination,
+            )
+        return FileOperationResult(
+            track_id,
+            operation_id,
+            "completed",
+            "The verified destination is now linked to the original track.",
+            source,
+            destination,
+            result_revision,
+        )
+
     def latest_undoable_operation_id(self) -> str:
         operation = self._history.latest_undoable()
         return str(operation["operation_id"]) if operation is not None else ""

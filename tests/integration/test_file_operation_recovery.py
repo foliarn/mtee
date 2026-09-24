@@ -5,6 +5,8 @@ from __future__ import annotations
 import wave
 from pathlib import Path
 
+import pytest
+
 from mtee.domain.tracks import SourceRevision
 from mtee.persistence.database import Database
 from mtee.persistence.file_operation_repository import FileOperationRepository
@@ -24,8 +26,9 @@ class MoveThenFail:
         raise AssertionError("the same-volume recovery test must not use copy")
 
 
+@pytest.mark.parametrize("change_after_inspection", [False, True])
 def test_published_destination_with_old_database_record_needs_recovery(
-    tmp_path: Path,
+    tmp_path: Path, change_after_inspection: bool
 ) -> None:
     root = tmp_path / "library"
     folder = root / "sets"
@@ -94,4 +97,42 @@ def test_published_destination_with_old_database_record_needs_recovery(
     assert reopened_record is not None
     assert reopened_record.path == source
     assert destination.is_file()
+
+    root_id = str(root_record["id"])
+    generation = reopened_library.begin_scan(root_id)
+    scanned_id = reopened_library.upsert_location(
+        root_id,
+        "Destination/Track.wav",
+        destination,
+        SourceRevision.observe(destination),
+        MetadataReader().read(destination),
+        generation,
+    )
+    reopened_library.finish_scan(root_id, generation, complete=True)
+    assert scanned_id == ""
+    assert (
+        reopened_database.connection()
+        .execute("SELECT 1 FROM track_locations WHERE path=?", (str(destination),))
+        .fetchone()
+        is None
+    )
+
+    if change_after_inspection:
+        destination.write_bytes(destination.read_bytes() + b"changed after inspection")
+
+    finalized = reopened_service.complete_recovery_to_destination(result.operation_id)
+
+    completed_operation = reopened_history.get(result.operation_id)
+    assert completed_operation is not None
+    if change_after_inspection:
+        assert finalized.status == "conflict"
+        current_record = reopened_library.source_record(track_id)
+        assert current_record is not None and current_record.path == source
+        assert completed_operation["status"] == "needs_recovery"
+    else:
+        assert finalized.status == "completed"
+        current_record = reopened_library.source_record(track_id)
+        assert current_record is not None and current_record.path == destination
+        assert completed_operation["status"] == "completed"
+        assert reopened_service.incomplete_operations() == []
     reopened_database.close()
