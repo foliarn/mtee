@@ -2,6 +2,10 @@
 
 Ce document est un ExecPlan vivant rédigé le 2026-09-10. Son exécution suit `PLANS.md` à la racine et réalise `PLAN.md` §4.5, §3 « Onglet Conversion » et le contrôle commun à chaque livraison. Les fichiers et commandes ci-dessous sont à créer ou à exécuter pendant le développement ; aucun résultat de test ni livraison Git n'est déclaré accompli.
 
+## Raccord aux retours de recette du 2026-09-25
+
+Exécuter d'abord A du [complément 06b](06b-correctifs-recette.md). Dans le présent plan, réaliser ensuite le runtime FFmpeg/ffprobe, sa matrice et les fixtures synthétiques nécessaires, puis exécuter B de 06b avant d'achever le transfert des métadonnées et la recette de conversion. L'édition actuelle est limitée au WAV PCM/ID3v2.4 : ne pas supposer que les autres adaptateurs du plan 05 existent. Réutiliser les adaptateurs vérifiés de B pour les sorties compatibles, en distinguant édition d'une source et transfert vers un dérivé. Le dérivé conserve son UUID propre et ses dates de fichiers réellement observées. Consigner la progression de ce raccord dans les deux plans ; aucun développement supplémentaire n'est déclaré accompli par cette note.
+
 ## Objectif et résultat observable
 
 

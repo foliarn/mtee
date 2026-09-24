@@ -2,6 +2,10 @@
 
 ExecPlan vivant rédigé le 2026-09-10. Appliquer `PLANS.md` à la racine et `PLAN.md` §4.8 après les résultats réels de l'étape 09. Le vocabulaire n'est pas défini dans ce plan : sa revue utilisateur est un jalon distinct à préparer et à enregistrer avant l'implémentation fonctionnelle de cette étape.
 
+## Raccord aux retours de recette du 2026-09-25
+
+Intégrer C du [complément 06b](06b-correctifs-recette.md) après la revue explicite prévue ci-dessous : champs de recherche `file.created_at` et `file.modified_at`, intervalles de dates avec fuseau et valeurs inconnues, filtres enregistrés et recette de persistance. Leurs colonnes et leur collecte sont livrées en A de 06b ; le défaut de choix des colonnes appartient aussi à A et n'attend pas le moteur de recherche. Réutiliser ce catalogue de champs sans confondre dates physiques, date de tag et dates d'analyse. Les raccourcis de copie/déplacement de fichiers ne doivent pas transformer un réordonnancement de playlist en déplacement sur disque. Si la session nocturne atteint cette étape sans accord de vocabulaire, produire le dossier de revue complet puis laisser une reprise explicite avant l'implémentation fonctionnelle. Cette note ne vaut ni accord de vocabulaire ni validation des correctifs.
+
 ## Objectif et résultat observable
 
 

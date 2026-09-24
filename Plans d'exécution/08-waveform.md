@@ -2,6 +2,10 @@
 
 ExecPlan vivant rédigé le 2026-09-10, à exécuter selon `PLANS.md` à la racine. Il réalise `PLAN.md` §4.6 et Fullscreen player du §3 après la conversion. Les chemins désignent les fichiers attendus de l'implémentation ; les tests et le push restent à effectuer.
 
+## Raccord aux retours de recette du 2026-09-25
+
+Le [complément 06b](06b-correctifs-recette.md) corrige avant cette étape les pochettes, la visibilité de l'îlot, le survol et la conservation du scroll. Conserver ses contrats de cover par UUID/révision/taille et la préférence persistante de visibilité ; le plein écran continue de suivre le morceau joué. Ajouter à la recette waveform les contrôles R01/R09/R11/R14 et la fermeture pendant décodage et chargement d'image, sans créer un autre lecteur ni réintroduire les miniatures fixes de 96 pixels. Cette note est une exigence de non-régression, pas une preuve de correction déjà livrée.
+
 ## Objectif et résultat observable
 
 

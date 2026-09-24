@@ -2,6 +2,10 @@
 
 ExecPlan vivant rédigé le 2026-09-10. Suivre `PLANS.md` à la racine et `PLAN.md` §4.7, en respectant l'ordre silences/technique, loudness/crêtes/dynamique, tempo, tonalité. Toutes les cases ci-dessous concernent le développement futur ; aucune analyse du corpus de l'utilisateur n'est prétendue réalisée.
 
+## Raccord aux retours de recette du 2026-09-25
+
+Maintenir les contrats du [complément 06b](06b-correctifs-recette.md) : réconciliation de bibliothèque discrète et incrémentale, navigation stable, dates de fichiers séparées de la date musicale et des dates d'analyse, édition vérifiée sans mélange avec les résultats calculés. Exécuter sa recette transversale avec analyse active et préparer les résultats réels pour la revue de 10. Ne pas reconstruire silencieusement le catalogue ou la file de lecture pour rafraîchir une analyse. Aucun correctif ni test n'est déclaré réalisé par cette note.
+
 ## Objectif et résultat observable
 
 
