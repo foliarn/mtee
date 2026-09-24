@@ -35,6 +35,11 @@ prototype du 22 septembre, refusé en revue 1.
     pwsh -File scripts/smoke_packaged.ps1      → code 0
     MTEE.exe --demo --scenario explorer|fullscreen|convert-error|settings --smoke-test → code 0
 
+Après le dernier ajustement QML (taille initiale bornée à l'écran), la
+distribution a été reconstruite le 24 septembre 2026 : build en code 0,
+`smoke_packaged.ps1` en code 0 et les douze scénarios packagés lancés avec
+`--smoke-test` quittent tous avec le code 0.
+
 Le chargement des douze scénarios ne produit aucun avertissement QML. Les
 captures de [docs/ux/screenshots](../ux/screenshots/) ont été produites avec la
 plateforme Windows de Qt, à `devicePixelRatio=1.5` (écran à 150 %), en

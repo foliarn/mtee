@@ -67,7 +67,7 @@ Résultat de la revue 1, 24 septembre 2026 : la structure du prototype est refus
 
 Note de révision — 2026-09-24, Claude : intégration de l'esquisse utilisateur, nouveaux jalons R1 à R5, nouveaux scénarios et critères.
 
-Résultat de la révision, 24 septembre 2026 : R1 à R5 réalisés. Douze scénarios, fenêtre sans cadre native sous Windows, 109 tests passants, ruff et Pyright propres, distribution Windows reconstruite et scénarios packagés quittant avec le code 0. Preuves dans `docs/validation/02-maquettes-ux.md`, captures dans `docs/ux/screenshots/`, parcours dans `docs/ux/review-02.md`. La revue 2 reste à obtenir ; l'étape 03 ne commence pas avant sa décision.
+Résultat de la révision, 24 septembre 2026 : R1 à R5 réalisés. Douze scénarios, fenêtre sans cadre native sous Windows, 109 tests passants, ruff et Pyright propres, distribution Windows reconstruite et scénarios packagés quittant avec le code 0. Preuves dans `docs/validation/02-maquettes-ux.md`, captures dans `docs/ux/screenshots/`, parcours dans `docs/ux/review-02.md`. Distribution reconstruite après le dernier ajustement QML : les douze scénarios packagés quittent avec le code 0. La revue 2 reste à obtenir ; l'étape 03 ne commence pas avant sa décision.
 
 ## Contexte et prérequis
 
