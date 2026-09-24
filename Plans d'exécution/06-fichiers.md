@@ -22,7 +22,7 @@ Les opérations s'effectuent hors thread UI avec état, progression et résultat
 - [ ] (2026-09-24) Relier Rename/Move aux menus et raccourcis ; Delete n'ouvre qu'une explication, la corbeille reste désactivée. Déplacement entre panneaux et glisser-déposer non implémentés.
 - [x] (2026-09-24) Maintenir les références et permettre Undo lorsque la destination est inchangée et l'ancien chemin libre.
 - [ ] (2026-09-24) Tests automatisés, copie isolée et paquet Windows vérifiés ; recette manuelle, second volume et corbeille native restent à faire.
-- [ ] Mettre à jour les preuves, committer la tranche puis confirmer le push.
+- [x] (2026-09-24) Mettre à jour les preuves, committer la tranche et confirmer le push : `7d10b05dad89d9d00141a31cc0851552bbaa2a0d` est présent sur `origin/main`.
 
 ## Surprises & Discoveries
 
