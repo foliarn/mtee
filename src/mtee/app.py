@@ -219,7 +219,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         _discard_partial_startup(database, jobs, player_service, engine)
         return None
     window = engine.rootObjects()[0]
-    if isinstance(window, QWindow):
+    if isinstance(window, QWindow) and not options.diagnostic_no_native_frame:
         frame.attach(window)
 
     runtime = _Runtime(
@@ -242,6 +242,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
 
 def _shutdown(runtime: _Runtime) -> None:
     """Stop the background work and close the storage before leaving."""
+    runtime.frame.detach()
     _shutdown_services(runtime.database, runtime.jobs, runtime.player_service)
 
 
@@ -269,7 +270,13 @@ def _shutdown_services(
     interrupted = jobs.shutdown(_SHUTDOWN_TIMEOUT_MS)
     for status in interrupted:
         _report(f"Background task not finished: {status.label} ({status.state.value}).")
-    database.close()
+    if jobs.wait_for_done(0):
+        database.close()
+    else:
+        # A timed out worker may still use its SQLite connection. Keeping the
+        # database open until process exit is safer than invalidating it under
+        # that worker; the diagnostic makes this incomplete shutdown visible.
+        _report("Background workers are still stopping; SQLite remains open until process exit.")
 
 
 def _report(message: str) -> None:
