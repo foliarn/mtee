@@ -30,6 +30,7 @@ Rectangle {
     color: selected ? Theme.selection : hovered ? Theme.surface : "transparent"
 
     Drag.active: dragReady
+    Drag.source: row
     Drag.supportedActions: Qt.MoveAction
     Drag.mimeData: ({ "application/x-mtee-track-ids": JSON.stringify(dragTrackIds) })
 

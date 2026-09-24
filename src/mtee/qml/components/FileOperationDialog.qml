@@ -40,7 +40,7 @@ Dialog {
             text: dialog.operations.kind === "rename"
                 ? "The audio extension is kept. MTEE checks the destination again before moving the file."
                 : dialog.operations.kind === "move"
-                    ? "Moves stay inside a registered library root on this volume. Existing files are never replaced."
+                    ? "Moves stay inside a registered library root. Cross-volume copies are verified before the source is removed; existing files are never replaced."
                     : "Move to trash is disabled until Windows recycle and restore behavior passes native validation."
             wrapMode: Text.Wrap
             color: dialog.operations.kind === "trash" ? Theme.danger : Theme.textSecondary
@@ -86,6 +86,13 @@ Dialog {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeBody
             font.weight: Font.DemiBold
+        }
+
+        ProgressLine {
+            width: parent.width
+            visible: dialog.operations.state === "running"
+            progress: dialog.operations.progress
+            status: "running"
         }
 
         Rectangle {
@@ -239,7 +246,7 @@ Dialog {
             TextButton {
                 visible: dialog.operations.canCancel
                 kind: "ghost"
-                text: "Cancel remaining"
+                text: "Cancel"
                 onClicked: dialog.operations.cancel()
             }
 

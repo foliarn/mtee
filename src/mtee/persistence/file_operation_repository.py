@@ -67,21 +67,37 @@ class FileOperationRepository:
         *,
         error: str = "",
         recovery_path: Path | None = None,
+        phase: str | None = None,
     ) -> None:
         with self._database.transaction() as connection:
             changed = connection.execute(
-                "UPDATE file_operations SET status=?,error=?,recovery_path=?,updated_at_utc=? "
+                "UPDATE file_operations SET status=?,error=?,recovery_path=?,"
+                "phase=COALESCE(?,phase),updated_at_utc=? "
                 "WHERE operation_id=?",
                 (
                     status,
                     error,
                     str(recovery_path) if recovery_path else None,
+                    phase,
                     now_utc(),
                     operation_id,
                 ),
             ).rowcount
             if changed != 1:
                 raise KeyError(f"Unknown file operation: {operation_id}")
+
+    def update_phase(
+        self, operation_id: str, phase: str, *, recovery_path: Path | None = None
+    ) -> None:
+        """Record a copy/move boundary before continuing its file-system work."""
+        with self._database.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE file_operations SET phase=?,recovery_path=?,updated_at_utc=? "
+                "WHERE operation_id=? AND status='prepared'",
+                (phase, str(recovery_path) if recovery_path else None, now_utc(), operation_id),
+            ).rowcount
+            if changed != 1:
+                raise KeyError(f"File operation is no longer prepared: {operation_id}")
 
     def complete(
         self,
@@ -105,7 +121,8 @@ class FileOperationRepository:
             )
             completed = connection.execute(
                 "UPDATE file_operations SET status='completed',result_size_bytes=?,"
-                "result_mtime_ns=?,result_file_id=?,result_generation=?,error='',updated_at_utc=? "
+                "result_mtime_ns=?,result_file_id=?,result_generation=?,error='',phase='completed',"
+                "updated_at_utc=? "
                 "WHERE operation_id=? AND status='prepared'",
                 (
                     result_revision.size_bytes,
@@ -120,7 +137,7 @@ class FileOperationRepository:
                 raise FileOperationJournalConflictError("The move journal is no longer prepared.")
             if undo_of:
                 undone = connection.execute(
-                    "UPDATE file_operations SET status='undone',updated_at_utc=? "
+                    "UPDATE file_operations SET status='undone',phase='undone',updated_at_utc=? "
                     "WHERE operation_id=? AND status='completed' AND undo_of IS NULL",
                     (now_utc(), undo_of),
                 ).rowcount

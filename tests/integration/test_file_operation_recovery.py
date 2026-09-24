@@ -20,6 +20,9 @@ class MoveThenFail:
         WindowsFileOps().move_no_replace(source, destination)
         raise OSError("simulated interruption after native move")
 
+    def move_cross_volume(self, *_args, **_kwargs) -> None:
+        raise AssertionError("the same-volume recovery test must not use copy")
+
 
 def test_published_destination_with_old_database_record_needs_recovery(
     tmp_path: Path,
