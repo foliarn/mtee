@@ -9,7 +9,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-__all__ = ["MetadataSnapshot", "TechnicalInfo"]
+__all__ = ["MetadataSnapshot", "TechnicalInfo", "format_bitrate"]
+
+
+def format_bitrate(bits_per_second: int | None) -> str:
+    """Format a measured bitrate for display without changing its numeric value."""
+    if bits_per_second is None or bits_per_second <= 0:
+        return "—"
+    return f"{round(bits_per_second / 1000):d} kbps"
 
 
 @dataclass(frozen=True, slots=True)

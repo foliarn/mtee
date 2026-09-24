@@ -5,6 +5,7 @@ import Mtee
 // Camelot key, duration, then Edit info and Add to playlist on hover.
 Rectangle {
     id: row
+    objectName: "trackRow"
 
     required property var track
     required property var columns
@@ -18,7 +19,8 @@ Rectangle {
     property bool separateArtist: true
     property var dragTrackIds: []
     property bool dragReady: false
-    readonly property bool hovered: mouse.containsMouse
+    readonly property bool hovered: mouse.containsMouse || rowHover.hovered
+        || playButton.hovered || infoButton.hovered || addButton.hovered
     signal pressed(var event)
     signal activated()
     signal toggleRequested()
@@ -70,6 +72,10 @@ Rectangle {
         onClicked: (event) => { if (event.button === Qt.RightButton) row.contextRequested(event.x, event.y) }
     }
 
+    HoverHandler {
+        id: rowHover
+    }
+
     Row {
         id: rowCells
         x: row.columns.padding
@@ -92,6 +98,8 @@ Rectangle {
             }
 
             IconButton {
+                id: playButton
+                objectName: "trackPlayButton"
                 anchors.right: parent.right
                 anchors.rightMargin: -8
                 anchors.verticalCenter: parent.verticalCenter
@@ -119,6 +127,7 @@ Rectangle {
                         genre: row.track.genre,
                         bpm: row.track.bpm,
                         duration: row.track.duration,
+                        bitrate: row.track.bitrateText || row.track.bitrate,
                         format: row.track.format,
                         filename: row.track.filename
                     }
@@ -211,6 +220,8 @@ Rectangle {
             }
 
             IconButton {
+                id: infoButton
+                objectName: "trackInfoButton"
                 anchors.verticalCenter: parent.verticalCenter
                 visible: row.hovered
                 hoverBackground: false

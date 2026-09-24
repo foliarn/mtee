@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 
 // Generated stand-in for embedded artwork: a flat colour and one shape per
 // pattern index. Index -1 is a file without artwork.
@@ -7,6 +8,15 @@ Rectangle {
 
     property int pattern: -1
     property string source: ""
+    readonly property int pixelSize: {
+        const physical = Math.max(width, height) * Screen.devicePixelRatio
+        const tiers = [64, 96, 128, 192, 256, 384, 512, 768, 1024]
+        for (const tier of tiers) {
+            if (tier >= physical)
+                return tier
+        }
+        return 1024
+    }
     readonly property var palettes: [
         ["#3B2A5E", "#FF5F7E"], ["#123C3A", "#7CF2C2"], ["#4A2A12", "#FFB347"],
         ["#1E2A4F", "#6FA8FF"], ["#2B2B2B", "#E9E9E9"], ["#4B1034", "#FF7AD1"],
@@ -25,8 +35,11 @@ Rectangle {
     clip: true
 
     Image {
+        objectName: "coverArtworkImage"
         anchors.fill: parent
-        source: cover.source
+        source: cover.source.length > 0
+            ? cover.source.replace(/\/\d+$/, "") + "/" + cover.pixelSize : ""
+        sourceSize: Qt.size(cover.pixelSize, cover.pixelSize)
         visible: cover.source.length > 0
         fillMode: Image.PreserveAspectCrop
         asynchronous: true

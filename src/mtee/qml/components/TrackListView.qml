@@ -27,15 +27,17 @@ FocusScope {
         const gap = width < 600 ? 10 : 16
         const number = 28
         const actions = width < 600 ? 36 : 64
-        const liveDefaults = ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename"]
+        const liveDefaults = ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename", "bitrate"]
         const demoDefaults = ["title", "album", "genre", "bpm", "key", "duration"]
         const defaults = view.modelBacked ? liveDefaults : demoDefaults
-        const labels = ({ title: "Title", artist: "Artist", album: "Album", genre: "Genre", bpm: "BPM", key: "Key", duration: "Duration", format: "Format", filename: "Filename" })
-        const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180 })
-        const configuredOrder = Array.isArray(tab.columnOrder) ? tab.columnOrder : defaults
+        const labels = ({ title: "Title", artist: "Artist", album: "Album", genre: "Genre", bpm: "BPM", key: "Key", duration: "Duration", format: "Format", filename: "Filename", bitrate: "Bitrate" })
+        const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180, bitrate: 78 })
+        const configuredOrder = tab.columnOrder !== undefined && tab.columnOrder !== null
+            ? Array.from(tab.columnOrder) : defaults
         const order = configuredOrder.filter((key, index) => defaults.indexOf(key) >= 0 && configuredOrder.indexOf(key) === index)
         const hidden = view.modelBacked
-            ? (Array.isArray(tab.hiddenColumns) ? tab.hiddenColumns : ["album", "duration", "format", "filename"])
+            ? (tab.hiddenColumns !== undefined && tab.hiddenColumns !== null
+                ? Array.from(tab.hiddenColumns) : ["album", "duration", "format", "filename", "bitrate"])
             : []
         let keys = order.filter((key) => key === "title" || hidden.indexOf(key) < 0)
         if (keys.indexOf("title") < 0)
@@ -209,6 +211,7 @@ FocusScope {
             }
 
             IconButton {
+                objectName: "chooseColumnsButton"
                 icon: "settings"
                 iconSize: 18
                 enabled: view.modelBacked
@@ -219,6 +222,7 @@ FocusScope {
 
         Menu {
             id: columnMenu
+            objectName: "columnChooserMenu"
 
             MenuItem {
                 text: "Artist"
@@ -227,6 +231,7 @@ FocusScope {
                 onTriggered: view.workspace.toggleColumn(view.tab.id, "artist")
             }
             MenuItem {
+                objectName: "columnOption_album"
                 text: "Album"
                 checkable: true
                 checked: view.columns.keys.indexOf("album") >= 0
@@ -268,6 +273,12 @@ FocusScope {
                 checkable: true
                 checked: view.columns.keys.indexOf("filename") >= 0
                 onTriggered: view.workspace.toggleColumn(view.tab.id, "filename")
+            }
+            MenuItem {
+                text: "Bitrate"
+                checkable: true
+                checked: view.columns.keys.indexOf("bitrate") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "bitrate")
             }
         }
 
@@ -560,6 +571,7 @@ FocusScope {
 
     component HeaderCell: Item {
         id: cell
+        objectName: columnKey.length > 0 ? "columnHeader_" + columnKey : ""
 
         property string label: ""
         property string sortKey: ""

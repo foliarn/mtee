@@ -36,10 +36,12 @@ Rectangle {
 
         CoverArt {
             id: cover
+            objectName: "playerIslandCover"
             anchors.verticalCenter: parent.verticalCenter
             width: 48
             height: 48
             pattern: island.track.cover !== undefined ? island.track.cover : -1
+            source: island.track.coverUrl || ""
 
             MouseArea {
                 anchors.fill: parent

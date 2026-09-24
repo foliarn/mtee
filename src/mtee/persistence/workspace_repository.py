@@ -24,6 +24,7 @@ DEFAULT_WORKSPACE: dict[str, Any] = {
     "rightPanelTab": "info",
     "sidebarWidth": 240,
     "rightPanelWidth": 360,
+    "islandEnabled": True,
 }
 
 
@@ -138,6 +139,7 @@ def _validated(value: Any) -> dict[str, Any]:
         "queue",
     }:
         result["rightPanelTab"] = "info"
+    result["islandEnabled"] = bool(result.get("islandEnabled", True))
     return result
 
 
