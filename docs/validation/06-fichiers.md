@@ -8,20 +8,26 @@ volume. Le déplacement natif refuse une destination existante ; l'UUID reste
 stable, les références SQLite suivent le nouveau chemin et Undo vérifie la
 révision, l'empreinte et l'absence de collision avant le retour.
 
-La livraison ne valide pas tout le plan 06. Le poste n'expose qu'un seul volume
-pour les essais ; le type du volume C: n'a pas pu être lu dans cet environnement
-restreint. Il n'y a donc pas de preuve d'un déplacement intervolume. Aucun
-recyclage/restauration natif ni test interactif de la corbeille n'a été réalisé.
-Move to trash reste indisponible dans l'interface ; aucune suppression
-définitive n'est appelée comme solution de repli.
+La livraison ne valide pas tout le plan 06. Le poste expose C: en NTFS, plus un
+volume NTFS sans lettre qui n'est pas accessible comme disque de recette ;
+`Win32_LogicalDisk` ne liste que C:. Il n'y a donc pas de preuve d'un
+déplacement intervolume. Une sonde native de corbeille a échoué à démontrer le
+recyclage : `IFileOperation` a renvoyé succès et `GetAnyOperationsAborted`
+faux, mais la source a disparu et l'espace de noms Shell de la Corbeille était
+vide. Une sauvegarde séparée du fichier d'essai a permis de restaurer et
+vérifier son hash ; aucun recyclage ni retour depuis la Corbeille n'a été
+prouvé. Move to trash reste indisponible dans l'interface, sans suppression
+définitive comme solution de repli.
 
 ## Environnement observé
 
 - Windows 11, version de build 26200, Python 3.12.14, PySide6 6.9.3,
   Mutagen 1.48.1, PyInstaller 6.22.2.
-- Volume de recette accessible : C:. Le système de fichiers et les propriétés
-  de montage n'ont pas pu être lus ; aucun second volume d'essai n'était
-  accessible.
+- Volumes observés avec la lecture système autorisée : C: NTFS, fixe, et un
+  volume NTFS sans lettre. Seul C: apparaît dans `Win32_LogicalDisk` ; aucun
+  deuxième volume de recette monté n'est accessible.
+- Le compte de cette session n'est pas administrateur ; un disque virtuel de
+  recette distinct n'a pas pu être provisionné.
 - Fichiers audio générés dans des répertoires temporaires isolés par les tests.
   Aucune collection personnelle n'a été utilisée.
 - Aucune dépendance d'exécution ou binding COM ajouté ; `uv.lock` est inchangé.
@@ -49,6 +55,10 @@ définitive n'est appelée comme solution de repli.
   lecteur et nouvelle prévisualisation après libération de l'accès.
 - Le menu de contexte propose Rename, Move et Move to trash. F2 ouvre Rename ;
   Delete ouvre l'explication de la corbeille indisponible sans muter le fichier.
+- Le glisser-déposer d'une sélection d'un groupe éditeur vers un autre onglet
+  dossier appelle le même aperçu Move et attend la confirmation ; le parcours
+  QML testé vérifie les UUID capturés et la destination. Le geste de souris
+  réel n'a pas été vérifié manuellement.
 
 ## Contrôles exécutés
 
@@ -59,28 +69,33 @@ définitive n'est appelée comme solution de repli.
 | `uv run ruff format --check .` | Réussi ; 132 fichiers formatés. |
 | `uv run pyright` | 0 erreur, 0 avertissement. |
 | `pytest tests/unit tests/integration -m "not native_audio"` | 128 réussis, 2 ignorés (liens symboliques non disponibles), 1 désélectionné (audio natif). |
-| `tests/ui/test_file_actions.py` | 2 réussis : déplacement/Undo depuis le modèle relié à QML et annulation avant mutation. |
-| Autres tests UI, exécutés par fichier | 27 réussis : smoke (6), démonstration (16), navigation (1), éditeur de métadonnées (2), vues du lecteur (2). |
+| UI, chaque fichier exécuté séparément | 29 réussis : file actions (2), smoke (6), démonstration (16), navigation navigateur (1), éditeur de métadonnées (2), vues du lecteur (2). |
 | `pwsh -NoProfile -File scripts/build_windows.ps1` | Réussi sur Windows 11 avec PyInstaller 6.22.2 ; `dist/MTEE/MTEE.exe` fait 2,25 MB. |
-| Smoke de `dist/MTEE/MTEE.exe` avec `--data-dir .local/validation/06-package --smoke-test` | Code de sortie 0 ; la base isolée est au schéma 5 et contient `file_operations`. Le paquet contient `FileOperationDialog.qml`. |
+| Smoke de `dist/MTEE/MTEE.exe` avec `--data-dir .local/validation/06-package-current --smoke-test` | Code de sortie 0 ; la base isolée est au schéma 5 et contient `file_operations`. Le paquet contient `FileOperationDialog.qml`. |
 | Tous les fichiers `tests/ui` dans un seul processus Pytest | Bloqués après le premier test pendant plus de 60 secondes ; processus interrompu. Les fichiers UI passent séparément. |
 
 Les vérifications UI sont automatisées/offscreen. L'application Windows n'a pas
 été pilotée manuellement sur ce poste. Les opérations sur fichiers sont
-exercées par des tests sur copies audio temporaires.
+exercées par des tests sur copies audio temporaires. La sonde IFileOperation
+STA a utilisé le seul nom `mtee-trash-probe-20260924.wav` dans un dossier
+temporaire dédié, avec une copie de sauvegarde distincte ; le fichier original
+a été rétabli par copie et son SHA-256 correspondait à la sauvegarde.
 
 ## Limites et suites requises
 
 - Déplacement sur deux volumes : non implémenté et non validé. Il faut un
   second volume de recette pour définir et tester la copie, la publication,
   l'annulation et la reprise avant d'activer cette capacité.
-- Corbeille : pas d'appel `IFileOperation`, pas de binding COM ajouté, aucune
-  restauration réelle observée. L'interface la garde indisponible jusqu'à un
-  essai Windows de recyclage et de restauration par fichier.
+- Corbeille : un appel `IFileOperation` a été essayé en STA avec
+  `FOFX_RECYCLEONDELETE`, sans binding ajouté au produit. Malgré le succès
+  HRESULT et l'absence d'abandon, la copie a quitté son chemin et aucune entrée
+  n'est apparue dans l'espace de noms Shell de la Corbeille. Faute de
+  `PostDeleteItem` positif et de restauration native vérifiée, ce résultat est
+  un échec de recette ; la commande reste désactivée.
 - Pas de vérification manuelle des permissions insuffisantes, manque d'espace,
-  déconnexion du support, lecture réelle pendant mutation ni changement entre
-  deux panneaux. Le verrou Busy est vérifié avec `FileAccessCoordinator`, pas
-  avec une lecture mpv active.
+  déconnexion du support, geste drag-and-drop, lecture réelle pendant mutation
+  ni sélection/file après redémarrage. Le verrou Busy est vérifié avec
+  `FileAccessCoordinator`, pas avec une lecture mpv active.
 - La suite UI combinée doit être diagnostiquée ; ses tests isolés, dont le
   nouveau parcours fichier, passent.
 

@@ -8,6 +8,7 @@ from threading import Event
 from typing import Any, cast
 
 from PySide6.QtGui import QWindow
+from PySide6.QtQuick import QQuickItem, QQuickWindow
 
 from mtee.app import _build_runtime, _shutdown
 from mtee.cli import parse_arguments
@@ -28,6 +29,7 @@ def test_live_file_actions_move_and_undo_the_captured_track(qapp, tmp_path: Path
     root = tmp_path / "Library"
     source = root / "Tracks" / "track.wav"
     source.parent.mkdir(parents=True)
+    (root / "Destination").mkdir(parents=True)
     with wave.open(str(source), "wb") as audio:
         audio.setnchannels(1)
         audio.setsampwidth(2)
@@ -52,6 +54,34 @@ def test_live_file_actions_move_and_undo_the_captured_track(qapp, tmp_path: Path
         track_id = str(rows[0]["id"])
         operations = workspace.fileOperations
         assert isinstance(operations, FileOperationModel)
+
+        root_id = str(root_record["id"])
+        workspace.openFolder(f"folder:{root_id}/Tracks")
+        workspace.toggleSplit()
+        workspace.setActiveGroup(1)
+        workspace.openFolder(f"folder:{root_id}/Destination")
+        workspace.setActiveGroup(0)
+        workspace.selectTrack(track_id)
+        qapp.processEvents()
+        window = runtime.engine.rootObjects()[0]
+        assert isinstance(window, QQuickWindow)
+        pending = [window.contentItem()]
+        destination_view: QQuickItem | None = None
+        while pending:
+            item = pending.pop()
+            if item.objectName() == "trackListView" and int(item.property("groupIndex")) == 1:
+                destination_view = item
+                break
+            pending.extend(item.childItems())
+        assert destination_view is not None
+        assert cast(Any, destination_view).acceptTrackDrop(0, [track_id]), (
+            workspace.groups_snapshot(),
+            workspace._selection_by_tab,
+            destination_view.property("tab"),
+        )
+        preview_targets = cast(list[dict[str, Any]], operations.previewTargets)
+        assert preview_targets[0]["destination"] == str(root / "Destination" / source.name)
+        assert operations.state == "preview"
 
         assert operations.openOperation("rename", "renamed", [track_id])
         assert operations.canExecute

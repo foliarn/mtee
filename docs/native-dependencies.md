@@ -97,14 +97,20 @@ l'absence de collision avant l'appel et l'API native refuse elle-même une
 destination occupée. Les déplacements entre volumes restent bloqués jusqu'à
 la validation séparée de leur copie, de leur empreinte et de leur reprise.
 
-Cette livraison n'ajoute aucun binding COM. `IFileOperation` n'est pas
-instanciée : Microsoft indique que cette interface doit s'exécuter dans un
-appartement monothread (STA), et aucun test de corbeille/restauration réelle
-n'a pu être fait sur ce poste. Le raccourci Delete ne déclenche donc pas une
-suppression ; il ouvre une explication et la commande reste indisponible. Il
-n'existe aucun repli vers une suppression définitive. Voir la [documentation
-de MoveFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefilew),
-la [documentation de IFileOperation](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifileoperation)
+Cette livraison n'ajoute aucun binding COM. Une sonde temporaire exécutée en
+STA a appelé `IFileOperation` avec `FOFX_RECYCLEONDELETE` sur un fichier
+jetable : Windows a renvoyé un succès et aucun abandon, mais la source avait
+disparu et l'espace de noms Shell de la Corbeille ne contenait aucun élément.
+Une copie de sauvegarde distincte a permis de remettre les mêmes octets au
+chemin source ; le recyclage et la restauration natives n'ont donc pas été
+démontrés. Ce résultat ne satisfait pas le contrat strict : Delete ouvre une
+explication et reste indisponible, sans repli vers une suppression définitive.
+L'interface doit rester dans un appartement STA, et son résultat par fichier
+doit être observé via `IFileOperationProgressSink::PostDeleteItem`, qui
+distingue un élément présent dans la Corbeille d'une suppression complète.
+Voir la [documentation de MoveFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefilew),
+la [documentation de IFileOperation](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifileoperation),
+[`PostDeleteItem`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifileoperationprogresssink-postdeleteitem)
 et le rapport de [validation du plan 06](validation/06-fichiers.md).
 
 ## Autres dépendances natives
