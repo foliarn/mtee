@@ -9,9 +9,20 @@ Column {
     property string label: ""
     property string value: ""
     property bool mixed: false
-    signal committed(string value)
+    property bool editable: true
+    property string reason: ""
+    property bool wasEdited: false
+    signal editingStarted()
+    signal committed(string value, bool remove)
 
     spacing: 4
+
+    onValueChanged: {
+        if (!input.activeFocus) {
+            input.text = value
+            wasEdited = false
+        }
+    }
 
     Text {
         text: field.label
@@ -23,7 +34,7 @@ Column {
     Rectangle {
         width: parent.width
         height: 32
-        color: input.activeFocus ? Theme.editor : Theme.chrome
+        color: !field.editable ? Theme.sidebar : input.activeFocus ? Theme.editor : Theme.chrome
         border.width: 1
         border.color: input.activeFocus ? Theme.focus : inputMouse.containsMouse ? Theme.textMuted : Theme.separator
 
@@ -31,7 +42,8 @@ Column {
             id: inputMouse
             anchors.fill: parent
             hoverEnabled: true
-            cursorShape: Qt.IBeamCursor
+            cursorShape: field.editable ? Qt.IBeamCursor : Qt.ArrowCursor
+            enabled: field.editable
             onClicked: input.forceActiveFocus()
         }
 
@@ -50,12 +62,23 @@ Column {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSecondary
             clip: true
+            enabled: field.editable
+            opacity: field.editable ? 1 : 0.58
+            onActiveFocusChanged: {
+                if (activeFocus) {
+                    field.wasEdited = false
+                    field.editingStarted()
+                }
+            }
+            onTextEdited: field.wasEdited = true
             onEditingFinished: {
-                if (text !== field.value && !(field.mixed && text.length === 0))
-                    field.committed(text)
+                if (field.wasEdited && (text !== field.value || field.mixed))
+                    field.committed(text, text.length === 0)
+                field.wasEdited = false
             }
             Keys.onEscapePressed: {
                 text = field.value
+                field.wasEdited = false
                 focus = false
             }
 
@@ -69,5 +92,15 @@ Column {
                 font.italic: field.mixed
             }
         }
+    }
+
+    Text {
+        width: parent.width
+        visible: !field.editable && field.reason.length > 0
+        text: field.reason
+        color: Theme.textMuted
+        wrapMode: Text.WordWrap
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSizeSmall
     }
 }

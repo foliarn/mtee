@@ -7,13 +7,14 @@ import re
 import sqlite3
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.models.folder_tree_model import FolderTreeModel
+from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.persistence.library_repository import LibraryRepository
@@ -70,6 +71,7 @@ class WorkspaceModel(QObject):
     explorerChanged = Signal()
     libraryChanged = Signal()
     selectionChanged = Signal()
+    metadataChanged = Signal()
     messageChanged = Signal()
     batchReady = Signal(str, str, object)
     scanFinished = Signal(str, str, object)
@@ -91,6 +93,7 @@ class WorkspaceModel(QObject):
         self._session = session
         self._jobs = jobs
         self._player = player
+        self._metadata_editor: MetadataEditorModel | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._state = session.load()
@@ -281,13 +284,35 @@ class WorkspaceModel(QObject):
     def history(self) -> list[dict[str, Any]]:
         return self._player.history_value() if self._player is not None else []
 
-    @Property(str, constant=True)
+    @Property(str, notify=metadataChanged)
     def saveState(self) -> str:
-        return "idle"
+        if self._metadata_editor is None:
+            return "idle"
+        return cast(str, self._metadata_editor.saveState)
+
+    @Property(str, notify=metadataChanged)
+    def saveMessage(self) -> str:
+        if self._metadata_editor is None:
+            return ""
+        return cast(str, self._metadata_editor.saveMessage)
+
+    @Property(bool, notify=metadataChanged)
+    def canStopPlaybackAndSave(self) -> bool:
+        return (
+            cast(bool, self._metadata_editor.canStopPlaybackAndSave)
+            if self._metadata_editor is not None
+            else False
+        )
+
+    @Property(bool, notify=metadataChanged)
+    def canUndoSave(self) -> bool:
+        if self._metadata_editor is None:
+            return False
+        return cast(bool, self._metadata_editor.canUndo)
 
     @Property(bool, constant=True)
     def metadataEditable(self) -> bool:
-        return False
+        return self._metadata_editor is not None
 
     @Property(bool, constant=True)
     def conversionError(self) -> bool:
@@ -320,9 +345,17 @@ class WorkspaceModel(QObject):
     def playlists(self) -> list[dict[str, Any]]:
         return []
 
-    @Property(list, constant=True)
+    @Property(list, notify=metadataChanged)
     def infoFields(self) -> list[dict[str, Any]]:
-        return []
+        return (
+            cast(list[dict[str, Any]], self._metadata_editor.infoFields)
+            if self._metadata_editor is not None
+            else []
+        )
+
+    @Property(QObject, constant=True)
+    def metadataEditor(self) -> QObject:
+        return self._metadata_editor if self._metadata_editor is not None else self
 
     @Property(list, notify=selectionChanged)
     def infoFieldsReadOnly(self) -> list[dict[str, str]]:
@@ -379,6 +412,16 @@ class WorkspaceModel(QObject):
     @Slot(str, result=dict)
     def track(self, track_id: str) -> dict[str, Any]:
         return self._library.track(track_id)
+
+    def attach_metadata_editor(self, editor: MetadataEditorModel) -> None:
+        """Attach the single editor shared by the inspector and Fullscreen player."""
+        if self._metadata_editor is not None:
+            raise RuntimeError("A metadata editor is already attached to this workspace.")
+        self._metadata_editor = editor
+        editor.setParent(self)
+        editor.changed.connect(self._on_metadata_changed)
+        self.selectionChanged.connect(editor.refresh_selection)
+        editor.refresh_selection()
 
     @Slot(str, str, str, str, bool, result=QObject)
     def trackModelForTab(
@@ -937,21 +980,37 @@ class WorkspaceModel(QObject):
         if self._player is not None:
             self._player.toggleMute()
 
-    @Slot(str, str)
-    def commitField(self, _field: str, _value: str) -> None:
-        self._set_message("Metadata is read-only in this step.")
+    @Slot(str)
+    def beginFieldEdit(self, field: str) -> None:
+        if self._metadata_editor is not None:
+            self._metadata_editor.begin_field_edit(field)
+
+    @Slot(str, str, bool)
+    def commitField(self, field: str, value: str, remove: bool = False) -> None:
+        if self._metadata_editor is not None:
+            self._metadata_editor.commit_field(field, value, remove)
+        else:
+            self._set_message("Metadata is read-only in this step.")
 
     @Slot()
     def finishSave(self) -> None:
-        return
+        if self._metadata_editor is not None:
+            self._metadata_editor.finish_save()
 
     @Slot()
     def retrySave(self) -> None:
-        return
+        if self._metadata_editor is not None:
+            self._metadata_editor.retry_save()
 
     @Slot()
     def undoSave(self) -> None:
-        return
+        if self._metadata_editor is not None:
+            self._metadata_editor.undo_save()
+
+    @Slot()
+    def stopPlaybackAndSave(self) -> None:
+        if self._metadata_editor is not None:
+            self._metadata_editor.stopPlaybackAndSave()
 
     @Slot(list)
     def addToNewPlaylist(self, _track_ids: list) -> None:
@@ -1137,6 +1196,14 @@ class WorkspaceModel(QObject):
 
     def _on_job_updated(self, _status: object) -> None:
         self.libraryChanged.emit()
+
+    def _on_metadata_changed(self) -> None:
+        self._revision += 1
+        self.metadataChanged.emit()
+        self.libraryChanged.emit()
+        if self._player is not None and self._player.playing_id_value():
+            self._player.refreshTrack(self._player.playing_id_value())
+        self._refresh_timer.start()
 
     def _set_message(self, message: str) -> None:
         if self._message == message:

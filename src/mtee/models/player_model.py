@@ -16,12 +16,14 @@ class PlayerModel(QObject):
     """One model shared by the island, queue and fullscreen player."""
 
     playbackChanged = Signal()
+    trackAccessReleased = Signal(str)
 
     def __init__(self, service: PlayerService, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._service = service
         self._queue_model = PlaybackQueueModel(service, self)
         service.stateChanged.connect(self.playbackChanged.emit)
+        service.trackAccessReleased.connect(self.trackAccessReleased.emit)
 
     @Property(str, notify=playbackChanged)
     def status(self) -> str:
@@ -225,3 +227,7 @@ class PlayerModel(QObject):
     @Slot(str, result=bool)
     def stopAndRelease(self, track_id: str = "") -> bool:
         return self._service.stop_and_release(track_id)
+
+    @Slot(str)
+    def refreshTrack(self, track_id: str) -> None:
+        self._service.refresh_track(track_id)

@@ -24,17 +24,20 @@ from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.models.jobs_model import JobsListModel
+from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.shell_controller import ShellController
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.library_repository import LibraryRepository
+from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.windows_frame import WindowFrame
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.jobs import JobService
+from mtee.services.metadata_writer import MetadataEditService
 from mtee.services.mpv_backend import MpvBackend
 from mtee.services.player_backend import PlayerBackendError
 from mtee.services.player_service import PlayerService
@@ -157,6 +160,19 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             jobs=jobs,
             player=player_model,
         )
+        metadata_writer = MetadataEditService(
+            library,
+            MetadataHistoryRepository(database),
+            file_access,
+        )
+        metadata_editor = MetadataEditorModel(
+            library,
+            metadata_writer,
+            jobs,
+            workspace.selected_ids_snapshot,
+            player=player_model,
+        )
+        workspace.attach_metadata_editor(metadata_editor)
         artwork_provider = ArtworkProvider(library)
     frame = WindowFrame()
     controller = ShellController(

@@ -12,11 +12,20 @@ Item {
     readonly property var first: (workspace.revision, selection.length > 0 ? workspace.track(selection[0]) : ({}))
     readonly property bool multiple: selection.length > 1
 
+    function recoveryForSelection() {
+        if (info.workspace.metadataEditable === false)
+            return []
+        return info.workspace.metadataEditor.recoveryOperations.filter(function(operation) {
+            return operation.situation === "inspection_failed"
+                || info.selection.indexOf(operation.trackId) >= 0
+        })
+    }
+
     objectName: "infoPanel"
 
     Timer {
-        interval: 550
-        running: info.workspace.saveState === "saving"
+        interval: 1000
+        running: info.workspace.saveState === "saved"
         onTriggered: info.workspace.finishSave()
     }
 
@@ -107,6 +116,21 @@ Item {
                 }
             }
 
+            Text {
+                width: body.width
+                visible: info.recoveryForSelection().length > 0
+                text: info.recoveryForSelection().some(function(operation) {
+                    return operation.situation === "inspection_failed"
+                })
+                    ? "MTEE could not inspect a previous tag save. Review its recovery files before editing."
+                    : "A previous tag save for " + info.recoveryForSelection()[0].fileName
+                        + " needs recovery. Its source and recovery files were kept."
+                color: Theme.danger
+                wrapMode: Text.WordWrap
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
             SectionLabel { visible: info.workspace.metadataEditable !== false; text: "Tags" }
             SectionLabel { visible: info.workspace.metadataEditable === false; text: "Metadata (read-only)" }
 
@@ -119,7 +143,10 @@ Item {
                     label: modelData.label
                     value: modelData.value
                     mixed: modelData.mixed
-                    onCommitted: (value) => info.workspace.commitField(modelData.key, value)
+                    editable: modelData.editable
+                    reason: modelData.reason
+                    onEditingStarted: info.workspace.beginFieldEdit(modelData.key)
+                    onCommitted: (value, remove) => info.workspace.commitField(modelData.key, value, remove)
                 }
             }
 
@@ -209,13 +236,16 @@ Item {
             }
 
             Text {
+                width: footer.width - 180
                 anchors.verticalCenter: parent.verticalCenter
                 text: info.workspace.metadataEditable === false ? "Metadata is read-only in this step."
                     : info.workspace.saveState === "saving" ? "Saving…"
                     : info.workspace.saveState === "saved" ? "Saved"
-                    : info.workspace.saveState === "error" ? "Could not save"
+                    : info.workspace.saveState === "busy" ? info.workspace.saveMessage
+                    : info.workspace.saveState === "error" || info.workspace.saveState === "recovery"
+                        ? (info.workspace.saveMessage || "Could not save")
                     : "Changes save when you leave a field"
-                color: info.workspace.saveState === "error" ? Theme.danger
+                color: info.workspace.saveState === "error" || info.workspace.saveState === "recovery" ? Theme.danger
                     : info.workspace.saveState === "idle" ? Theme.textMuted : Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
@@ -229,7 +259,8 @@ Item {
             spacing: 6
 
             TextButton {
-                visible: info.workspace.saveState === "error"
+                visible: (info.workspace.saveState === "error" || info.workspace.saveState === "busy")
+                    && !info.workspace.canStopPlaybackAndSave
                 implicitHeight: 28
                 kind: "neutral"
                 text: "Retry"
@@ -237,7 +268,15 @@ Item {
             }
 
             TextButton {
-                visible: info.workspace.saveState === "saved" || info.workspace.saveState === "error"
+                visible: info.workspace.saveState === "busy" && info.workspace.canStopPlaybackAndSave
+                implicitHeight: 28
+                kind: "neutral"
+                text: "Stop playback and save"
+                onClicked: info.workspace.stopPlaybackAndSave()
+            }
+
+            TextButton {
+                visible: info.workspace.canUndoSave
                 implicitHeight: 28
                 kind: "ghost"
                 text: "Undo"
