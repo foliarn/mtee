@@ -1,7 +1,7 @@
 # 04 — Lecteur commun et Fullscreen player initial — livraison B, partie 1
 
 
-Ce plan vivant suit [PLANS.md](../PLANS.md) et couvre `PLAN.md`, §3 « Vue Écoute » et « Sélection, lecture et édition », ainsi que §4.2. Préparé le 2026-09-10 et mis en œuvre le 2026-09-24 ; la validation audio/Windows propre et la livraison Git restent à terminer.
+Ce plan vivant suit [PLANS.md](../PLANS.md) et couvre `PLAN.md`, §3 « Vue Écoute » et « Sélection, lecture et édition », ainsi que §4.2. Préparé le 2026-09-10 et mis en œuvre le 2026-09-24 ; la recette audio et Windows propre reste à terminer. Le commit `1995db2` est poussé et vérifié sur `origin/main`.
 
 ## Objectif et résultat observable
 
@@ -22,7 +22,7 @@ La livraison teste les codecs effectivement décodés par la distribution de lib
 - [x] (2026-09-24) Figer l'ordre à la lecture et séparer le lecteur de la sélection d'explorateur.
 - [x] (2026-09-24) Relier l'îlot, Fullscreen player, la file et les erreurs ; conserver l'état pendant le changement de présentation.
 - [ ] Exécuter les tests, la matrice de formats et le parcours de la distribution Windows. Tests automatisés et smoke test local réussis ; formats réels, écoute WASAPI, exception LuaJIT et parcours sur Windows propre restent ouverts.
-- [ ] Mettre à jour les preuves, committer puis vérifier le push distant.
+- [x] (2026-09-24) Mettre à jour les preuves, committer puis vérifier le push distant. Commit `1995db2a1b993fd16a67f49fa2f8635d90768aa0` poussé sur `origin/main` ; les hashes `HEAD` et `origin/main` concordent après `git fetch`.
 
 ## Surprises & Discoveries
 
