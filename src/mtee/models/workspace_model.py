@@ -36,6 +36,7 @@ _SORT_KEYS = {
     "key",
     "duration",
     "format",
+    "bitrate",
     "filename",
 }
 _COLUMN_KEYS = set(_SORT_KEYS) - {"index"}
@@ -49,8 +50,9 @@ _DEFAULT_COLUMN_ORDER = [
     "duration",
     "format",
     "filename",
+    "bitrate",
 ]
-_DEFAULT_HIDDEN_COLUMNS = ["album", "duration", "format", "filename"]
+_DEFAULT_HIDDEN_COLUMNS = ["album", "duration", "format", "filename", "bitrate"]
 _DEFAULT_COLUMN_WIDTHS = {
     "title": 0,
     "artist": 150,
@@ -61,6 +63,7 @@ _DEFAULT_COLUMN_WIDTHS = {
     "duration": 70,
     "format": 72,
     "filename": 180,
+    "bitrate": 78,
 }
 _ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins", "profile"}
 
@@ -125,7 +128,7 @@ class WorkspaceModel(QObject):
         self._sidebar_width = int(self._state.get("sidebarWidth", 240))
         self._right_panel_width = int(self._state.get("rightPanelWidth", 360))
         self._fullscreen = False
-        self._island_enabled = False
+        self._island_enabled = bool(self._state.get("islandEnabled", True))
         self._message = (
             "The saved workspace was invalid. MTEE restored a safe default layout."
             if session.load_recovered
@@ -396,7 +399,7 @@ class WorkspaceModel(QObject):
             ("Duration", "duration"),
             ("Format", "format"),
             ("Codec", "codec"),
-            ("Bitrate", "bitrate"),
+            ("Bitrate", "bitrateText"),
             ("Sample rate", "sampleRate"),
             ("Size", "size"),
             ("Filename", "filename"),
@@ -903,6 +906,7 @@ class WorkspaceModel(QObject):
     def setIslandEnabled(self, enabled: bool) -> None:
         self._island_enabled = bool(enabled)
         self.layoutChanged.emit()
+        self._persist()
 
     @Slot(int)
     def setSidebarWidth(self, width: int) -> None:
@@ -1303,6 +1307,7 @@ class WorkspaceModel(QObject):
             "rightPanelTab": self._right_tab,
             "sidebarWidth": self._sidebar_width,
             "rightPanelWidth": self._right_panel_width,
+            "islandEnabled": self._island_enabled,
         }
         try:
             self._session.save(state)

@@ -240,10 +240,12 @@ Rectangle {
         spacing: 18
 
         CoverArt {
+            objectName: "fullscreenPlayerCover"
             anchors.horizontalCenter: parent.horizontalCenter
             width: stage.coverSize
             height: stage.coverSize
             pattern: player.track.cover !== undefined ? player.track.cover : -1
+            source: player.track.coverUrl || ""
         }
 
         Column {

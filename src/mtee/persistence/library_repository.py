@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from mtee.domain.metadata import MetadataSnapshot
+from mtee.domain.metadata import MetadataSnapshot, format_bitrate
 from mtee.domain.tracks import SourceRevision, TrackId
 from mtee.persistence.database import Database
 
@@ -508,6 +508,7 @@ def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) 
         "format": technical.container,
         "codec": technical.codec,
         "bitrate": technical.bitrate or 0,
+        "bitrateText": format_bitrate(technical.bitrate),
         "sampleRate": technical.sample_rate or 0,
         "bitsPerSample": technical.bits_per_sample or 0,
         "sizeBytes": int(row["size_bytes"]),
@@ -517,7 +518,7 @@ def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) 
         "path": str(path),
         "dateAdded": "",
         "cover": -1,
-        "coverUrl": f"image://artwork/{identity}/{int(row['generation'])}/96",
+        "coverUrl": f"image://artwork/{identity}/{int(row['generation'])}",
         "year": _first(values.date),
         "trackNumber": _first(values.track_number),
         "comment": _joined(values.comment),

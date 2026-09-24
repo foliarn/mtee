@@ -56,6 +56,7 @@ def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, tmp_path: P
     jobs = JobService(qapp, max_thread_count=1)
 
     workspace = WorkspaceModel(library=library, session=session, jobs=jobs)
+    assert workspace.islandEnabled
     workspace.openFolder(f"root:{root['id']}")
     workspace.selectTrack(first_id)
     workspace.toggleSplit()
@@ -74,6 +75,7 @@ def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, tmp_path: P
     workspace.setTabView(tab["id"], "artwork")
     assert track_model.trackIds == [first_id, second_id]
     workspace.toggleColumn(tab["id"], "duration")
+    workspace.toggleColumn(tab["id"], "bitrate")
     workspace.resizeColumn(tab["id"], "genre", 155)
     workspace.moveColumn(tab["id"], "genre", -1)
     assert workspace._jobs.wait_for_done(1_000)
@@ -83,6 +85,10 @@ def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, tmp_path: P
     assert restored.groups_snapshot()[1]["active"] == tab["id"]
     assert restored.selected_ids_snapshot() == [second_id]
     assert "duration" not in restored_tab["hiddenColumns"]
+    assert "bitrate" not in restored_tab["hiddenColumns"]
+    assert restored.islandEnabled
+    restored.setIslandEnabled(False)
+    assert not WorkspaceModel(library=library, session=session, jobs=jobs).islandEnabled
     assert restored_tab["columnWidths"]["genre"] == 155
     assert (
         restored_tab["columnOrder"].index("genre") == restored_tab["columnOrder"].index("album") - 1

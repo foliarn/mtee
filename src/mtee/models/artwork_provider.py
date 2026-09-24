@@ -49,9 +49,12 @@ class ArtworkProvider(QQuickImageProvider):
     def requestImage(self, image_id: str, size: QSize, requested_size: QSize) -> QImage:
         """Return ``track-id/generation/size`` after checking the source revision."""
         try:
-            track_id, generation_text, size_text = image_id.split("/", 2)
+            parts = image_id.split("/")
+            if len(parts) not in {2, 3}:
+                raise ValueError("invalid artwork request")
+            track_id, generation_text = parts[:2]
             generation = int(generation_text)
-            target_size = min(1024, max(1, int(size_text)))
+            target_size = min(1024, max(1, int(parts[2]))) if len(parts) == 3 else 1024
             if requested_size.isValid():
                 target_size = min(target_size, max(requested_size.width(), requested_size.height()))
         except (ValueError, TypeError):

@@ -14,8 +14,8 @@ Ce complément accompagne les jalons clés 07 à 10. Les étapes 11 et suivantes
 - [x] 2026-09-25 — Reformuler les 14 retours, clarifier les colonnes figées et la conservation du scroll avec l'utilisateur.
 - [x] 2026-09-25 — Reproduire le défaut de colonnes dans un moteur QML offscreen avec une bibliothèque synthétique isolée.
 - [x] 2026-09-25 — Consulter le journal Windows et identifier deux événements concernant MTEE, sans attribuer arbitrairement le crash de python.exe.
-- [ ] A0 — Diagnostiquer le crash natif, corriger la cause démontrée et sécuriser la fermeture.
-- [ ] A1 — Corriger colonnes, îlot, pochettes, bitrate et survol.
+- [ ] A0 — Protections de fermeture et 20/20 smoke après changement; cause native toujours non démontrée et la suite intégration+UI a reproduit un incident intermittent (détails dans `docs/validation/06b-correctifs-recette.md`). À rouvrir avant de qualifier R05 de corrigé.
+- [x] A1 — Colonnes, îlot, pochettes, bitrate et survol implémentés; 6 tests ciblés passent, paquet reconstruit et 20/20 smoke. La recette multi-DPI et audio réel reste à faire.
 - [ ] A2 — Remplacer la réindexation de démarrage par une réconciliation incrémentale silencieuse ; stabiliser le scroll.
 - [ ] A3 — Ajouter dates de fichiers, révélation Windows, destinations et interactions de fichiers.
 - [ ] Valider et livrer A avant le développement fonctionnel de 07.
@@ -37,6 +37,10 @@ Ce complément accompagne les jalons clés 07 à 10. Les étapes 11 et suivantes
 
 Les causes du scintillement, du saut de scroll et du crash restent à reproduire dans leur parcours exact. Les défauts statiques associés sont identifiés ci-dessous ; ne pas transformer une piste plausible en diagnostic certain.
 
+2026-09-25 — A0 — Après les mesures de fermeture, les 20 fermetures minimales Python et 20 du paquet sont sans échec. En revanche, `pytest -q` et le groupe intégration+UI ont produit une exception native intermittente `0xe24c4a02` pendant la lecture/fermeture libmpv, suivie d'un access violation dans pytest-qt; le groupe d'intégration seul a réussi 25/25. Les modules impliqués et la relation causale ne sont pas établis. Les garde-fous de durée de vie restent utiles, mais le crash utilisateur n'est pas corrigé au sens causal.
+
+2026-09-25 — A1 — `Array.from` fixe le choix d'Album dans le menu avec un vrai `WorkspaceModel`; `HoverHandler` maintient les actions visibles pendant les passages Play↔Info simulés. Le provider rend 256 px depuis une fixture synthétique 300×120. Le paquet contrôlé reste à 2,26 Mo et passe 20/20 démarrages isolés. Les scènes covers réelles rapides, DPI Windows interactif, toutes colonnes et redémarrage complet restent hors des tests ciblés.
+
 ## Decision Log
 
 2026-09-25 — Codex — Répartir ce complément en A avant 07, B dans le début de 07 et C dans 10. B réutilise FFmpeg pour générer et vérifier des fixtures audio ; le runtime n'est pas ajouté rétroactivement aux livraisons A/B historiques. Les interfaces d'adaptateurs peuvent être préparées en A, mais les formats ne deviennent éditables qu'après leurs preuves.
@@ -51,7 +55,7 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 ## Outcomes & Retrospective
 
-Préparation uniquement. Sources localisées, expérience QML ciblée et consultation du journal effectuées. Aucun crash natif reproduit dans cette préparation, aucune collection privée analysée ou modifiée, aucune recette applicative ou distribution nouvelle déclarée validée. L'expérience offscreen ne remplace pas la recette Windows. Compléter après chaque sous-jalon avec comportement observé, contrôles, limites et fichiers de preuve.
+Exécution en cours. A0 a ajouté des protections mesurées, mais la cause du crash demeure inconnue et les suites combinées signalent une exception native intermittente; ne pas annoncer R05 corrigé. A1 est implémenté et testé sur fixtures, contrôles statiques réussis, paquet Windows vérifié à 20/20 démarrages isolés. L'offscreen ne remplace pas la recette multi-DPI, audio et covers rapides sur Windows. A2/A3, B, 07–09 et le dossier de revue 10 restent à réaliser. Aucune collection personnelle n'a été utilisée ou modifiée.
 
 ## Ordre de travail pour la session nocturne
 
