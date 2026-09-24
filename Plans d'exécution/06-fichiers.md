@@ -24,6 +24,7 @@ Les opérations s'effectuent hors thread UI avec état, progression et résultat
 - [x] (2026-09-24) `uv sync --locked`, Ruff, Pyright, tests unitaires/intégration (128 réussis, 2 ignorés, 1 désélectionné), tests UI par fichier (29 réussis), copie isolée et paquet Windows avec smoke vérifiés.
 - [ ] (2026-09-24) Recette manuelle, geste souris, second volume, opérations intervolumes et corbeille native restent à faire ou à implémenter.
 - [x] (2026-09-24) Mettre à jour les preuves, committer la tranche et confirmer le push : `7d10b05dad89d9d00141a31cc0851552bbaa2a0d` est présent sur `origin/main`.
+- [x] (2026-09-24) Ajouter l'aperçu Move par dépôt entre groupes ; `4da180c7c3d75b64374f1d95331dc944f9e712ff` est présent sur `origin/main` après fetch et comparaison des hashes.
 
 ## Surprises & Discoveries
 
