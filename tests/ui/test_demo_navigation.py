@@ -1,13 +1,16 @@
-"""Qt smoke checks for the prototype's three spaces and transitions."""
+"""Qt smoke checks for the prototype scenarios and transitions."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QObject
+import pytest
+from PySide6.QtCore import QCoreApplication, QEvent, QObject
+from PySide6.QtQuick import QQuickItem, QQuickWindow
 
 from mtee.app import _build_runtime, create_application
 from mtee.cli import AppOptions
+from mtee.demo.scenarios import SCENARIO_NAMES
 
 
 def _runtime(qapp, tmp_path: Path, scenario: str):
@@ -17,40 +20,108 @@ def _runtime(qapp, tmp_path: Path, scenario: str):
         AppOptions(data_dir=tmp_path / scenario, demo=True, scenario=scenario),
     )
     assert runtime is not None
+    # The offscreen screen is small; review the reference 1440x900 layout.
+    window = runtime.engine.rootObjects()[0]
+    assert isinstance(window, QQuickWindow)
+    window.resize(1440, 900)
+    runtime.workspace.loadScenario(scenario)  # undo the fold applied at the small size
+    QCoreApplication.processEvents()
     return application, runtime
 
 
-def test_convert_error_scenario_loads_the_convert_view(qapp, tmp_path: Path) -> None:
-    application, runtime = _runtime(qapp, tmp_path, "convert-error")
+def _close(application, runtime) -> None:
+    runtime.jobs.shutdown()
+    for root in runtime.engine.rootObjects():
+        root.deleteLater()
+    runtime.engine.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+    runtime.database.close()
+    application.quit()
+
+
+def _find(root: QObject, name: str) -> QQuickItem | None:
+    """Search the visual tree: Repeater and Loader items are not QObject children."""
+    assert isinstance(root, QQuickWindow)
+    pending = [root.contentItem()]
+    while pending:
+        item = pending.pop()
+        if item.objectName() == name:
+            return item
+        pending.extend(item.childItems())
+    return None
+
+
+def _visible(root: QObject, name: str) -> bool:
+    item = _find(root, name)
+    return item is not None and item.isVisible()
+
+
+@pytest.mark.parametrize("scenario", SCENARIO_NAMES)
+def test_every_scenario_loads_the_window(qapp, tmp_path: Path, scenario: str) -> None:
+    application, runtime = _runtime(qapp, tmp_path, scenario)
     try:
         QCoreApplication.processEvents()
         root = runtime.engine.rootObjects()[0]
         assert root.objectName() == "mteeWindow"
-        assert runtime.workspace.screen == "convert"
-        assert runtime.workspace.conversionError is True
-        assert root.findChild(QObject, "convertView") is not None
+        assert runtime.workspace.scenarioName == scenario
     finally:
-        runtime.jobs.shutdown()
-        runtime.database.close()
-        application.quit()
+        _close(application, runtime)
 
 
-def test_navigation_preserves_the_same_demo_workspace(qapp, tmp_path: Path) -> None:
-    application, runtime = _runtime(qapp, tmp_path, "browser-split")
+def test_convert_error_scenario_loads_the_convert_tab(qapp, tmp_path: Path) -> None:
+    application, runtime = _runtime(qapp, tmp_path, "convert-error")
+    try:
+        QCoreApplication.processEvents()
+        root = runtime.engine.rootObjects()[0]
+        assert runtime.workspace.conversionError is True
+        assert _visible(root, "convertView")
+        assert _visible(root, "convertPane")
+    finally:
+        _close(application, runtime)
+
+
+def test_fullscreen_hides_the_island_and_restores_the_editor(qapp, tmp_path: Path) -> None:
+    application, runtime = _runtime(qapp, tmp_path, "explorer-info")
     try:
         root = runtime.engine.rootObjects()[0]
-        assert runtime.workspace.selectedRows == [0]
-        runtime.workspace.setScreen("listening")
         QCoreApplication.processEvents()
-        assert runtime.workspace.screen == "listening"
-        assert root.findChild(QObject, "listeningView") is not None
+        assert _visible(root, "playerIsland")
+        assert _visible(root, "rightPanel")
 
-        runtime.workspace.setScreen("convert")
+        runtime.workspace.setFullscreen(True)
         QCoreApplication.processEvents()
-        assert runtime.workspace.screen == "convert"
-        assert root.findChild(QObject, "convertView") is not None
-        assert runtime.workspace.selectedRows == [0]
+        assert _visible(root, "fullscreenPlayer")
+        assert not _visible(root, "playerIsland")
+        assert not _visible(root, "rightPanel")
+
+        runtime.workspace.setFullscreen(False)
+        QCoreApplication.processEvents()
+        assert _visible(root, "playerIsland")
+        assert _visible(root, "rightPanel")
+        assert runtime.workspace.selectedIds == ["dnb03"]
     finally:
-        runtime.jobs.shutdown()
-        runtime.database.close()
-        application.quit()
+        _close(application, runtime)
+
+
+def test_placeholder_activities_show_coming_later(qapp, tmp_path: Path) -> None:
+    application, runtime = _runtime(qapp, tmp_path, "explorer")
+    try:
+        root = runtime.engine.rootObjects()[0]
+        runtime.workspace.setActivity("plugins")
+        QCoreApplication.processEvents()
+        assert _visible(root, "placeholderPane")
+    finally:
+        _close(application, runtime)
+
+
+def test_the_island_setting_hides_the_island(qapp, tmp_path: Path) -> None:
+    application, runtime = _runtime(qapp, tmp_path, "settings")
+    try:
+        root = runtime.engine.rootObjects()[0]
+        QCoreApplication.processEvents()
+        assert _visible(root, "settingsView")
+        runtime.workspace.setIslandEnabled(False)
+        QCoreApplication.processEvents()
+        assert not _visible(root, "playerIsland")
+    finally:
+        _close(application, runtime)

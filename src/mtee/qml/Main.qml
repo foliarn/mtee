@@ -1,177 +1,179 @@
 import QtQuick
 import QtQuick.Window
 import Mtee
+import "components"
 import "views"
 
+// Frameless MTEE window: title bar, activity bar, sidebar, editor groups,
+// right panel and the floating player island (PLAN.md §3, revision 2).
 Window {
     id: root
 
     objectName: "mteeWindow"
-    property var demoWorkspace: workspace
-    readonly property string currentScreen: workspace.screen
+    property var ws: workspace
+    readonly property bool maximized: visibility === Window.Maximized
+    readonly property bool compactSidebar: width < Theme.compactSidebarWidth
+    readonly property bool singleGroup: width < Theme.singleGroupWidth
+    readonly property bool islandVisible: ws.playingId.length > 0 && ws.islandEnabled && !ws.fullscreen
+    property int sidebarWidth: Theme.sidebarWidth
+    property int rightPanelWidth: Theme.rightPanelWidth
 
-    width: 1440
-    height: 900
+    // Reference size 1440 × 900, reduced to fit a smaller or scaled screen.
+    width: Math.max(minimumWidth, Math.min(1440, Screen.desktopAvailableWidth - 32))
+    height: Math.max(minimumHeight, Math.min(900, Screen.desktopAvailableHeight - 32))
     minimumWidth: 880
     minimumHeight: 600
     visible: true
-    title: "MTEE · " + workspace.scenarioName
-    color: Theme.background
+    flags: Qt.Window | Qt.FramelessWindowHint
+    title: "MTEE"
+    color: Theme.chrome
+
+    // Below the compact width the sidebar folds away; reopened, it overlays
+    // the editor until a click outside closes it.
+    onCompactSidebarChanged: if (compactSidebar) ws.setSidebarVisible(false)
+    Component.onCompleted: if (compactSidebar) ws.setSidebarVisible(false)
+
+    Timer {
+        interval: 250
+        repeat: true
+        running: root.ws.isPlaying
+        onTriggered: root.ws.tick(0.25)
+    }
+
+    TitleBar {
+        id: titleBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        window: root
+        workspace: root.ws
+        onSelectAllRequested: editor.selectAll()
+    }
 
     Item {
-        id: chrome
-        anchors.fill: parent
-        anchors.margins: Theme.spacing
+        id: body
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
 
-        Item {
-            id: topBar
+        ActivityBar {
+            id: activityBar
             anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: 46
-
-            Row {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.spacing
-
-                Text {
-                    text: "MTEE"
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 19
-                    font.letterSpacing: 1.8
-                }
-
-                Rectangle {
-                    width: 1
-                    height: 20
-                    color: Theme.border
-                }
-
-                Text {
-                    text: "Demo workspace"
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-            }
-
-            Row {
-                anchors.centerIn: parent
-                spacing: Theme.spacingSmall
-
-                ToolButton {
-                    text: "Browser"
-                    primary: root.currentScreen === "browser"
-                    onClicked: workspace.setScreen("browser")
-                }
-                ToolButton {
-                    text: "Listening"
-                    primary: root.currentScreen === "listening"
-                    onClicked: workspace.setScreen("listening")
-                }
-                ToolButton {
-                    text: "Convert"
-                    primary: root.currentScreen === "convert"
-                    onClicked: workspace.setScreen("convert")
-                }
-            }
-
-            Row {
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.spacingSmall
-
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: workspace.scenarioName
-                    color: Theme.accent
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                ToolButton {
-                    text: "Run sample task"
-                    onClicked: shell.startSampleJob()
-                }
-            }
-        }
-
-        Loader {
-            id: viewLoader
-            anchors.top: topBar.bottom
-            anchors.topMargin: Theme.spacing
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: bottomArea.top
-            anchors.bottomMargin: Theme.spacing
-            sourceComponent: root.currentScreen === "listening" ? listeningComponent
-                : root.currentScreen === "convert" ? convertComponent
-                : browserComponent
-        }
-
-        Component {
-            id: browserComponent
-            BrowserView { workspace: root.demoWorkspace }
-        }
-
-        Component {
-            id: listeningComponent
-            ListeningView { workspace: root.demoWorkspace }
-        }
-
-        Component {
-            id: convertComponent
-            ConvertView { workspace: root.demoWorkspace }
+            anchors.bottom: parent.bottom
+            workspace: root.ws
         }
 
         Item {
-            id: bottomArea
-            anchors.left: parent.left
-            anchors.right: parent.right
+            id: main
+            anchors.top: parent.top
             anchors.bottom: parent.bottom
-            height: root.currentScreen === "listening" ? 0 : 142
-            visible: height > 0
+            anchors.left: activityBar.right
+            anchors.leftMargin: sidebar.visible && !root.compactSidebar ? sidebar.width : 0
+            anchors.right: parent.right
+            anchors.rightMargin: rightPanel.visible ? rightPanel.width : 0
 
-            Panel {
-                id: taskPanel
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 62
-
-                SectionLabel {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.margins: Theme.spacing
-                    text: "Session tasks"
-                }
-
-                JobStrip {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.leftMargin: 130
-                    anchors.rightMargin: Theme.spacing
-                    anchors.topMargin: Theme.spacingSmall
-                    anchors.bottomMargin: Theme.spacingSmall
-                    model: jobsModel
-                    onCancelRequested: (jobId) => shell.cancelJob(jobId)
-                }
+            EditorArea {
+                id: editor
+                anchors.fill: parent
+                visible: !root.ws.fullscreen
+                workspace: root.ws
+                singleGroup: root.singleGroup
+                bottomInset: root.islandVisible ? Theme.islandHeight + 2 * Theme.islandMargin : 0
             }
 
-            PlayerBar {
-                id: player
-                anchors.left: parent.left
-                anchors.right: parent.right
+            FullscreenPlayer {
+                anchors.fill: parent
+                visible: root.ws.fullscreen
+                workspace: root.ws
+            }
+
+            PlayerIsland {
+                id: island
+                visible: root.islandVisible
                 anchors.bottom: parent.bottom
-                height: 72
-                trackTitle: "Carrier Wave"
-                trackArtist: "Loop Foundry"
-                onListeningViewRequested: workspace.setScreen("listening")
+                anchors.bottomMargin: Theme.islandMargin
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(Theme.islandMaxWidth, parent.width - 2 * Theme.islandMargin)
+                workspace: root.ws
             }
         }
+
+        MouseArea {
+            anchors.fill: main
+            visible: root.compactSidebar && sidebar.visible
+            onClicked: root.ws.setSidebarVisible(false)
+        }
+
+        SideBar {
+            id: sidebar
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: activityBar.right
+            width: root.sidebarWidth
+            visible: root.ws.sidebarVisible && !root.ws.fullscreen
+            workspace: root.ws
+            onResizeRequested: (delta) => root.sidebarWidth = Math.max(180, Math.min(420, root.sidebarWidth + delta))
+        }
+
+        RightPanel {
+            id: rightPanel
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.right: parent.right
+            width: root.rightPanelWidth
+            visible: root.ws.rightPanelVisible && !root.ws.fullscreen
+            workspace: root.ws
+            bottomInset: 0
+            onResizeRequested: (delta) => root.rightPanelWidth = Math.max(260, Math.min(480, root.rightPanelWidth + delta))
+        }
+    }
+
+    // One pixel frame so the window stays distinct from what lies behind it.
+    Rectangle {
+        anchors.fill: parent
+        color: "transparent"
+        border.width: root.maximized ? 0 : 1
+        border.color: Theme.separator
+        z: 100
+    }
+
+    // Resize handles when the platform does not give native edges.
+    Repeater {
+        model: windowFrame.native || root.maximized ? [] : [
+            { "edges": Qt.LeftEdge, "x": 0, "y": 6, "w": 6, "h": -12, "cursor": Qt.SizeHorCursor },
+            { "edges": Qt.RightEdge, "x": -6, "y": 6, "w": 6, "h": -12, "cursor": Qt.SizeHorCursor },
+            { "edges": Qt.TopEdge, "x": 6, "y": 0, "w": -12, "h": 4, "cursor": Qt.SizeVerCursor },
+            { "edges": Qt.BottomEdge, "x": 6, "y": -6, "w": -12, "h": 6, "cursor": Qt.SizeVerCursor },
+            { "edges": Qt.BottomEdge | Qt.RightEdge, "x": -8, "y": -8, "w": 8, "h": 8, "cursor": Qt.SizeFDiagCursor },
+            { "edges": Qt.BottomEdge | Qt.LeftEdge, "x": 0, "y": -8, "w": 8, "h": 8, "cursor": Qt.SizeBDiagCursor }
+        ]
+
+        delegate: MouseArea {
+            required property var modelData
+            z: 101
+            x: modelData.x < 0 ? root.width + modelData.x : modelData.x
+            y: modelData.y < 0 ? root.height + modelData.y : modelData.y
+            width: modelData.w <= 0 ? root.width + modelData.w : modelData.w
+            height: modelData.h <= 0 ? root.height + modelData.h : modelData.h
+            cursorShape: modelData.cursor
+            onPressed: root.startSystemResize(modelData.edges)
+        }
+    }
+
+    Shortcut { sequence: "Space"; onActivated: root.ws.togglePlay() }
+    Shortcut { sequence: "Ctrl+I"; onActivated: root.ws.toggleRightPanel("info") }
+    Shortcut { sequence: "Ctrl+B"; onActivated: root.ws.toggleSidebar() }
+    Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.ws.setActivity("explorer") }
+    Shortcut { sequence: "Ctrl+\\"; onActivated: root.ws.toggleSplit() }
+    Shortcut { sequence: "Ctrl+,"; onActivated: root.ws.openSettings() }
+    Shortcut { sequence: "Ctrl+Right"; onActivated: root.ws.next() }
+    Shortcut { sequence: "Ctrl+Left"; onActivated: root.ws.previous() }
+    Shortcut { sequence: "Ctrl+Z"; onActivated: root.ws.undoSave() }
+    Shortcut { sequence: "F11"; onActivated: root.ws.setFullscreen(!root.ws.fullscreen) }
+    Shortcut {
+        sequence: "Esc"
+        enabled: root.ws.fullscreen
+        onActivated: root.ws.setFullscreen(false)
     }
 }

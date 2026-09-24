@@ -1,81 +1,107 @@
 import QtQuick
+import QtQuick.Controls.Basic
 import Mtee
 
-Panel {
-    id: explorer
+// Folder tree: a click on a folder opens it in a tab, a click on a file selects
+// it, a double click plays it. The folder of the active tab is highlighted.
+Item {
+    id: pane
 
-    property var roots: []
-    signal folderSelected(string folder)
+    required property var workspace
 
-    SectionLabel {
-        id: heading
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.margins: Theme.spacing
-        text: "Folders"
-    }
+    objectName: "explorerPane"
 
-    Text {
-        id: hint
-        anchors.top: heading.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.margins: Theme.spacing
-        text: "Your collection"
-        color: Theme.textPrimary
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeBody
+    PaneHeader {
+        id: header
+        width: parent.width
+        title: "Explorer"
+
+        IconButton {
+            icon: "plus"
+            iconSize: 16
+            width: 26
+            height: 26
+            tip: "Add folder"
+        }
     }
 
     ListView {
         id: tree
-        anchors.top: hint.bottom
-        anchors.topMargin: Theme.spacing
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: addFolder.top
-        anchors.bottomMargin: Theme.spacing
-        clip: true
-        model: explorer.roots
-        boundsBehavior: Flickable.StopAtBounds
-
-        delegate: Rectangle {
-            id: node
-            required property var modelData
-            width: tree.width
-            height: Theme.rowHeight
-            radius: Theme.controlRadius
-            color: nodeHover.hovered ? Theme.hover : "transparent"
-
-            Text {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Theme.spacing + node.modelData.depth * Theme.spacing
-                anchors.rightMargin: Theme.spacing
-                text: (node.modelData.depth > 0 ? "▸  " : "▾  ") + node.modelData.name
-                color: node.modelData.depth === 0 ? Theme.textPrimary : Theme.textSecondary
-                elide: Text.ElideRight
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeBody
-            }
-
-            HoverHandler { id: nodeHover }
-            MouseArea {
-                anchors.fill: parent
-                onClicked: explorer.folderSelected(node.modelData.name)
-            }
-        }
-    }
-
-    ToolButton {
-        id: addFolder
+        anchors.top: header.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: Theme.spacing
-        text: "Add folder"
-        enabledAction: false
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        model: pane.workspace.explorerRows
+        ScrollBar.vertical: ThinScrollBar {}
+
+        delegate: Rectangle {
+            id: row
+
+            required property var modelData
+            readonly property bool isFolder: modelData.kind === "folder"
+            readonly property bool activeFolder: isFolder && pane.workspace.activeFolder === modelData.id
+            readonly property bool selected: !isFolder && pane.workspace.selectedIds.indexOf(modelData.id) >= 0
+            readonly property bool playing: !isFolder && pane.workspace.playingId === modelData.id
+
+            width: tree.width
+            height: Theme.treeRowHeight
+            color: selected ? Theme.selection : rowMouse.containsMouse ? Theme.surface : "transparent"
+
+            Icon {
+                id: chevron
+                x: 8 + row.modelData.depth * 14
+                anchors.verticalCenter: parent.verticalCenter
+                visible: row.isFolder && row.modelData.hasChildren
+                name: row.modelData.expanded ? "chevron-down" : "chevron-right"
+                size: 16
+                color: Theme.textSecondary
+            }
+
+            Text {
+                anchors.left: chevron.right
+                anchors.leftMargin: row.isFolder ? 4 : 6
+                anchors.right: parent.right
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                text: row.modelData.name
+                elide: Text.ElideRight
+                color: row.activeFolder || row.playing ? Theme.primary
+                    : row.isFolder ? Theme.textPrimary : Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSecondary
+                font.weight: row.modelData.depth === 0 ? Font.DemiBold : Font.Normal
+            }
+
+            MouseArea {
+                id: rowMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton
+                onClicked: (event) => {
+                    if (row.isFolder) {
+                        const onChevron = event.x < chevron.x + chevron.width + 2
+                        if (onChevron || row.modelData.depth === 0) {
+                            pane.workspace.toggleFolder(row.modelData.id)
+                        } else {
+                            if (!row.modelData.expanded)
+                                pane.workspace.toggleFolder(row.modelData.id)
+                            pane.workspace.openFolder(row.modelData.id)
+                        }
+                    } else {
+                        const track = pane.workspace.track(row.modelData.id)
+                        pane.workspace.openFolder(track.folder)
+                        pane.workspace.selectTrack(row.modelData.id, "single", [])
+                    }
+                }
+                onDoubleClicked: {
+                    if (!row.isFolder) {
+                        const track = pane.workspace.track(row.modelData.id)
+                        pane.workspace.playTrack(row.modelData.id, "folder:" + track.folder)
+                    }
+                }
+            }
+        }
     }
 }
