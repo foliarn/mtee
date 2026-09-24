@@ -198,6 +198,10 @@ class MpvBackend:
             self._lib.mpv_wakeup(self._ctx)
         if self._event_thread.is_alive():
             self._event_thread.join(timeout=2.0)
+        if self._event_thread.is_alive():
+            # The event loop still dereferences both the context and the DLL.
+            # Retain them rather than freeing native state under a live thread.
+            raise PlayerBackendError("The libmpv event thread did not stop before shutdown.")
         if self._ctx:
             self._lib.mpv_terminate_destroy(self._ctx)
             self._ctx = None

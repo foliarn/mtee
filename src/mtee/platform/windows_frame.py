@@ -225,6 +225,18 @@ class WindowFrame(QObject):
         self._native = True
         self.nativeChanged.emit()
 
+    def detach(self) -> None:
+        """Remove the application filter while the Qt window is still alive."""
+        native_filter, self._filter = self._filter, None
+        app = QCoreApplication.instance()
+        if app is not None and native_filter is not None:
+            app.removeNativeEventFilter(native_filter)
+        self._window = None
+        self._hwnd = 0
+        self._native = False
+        self._set_maximize_hovered(False)
+        self._set_maximize_pressed(False)
+
     def _set_square_corners(self) -> None:
         try:
             preference = ctypes.c_int(_DWMWCP_DONOTROUND)

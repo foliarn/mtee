@@ -27,6 +27,7 @@ class AppOptions:
     demo: bool = False
     smoke_test: bool = False
     scenario: str = DEFAULT_SCENARIO
+    diagnostic_no_native_frame: bool = False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SCENARIO,
         help="Open a deterministic demo review scenario.",
     )
+    parser.add_argument(
+        "--diagnostic-no-native-frame",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 
@@ -69,4 +75,5 @@ def parse_arguments(argv: Sequence[str] | None = None) -> AppOptions:
         demo=bool(parsed.demo),
         smoke_test=bool(parsed.smoke_test),
         scenario=str(parsed.scenario),
+        diagnostic_no_native_frame=bool(parsed.diagnostic_no_native_frame),
     )
