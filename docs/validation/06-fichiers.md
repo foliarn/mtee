@@ -56,8 +56,13 @@ définitive comme solution de repli.
   morceau.
 - Le scénario de destination publiée puis base périmée ferme et rouvre SQLite ;
   l'inspection à froid retrouve l'opération et la destination sans modifier le
-  chemin encore enregistré du morceau. Cela vérifie la détection après
-  redémarrage, pas une résolution automatique.
+  chemin encore enregistré du morceau. Si seule la destination demeure, une
+  action explicite revalide source absente, racine, taille, SHA-256 et lisibilité
+  avant de rattacher le UUID à cet emplacement. Une destination altérée après
+  inspection et une situation avec les deux copies sont refusées sans changer
+  le chemin de bibliothèque. Le scanner réserve aussi les destinations des
+  opérations préparées ou incomplètes, pour ne pas créer un deuxième UUID avant
+  la résolution.
 - Undo est une opération inverse journalisée. Il refuse le fichier déplacé
   modifié ou un ancien chemin désormais occupé. Le dernier Undo disponible est
   retrouvé depuis le journal au démarrage.
@@ -79,10 +84,10 @@ définitive comme solution de repli.
 | `uv run ruff check .` | Réussi. |
 | `uv run ruff format --check .` | Réussi ; 132 fichiers formatés. |
 | `uv run pyright` | 0 erreur, 0 avertissement. |
-| `pytest tests/unit tests/integration -m "not native_audio"` | 131 réussis, 2 ignorés (liens symboliques non disponibles), 1 désélectionné (audio natif). Inclut le parcours de copie intervolume forcé sur C:. |
+| `pytest tests/unit tests/integration -m "not native_audio"` | 132 réussis, 2 ignorés (liens symboliques non disponibles), 1 désélectionné (audio natif). Inclut le parcours de copie intervolume forcé sur C: et les résolutions de reprise permises. |
 | UI, chaque fichier exécuté séparément | 29 réussis : file actions (2), smoke (6), démonstration (16), navigation navigateur (1), éditeur de métadonnées (2), vues du lecteur (2). |
-| `pwsh -NoProfile -File scripts/build_windows.ps1` | Réussi sur Windows 11 avec PyInstaller 6.22.2 ; `dist/MTEE/MTEE.exe` fait 2,25 MB. |
-| Smoke de `dist/MTEE/MTEE.exe` avec `--data-dir .local/validation/06-package-final --smoke-test` | Code de sortie 0 ; la base isolée est au schéma 6 et `file_operations` contient la colonne `phase`. Le paquet contient `FileOperationDialog.qml`. |
+| `pwsh -NoProfile -File scripts/build_windows.ps1` | Réussi sur Windows 11 avec PyInstaller 6.22.2 ; `dist/MTEE/MTEE.exe` fait 2,26 MB. |
+| Smoke de `dist/MTEE/MTEE.exe` avec `--data-dir .local/validation/06-recovery-package-final --smoke-test` | Code de sortie 0 ; la base isolée est au schéma 6 et `file_operations` contient la colonne `phase`. Le paquet contient `FileOperationDialog.qml` et l'action de reprise. |
 | Tous les fichiers `tests/ui` dans un seul processus Pytest | Bloqués après le premier test pendant plus de 60 secondes ; processus interrompu. Les fichiers UI passent séparément. |
 
 Les vérifications UI sont automatisées/offscreen. Une tentative de recette
@@ -106,6 +111,11 @@ a été rétabli par copie et son SHA-256 correspondait à la sauvegarde.
   distincts ; il reste à vérifier cette capacité sur un volume de recette,
   notamment déconnexion, manque d'espace, permissions, reprise après
   redémarrage et attributs non pris en charge.
+- Reprise : l'action explicite « Use verified destination » ne s'active que si
+  la source est absente et la destination correspond à l'empreinte prévue. Les
+  situations source seule, deux copies, temporaire, destination modifiée et
+  opérations Undo interrompues restent visibles pour inspection manuelle ; le
+  produit ne supprime aucune copie pour les résoudre.
 - Corbeille : un appel `IFileOperation` a été essayé en STA avec
   `FOFX_RECYCLEONDELETE`, sans binding ajouté au produit. Malgré le succès
   HRESULT et l'absence d'abandon, la copie a quitté son chemin et aucune entrée

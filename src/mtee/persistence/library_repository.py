@@ -100,6 +100,13 @@ class LibraryRepository:
                 raise KeyError(f"Unknown library root: {root_id}")
             if int(root["scan_generation"]) != scan_generation:
                 return [""] * len(entries)
+            reserved_destinations = {
+                normalize_path(Path(str(row[0])))
+                for row in connection.execute(
+                    "SELECT destination_path FROM file_operations "
+                    "WHERE status IN ('prepared','needs_recovery')"
+                )
+            }
             identities: list[str] = []
             for relative_path, path, revision, metadata in entries:
                 source = Path(path).resolve(strict=False)
@@ -112,6 +119,9 @@ class LibraryRepository:
                     identities.append("")
                     continue
                 key = normalize_path(source)
+                if key in reserved_destinations:
+                    identities.append("")
+                    continue
                 encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
                 existing = connection.execute(
                     "SELECT * FROM track_locations WHERE path_key = ?", (key,)

@@ -146,6 +146,58 @@ class FileOperationRepository:
                         "The move selected for Undo was already changed or undone."
                     )
 
+    def complete_recovery_from_destination(
+        self,
+        *,
+        operation_id: str,
+        track_id: str,
+        expected_revision: SourceRevision,
+        destination: Path,
+        result_revision: SourceRevision,
+        metadata: MetadataSnapshot,
+    ) -> None:
+        """Record an explicitly confirmed, verified destination-only recovery."""
+        with self._database.transaction() as connection:
+            operation = connection.execute(
+                "SELECT status,undo_of FROM file_operations WHERE operation_id=? AND track_id=?",
+                (operation_id, track_id),
+            ).fetchone()
+            if (
+                operation is None
+                or operation["status"] != "needs_recovery"
+                or operation["undo_of"] is not None
+            ):
+                raise FileOperationJournalConflictError(
+                    "This file operation is no longer eligible for destination recovery."
+                )
+            self._library.move_location_in_transaction(
+                connection,
+                track_id=track_id,
+                expected_revision=expected_revision,
+                destination=destination,
+                new_revision=result_revision,
+                metadata=metadata,
+            )
+            completed = connection.execute(
+                "UPDATE file_operations SET status='completed',phase='completed',error='',"
+                "recovery_path=NULL,result_size_bytes=?,result_mtime_ns=?,result_file_id=?,"
+                "result_generation=?,updated_at_utc=? WHERE operation_id=? "
+                "AND track_id=? AND status='needs_recovery' AND undo_of IS NULL",
+                (
+                    result_revision.size_bytes,
+                    result_revision.mtime_ns,
+                    result_revision.file_id,
+                    result_revision.generation,
+                    now_utc(),
+                    operation_id,
+                    track_id,
+                ),
+            ).rowcount
+            if completed != 1:
+                raise FileOperationJournalConflictError(
+                    "The recovery journal changed before it could be finalized."
+                )
+
     def get(self, operation_id: str) -> dict[str, Any] | None:
         row = (
             self._database.connection()

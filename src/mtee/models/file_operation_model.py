@@ -23,6 +23,7 @@ class FileOperationModel(QObject):
     dialogRequested = Signal()
     operationFinished = Signal()
     recoveryChecked = Signal(object)
+    recoveryResolved = Signal(object)
     undoableChecked = Signal(str)
 
     def __init__(
@@ -52,6 +53,7 @@ class FileOperationModel(QObject):
         self._can_cancel = False
         self.batchFinished.connect(self._on_batch_finished)
         self.recoveryChecked.connect(self._on_recovery_checked)
+        self.recoveryResolved.connect(self._on_recovery_resolved)
         self.undoableChecked.connect(self._on_undoable_checked)
         self._jobs.jobUpdated.connect(self._on_job_updated)
         if player is not None:
@@ -271,6 +273,24 @@ class FileOperationModel(QObject):
     def refreshRecovery(self) -> None:
         self._jobs.submit(self._inspect_recovery, label="Inspect file operation recovery")
 
+    @Slot(str)
+    def completeRecoveryToDestination(self, operation_id: str) -> None:
+        """Explicitly adopt a verified destination-only recovery."""
+        if self._state == "running" or not any(
+            item.get("operationId") == operation_id and item.get("canCompleteDestination")
+            for item in self._recovery
+        ):
+            return
+        self._state = "running"
+        self._message = "Rechecking the verified destination…"
+        self.changed.emit()
+
+        def task(_context: JobContext) -> None:
+            result = self._service.complete_recovery_to_destination(operation_id)
+            self.recoveryResolved.emit(result)
+
+        self._active_job_id = self._jobs.submit(task, label="Complete verified file recovery")
+
     def _refresh_preview(self) -> None:
         self._preview = self._service.preview(
             self._current_kind(), self._track_ids, self._preview_target
@@ -294,6 +314,10 @@ class FileOperationModel(QObject):
                     "recoveryPath": str(operation.get("recovery_path", "") or ""),
                     "situation": str(operation.get("recovery_situation", "inspect_paths")),
                     "error": str(operation.get("error", "")),
+                    "canCompleteDestination": (
+                        operation.get("recovery_situation") == "destination_present"
+                        and operation.get("undo_of") is None
+                    ),
                 }
                 for operation in operations
             ]
@@ -314,6 +338,38 @@ class FileOperationModel(QObject):
         if isinstance(operations, list):
             self._recovery = [item for item in operations if isinstance(item, dict)]
         self.changed.emit()
+
+    @Slot(object)
+    def _on_recovery_resolved(self, value: object) -> None:
+        if not isinstance(value, FileOperationResult):
+            return
+        self._active_job_id = None
+        self._can_cancel = False
+        self._state = "result" if value.status == "completed" else "recovery"
+        self._message = value.message
+        if (
+            value.status == "completed"
+            and value.operation_id
+            and value.operation_id not in self._undo_ids
+        ):
+            self._undo_ids.append(value.operation_id)
+        if value.track_id:
+            self._results = [
+                item for item in self._results if item.get("trackId") != value.track_id
+            ]
+            self._results.append(
+                {
+                    "trackId": value.track_id,
+                    "operationId": value.operation_id,
+                    "status": value.status,
+                    "message": value.message,
+                    "source": str(value.source or ""),
+                    "destination": str(value.destination or ""),
+                }
+            )
+        self.operationFinished.emit()
+        self.changed.emit()
+        self.refreshRecovery()
 
     @Slot(str)
     def _on_undoable_checked(self, operation_id: str) -> None:

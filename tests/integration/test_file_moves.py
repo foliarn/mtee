@@ -259,6 +259,12 @@ def test_source_removal_failure_retains_both_copies_for_recovery(library_case) -
     assert journal["status"] == "needs_recovery"
     assert journal["phase"] == "destination_published"
     assert service.incomplete_operations()[0]["recovery_situation"] == "both_copies_present"
+
+    unresolved = service.complete_recovery_to_destination(result.operation_id)
+
+    assert unresolved.status == "conflict"
+    assert library.source_record(track_id).path == source
+    assert source.is_file() and destination.is_file()
     database.close()
 
 
