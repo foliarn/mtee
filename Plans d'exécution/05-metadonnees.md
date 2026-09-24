@@ -21,7 +21,7 @@ Les tags inconnus, les pochettes et les champs non modifiés sont conservés. Le
 - [x] (2026-09-24) Relier sauvegarde au commit, sélection capturée, Undo vérifié et états d'erreur à l'inspecteur et au lecteur plein écran.
 - [x] (2026-09-24) Construire le paquet Windows et exécuter son smoke test avec une base isolée ; l'édition interactive et le test complet combiné restent ouverts.
 - [ ] Compléter les essais de permissions, panne réelle et interaction manuelle ; les limites connues sont listées dans le rapport.
-- [ ] Actualiser les preuves et journaux, créer le commit puis vérifier son push.
+- [x] (2026-09-24) Actualiser les preuves ; commit `b743295` poussé sur `origin/main`, hash distant confirmé `b74329569168dba1b5bb224ccf055acf9f3eebe6`.
 
 ## Surprises & Discoveries
 
@@ -47,7 +47,7 @@ Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; les
 ## Outcomes & Retrospective
 
 
-Implémentation du sous-ensemble vérifié livrée ; voir [rapport de validation 05](../docs/validation/05-metadonnees.md) et [matrice des métadonnées](../docs/metadata-mapping.md). Les essais couvrent sauvegarde, suppression explicite, préservation de tags et d'audio, conflit, verrou du lecteur, Undo après réouverture, sauvegarde de migration et panne injectée après remplacement. L'ensemble hors test natif passe séparément ; le test natif passe seul, mais sa combinaison avec les tests UI bloque encore dans la suite complète. Le build Windows et son smoke test isolé ont réussi ; la recette interactive de l'édition ne l'a pas été. Les permissions, la panne matérielle et une procédure de résolution des états `needs_recovery` restent ouvertes ; cette étape n'est pas déclarée entièrement acceptée.
+Implémentation du sous-ensemble vérifié livrée dans `b74329569168dba1b5bb224ccf055acf9f3eebe6` sur `origin/main` ; voir [rapport de validation 05](../docs/validation/05-metadonnees.md) et [matrice des métadonnées](../docs/metadata-mapping.md). Les essais couvrent sauvegarde, suppression explicite, préservation de tags et d'audio, conflit, verrou du lecteur, Undo après réouverture, sauvegarde de migration et panne injectée après remplacement. L'ensemble hors test natif passe séparément ; le test natif passe seul, mais sa combinaison avec les tests UI bloque encore dans la suite complète. Le build Windows et son smoke test isolé ont réussi ; la recette interactive de l'édition ne l'a pas été. Les permissions, la panne matérielle et une procédure de résolution des états `needs_recovery` restent ouvertes ; cette étape n'est pas déclarée entièrement acceptée.
 
 ## Contexte et prérequis
 
