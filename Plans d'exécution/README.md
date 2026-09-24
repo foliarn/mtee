@@ -8,7 +8,7 @@ La numérotation sépare la préparation technique, la revue des maquettes et ch
 |---|---|---|
 | [00 — Initialiser Git](00-git-et-gouvernance.md) | Demande utilisateur | Dépôt, règles, plans, commit et push initiaux |
 | [01 — Préparer le socle](01-socle-technique.md) | §1, §4.0, étude précoce §2 | Environnement, fenêtre QML, persistance, tâches, distribution Windows ; après 00 |
-| [02 — Valider les maquettes](02-maquettes-ux.md) | §3, jalon distinct | Interface révisée le 2026-09-24 : barre d'activités, onglets, listes Spotify, îlot, Fullscreen player, Convert ; après 01, avant fonctions |
+| [02 — Valider les maquettes](02-maquettes-ux.md) | §3, jalon distinct | Interface révisée et validée le 2026-09-24 : barre d'activités, onglets, listes Spotify, îlot, Fullscreen player, Convert ; après 01, avant fonctions |
 | [03 — Explorer les dossiers](03-explorateur.md) | A, §4.1 | Arborescence, onglets, deux panneaux, Table/Artwork et tags lus ; après 02 |
 | [04 — Lire les morceaux](04-lecteur.md) | B, §4.2 | libmpv, file stable, îlot de lecture et Fullscreen player ; après 03 |
 | [05 — Éditer les métadonnées](05-metadonnees.md) | B, §4.3 | Sauvegarde par champ, multisélection, annulation et conflits ; après 04 |

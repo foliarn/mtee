@@ -2,7 +2,8 @@
 
 ## Révision 2 — 24 septembre 2026
 
-État : prototype révisé selon l'esquisse utilisateur, revue 2 à obtenir. Les
+État : prototype révisé selon l'esquisse utilisateur, validé par
+l'utilisateur en revue 2 le 24 septembre 2026. Les
 sections suivantes, de « Environnement » à « Limites », décrivent le premier
 prototype du 22 septembre, refusé en revue 1.
 

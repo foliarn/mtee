@@ -1,7 +1,7 @@
 # Revue UX — étape 02
 
 État au 24 septembre 2026 : première revue obtenue, prototype à refaire selon
-l'esquisse de l'utilisateur ; seconde revue en attente.
+l'esquisse de l'utilisateur ; revue 2 validée le 24 septembre 2026.
 
 Cette page sert de support à la revue des maquettes de MTEE. Les contenus
 sont fictifs et le mode démo ne lit ni n'écrit aucun fichier audio. Chaque
@@ -131,4 +131,18 @@ Prochaine revue : revue 2, sur le prototype révisé ci-dessus.
 
 ### Revue 2
 
-Décision utilisateur : _en attente_.
+Décision utilisateur : **prototype révisé validé sans modification**
+(24 septembre 2026). L'utilisateur juge l'interface « parfaite » : fenêtre,
+barre d'activités, onglets, lignes de style Spotify, panneau Info / Queue,
+îlot de lecture, Fullscreen player, Convert, Tasks, Playlists, Settings et
+palette Acid sont acceptés tels que livrés dans le commit `b1ef93c`.
+
+Points à modifier : aucun.
+
+Réserve : la validation porte sur l'interface. Les essais à la main listés
+plus haut (Snap Layouts, ancrage, redimensionnement, échelles 100 % et
+125 %) n'ont pas été rapportés séparément ; ils seront reconfirmés pendant
+la recette de l'étape 03.
+
+Conséquence : le jalon 02 est validé ; l'étape 03 peut commencer en
+branchant ces composants sur les vrais modèles.

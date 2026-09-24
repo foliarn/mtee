@@ -229,6 +229,8 @@ La revue utilisateur doit notamment examiner :
 
 **La validation de ces maquettes constitue un jalon distinct.** Les ajustements visuels sont reportés dans la spécification avant l’implémentation fonctionnelle.
 
+Jalon validé le 24 septembre 2026 : l’utilisateur approuve sans modification le prototype révisé (revue 2, `docs/ux/review-02.md`). Il sert de référence visuelle aux étapes suivantes.
+
 ---
 
 ## 4. Développement, étape par étape

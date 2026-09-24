@@ -13,7 +13,7 @@ Ce plan vivant suit `PLANS.md` et couvre le jalon distinct de `PLAN.md` §3. Il 
 - [x] (2026-09-22) Produire Browser, Listening view, Convert et leurs états particuliers.
 - [x] (2026-09-22) Vérifier les dimensions Qt, le focus prévu par QML, les petites largeurs et reconstruire la distribution Windows du prototype.
 - [x] (2026-09-22) Préparer captures et parcours ; la revue utilisateur est prête mais pas encore recueillie.
-- [ ] Appliquer les retours et consigner la décision avant tout code fonctionnel.
+- [x] (2026-09-24) Appliquer les retours et consigner la décision avant tout code fonctionnel : revue 2 validée sans modification.
 - [x] (2026-09-22) Mettre à jour le suivi et préparer le commit intermédiaire ; le push reste à confirmer.
 - [x] (2026-09-24) Revue 1 obtenue : structure refusée, esquisse utilisateur analysée, décisions consignées dans `PLAN.md` §3, `docs/ux/specification.md` et `docs/ux/review-02.md`.
 - [x] (2026-09-24) Palette A — Acid choisie par l'utilisateur.
@@ -21,7 +21,7 @@ Ce plan vivant suit `PLANS.md` et couvre le jalon distinct de `PLAN.md` §3. Il 
 - [x] (2026-09-24) Jalon R2 — éditeur à onglets, listes de style Spotify, panneau Info/Queue.
 - [x] (2026-09-24) Jalon R3 — îlot de lecture et Fullscreen player.
 - [x] (2026-09-24) Jalon R4 — Convert, Tasks, Playlists, Settings, Plugins et Profile réservés.
-- [x] (2026-09-24) Jalon R5 — scénarios, captures et distribution Windows ; revue 2 prête, décision utilisateur en attente.
+- [x] (2026-09-24) Jalon R5 — scénarios, captures et distribution Windows ; revue 2 validée par l'utilisateur.
 
 ## Surprises & Discoveries
 
@@ -67,7 +67,7 @@ Résultat de la revue 1, 24 septembre 2026 : la structure du prototype est refus
 
 Note de révision — 2026-09-24, Claude : intégration de l'esquisse utilisateur, nouveaux jalons R1 à R5, nouveaux scénarios et critères.
 
-Résultat de la révision, 24 septembre 2026 : R1 à R5 réalisés. Douze scénarios, fenêtre sans cadre native sous Windows, 109 tests passants, ruff et Pyright propres, distribution Windows reconstruite et scénarios packagés quittant avec le code 0. Preuves dans `docs/validation/02-maquettes-ux.md`, captures dans `docs/ux/screenshots/`, parcours dans `docs/ux/review-02.md`. Distribution reconstruite après le dernier ajustement QML : les douze scénarios packagés quittent avec le code 0. La revue 2 reste à obtenir ; l'étape 03 ne commence pas avant sa décision.
+Résultat de la révision, 24 septembre 2026 : R1 à R5 réalisés. Douze scénarios, fenêtre sans cadre native sous Windows, 109 tests passants, ruff et Pyright propres, distribution Windows reconstruite et scénarios packagés quittant avec le code 0. Preuves dans `docs/validation/02-maquettes-ux.md`, captures dans `docs/ux/screenshots/`, parcours dans `docs/ux/review-02.md`. Distribution reconstruite après le dernier ajustement QML : les douze scénarios packagés quittent avec le code 0. Revue 2 obtenue le 24 septembre 2026 : l'utilisateur valide le prototype révisé sans modification (`docs/ux/review-02.md`). Le jalon 02 est validé et l'étape 03 peut commencer ; l'utilisateur la reprendra ultérieurement. Les essais manuels de fenêtre (Snap Layouts, ancrage, redimensionnement) et les échelles 100 % / 125 % restent à reconfirmer pendant la recette de l'étape 03.
 
 ## Contexte et prérequis
 
