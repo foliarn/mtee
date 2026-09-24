@@ -48,6 +48,9 @@ AppMenu {
 
     AppMenuSeparator {}
 
-    AppMenuItem { text: "Rename…"; hint: "F2"; enabled: false }
-    AppMenuItem { text: "Move to trash"; hint: "Del"; enabled: false }
+    FileActionsMenu {
+        workspace: menu.workspace
+        trackIds: menu.trackIds
+        trackId: menu.trackId
+    }
 }

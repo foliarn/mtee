@@ -87,6 +87,26 @@ Aucun exécutable `ffmpeg` ou `ffprobe` n'est ajouté à MTEE ou au paquet
 Windows. Le décodeur statiquement lié à libmpv fait partie du runtime du
 lecteur décrit ci-dessus et ne constitue pas un processus externe.
 
+## Renommage et déplacement Windows
+
+Le renommage et les déplacements sur un même volume passent par
+`MoveFileW`, appelé directement via `ctypes` dans
+`src/mtee/services/platform/windows_file_ops.py`. La documentation Microsoft
+précise que le nom de destination ne doit pas déjà exister ; MTEE revalide
+l'absence de collision avant l'appel et l'API native refuse elle-même une
+destination occupée. Les déplacements entre volumes restent bloqués jusqu'à
+la validation séparée de leur copie, de leur empreinte et de leur reprise.
+
+Cette livraison n'ajoute aucun binding COM. `IFileOperation` n'est pas
+instanciée : Microsoft indique que cette interface doit s'exécuter dans un
+appartement monothread (STA), et aucun test de corbeille/restauration réelle
+n'a pu être fait sur ce poste. Le raccourci Delete ne déclenche donc pas une
+suppression ; il ouvre une explication et la commande reste indisponible. Il
+n'existe aucun repli vers une suppression définitive. Voir la [documentation
+de MoveFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefilew),
+la [documentation de IFileOperation](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifileoperation)
+et le rapport de [validation du plan 06](validation/06-fichiers.md).
+
 ## Autres dépendances natives
 
 PySide6 fournit Qt et ses greffons ; le build PyInstaller reste en mode

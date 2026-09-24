@@ -1,7 +1,7 @@
 # 06 — Renommage, déplacement et corbeille — livraison C
 
 
-Ce plan vivant suit [PLANS.md](../PLANS.md) et traduit `PLAN.md`, §4.4 et les règles de navigation du §3. Préparé le 2026-09-10 ; aucune opération physique ni validation Windows n'est déclarée réalisée.
+Ce plan vivant suit [PLANS.md](../PLANS.md) et traduit `PLAN.md`, §4.4 et les règles de navigation du §3. Préparé le 2026-09-10. Le 2026-09-24, une première tranche sur un seul volume Windows a été implémentée et vérifiée par tests automatisés et paquet isolé. La corbeille et l'intervolume restent hors livraison tant que leurs essais natifs ne sont pas possibles.
 
 ## Objectif et résultat observable
 
@@ -15,19 +15,23 @@ Les opérations s'effectuent hors thread UI avec état, progression et résultat
 ## Progress
 
 
-- [x] (2026-09-10) Plan préparé ; implémentation et tests physiques à effectuer.
-- [ ] Vérifier les UUID, révisions, accès exclusifs et journaux des étapes précédentes.
-- [ ] Définir et tester les adaptateurs Windows sans écrasement ni suppression de repli.
-- [ ] Implémenter prévisualisation, renommage et déplacement avec journal de reprise.
-- [ ] Relier menus, raccourcis, déplacement entre panneaux et mise à la corbeille.
-- [ ] Maintenir les références et permettre l'annulation lorsque possible.
-- [ ] Exécuter les tests d'incidents, la recette sur copies et le paquet Windows.
-- [ ] Mettre à jour les preuves, committer la livraison puis confirmer le push.
+- [x] (2026-09-10) Plan préparé ; implémentation et essais restaient à effectuer.
+- [x] (2026-09-24) Vérifier UUID, révisions, accès exclusifs et journaux du plan 05 ; le déplacement conserve l'UUID et utilise `FileAccessCoordinator`.
+- [x] (2026-09-24) Définir et tester l'adaptateur Windows sans écrasement : `MoveFileW` sur le même volume, sans repli de suppression.
+- [x] (2026-09-24) Implémenter l'aperçu, Rename, le déplacement sur un volume et son journal de reprise.
+- [ ] (2026-09-24) Relier Rename/Move aux menus et raccourcis ; Delete n'ouvre qu'une explication, la corbeille reste désactivée. Déplacement entre panneaux et glisser-déposer non implémentés.
+- [x] (2026-09-24) Maintenir les références et permettre Undo lorsque la destination est inchangée et l'ancien chemin libre.
+- [ ] (2026-09-24) Tests automatisés, copie isolée et paquet Windows vérifiés ; recette manuelle, second volume et corbeille native restent à faire.
+- [ ] Mettre à jour les preuves, committer la tranche puis confirmer le push.
 
 ## Surprises & Discoveries
 
 
-Aucun résultat à ce stade. Consigner les particularités des volumes NTFS et supports d'essai, noms réservés Windows, changements de casse, chemins longs, fichiers occupés par mpv et résultats de l'API de corbeille. Chaque note doit donner l'opération, le volume, l'erreur native et la conséquence réellement constatée.
+- 2026-09-24 — Les tests s'exécutent sous Windows 11 sur des fichiers WAV temporaires. C: est accessible, mais l'environnement restreint n'a pas permis de lire le type du volume ; aucun second volume n'est disponible pour cette recette. Le rapport ne conclut donc pas sur NTFS ni sur les déplacements intervolumes.
+- 2026-09-24 — La documentation Microsoft de `MoveFileW` exige un nouveau nom libre. Le test Windows de collision après l'aperçu conserve le contenu créé par un autre processus ; le renommage où seule la casse change passe par un nom temporaire unique.
+- 2026-09-24 — Une panne injectée après le déplacement natif laisse le chemin de destination et l'ancien enregistrement SQLite visibles comme NeedsRecovery. L'Undo vérifie la révision et l'empreinte avant le retour.
+- 2026-09-24 — Les tests UI passent fichier par fichier, mais l'ensemble `tests/ui` dans un seul processus s'est arrêté après le premier test pendant plus de 60 secondes. Il a été interrompu ; ce résultat n'est pas un succès de suite complète.
+- 2026-09-24 — `IFileOperation` n'a pas été appelée. La documentation Microsoft indique son exigence STA ; aucune restauration depuis la corbeille n'a été observée, donc la commande demeure indisponible.
 
 ## Decision Log
 
@@ -39,11 +43,17 @@ Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; tou
 - 2026-09-10 — Garantir l'absence d'écrasement dans l'opération native, au-delà d'un simple test préalable d'existence. Motif : une autre application peut créer le même nom entre la prévisualisation et l'exécution.
 - 2026-09-10 — Utiliser un journal durable par fichier pour les mouvements, notamment entre volumes. Motif : une opération disque et une transaction SQLite ne peuvent pas constituer une transaction atomique commune.
 - 2026-09-10 — Exposer une capacité de corbeille stricte, vérifiée sur Windows. Motif : une bibliothèque qui efface définitivement lorsque le recyclage échoue ne satisfait pas `PLAN.md`.
+- 2026-09-24 — Livrer Rename et Move sur le seul volume accessible, avec `MoveFileW` et aucun binding supplémentaire. Motif : l'API refuse la destination déjà existante et le protocole couvre les déplacements atomiques sur le même volume ; la preuve intervolume manque.
+- 2026-09-24 — Laisser Move to trash indisponible et ne pas introduire `IFileOperation` sans essai réel de recyclage et de restauration. Motif : l'exécution STA et le résultat par fichier ne sont pas démontrés dans ce poste.
+- 2026-09-24 — Raccorder `FileActionsMenu` au menu contextuel de la liste et charger le dialogue depuis `Main.qml`, plutôt que de modifier `EditorArea.qml`. Motif : les actions appartiennent aux morceaux sélectionnés dans `TrackListView` et les raccourcis sont gérés à la fenêtre ; l'aperçu conserve une liste d'UUID immuable.
+- 2026-09-24 — Vérifier l'existence et la révision d'un fichier à l'écriture du lot de scan. Motif : un lot ancien qui arrive après Move ne doit pas recréer l'ancien chemin comme un nouvel UUID.
 
 ## Outcomes & Retrospective
 
 
-À compléter avec opérations disponibles, comportement des volumes réellement testés, scénarios d'annulation, cohérence des UUID et limites de la corbeille. Distinguer une opération annulée avant modification, un déplacement inversé et une restauration depuis la corbeille : ce sont des capacités différentes.
+La tranche livrée comprend l'aperçu, le renommage, le déplacement sur le même volume, le journal de reprise, les résultats par fichier, l'annulation d'un lot entre deux fichiers, la vérification d'un lot de scan ancien et l'Undo conditionnel. Les tests Windows confirment la conservation de l'UUID, la casse seule, l'absence d'écrasement et la visibilité d'une panne après le déplacement. La migration 005 crée le journal dans la base et le paquet autonome le charge au schéma 5.
+
+La phase ne satisfait pas encore le plan entier : déplacement intervolume, copie annulée, erreurs de support/permissions/espace, menus drag-and-drop entre panneaux, test pendant lecture mpv, recyclage réel, restauration depuis la corbeille et recette manuelle restent non validés. Ces fonctions sont absentes ou désactivées, et ne sont pas annoncées comme livrées. Le rapport [`docs/validation/06-fichiers.md`](../docs/validation/06-fichiers.md) distingue les preuves exécutées des limites.
 
 ## Contexte et prérequis
 

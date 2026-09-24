@@ -176,6 +176,21 @@ Window {
         }
     }
 
+    Loader {
+        id: fileOperationDialog
+        active: !shell.demoMode
+        sourceComponent: Component {
+            FileOperationDialog {
+                operations: root.ws.fileOperations
+            }
+        }
+    }
+
+    Connections {
+        target: shell.demoMode ? null : root.ws.fileOperations
+        function onDialogRequested() { if (fileOperationDialog.item) fileOperationDialog.item.open() }
+    }
+
     // One pixel frame so the window stays distinct from what lies behind it.
     Rectangle {
         anchors.fill: parent
@@ -221,6 +236,24 @@ Window {
     Shortcut { sequence: "Ctrl+Right"; onActivated: root.ws.next() }
     Shortcut { sequence: "Ctrl+Left"; onActivated: root.ws.previous() }
     Shortcut { sequence: "Ctrl+Z"; onActivated: root.ws.undoSave() }
+    Shortcut {
+        sequence: "F2"
+        enabled: !shell.demoMode && root.ws.activity === "explorer" && root.ws.selectedIds.length === 1
+            && !root.textInputFocused()
+        onActivated: {
+            const track = root.ws.track(root.ws.selectedIds[0])
+            const filename = String(track.filename || "")
+            const dot = filename.lastIndexOf(".")
+            const stem = dot > 0 ? filename.slice(0, dot) : filename
+            root.ws.fileOperations.openOperation("rename", stem, root.ws.selectedIds)
+        }
+    }
+    Shortcut {
+        sequence: "Del"
+        enabled: !shell.demoMode && root.ws.activity === "explorer" && root.ws.selectedIds.length > 0
+            && !root.textInputFocused()
+        onActivated: root.ws.fileOperations.openOperation("trash", "", root.ws.selectedIds)
+    }
     Shortcut { sequence: "F11"; onActivated: root.ws.setFullscreen(!root.ws.fullscreen) }
     Shortcut {
         sequence: "Esc"
