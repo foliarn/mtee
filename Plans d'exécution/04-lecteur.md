@@ -1,4 +1,4 @@
-# 04 — Lecteur commun et vue Écoute initiale — livraison B, partie 1
+# 04 — Lecteur commun et Fullscreen player initial — livraison B, partie 1
 
 
 Ce plan vivant suit [PLANS.md](../PLANS.md) et couvre `PLAN.md`, §3 « Vue Écoute » et « Sélection, lecture et édition », ainsi que §4.2. Préparé le 2026-09-10 ; le travail, les tests audio et la livraison Git restent à exécuter.
@@ -6,9 +6,9 @@ Ce plan vivant suit [PLANS.md](../PLANS.md) et couvre `PLAN.md`, §3 « Vue Éco
 ## Objectif et résultat observable
 
 
-Un double-clic sur un morceau démarre la lecture dans le lecteur commun en bas de MTEE. L'utilisateur peut mettre en pause, avancer, reculer, déplacer la position, régler le volume et consulter la file. Passer dans Listening view conserve le même morceau, la position et la file ; revenir restitue l'explorateur tel qu'il était.
+Un double-clic sur un morceau démarre la lecture dans l'îlot de lecture de MTEE. L'utilisateur peut mettre en pause, avancer, reculer, déplacer la position, régler le volume et consulter la file. Passer dans Fullscreen player conserve le même morceau, la position et la file ; revenir restitue l'explorateur tel qu'il était.
 
-Une sélection dans l'explorateur reste indépendante du morceau joué. La lecture continue selon l'ordre visible au moment du lancement, même si l'utilisateur change ensuite le dossier ou son tri. Listening view propose une pochette et les métadonnées, encore en lecture seule, puis une barre de progression classique. La waveform sera ajoutée au plan 08.
+Une sélection dans l'explorateur reste indépendante du morceau joué. La lecture continue selon l'ordre visible au moment du lancement, même si l'utilisateur change ensuite le dossier ou son tri. Fullscreen player propose une pochette et les métadonnées, encore en lecture seule, puis une barre de progression classique. La waveform sera ajoutée au plan 08.
 
 La livraison teste les codecs effectivement décodés par la distribution de libmpv retenue. M4A est un conteneur pouvant contenir notamment AAC ou ALAC ; un suffixe ne suffit donc pas à identifier le codec. FFmpeg et ffprobe en exécutables séparés n'entrent pas dans cette étape A/B ; les bibliothèques de décodage internes de libmpv relèvent de son propre runtime.
 
@@ -20,7 +20,7 @@ La livraison teste les codecs effectivement décodés par la distribution de lib
 - [ ] Choisir, verrouiller et distribuer un runtime libmpv Windows reproductible.
 - [ ] Implémenter l'adaptateur libmpv et les transitions du lecteur commun.
 - [ ] Implémenter la file figée au lancement et la séparation lecture/sélection.
-- [ ] Relier le lecteur inférieur, Listening view, les raccourcis et les erreurs.
+- [ ] Relier l'îlot de lecture, Fullscreen player, les raccourcis et les erreurs.
 - [ ] Exécuter les tests, la matrice de formats et le parcours de la distribution Windows.
 - [ ] Mettre à jour les preuves, committer puis vérifier le push distant.
 
@@ -82,9 +82,9 @@ Créer `src/mtee/models/playback_queue_model.py` pour une file consultable conte
 ### Jalon 3 — Commandes et bascule de vue
 
 
-Relier `src/mtee/qml/components/PlayerBar.qml` et `src/mtee/qml/views/ListeningView.qml`, créés au plan 02, au même `PlayerModel` ; ajouter `src/mtee/qml/components/PlaybackQueueView.qml`. La grande vue suit `playing_track_id` ; l'inspecteur du navigateur suit la sélection. Ne pas réutiliser la sélection comme source des champs de la grande vue.
+Relier `src/mtee/qml/components/PlayerIsland.qml` et `src/mtee/qml/views/FullscreenPlayer.qml`, créés au plan 02, au même `PlayerModel` ; ajouter `src/mtee/qml/components/PlaybackQueueView.qml`. Fullscreen player suit `playing_track_id` ; l'inspecteur du navigateur suit la sélection. Ne pas réutiliser la sélection comme source des champs de Fullscreen player.
 
-À l'entrée dans Listening view, conserver l'état de `WorkspaceModel` comprenant onglets, division, groupe actif, sélection et positions de défilement. Masquer le lecteur inférieur pour ne pas dupliquer les commandes. Le retour restaure cet état sans recréer le backend. Les états Playback, Loading et Error restent visibles dans les deux présentations.
+À l'entrée dans Fullscreen player, conserver l'état de `WorkspaceModel` comprenant onglets, division, groupe actif, sélection et positions de défilement. Masquer l'îlot de lecture pour ne pas dupliquer les commandes. Le retour restaure cet état sans recréer le backend. Les états Playback, Loading et Error restent visibles dans les deux présentations.
 
 Le double-clic de l'explorateur utilise l'ordre instantané transmis par le plan 03. Un clic simple conserve son rôle de sélection. La touche Espace appelle pause/reprise uniquement si aucun champ de saisie, menu ou dialogue n'en a besoin ; tester notamment Search et les futurs champs de métadonnées. Les commandes conservent des noms anglais et un focus clavier visible.
 
@@ -130,7 +130,7 @@ Enregistrer les commandes, résultats et essais manuels dans `docs/validation/04
 
 Les tests unitaires couvrent toutes les transitions, la fin de file, les erreurs, les positions hors limites, l'absence de durée, les callbacks tardifs et la résolution d'un UUID dont le chemin a changé. Ils prouvent qu'un nouvel ordre d'explorateur ne modifie pas la file déjà créée et qu'un double lancement ne crée pas deux backends.
 
-Les tests UI et le parcours manuel vérifient : sélectionner un autre morceau pendant la lecture ; changer de dossier et de tri ; ouvrir puis fermer la grande vue dix fois ; ouvrir la file ; mettre en pause depuis chaque vue ; déplacer la tête de lecture ; taper des espaces dans Search sans déclencher le lecteur. Le morceau et la file restent stables lors des changements de présentation, et le son n'est pas interrompu.
+Les tests UI et le parcours manuel vérifient : sélectionner un autre morceau pendant la lecture ; changer de dossier et de tri ; ouvrir puis fermer Fullscreen player dix fois ; ouvrir la file ; mettre en pause depuis chaque vue ; déplacer la tête de lecture ; taper des espaces dans Search sans déclencher le lecteur. Le morceau et la file restent stables lors des changements de présentation, et le son n'est pas interrompu.
 
 Pour chaque fixture de format, vérifier ouverture, son audible, pause/reprise, durée plausible, Next et seek à 25 %, 50 % et 75 %. Relever l'écart entre position demandée et position retournée : proposer une tolérance de 250 ms pour ce lecteur généraliste, puis documenter les limites des codecs. Cette cible n'est pas une promesse d'édition à l'échantillon près.
 
@@ -157,13 +157,13 @@ Réexécuter les tests sur les mêmes fixtures ne modifie pas leurs octets. Les 
 ## Preuves et livraison Git
 
 
-Mettre à jour ce plan et `docs/validation/04-lecteur.md` avant le commit avec matrice des formats, traces du runtime, captures de la vue Écoute et résultats réels. Reporter les limitations sans transformer un test simulé en écoute validée. Ne pas inclure les binaires de distribution ni un corpus personnel dans Git.
+Mettre à jour ce plan et `docs/validation/04-lecteur.md` avant le commit avec matrice des formats, traces du runtime, captures de Fullscreen player et résultats réels. Reporter les limitations sans transformer un test simulé en écoute validée. Ne pas inclure les binaires de distribution ni un corpus personnel dans Git.
 
 Sur `main`, avec `origin` vérifié vers `https://github.com/foliarn/mtee.git`, sélectionner les changements propres à cette étape. Les chemins de ressources ou de packaging peuvent être adaptés aux choix du socle après inspection.
 
     git status --short
     git diff --check
-    git add -- pyproject.toml uv.lock src/mtee/domain/playback.py src/mtee/services/player_backend.py src/mtee/services/mpv_backend.py src/mtee/services/player_service.py src/mtee/services/file_access.py src/mtee/models/player_model.py src/mtee/models/playback_queue_model.py src/mtee/qml/components/PlayerBar.qml src/mtee/qml/components/PlaybackQueueView.qml src/mtee/qml/views/ListeningView.qml tests/unit/test_player_service.py tests/unit/test_playback_queue.py tests/unit/test_file_access.py tests/integration/test_mpv_playback.py tests/ui/test_player_views.py tests/fixtures/audio/manifest.json resources/native/mpv/manifest.json scripts/fetch_mpv.ps1 scripts/build_windows.ps1 packaging/mtee.spec docs/native-dependencies.md docs/validation/04-lecteur.md "Plans d'exécution/04-lecteur.md"
+    git add -- pyproject.toml uv.lock src/mtee/domain/playback.py src/mtee/services/player_backend.py src/mtee/services/mpv_backend.py src/mtee/services/player_service.py src/mtee/services/file_access.py src/mtee/models/player_model.py src/mtee/models/playback_queue_model.py src/mtee/qml/components/PlayerIsland.qml src/mtee/qml/components/PlaybackQueueView.qml src/mtee/qml/views/FullscreenPlayer.qml tests/unit/test_player_service.py tests/unit/test_playback_queue.py tests/unit/test_file_access.py tests/integration/test_mpv_playback.py tests/ui/test_player_views.py tests/fixtures/audio/manifest.json resources/native/mpv/manifest.json scripts/fetch_mpv.ps1 scripts/build_windows.ps1 packaging/mtee.spec docs/native-dependencies.md docs/validation/04-lecteur.md "Plans d'exécution/04-lecteur.md"
     git diff --cached --check
     git diff --cached
 

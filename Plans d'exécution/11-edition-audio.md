@@ -59,7 +59,7 @@ Utiliser des copies de corpus : PCM avec impulsions proches des bornes, tonalit�
 
 Le premier jalon crée `domain/audio_edit.py` et les invariants d'`EditRecipe`. La plage respecte `0 <= start_us < end_us <= duration_us`. Les fondus sont positifs ou nuls, exprimés sur la timeline de sortie, et leur somme ne dépasse pas sa durée dans cette première version. Toute correction automatique de borne doit être montrée ; préférer une erreur claire à une modification silencieuse de la sélection.
 
-Le deuxième jalon ajoute `models/audio_edit_model.py`, `qml/components/AudioEditPanel.qml` et l'intégration dans `ListeningView.qml`. Afficher début, fin, durée, fondus et destination avec saisie numérique et marqueurs accessibles au clavier. L'historique undo/redo porte sur la recette ; changer la sélection du navigateur ne change pas la source d'une recette déjà ouverte sans action explicite.
+Le deuxième jalon ajoute `models/audio_edit_model.py`, `qml/components/AudioEditPanel.qml` et l'intégration dans `FullscreenPlayer.qml`. Afficher début, fin, durée, fondus et destination avec saisie numérique et marqueurs accessibles au clavier. L'historique undo/redo porte sur la recette ; changer la sélection du navigateur ne change pas la source d'une recette déjà ouverte sans action explicite.
 
 Le troisième jalon crée `services/audio_edit_service.py`. Compiler la recette en traitement audio validé avec décodage, coupe par indices d'échantillons, remise à zéro des timestamps et fondus. À fréquence native, convertir le début avec plancher et la fin avec plafond, puis borner au nombre d'échantillons réellement décodés ; enregistrer ces bornes effectives dans le résultat.
 
@@ -151,7 +151,7 @@ Mettre à jour le plan et le rapport avec les preuves réelles. Inspecter les fi
 
     git status --short
     git diff --check
-    git add -- src/mtee/domain/audio_edit.py src/mtee/domain/time.py src/mtee/domain/conversion.py src/mtee/services/audio_edit_service.py src/mtee/services/conversion_service.py src/mtee/persistence/audio_edits_repository.py src/mtee/models/audio_edit_model.py src/mtee/qml/components/AudioEditPanel.qml src/mtee/qml/views/ListeningView.qml tests/unit/test_audio_edit_recipe.py tests/unit/test_audio_edit_timing.py tests/integration/test_audio_edit_export.py tests/integration/test_audio_edit_recovery.py tests/ui/test_audio_edit_panel.py docs/validation/11-edition-audio.md "Plans d'exécution/11-edition-audio.md"
+    git add -- src/mtee/domain/audio_edit.py src/mtee/domain/time.py src/mtee/domain/conversion.py src/mtee/services/audio_edit_service.py src/mtee/services/conversion_service.py src/mtee/persistence/audio_edits_repository.py src/mtee/models/audio_edit_model.py src/mtee/qml/components/AudioEditPanel.qml src/mtee/qml/views/FullscreenPlayer.qml tests/unit/test_audio_edit_recipe.py tests/unit/test_audio_edit_timing.py tests/integration/test_audio_edit_export.py tests/integration/test_audio_edit_recovery.py tests/ui/test_audio_edit_panel.py docs/validation/11-edition-audio.md "Plans d'exécution/11-edition-audio.md"
     git diff --cached --check
     git diff --cached
 

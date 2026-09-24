@@ -6,7 +6,7 @@ Ce plan vivant applique [PLANS.md](../PLANS.md) et `PLAN.md`, §3 « Sélection,
 ## Objectif et résultat observable
 
 
-L'utilisateur corrige Title, Artist, Album, Genre, Date, Comment, Track number, BPM et Key dans l'inspecteur ou la vue Écoute. Valider un champ ou quitter son focus enregistre ce champ. L'interface montre Saving, puis Saved uniquement après vérification ; une erreur montre Could not save et conserve la saisie. Une action Undo restaure la valeur antérieure lorsque la source n'a pas changé depuis l'opération concernée.
+L'utilisateur corrige Title, Artist, Album, Genre, Date, Comment, Track number, BPM et Key dans l'inspecteur ou Fullscreen player. Valider un champ ou quitter son focus enregistre ce champ. L'interface montre Saving, puis Saved uniquement après vérification ; une erreur montre Could not save et conserve la saisie. Une action Undo restaure la valeur antérieure lorsque la source n'a pas changé depuis l'opération concernée.
 
 Une sélection multiple expose Mixed values pour les champs divergents. Une modification explicite applique seulement ce champ aux UUID de la sélection capturée au début de l'édition. Les propriétés techniques restent en lecture seule ; les formats et champs qui ne peuvent pas être écrits sans perte restent désactivés avec une explication.
 
@@ -51,7 +51,7 @@ Le contexte initial du dépôt est documentaire. Les fichiers mentionnés sont d
 
 `track_id` est un UUID durable ; le repository résout son emplacement au moment de l'opération. `SourceRevision(size_bytes, mtime_ns, file_id, generation)` représente l'observation du fichier, avec génération persistée augmentée après mutation MTEE. Pour les écritures critiques, compléter ce contrôle par SHA-256 calculé en flux ; taille et date ne garantissent pas seules un contenu identique.
 
-`FileAccessCoordinator` arbitre un accès exclusif par UUID contre lecture native, autres éditions et futurs jobs. L'inspecteur suit les UUID sélectionnés ; Listening view suit `playing_track_id`. L'état d'un brouillon conserve ses UUID cibles même si la sélection ou le morceau joué change avant la fin de la sauvegarde.
+`FileAccessCoordinator` arbitre un accès exclusif par UUID contre lecture native, autres éditions et futurs jobs. L'inspecteur suit les UUID sélectionnés ; Fullscreen player suit `playing_track_id`. L'état d'un brouillon conserve ses UUID cibles même si la sélection ou le morceau joué change avant la fin de la sauvegarde.
 
 Les tests travaillent sur des copies sous `.local/fixtures/05` ou dans les répertoires temporaires de pytest. La base de recette utilise `--data-dir .local/validation/05`, distincte des données utilisateur dans `QStandardPaths`. `--demo` ne permet pas de valider une écriture réelle. Les migrations SQLite utilisent la sauvegarde cohérente et les transactions du socle.
 
@@ -89,7 +89,7 @@ Après publication, relire le chemin final, contrôler les valeurs et enregistre
 ### Jalon 3 — Autosauvegarde et sélection multiple
 
 
-Créer `src/mtee/models/metadata_editor_model.py`, compléter `src/mtee/qml/components/MetadataInspector.qml` et `src/mtee/qml/views/ListeningView.qml` des plans précédents, puis ajouter `src/mtee/qml/components/MetadataField.qml`. Chaque champ possède valeur lue, brouillon, numéro de version, capacité et état d'enregistrement. Entrée et perte de focus déclenchent une seule requête par version ; chaque frappe ne déclenche aucune écriture.
+Créer `src/mtee/models/metadata_editor_model.py`, compléter `src/mtee/qml/components/MetadataInspector.qml` et `src/mtee/qml/views/FullscreenPlayer.qml` des plans précédents, puis ajouter `src/mtee/qml/components/MetadataField.qml`. Chaque champ possède valeur lue, brouillon, numéro de version, capacité et état d'enregistrement. Entrée et perte de focus déclenchent une seule requête par version ; chaque frappe ne déclenche aucune écriture.
 
 Une sauvegarde lente n'empêche pas une nouvelle saisie : conserver la dernière version de brouillon et sérialiser les intentions par UUID. Un retour ancien ne remet pas Saved sur une valeur plus récente non enregistrée. Un changement de sélection valide le champ en cours contre ses anciennes cibles avant d'afficher les nouvelles ; il ne redirige pas la requête vers la nouvelle sélection.
 
@@ -162,11 +162,11 @@ Sur `main` et avec `origin` vérifié vers `https://github.com/foliarn/mtee.git`
 
     git status --short
     git diff --check
-    git add -- src/mtee/domain/metadata_edit.py src/mtee/services/metadata_adapters src/mtee/services/metadata_writer.py src/mtee/services/file_replacement.py src/mtee/persistence/metadata_history_repository.py src/mtee/models/metadata_editor_model.py src/mtee/qml/components/MetadataInspector.qml src/mtee/qml/components/MetadataField.qml src/mtee/qml/views/ListeningView.qml tests/unit/test_metadata_mapping.py tests/unit/test_metadata_edit_service.py tests/integration/test_metadata_roundtrip.py tests/integration/test_metadata_recovery.py tests/ui/test_metadata_editor.py tests/fixtures/audio/manifest.json docs/metadata-mapping.md docs/validation/05-metadonnees.md "Plans d'exécution/05-metadonnees.md"
+    git add -- src/mtee/domain/metadata_edit.py src/mtee/services/metadata_adapters src/mtee/services/metadata_writer.py src/mtee/services/file_replacement.py src/mtee/persistence/metadata_history_repository.py src/mtee/models/metadata_editor_model.py src/mtee/qml/components/MetadataInspector.qml src/mtee/qml/components/MetadataField.qml src/mtee/qml/views/FullscreenPlayer.qml tests/unit/test_metadata_mapping.py tests/unit/test_metadata_edit_service.py tests/integration/test_metadata_roundtrip.py tests/integration/test_metadata_recovery.py tests/ui/test_metadata_editor.py tests/fixtures/audio/manifest.json docs/metadata-mapping.md docs/validation/05-metadonnees.md "Plans d'exécution/05-metadonnees.md"
     git diff --cached --check
     git diff --cached
 
-Ajouter par chemins ou morceaux les migrations, raccordements à Listening view et services partagés effectivement modifiés. Remplacer les lignes de validation proposées ci-dessous par le résultat réel, puis créer le message sans interpolation PowerShell :
+Ajouter par chemins ou morceaux les migrations, raccordements à Fullscreen player et services partagés effectivement modifiés. Remplacer les lignes de validation proposées ci-dessous par le résultat réel, puis créer le message sans interpolation PowerShell :
 
     $mteeCommitMessage = @'
     feat(metadata): add verified field editing and conflict-aware undo

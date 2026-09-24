@@ -69,7 +69,7 @@ Le cinquième jalon implémente `services/analyzers/key.py` avec `chroma_stft`, 
 
 Le prototype tempo/tonalité utilise des segments de 60 s traités successivement ; viser un budget supplémentaire de 512 Mo par job sur la machine de référence. Les métriques globales incluent toutes les fenêtres retenues et affichent leur couverture. Une absence d'onsets, un chroma quasi uniforme, une durée utile insuffisante ou de forts désaccords entre segments donnent une estimation incertaine ou une abstention. Calibrer les seuils sur un sous-ensemble annoté et évaluer ensuite sur un autre sous-ensemble ; consigner séparation et choix, sans pourcentage de confiance inventé.
 
-Le dernier jalon expose les résultats à l'inspecteur et à **Listening view** via `AnalysisModel`. Montrer valeur calculée, confirmation, provenance et état périmé. Tester chaque méthode indépendamment, puis un lot complet, puis le paquet Windows avec ses bibliothèques numériques et binaires natifs.
+Le dernier jalon expose les résultats à l'inspecteur et à **Fullscreen player** via `AnalysisModel`. Montrer valeur calculée, confirmation, provenance et état périmé. Tester chaque méthode indépendamment, puis un lot complet, puis le paquet Windows avec ses bibliothèques numériques et binaires natifs.
 
 ## Étapes concrètes
 

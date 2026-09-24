@@ -10,7 +10,7 @@ L'utilisateur ajoute un dossier dans MTEE, parcourt ses sous-dossiers et retrouv
 
 La table présente Title, Artist, Genre, BPM et Key par défaut ; Duration, Format et Filename sont activables. L'inspecteur suit la sélection et reste replié lors de la première ouverture. Une collection de 10 000 fichiers doit rester navigable pendant son indexation, même si certaines pochettes manquent ou si un disque devient indisponible.
 
-La lecture sonore appartient au plan 04 et l'écriture des tags au plan 05. Cette livraison termine néanmoins l'affichage des tags demandé dès A : Mutagen est utilisé en lecture seule, sans FFmpeg ni ffprobe. Les composants Convert et Listening view déjà maquettés conservent un état explicite d'indisponibilité des fonctions futures.
+La lecture sonore appartient au plan 04 et l'écriture des tags au plan 05. Cette livraison termine néanmoins l'affichage des tags demandé dès A : Mutagen est utilisé en lecture seule, sans FFmpeg ni ffprobe. Les composants Convert et Fullscreen player déjà maquettés conservent un état explicite d'indisponibilité des fonctions futures.
 
 ## Progress
 

@@ -1,11 +1,11 @@
-# Étape 08 — Waveform et vue Écoute complète
+# Étape 08 — Waveform et Fullscreen player complet
 
-ExecPlan vivant rédigé le 2026-09-10, à exécuter selon `PLANS.md` à la racine. Il réalise `PLAN.md` §4.6 et la vue Écoute du §3 après la conversion. Les chemins désignent les fichiers attendus de l'implémentation ; les tests et le push restent à effectuer.
+ExecPlan vivant rédigé le 2026-09-10, à exécuter selon `PLANS.md` à la racine. Il réalise `PLAN.md` §4.6 et Fullscreen player du §3 après la conversion. Les chemins désignent les fichiers attendus de l'implémentation ; les tests et le push restent à effectuer.
 
 ## Objectif et résultat observable
 
 
-Dans **Listening view**, l'utilisateur voit une waveform du morceau joué, déplace sa tête de lecture, zoome et définit une boucle A/B. Ouvrir cette vue ou revenir à l'explorateur conserve le morceau, la position, la file et la disposition des onglets. Le calcul d'une waveform longue laisse l'interface et la lecture disponibles.
+Dans **Fullscreen player**, l'utilisateur voit une waveform du morceau joué, déplace sa tête de lecture, zoome et définit une boucle A/B. Ouvrir cette vue ou revenir à l'explorateur conserve le morceau, la position, la file et la disposition des onglets. Le calcul d'une waveform longue laisse l'interface et la lecture disponibles.
 
 La représentation est un aperçu amplitude/temps, avec enveloppes minimales et maximales ; elle ne prétend pas être un spectrogramme ou un résultat d'analyse musicale. Pendant son calcul, la barre de progression classique reste utilisable. La waveform n'écrit jamais dans le fichier source.
 
@@ -30,7 +30,7 @@ Aucune observation mesurée au stade du plan. Inscrire ici les codecs dont la ti
 ## Decision Log
 
 
-2026-09-10 — Codex — Le même `PlayerService` pilote le lecteur inférieur et **Listening view**. La waveform commande sa position et lit son état ; elle ne crée pas un second lecteur.
+2026-09-10 — Codex — Le même `PlayerService` pilote l'îlot de lecture et **Fullscreen player**. La waveform commande sa position et lit son état ; elle ne crée pas un second lecteur.
 
 2026-09-10 — Codex — Les repères du domaine sont des microsecondes entières sur la timeline décodée. Le rendu convertit ces valeurs en coordonnées et le service mpv adapte en secondes, ce qui évite de propager des pixels ou des arrondis de vue dans les données.
 
@@ -63,7 +63,7 @@ Le deuxième jalon ajoute `services/waveform_service.py` et `persistence/wavefor
 
 Le troisième jalon ajoute `models/waveform_model.py` et un rendu QML/Qt adapté aux points visibles. Une classe de rendu dédiée peut être ajoutée à ce fichier si la primitive QML choisie impose des transferts trop volumineux. Fixer le choix avec une mesure, sans ajouter une dépendance graphique avant de l'avoir justifiée. Le playhead est une superposition légère qui ne recalcule pas l'enveloppe.
 
-Le quatrième jalon enrichit `qml/views/ListeningView.qml` et `qml/components/WaveformView.qml`. Garder pochette et métadonnées en haut, waveform sur la largeur utile, et masquer le lecteur inférieur. Le zoom conserve un ancrage prévisible au curseur ou à la position de lecture. Montrer **Generating waveform**, **Waveform unavailable** et une relance explicite.
+Le quatrième jalon enrichit `qml/views/FullscreenPlayer.qml` et `qml/components/WaveformView.qml`. Garder pochette et métadonnées en haut, waveform sur la largeur utile, et masquer l'îlot de lecture. Le zoom conserve un ancrage prévisible au curseur ou à la position de lecture. Montrer **Generating waveform**, **Waveform unavailable** et une relance explicite.
 
 Le cinquième jalon ajoute boucle A/B et validation de la précision. Les bornes appartiennent à la session de lecture, sont visibles, peuvent être déplacées au clavier et deviennent inactives en changeant de morceau. Utiliser le mécanisme de boucle de mpv, adapté derrière le service ; ne pas boucler à l'aide d'un timer QML qui relance le seek.
 
@@ -114,7 +114,7 @@ Passer rapidement entre trois morceaux, puis revenir au premier. Aucun résultat
 
 Modifier une copie source pendant le calcul puis après mise en cache. Le premier résultat est rejeté ; le second est invalidé. Déplacer la source dans MTEE conserve son UUID et recalcule seulement si sa révision le nécessite. Une entrée de cache tronquée, supprimée ou ancienne déclenche un recalcul contrôlé.
 
-Contrôler retour à l'explorateur, inspecteur suivant la sélection, vue Écoute suivant la lecture, disposition à deux panneaux et largeur réduite. Tester annulation, disque déconnecté et fichier corrompu : la barre de progression classique reste disponible lorsque la waveform ne l'est pas.
+Contrôler retour à l'explorateur, inspecteur suivant la sélection, Fullscreen player suivant la lecture, disposition à deux panneaux et largeur réduite. Tester annulation, disque déconnecté et fichier corrompu : la barre de progression classique reste disponible lorsque la waveform ne l'est pas.
 
 Consigner les contrôles, captures à 1440 × 900 et DPI réel, temps et limites dans `docs/validation/08-waveform.md`. Vérifier les SHA-256 des sources de test avant/après pour confirmer qu'aucun décodage ni cache ne les a modifiées.
 
@@ -145,7 +145,7 @@ Renseigner les sections vivantes, les mesures et les limitations avant le commit
 
     git status --short
     git diff --check
-    git add -- src/mtee/domain/time.py src/mtee/domain/waveform.py src/mtee/services/waveform_service.py src/mtee/persistence/waveform_cache.py src/mtee/models/waveform_model.py src/mtee/qml/views/ListeningView.qml src/mtee/qml/components/WaveformView.qml tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py tests/integration/test_waveform_cache.py tests/ui/test_listening_waveform.py docs/validation/08-waveform.md "Plans d'exécution/08-waveform.md"
+    git add -- src/mtee/domain/time.py src/mtee/domain/waveform.py src/mtee/services/waveform_service.py src/mtee/persistence/waveform_cache.py src/mtee/models/waveform_model.py src/mtee/qml/views/FullscreenPlayer.qml src/mtee/qml/components/WaveformView.qml tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py tests/integration/test_waveform_cache.py tests/ui/test_listening_waveform.py docs/validation/08-waveform.md "Plans d'exécution/08-waveform.md"
     git diff --cached --check
     git diff --cached
 

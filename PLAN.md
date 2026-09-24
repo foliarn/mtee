@@ -58,7 +58,7 @@ Chaque étape doit produire une version utilisable et vérifiable avant d’éla
 | **B** | Lecteur intégré et modification manuelle des métadonnées | Écouter et corriger sa collection |
 | **C** | Gestion physique des fichiers | Renommer, déplacer et mettre à la corbeille |
 | **D** | Conversion FFmpeg généraliste | Produire des copies adaptées à ses besoins |
-| **E** | Waveform et vue Écoute complète | Écouter et repérer les passages confortablement |
+| **E** | Waveform et Fullscreen player complet | Écouter et repérer les passages confortablement |
 | **F** | Analyse audio sans ML | Obtenir des mesures et estimations musicales exploitables |
 | **G** | Tags avancés, recherche enrichie et playlists | Organiser et retrouver ses morceaux à partir des résultats |
 | **H** | Extraction de samples et édition légère | Exporter des passages et créer des variantes |
@@ -78,81 +78,103 @@ Les plugins publics, le multipiste et le mixage en temps réel restent hors de c
 
 ### Organisation générale validée
 
-La navigation principale est un **explorateur de dossiers à gauche, inspiré de VS Code**. Le contenu sélectionné s’ouvre dans la zone centrale.
+Révision du 24 septembre 2026 : l’utilisateur a fourni une esquisse ([docs/ux/sketches/esquisse-2026-09-24.png](docs/ux/sketches/esquisse-2026-09-24.png)) qui remplace la première organisation Browser / Listening view / Convert en onglets supérieurs. La structure suit désormais **VS Code** pour la navigation et **Spotify** pour les listes et le lecteur.
 
-Cette zone comprend :
+La fenêtre comprend, de gauche à droite et de haut en bas :
 
-- Des onglets pour garder plusieurs dossiers ou espaces ouverts.
-- Une division verticale en deux groupes d’onglets.
-- Une vue **Table** et une vue **Artwork**.
-- Un inspecteur de métadonnées à droite, replié par défaut.
-- Un lecteur commun fixé en bas.
-- Un onglet **Convert** dédié.
+- Une **barre de titre personnalisée**, sans cadre système et à angles droits : logo « M », menus `File`, `Edit`, `View`, commandes de fenêtre.
+- Une **barre d’activités** verticale à gauche. Chaque icône remplace le contenu de la barre latérale : **Explorer**, **Playlists**, **Convert**, **Tasks** et **Plugins**. En bas : **Profile** et **Settings**.
+- Une **barre latérale** qui affiche le contenu de l’activité choisie ; pour Explorer, l’arborescence des dossiers et un bouton `+` d’ajout de dossier.
+- Une **zone d’éditeur** à onglets, comme VS Code, avec division verticale en deux groupes au maximum. Un onglet contient une liste de morceaux, Convert ou Settings.
+- Un **panneau droit** facultatif à deux onglets, **Info** et **Queue**.
+- Un **îlot de lecture** (« music player island ») flottant en bas de la zone d’éditeur.
 
-Limiter la première implémentation à deux vues côte à côte. Les dispositions arbitraires et fenêtres détachables pourront attendre.
+Plugins et Profile sont des emplacements réservés : leurs boutons existent, sont visibles et restent sans fonction jusqu’à une décision ultérieure. Le système de plugins reste hors de la première trajectoire (§2).
+
+Limiter la première implémentation à deux groupes côte à côte. Les dispositions arbitraires et fenêtres détachables pourront attendre.
 
 **Maquette structurelle — navigation :**
 
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│ MTEE                                             Window controls │
-├──────────────┬───────────────────────────────────────────────────┤
-│ Explorer     │ Downloads ×   Collection ×   Convert ×            │
-│              ├───────────────────────────────────────────────────┤
-│ Music        │ Path / Breadcrumbs       Search…   View   Details │
-│ ├ Downloads  ├──────────────────────────┬────────────────────────┤
-│ └ Collection │ Title Artist Genre      │ Second folder / view   │
-│              │ BPM   Key               │                        │
-│ Add folder   │                         │                        │
-├──────────────┴──────────────────────────┴────────────────────────┤
-│ Artwork  Track / Artist   Previous Play Next   Seek   Volume     │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│ M  File  Edit  View                                          ─   ▢   ✕     │
+├──┬─────────────┬───────────────────────────────────────────┬───────────────┤
+│Ex│ EXPLORER  + │ dnb ×   ukg ×                             │ Info │ Queue  │
+│Pl│ ▾ Music     ├───────────────────────────────────────────┤               │
+│Cv│   › dubstep │ dnb                                        │ title1        │
+│Tk│   › dnb     │ 42 titles · 2 h 31 min · 1.8 GB            │ artist        │
+│Pg│   ▾ ukg     │ #  Title / Artist      Album  BPM Key  ⏱ + │               │
+│  │     song 1  │ 1  ▣ Title             Album  174 8A 3:16 +│ Editable      │
+│  │   › techno  │      Artist                                │ fields        │
+│  │             │ 2  ▣ Title ...                             │               │
+│Pr│             │   ┌─────────────────────────────────────┐  │ Read-only     │
+│St│             │   │▣ Title +  ⤮ ⏮ ⏯ ⏭ ⟲  ━━━━  ≡ 🔊━ ⛶ │  │ fields        │
+│  │             │   └─────────────────────────────────────┘  │               │
+└──┴─────────────┴───────────────────────────────────────────┴───────────────┘
+ Ex Explorer · Pl Playlists · Cv Convert · Tk Tasks · Pg Plugins · Pr Profile · St Settings
 ```
 
-La table présente par défaut **Title, Artist, Genre, BPM, Key**. Les colonnes peuvent être triées, redimensionnées et réordonnées. Duration, Format et Filename sont disponibles comme colonnes supplémentaires.
+### Listes de morceaux
 
-La grille affiche une pochette par fichier, avec titre et artiste. Une illustration neutre remplace les pochettes absentes ; les fichiers ne sont pas regroupés automatiquement par album.
+Un onglet de dossier ou de playlist commence par un en-tête : nom en grand, puis `n titles · durée totale · taille`. La liste suit le style Spotify :
 
-### Vue Écoute
+- Colonnes par défaut : **#**, pochette miniature, **Title** avec l’artiste sur une seconde ligne, **Album** (discret), **Genre**, **BPM**, **Key** en pastille Camelot colorée, **Duration**, puis un bouton `+` **Add to playlist**.
+- Colonnes supplémentaires : Date added, Format, Filename, Bitrate, Size. Les colonnes peuvent être triées, redimensionnées et réordonnées.
+- Une icône ⓘ apparaît au survol d’une ligne et ouvre l’édition.
+- La vue **Artwork** reste disponible depuis le menu `View` et l’en-tête de liste : une pochette par fichier, avec titre et artiste, une illustration neutre pour les pochettes absentes et aucun regroupement par album.
 
-Le bouton **Listening view** agrandit le lecteur dans l’espace central. Le morceau, la position et la file restent identiques.
+### Îlot de lecture
+
+L’îlot flotte au-dessus du bas de la zone d’éditeur, centré, sans masquer la dernière ligne de la liste (marge de défilement réservée). Il contient :
+
+- Pochette, titre, artiste(s) et `+` **Add to playlist**.
+- **Shuffle**, **Previous**, **Play/Pause**, **Next**, **Repeat**, avec la barre de progression et les temps écoulé/total.
+- **Queue** (ouvre l’onglet Queue du panneau droit), volume et **Fullscreen player**.
+
+Il est visible dès qu’un morceau est chargé ; `View › Player island` et Settings permettent de le masquer. Il disparaît dans Fullscreen player pour éviter des commandes dupliquées.
+
+### Fullscreen player
+
+Remplace l’ancienne vue Écoute. La barre d’activités reste visible, la barre latérale et la zone d’éditeur sont masquées.
 
 ```text
-┌ Explorer ────┬ Listening view ───────────────────────────────────┐
-│              │                                                  │
-│              │ Large artwork       Title / Artist               │
-│              │                     Editable metadata            │
-│              │                                                  │
-│              │ Large waveform with playhead                     │
-│              │ Time       Previous Play Next          Volume    │
-│              │                                  Back to browser │
-└──────────────┴───────────────────────────────────────────────────┘
+┌──┬──────────────────────────────────────────────────────────────────────┐
+│Ex│ Playing from: dnb (folder)                            Exit fullscreen│
+│Pl│                                                                      │
+│Cv│                         ┌──────────────┐                             │
+│Tk│                         │  Large cover │                             │
+│  │                         └──────────────┘                             │
+│  │                              Title                                   │
+│  │                              Artist                                  │
+│  │          ▌▌▌▐▐▌▌▌▐▌▌▐▐▐▌▌▌▐▌▌▌▐▐▌▌▌  waveform (placeholder)          │
+│Pr│          0:49                                        3:25            │
+│St│                     ⤮    ⏮    ⏯    ⏭    ⟲          🔊━━━            │
+└──┴──────────────────────────────────────────────────────────────────────┘
 ```
 
-- Pochette et métadonnées occupent la partie supérieure.
-- La waveform utilise la largeur disponible dans la partie inférieure.
-- Les futurs tags d’analyse trouvent leur place près des métadonnées.
-- Le lecteur inférieur disparaît dans ce mode pour éviter des commandes dupliquées.
-- Le retour restaure les onglets, la division et la sélection précédentes.
-
-Avant l’implémentation de la waveform, cette zone affiche une barre de progression classique.
+- La source de lecture (dossier, playlist, album, artiste) figure en haut.
+- Avant le plan 08, la waveform est un emplacement réservé doté d’une barre de progression classique.
+- `Esc` ou **Exit fullscreen** restaure onglets, division, panneau droit et sélection précédents.
+- Les futurs tags d’analyse trouveront leur place sous l’identité du morceau.
 
 ### Sélection, lecture et édition
 
-- Un clic sélectionne ; un double-clic lance la lecture.
-- La sélection et le morceau en lecture peuvent être différents.
-- L’inspecteur de navigation suit la sélection ; la vue Écoute suit le morceau joué.
+- Un clic sélectionne ; Ctrl et Shift étendent la sélection.
+- **Un double-clic ou Entrée lance la lecture.**
+- **L’édition s’ouvre avec `Ctrl+I`, l’entrée `Edit info` du menu contextuel ou l’icône ⓘ de survol.** Elle affiche le panneau droit sur l’onglet Info.
+- Une fois ouvert, l’onglet Info suit la sélection ; Fullscreen player suit le morceau joué. La sélection et le morceau en lecture peuvent être différents.
+- L’onglet Queue montre la file à venir et l’historique.
 - La lecture continue selon l’ordre de la liste au moment du lancement. Changer de dossier ou de tri ne reconstruit pas silencieusement cette file.
 - Espace contrôle la lecture sauf lorsqu’un champ de saisie possède le focus.
-- Une file d’attente consultable permet de voir les prochains morceaux.
+- Le morceau en lecture est marqué dans la liste par un indicateur ▷ et la couleur primaire.
 
-Les métadonnées s’enregistrent automatiquement **à la validation du champ ou à sa perte de focus**, pas après chaque frappe.
+Le panneau Info sépare les champs modifiables (Title, Artist, Album, Genre, Date, BPM, Key, Comment…) des caractéristiques en lecture seule (Duration, Format, Bitrate, Size, Filename, Path).
 
-Afficher les états **Saving**, **Saved** et **Could not save**. Une erreur conserve la saisie pour permettre une nouvelle tentative. Une action d’annulation restaure la valeur précédente.
+Les métadonnées s’enregistrent automatiquement **à la validation du champ ou à sa perte de focus**, pas après chaque frappe. Afficher les états **Saving**, **Saved** et **Could not save**. Une erreur conserve la saisie pour permettre une nouvelle tentative. Une action d’annulation restaure la valeur précédente. En sélection multiple, afficher les valeurs différentes comme **Mixed values**. Modifier explicitement un champ applique uniquement ce champ à la sélection.
 
-En sélection multiple, afficher les valeurs différentes comme **Mixed values**. Modifier explicitement un champ applique uniquement ce champ à la sélection.
+### Convert, Tasks, Playlists et Settings
 
-### Onglet Conversion
+L’activité **Convert** affiche dans la barre latérale les lots en cours et récents, et ouvre ou active l’onglet d’éditeur **Convert** :
 
 ```text
 ┌ Convert ────────────────────────────────────────────────────────┐
@@ -168,45 +190,40 @@ En sélection multiple, afficher les valeurs différentes comme **Mixed values**
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-La conversion accepte les formats audio réellement pris en charge par la version de FFmpeg distribuée avec MTEE. Elle propose les sorties audio disponibles et uniquement les combinaisons conteneur/codec valides.
+La conversion accepte les formats audio réellement pris en charge par la version de FFmpeg distribuée avec MTEE. Elle propose les sorties audio disponibles et uniquement les combinaisons conteneur/codec valides. Les réglages fréquents restent accessibles immédiatement ; les options techniques complémentaires sont regroupées dans **Advanced**. Les sources sont conservées. Les sorties vont dans un dossier choisi, sans écraser de fichier existant. Une correspondance source/sortie est enregistrée pour les futures opérations Rekordbox.
 
-Les réglages fréquents restent accessibles immédiatement ; les options techniques complémentaires sont regroupées dans **Advanced**.
+L’activité **Tasks** remplace l’ancien bandeau des tâches de session : elle liste les analyses, lectures de dossiers et conversions en cours ou terminées, avec progression et erreurs.
 
-Les sources sont conservées. Les sorties vont dans un dossier choisi, sans écraser de fichier existant. Une correspondance source/sortie est enregistrée pour les futures opérations Rekordbox.
+L’activité **Playlists** est maquettée avec des données fictives ; son fonctionnement arrive avec les playlists (§4.8).
+
+**Settings** s’ouvre comme un onglet d’éditeur, à la manière de VS Code, et contient notamment l’affichage de l’îlot de lecture.
 
 ### Direction visuelle
 
-Base de maquette validée : **1440 × 900**, densité intermédiaire, interface sombre et panneaux arrondis.
+Base de maquette : **1440 × 900**, densité intermédiaire, interface sombre en gris neutres.
 
-Palette initiale :
-
-| Rôle | Valeur |
-|---|---|
-| Fond | `#080E18` |
-| Panneaux | `#111B2B` |
-| Surfaces actives | `#1B2A40` |
-| Texte principal | `#EDF2FA` |
-| Texte secondaire | `#A5B3C7` |
-| Accent et focus | `#80B5FF` |
-
-- Police : **Geist Sans**, embarquée localement avec sa licence.
-- Texte courant autour de 14 px ; lignes de table de 36 px.
-- Arrondis de 12 px pour les panneaux et 6–8 px pour les contrôles.
+- Fenêtre sans cadre, **angles droits** (y compris sous Windows 11), surfaces sobres et épurées ; pas d’arrondis décoratifs.
+- Barre de titre, barre d’activités et barre latérale plus sombres que la zone d’éditeur.
+- Texte principal blanc.
+- Une **couleur primaire vive** (famille vert néon / lime) pour les actions principales, le focus, la progression et le morceau en lecture ; une **couleur secondaire contrastée** pour les actions secondaires et accents. Palette retenue le 24 septembre 2026 : **Acid**, gris neutres `#0B0B0C` à `#18181B`, primaire lime `#C6FF1A`, secondaire magenta `#FF2E88` ; valeurs complètes dans [docs/ux/specification.md](docs/ux/specification.md).
+- Les couleurs des pastilles Camelot suivent la roue harmonique et sont indépendantes de la palette.
+- Police : **Geist Sans**, embarquée localement avec sa licence. Texte courant autour de 14 px.
 - Pas de grands dégradés décoratifs ni de cartes pour chaque information.
 - Distinguer survol, sélection, lecture en cours et focus clavier.
-- À petite largeur, replier les panneaux et afficher un seul groupe d’onglets sans perdre son contenu.
+- À petite largeur, replier la barre latérale puis le panneau droit, et afficher un seul groupe d’onglets sans perdre son contenu.
 
 ### Validation avant le code fonctionnel
 
-Produire trois maquettes détaillées : **Browser**, **Listening view**, **Convert**, puis leurs états importants : inspecteur ouvert, double panneau, sélection multiple, pochette absente et erreur de conversion.
+Produire les maquettes QML détaillées de l’**explorateur à onglets**, du **panneau Info/Queue**, de l’**îlot de lecture**, du **Fullscreen player**, de **Convert**, de **Tasks**, de **Playlists** et de **Settings**, puis leurs états importants : édition ouverte, double groupe, sélection multiple, pochette absente, erreur de conversion et fenêtre étroite.
 
 Utiliser un prototype QML à données fictives pour vérifier les dimensions et interactions, sans accès aux fichiers utilisateur.
 
 La revue utilisateur doit notamment examiner :
 
-- La densité et la lisibilité sur l’écran réel.
-- L’équilibre pochette/waveform/métadonnées.
-- L’accès aux commandes en panneau divisé.
+- La densité et la lisibilité des lignes de style Spotify sur l’écran réel.
+- La barre de titre sans cadre, le déplacement, l’ancrage et le redimensionnement de la fenêtre.
+- L’îlot de lecture et l’équilibre du Fullscreen player.
+- L’accès aux commandes en groupes divisés.
 - La compréhension de l’enregistrement automatique.
 - La lisibilité des options et erreurs de conversion.
 
@@ -233,7 +250,7 @@ Les composants échangent des informations de morceau, de sélection, d’état 
 
 ### 4.1 — Implémenter l’explorateur
 
-Ajouter les dossiers racines choisis par l’utilisateur, l’arborescence, les onglets, les deux panneaux et les vues Table/Artwork.
+Ajouter la barre de titre sans cadre, la barre d’activités, les dossiers racines choisis par l’utilisateur, l’arborescence, les onglets, les deux groupes, les listes de style Spotify et la vue Artwork.
 
 Lire les fichiers en arrière-plan, charger les pochettes à la demande et afficher les grandes listes sans créer un composant permanent par fichier.
 
@@ -245,7 +262,7 @@ Persister les racines, onglets, largeurs de colonnes et dispositions. Ne pas ré
 
 Intégrer mpv derrière un service commun à toutes les vues.
 
-Ajouter lecture/pause, précédent/suivant, position, volume, file d’attente et bascule vers la vue Écoute.
+Ajouter lecture/pause, précédent/suivant, aléatoire, répétition, position, volume, file d’attente, îlot de lecture et bascule vers Fullscreen player.
 
 Tester MP3, FLAC, AAC, WAV, ALAC, AIFF, Ogg/Vorbis, M4A et Opus à partir de fichiers représentatifs. Identifier le codec réel plutôt que de se fier uniquement à l’extension.
 
@@ -275,7 +292,7 @@ Mettre à jour les références internes après une opération réussie. Ne pas 
 
 ### 4.5 — Construire la conversion
 
-Ajouter FFmpeg/ffprobe et l’onglet Convert.
+Ajouter FFmpeg/ffprobe, l’activité et l’onglet Convert.
 
 Implémenter l’inspection des entrées, la sélection du format et du codec, les paramètres compatibles, la destination, la progression, l’annulation et la relance des échecs.
 

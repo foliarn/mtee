@@ -1,8 +1,8 @@
-# 02 — Prototyper et valider les trois espaces de MTEE
+# 02 — Prototyper et valider l'interface de MTEE
 
 ## Objectif et résultat observable
 
-L'utilisateur peut examiner et manipuler trois maquettes QML détaillées, Browser, Listening view et Convert, avec leurs états significatifs, sur son écran réel. La densité, la navigation et les erreurs deviennent vérifiables avant le branchement aux fichiers audio. La décision utilisateur et les ajustements retenus sont consignés avant le début de l'explorateur fonctionnel.
+L'utilisateur peut examiner et manipuler une maquette QML détaillée de l'interface révisée le 24 septembre 2026 — fenêtre sans cadre, barre d'activités, éditeur à onglets, listes de style Spotify, panneau Info/Queue, îlot de lecture, Fullscreen player, Convert, Tasks, Playlists et Settings — avec ses états significatifs, sur son écran réel. La densité, la navigation et les erreurs deviennent vérifiables avant le branchement aux fichiers audio. La décision utilisateur et les ajustements retenus sont consignés avant le début de l'explorateur fonctionnel.
 
 Ce plan vivant suit `PLANS.md` et couvre le jalon distinct de `PLAN.md` §3. Il conserve tous les libellés de l'interface en anglais.
 
@@ -15,6 +15,13 @@ Ce plan vivant suit `PLANS.md` et couvre le jalon distinct de `PLAN.md` §3. Il 
 - [x] (2026-09-22) Préparer captures et parcours ; la revue utilisateur est prête mais pas encore recueillie.
 - [ ] Appliquer les retours et consigner la décision avant tout code fonctionnel.
 - [x] (2026-09-22) Mettre à jour le suivi et préparer le commit intermédiaire ; le push reste à confirmer.
+- [x] (2026-09-24) Revue 1 obtenue : structure refusée, esquisse utilisateur analysée, décisions consignées dans `PLAN.md` §3, `docs/ux/specification.md` et `docs/ux/review-02.md`.
+- [x] (2026-09-24) Palette A — Acid choisie par l'utilisateur.
+- [ ] Jalon R1 — fenêtre sans cadre, barre de titre, barre d'activités et barre latérale.
+- [ ] Jalon R2 — éditeur à onglets, listes de style Spotify, panneau Info/Queue.
+- [ ] Jalon R3 — îlot de lecture et Fullscreen player.
+- [ ] Jalon R4 — Convert, Tasks, Playlists, Settings, Plugins et Profile réservés.
+- [ ] Jalon R5 — scénarios, captures, distribution Windows et revue 2.
 
 ## Surprises & Discoveries
 
@@ -27,6 +34,12 @@ Pendant la première capture, le contexte QML nommé `workspace` s'annulait dans
 À 1280 × 720, la somme des largeurs de la rangée incluait deux espacements en plus des panneaux ; la largeur de la bibliothèque a été corrigée avant de figer les captures.
 
 ## Decision Log
+
+Décision du 24 septembre 2026, utilisateur (revue 1) : remplacer la structure Browser / Listening view / Convert par l'organisation de l'esquisse `docs/ux/sketches/esquisse-2026-09-24.png` : barre d'activités VS Code, onglets d'éditeur, lignes Spotify, îlot de lecture, Fullscreen player. Double-clic ou Entrée joue ; `Ctrl+I`, `Edit info` ou ⓘ ouvrent l'édition ; `+` signifie Add to playlist ; fenêtre sans cadre à angles droits ; Profile et Plugins sont des boutons réservés sans fonction ; palette Acid : gris neutres, texte blanc, primaire lime `#C6FF1A`, secondaire magenta `#FF2E88`.
+
+Décision du 24 septembre 2026, Claude : Settings s'ouvre comme un onglet d'éditeur ; Convert possède une activité (lots) et un onglet d'éditeur (formulaire) ; Tasks remplace le bandeau `Session tasks`. La vue Artwork reste accessible par `View` pour respecter `PLAN.md` sans figurer dans l'esquisse. Les angles sont à 0 px partout, par cohérence avec la fenêtre, sauf les pastilles.
+
+Décision du 24 septembre 2026, Claude : la barre de titre sans cadre est déplacée et redimensionnée par `QWindow.startSystemMove()` / `startSystemResize()`. Les réglages propres à Windows (désactivation des angles arrondis par `DwmSetWindowAttribute`, `WM_NCHITTEST` pour Snap Layouts sur Maximize) vivent dans un module Python `src/mtee/platform/windows_frame.py` exposé à QML par un objet dédié ; QML n'appelle aucune API système.
 
 Décision du 10 septembre 2026, Codex : employer QML et le thème réel du socle plutôt qu'un prototype web, afin de vérifier les dimensions et interactions sur la technologie de l'application. Les contenus restent fictifs et ne déclenchent aucune opération sur les fichiers de l'utilisateur.
 
@@ -48,6 +61,10 @@ La revue utilisateur reste obligatoire et non obtenue. Aucune décision de palet
 
 Note de révision — 2026-09-22, Claude : prototype, scénarios, captures, spécification et dossier de revue ajoutés ; revue utilisateur explicitement laissée en attente.
 
+Résultat de la revue 1, 24 septembre 2026 : la structure du prototype est refusée ; les composants de données fictives (`DemoWorkspace`, scénarios, champs Saving/Saved/Mixed values, erreur de conversion) restent réutilisables. Le jalon n'est pas validé ; la révision R1 à R5 ci-dessous le rouvre.
+
+Note de révision — 2026-09-24, Claude : intégration de l'esquisse utilisateur, nouveaux jalons R1 à R5, nouveaux scénarios et critères ; aucun code de la révision encore écrit.
+
 ## Contexte et prérequis
 
 Le plan 01 doit fournir une fenêtre PySide6, `src/mtee/qml/theme/Theme.qml`, Geist Sans embarquée, les commandes `--demo`, `--data-dir`, `--smoke-test` et `scripts/build_windows.ps1`. Aucun service d'exploration, lecteur natif ou FFmpeg n'est nécessaire au prototype. Adapter les noms aux fichiers réellement livrés et consigner les écarts dans ce plan.
@@ -55,6 +72,24 @@ Le plan 01 doit fournir une fenêtre PySide6, `src/mtee/qml/theme/Theme.qml`, Ge
 Créer `src/mtee/demo/scenarios.py` pour les données fictives et `src/mtee/models/demo_workspace.py` pour l'état d'affichage. Les composants visuels restent sous `src/mtee/qml/` ; les états simulés sont injectés par le mode démo. Un scénario est un état reproductible du prototype que l'on ouvre par un argument, afin de revoir exactement une erreur ou une sélection multiple.
 
 ## Plan de travail et jalons
+
+### Révision du 24 septembre 2026
+
+Les jalons R1 à R5 remplacent les jalons 1 à 4 ci-dessous, conservés comme historique du premier prototype. La référence visuelle est `docs/ux/specification.md` (révision 2) ; `PLAN.md` §3 décrit la structure. Réutiliser `DemoWorkspace`, `load_scenario`, `FieldEditor.qml` et les données fictives ; remplacer `BrowserView.qml`, `ListeningView.qml`, les onglets supérieurs et le bandeau de tâches.
+
+**R1 — Fenêtre et navigation.** Créer `qml/components/TitleBar.qml`, `ActivityBar.qml`, `SideBar.qml` et le module `src/mtee/platform/windows_frame.py`. Fenêtre sans cadre, menus `File`, `Edit`, `View` fictifs, commandes de fenêtre, déplacement, double-clic de maximisation, redimensionnement par les bords, angles droits sous Windows 11 et Snap Layouts. Les activités Plugins et Profile affichent `Coming later`. Appliquer la palette Acid dans `Theme.qml`.
+
+**R2 — Éditeur et édition.** Créer `EditorArea.qml`, `EditorTabs.qml`, `TrackList.qml` (lignes Spotify, en-tête de dossier, pastilles Camelot, `+`, ⓘ au survol) et `RightPanel.qml` avec Info et Queue. Double-clic et Entrée jouent fictivement ; `Ctrl+I`, `Edit info` et ⓘ ouvrent Info. Conserver les états Saving, Saved, Could not save, Retry, Undo et Mixed values. Deux groupes au maximum ; vue Artwork accessible par `View`.
+
+**R3 — Lecture.** Créer `PlayerIsland.qml` et `FullscreenPlayer.qml`. L'îlot flotte au-dessus de l'éditeur, se masque par `View › Player island`, ouvre Queue et Fullscreen player. Fullscreen player garde la barre d'activités, masque le reste, affiche la source, la pochette, l'identité, un emplacement de waveform avec progression et le transport ; `Esc` restaure l'état.
+
+**R4 — Activités secondaires.** Adapter `ConvertView.qml` en onglet d'éditeur et créer la barre latérale Convert (lots), `TasksPane.qml`, `PlaylistsPane.qml` fictif et `SettingsView.qml` (au minimum l'affichage de l'îlot).
+
+**R5 — Revue 2.** Mettre à jour les scénarios, les tests, les captures à 1440 × 900, 1280 × 720 et 1024 × 768, la distribution Windows et `docs/ux/review-02.md`, puis présenter la revue 2.
+
+Scénarios de la révision : `explorer`, `explorer-info`, `explorer-split`, `explorer-multi`, `explorer-no-artwork`, `playing-queue`, `fullscreen`, `convert`, `convert-error`, `tasks`, `playlists`, `settings`. Les anciens noms (`browser`, `listening`…) sont retirés.
+
+### Historique — premier prototype (22 septembre 2026)
 
 ### Jalon 1 — Dessiner Browser et la disposition
 
@@ -110,6 +145,8 @@ Fermer une session avant de lancer la suivante, ou utiliser des répertoires de 
 Les tests doivent réussir et le prototype packagé présenter les mêmes scénarios. Consigner le rendu à 100 %, 125 % et 150 % de mise à l'échelle Windows, en indiquant les essais réellement possibles sur le matériel disponible.
 
 ## Validation et acceptation
+
+Pour la révision du 24 septembre 2026 : les douze scénarios sont ouvrables ; la fenêtre sans cadre se déplace, se redimensionne, s'ancre et garde des angles droits ; chaque activité change la barre latérale, Plugins et Profile restant inertes ; double-clic et Entrée jouent sans ouvrir Info ; `Ctrl+I`, `Edit info` et ⓘ ouvrent Info sans lancer la lecture ; l'îlot ne masque aucune ligne et disparaît dans Fullscreen player ; `Esc` restaure onglets, division, panneau droit et sélection. Les critères ci-dessous restent valables en remplaçant Browser par Explorer et Listening view par Fullscreen player.
 
 Les huit scénarios sont directement ouvrables. Browser possède les colonnes et commandes demandées ; l'inspecteur est fermé au départ ; les deux groupes se retrouvent après réduction et restauration de la fenêtre. La grille ne regroupe pas les morceaux par album. À tout instant, sélection et lecture peuvent viser deux morceaux distincts.
 
