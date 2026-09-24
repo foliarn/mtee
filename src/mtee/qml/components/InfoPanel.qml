@@ -65,6 +65,7 @@ Item {
                         width: 56
                         height: 56
                         pattern: info.selection.length > 1 ? info.workspace.track(info.selection[1]).cover : -1
+                        source: info.selection.length > 1 ? (info.workspace.track(info.selection[1]).coverUrl || "") : ""
                         opacity: 0.6
                     }
 
@@ -73,6 +74,7 @@ Item {
                         width: info.multiple ? 56 : 64
                         height: width
                         pattern: info.first.cover !== undefined ? info.first.cover : -1
+                        source: info.first.coverUrl || ""
                     }
                 }
 
@@ -105,9 +107,11 @@ Item {
                 }
             }
 
-            SectionLabel { text: "Tags" }
+            SectionLabel { visible: info.workspace.metadataEditable !== false; text: "Tags" }
+            SectionLabel { visible: info.workspace.metadataEditable === false; text: "Metadata (read-only)" }
 
             Repeater {
+                visible: info.workspace.metadataEditable !== false
                 model: info.workspace.infoFields
                 delegate: FieldEditor {
                     required property var modelData
@@ -116,6 +120,32 @@ Item {
                     value: modelData.value
                     mixed: modelData.mixed
                     onCommitted: (value) => info.workspace.commitField(modelData.key, value)
+                }
+            }
+
+            Repeater {
+                visible: info.workspace.metadataEditable === false
+                model: info.workspace.metadataEditable === false ? info.workspace.infoFieldsReadOnly : []
+                delegate: Column {
+                    required property var modelData
+                    width: body.width
+                    spacing: 2
+
+                    Text {
+                        text: modelData.label
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: modelData.value
+                        wrapMode: Text.WrapAnywhere
+                        color: Theme.textPrimary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSecondary
+                    }
                 }
             }
 
@@ -180,7 +210,8 @@ Item {
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: info.workspace.saveState === "saving" ? "Saving…"
+                text: info.workspace.metadataEditable === false ? "Metadata is read-only in this step."
+                    : info.workspace.saveState === "saving" ? "Saving…"
                     : info.workspace.saveState === "saved" ? "Saved"
                     : info.workspace.saveState === "error" ? "Could not save"
                     : "Changes save when you leave a field"

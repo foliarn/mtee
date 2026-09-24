@@ -9,6 +9,7 @@ AppMenu {
     property var trackIds: []
     property string trackId: ""
     property string source: ""
+    property string folderId: ""
 
     AppMenuItem {
         text: "Play"
@@ -40,9 +41,8 @@ AppMenu {
     AppMenuItem {
         text: "Show in Explorer"
         onTriggered: {
-            const track = menu.workspace.track(menu.trackId)
             menu.workspace.setActivity("explorer")
-            menu.workspace.openFolder(track.folder)
+            menu.workspace.openFolder(menu.folderId)
         }
     }
 

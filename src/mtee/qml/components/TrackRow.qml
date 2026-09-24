@@ -13,6 +13,7 @@ Rectangle {
     property bool paused: false
     property bool current: false
     property bool inPlaylist: false
+    property bool separateArtist: true
     readonly property bool hovered: mouse.containsMouse
     signal pressed(var event)
     signal activated()
@@ -43,6 +44,7 @@ Rectangle {
     }
 
     Row {
+        id: rowCells
         x: row.columns.padding
         height: parent.height
         spacing: row.columns.gap
@@ -76,78 +78,90 @@ Rectangle {
             }
         }
 
-        Item {
-            width: row.columns.title
-            height: parent.height
+        Repeater {
+            model: row.columns.items
 
-            CoverArt {
-                id: cover
-                width: Theme.coverSize
-                height: Theme.coverSize
-                anchors.verticalCenter: parent.verticalCenter
-                pattern: row.track.cover
-            }
+            delegate: Item {
+                id: field
+                required property var modelData
+                readonly property string columnKey: modelData.key
+                readonly property string displayText: {
+                    const values = {
+                        artist: row.track.artist,
+                        album: row.track.album,
+                        genre: row.track.genre,
+                        bpm: row.track.bpm,
+                        duration: row.track.duration,
+                        format: row.track.format,
+                        filename: row.track.filename
+                    }
+                    return String(values[columnKey] || "")
+                }
 
-            Column {
-                anchors.left: cover.right
-                anchors.leftMargin: 12
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
+                width: modelData.width
+                height: row.height
 
-                Text {
-                    width: parent.width
-                    text: row.track.title
-                    elide: Text.ElideRight
-                    color: row.playing ? Theme.primary : Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeBody
+                CoverArt {
+                    id: cover
+                    visible: field.columnKey === "title"
+                    width: Theme.coverSize
+                    height: Theme.coverSize
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    pattern: row.track.cover
+                    source: row.track.coverUrl || ""
+                }
+
+                Column {
+                    visible: field.columnKey === "title"
+                    anchors.left: cover.right
+                    anchors.leftMargin: 10
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+
+                    Text {
+                        width: parent.width
+                        text: row.track.title
+                        elide: Text.ElideRight
+                        color: row.playing ? Theme.primary : Theme.textPrimary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeBody
+                    }
+
+                    Text {
+                        visible: !row.separateArtist
+                        width: parent.width
+                        text: row.track.artist.length > 0 ? row.track.artist : "Unknown artist"
+                        elide: Text.ElideRight
+                        color: row.track.artist.length > 0 ? Theme.textSecondary : Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSecondary
+                    }
+                }
+
+                KeyBadge {
+                    visible: field.columnKey === "key"
+                    anchors.centerIn: parent
+                    key: row.track.key
                 }
 
                 Text {
+                    visible: field.columnKey !== "title" && field.columnKey !== "key"
+                    anchors.verticalCenter: parent.verticalCenter
                     width: parent.width
-                    text: row.track.artist.length > 0 ? row.track.artist : "Unknown artist"
+                    horizontalAlignment: field.columnKey === "bpm" || field.columnKey === "duration"
+                        ? Text.AlignRight : Text.AlignLeft
+                    text: field.displayText.length > 0 ? field.displayText : "—"
                     elide: Text.ElideRight
-                    color: row.track.artist.length > 0
+                    color: field.displayText.length > 0
                         ? (row.hovered || row.selected ? Theme.textPrimary : Theme.textSecondary)
                         : Theme.textMuted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSecondary
+                    font.features: { "tnum": 1 }
                 }
             }
-        }
-
-        Cell {
-            width: row.columns.album
-            visible: row.columns.album > 0
-            text: row.track.album
-        }
-
-        Cell {
-            width: row.columns.genre
-            visible: row.columns.genre > 0
-            text: row.track.genre
-        }
-
-        Cell {
-            width: row.columns.bpm
-            text: row.track.bpm
-            alignRight: true
-        }
-
-        Item {
-            width: row.columns.key
-            height: parent.height
-            KeyBadge {
-                anchors.centerIn: parent
-                key: row.track.key
-            }
-        }
-
-        Cell {
-            width: row.columns.duration
-            text: row.track.duration
-            alignRight: true
         }
 
         Row {
@@ -181,24 +195,4 @@ Rectangle {
         }
     }
 
-    component Cell: Item {
-        id: cell
-        property string text: ""
-        property bool alignRight: false
-        height: row.height
-
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width
-            horizontalAlignment: cell.alignRight ? Text.AlignRight : Text.AlignLeft
-            text: cell.text.length > 0 ? cell.text : "—"
-            elide: Text.ElideRight
-            color: cell.text.length > 0 && cell.text !== "—"
-                ? (row.hovered || row.selected ? Theme.textPrimary : Theme.textSecondary)
-                : Theme.textMuted
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSecondary
-            font.features: { "tnum": 1 }
-        }
-    }
 }

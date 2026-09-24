@@ -11,31 +11,63 @@ FocusScope {
     required property var tab
     property int groupIndex: 0
     property int bottomInset: 0
+    property var localColumnWidths: ({})
 
     readonly property string source: tab.kind + ":" + tab.ref
-    readonly property var rows: workspace.tabTracks(tab.kind, tab.ref, tab.sortKey, tab.sortAscending, workspace.revision)
-    readonly property var orderedIds: rows.map((track) => track.id)
+    readonly property bool modelBacked: typeof workspace.trackModelForTab === "function"
+    readonly property var rows: modelBacked ? [] : workspace.tabTracks(tab.kind, tab.ref, tab.sortKey, tab.sortAscending, workspace.revision)
+    readonly property var trackModel: modelBacked
+        ? workspace.trackModelForTab(tab.id, tab.kind, tab.ref, tab.sortKey, tab.sortAscending)
+        : rows
+    readonly property var orderedIds: modelBacked ? trackModel.trackIds : rows.map((track) => track.id)
     readonly property bool artwork: tab.view === "artwork"
 
     readonly property var columns: {
-        const narrow = width < 600
-        const padding = narrow ? 12 : 24
-        const gap = narrow ? 10 : 16
+        const padding = width < 600 ? 12 : 24
+        const gap = width < 600 ? 10 : 16
         const number = 28
-        const bpm = 48
-        const key = 48
-        const duration = 52
-        const actions = narrow ? 36 : 64
-        const showAlbum = width >= 880
-        const showGenre = width >= 720
-        const cells = 6 + (showAlbum ? 1 : 0) + (showGenre ? 1 : 0)
-        const flex = Math.max(120, width - 2 * padding - number - bpm - key - duration - actions - (cells - 1) * gap)
-        const title = showAlbum && showGenre ? flex * 0.46 : showAlbum || showGenre ? flex * 0.62 : flex
+        const actions = width < 600 ? 36 : 64
+        const liveDefaults = ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename"]
+        const demoDefaults = ["title", "album", "genre", "bpm", "key", "duration"]
+        const defaults = view.modelBacked ? liveDefaults : demoDefaults
+        const labels = ({ title: "Title", artist: "Artist", album: "Album", genre: "Genre", bpm: "BPM", key: "Key", duration: "Duration", format: "Format", filename: "Filename" })
+        const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180 })
+        const configuredOrder = Array.isArray(tab.columnOrder) ? tab.columnOrder : defaults
+        const order = configuredOrder.filter((key, index) => defaults.indexOf(key) >= 0 && configuredOrder.indexOf(key) === index)
+        const hidden = view.modelBacked
+            ? (Array.isArray(tab.hiddenColumns) ? tab.hiddenColumns : ["album", "duration", "format", "filename"])
+            : []
+        let keys = order.filter((key) => key === "title" || hidden.indexOf(key) < 0)
+        if (keys.indexOf("title") < 0)
+            keys.unshift("title")
+        const storedWidths = tab.columnWidths || ({})
+        let fixedWidth = 0
+        for (const key of keys) {
+            if (key === "title")
+                continue
+            const local = Number(view.localColumnWidths[key] || 0)
+            const stored = Number(storedWidths[key] || 0)
+            fixedWidth += local || stored || baseWidths[key]
+        }
+        const titleStored = Number(view.localColumnWidths.title || storedWidths.title || 0)
+        const titleWidth = titleStored || Math.max(140, width - 2 * padding - number - actions - gap * (keys.length + 1) - fixedWidth)
+        const items = keys.map((key) => {
+            const local = Number(view.localColumnWidths[key] || 0)
+            const stored = Number(storedWidths[key] || 0)
+            return {
+                key: key,
+                label: labels[key],
+                sortKey: key,
+                width: key === "title" ? titleWidth : (local || stored || baseWidths[key])
+            }
+        })
+        let itemWidth = 0
+        for (const item of items)
+            itemWidth += item.width
+        const totalWidth = 2 * padding + number + actions + gap * (keys.length + 1) + itemWidth
         return {
-            "padding": padding, "gap": gap, "number": number, "bpm": bpm, "key": key,
-            "duration": duration, "actions": actions, "title": title,
-            "album": showAlbum ? flex * (showGenre ? 0.32 : 0.38) : 0,
-            "genre": showGenre ? flex * (showAlbum ? 0.22 : 0.38) : 0
+            "padding": padding, "gap": gap, "number": number, "actions": actions,
+            "items": items, "keys": keys, "totalWidth": totalWidth
         }
     }
 
@@ -157,6 +189,91 @@ FocusScope {
                 tip: "Artwork"
                 onClicked: view.workspace.setTabView(view.tab.id, "artwork")
             }
+
+            IconButton {
+                icon: "settings"
+                iconSize: 18
+                enabled: view.modelBacked
+                tip: "Choose columns"
+                onClicked: columnMenu.open()
+            }
+        }
+
+        Menu {
+            id: columnMenu
+
+            MenuItem {
+                text: "Artist"
+                checkable: true
+                checked: view.columns.keys.indexOf("artist") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "artist")
+            }
+            MenuItem {
+                text: "Album"
+                checkable: true
+                checked: view.columns.keys.indexOf("album") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "album")
+            }
+            MenuItem {
+                text: "Genre"
+                checkable: true
+                checked: view.columns.keys.indexOf("genre") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "genre")
+            }
+            MenuItem {
+                text: "BPM"
+                checkable: true
+                checked: view.columns.keys.indexOf("bpm") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "bpm")
+            }
+            MenuItem {
+                text: "Key"
+                checkable: true
+                checked: view.columns.keys.indexOf("key") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "key")
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: "Duration"
+                checkable: true
+                checked: view.columns.keys.indexOf("duration") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "duration")
+            }
+            MenuItem {
+                text: "Format"
+                checkable: true
+                checked: view.columns.keys.indexOf("format") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "format")
+            }
+            MenuItem {
+                text: "Filename"
+                checkable: true
+                checked: view.columns.keys.indexOf("filename") >= 0
+                onTriggered: view.workspace.toggleColumn(view.tab.id, "filename")
+            }
+        }
+
+        TextField {
+            visible: view.modelBacked
+            anchors.top: parent.top
+            anchors.topMargin: 14
+            anchors.right: parent.right
+            anchors.rightMargin: view.columns.padding + 76
+            width: Math.min(220, parent.width * 0.32)
+            height: 28
+            placeholderText: "Search this folder"
+            text: view.tab.searchQuery || ""
+            selectByMouse: true
+            color: Theme.textPrimary
+            placeholderTextColor: Theme.textMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSmall
+            onTextEdited: view.workspace.setSearch(view.tab.id, text)
+            background: Rectangle {
+                color: Theme.surface
+                border.width: 1
+                border.color: parent.activeFocus ? Theme.focus : Theme.separator
+            }
         }
     }
 
@@ -164,7 +281,8 @@ FocusScope {
         id: columnHeader
         visible: !view.artwork
         anchors.top: heading.bottom
-        width: parent.width
+        x: -tableViewport.contentX
+        width: tableViewport.contentWidth
         height: visible ? 34 : 0
 
         Row {
@@ -173,12 +291,18 @@ FocusScope {
             spacing: view.columns.gap
 
             HeaderCell { width: view.columns.number; label: "#"; sortKey: "index"; alignRight: true }
-            HeaderCell { width: view.columns.title; label: "Title"; sortKey: "title" }
-            HeaderCell { width: view.columns.album; visible: width > 0; label: "Album"; sortKey: "album" }
-            HeaderCell { width: view.columns.genre; visible: width > 0; label: "Genre"; sortKey: "genre" }
-            HeaderCell { width: view.columns.bpm; label: "BPM"; sortKey: "bpm"; alignRight: true }
-            HeaderCell { width: view.columns.key; label: "Key"; sortKey: "key"; centered: true }
-            HeaderCell { width: view.columns.duration; label: ""; sortKey: "duration"; alignRight: true; icon: "clock" }
+            Repeater {
+                model: view.columns.items
+                HeaderCell {
+                    required property var modelData
+                    width: modelData.width
+                    label: modelData.label
+                    sortKey: modelData.sortKey
+                    columnKey: modelData.key
+                    alignRight: modelData.key === "bpm" || modelData.key === "duration"
+                }
+            }
+            Item { width: view.columns.actions; height: parent.height }
         }
 
         Rectangle {
@@ -190,8 +314,8 @@ FocusScope {
         }
     }
 
-    ListView {
-        id: list
+    Flickable {
+        id: tableViewport
         visible: !view.artwork
         anchors.top: columnHeader.bottom
         anchors.topMargin: 8
@@ -200,38 +324,55 @@ FocusScope {
         anchors.bottom: parent.bottom
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        reuseItems: true
-        currentIndex: -1
-        highlightFollowsCurrentItem: false
-        keyNavigationEnabled: false
-        model: view.rows
-        footer: Item { width: 1; height: view.bottomInset + 8 }
-        ScrollBar.vertical: ThinScrollBar {}
+        flickableDirection: Flickable.HorizontalFlick
+        contentWidth: Math.max(width, view.columns.totalWidth)
+        contentHeight: height
 
-        delegate: TrackRow {
-            id: trackRow
-            required property var modelData
-            required property int index
-            width: ListView.view.width
-            track: modelData
-            columns: view.columns
-            selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
-            playing: view.workspace.playingId === modelData.id
-            paused: !view.workspace.isPlaying
-            current: view.activeFocus && list.currentIndex === index
-            inPlaylist: view.workspace.playlistsContaining(modelData.id, view.workspace.revision).length > 0
-            onPressed: (event) => view.press(index, event)
-            onActivated: view.play(index)
-            onToggleRequested: view.workspace.togglePlay()
-            onInfoRequested: {
-                view.workspace.selectTrack(modelData.id, "single", [])
-                view.workspace.showRightPanel("info")
-            }
-            onPlaylistRequested: (anchor) => view.openPlaylistMenu(anchor, modelData.id)
-            onContextRequested: (x, y) => {
-                contextMenu.trackId = modelData.id
-                contextMenu.trackIds = view.workspace.selectedIds
-                contextMenu.popup(trackRow, x, y)
+        Item {
+            width: tableViewport.contentWidth
+            height: tableViewport.height
+
+            ListView {
+                id: list
+                anchors.fill: parent
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                reuseItems: true
+                currentIndex: -1
+                highlightFollowsCurrentItem: false
+                keyNavigationEnabled: false
+                model: view.trackModel
+                footer: Item { width: 1; height: view.bottomInset + 8 }
+                ScrollBar.vertical: ThinScrollBar {}
+
+                delegate: TrackRow {
+                    id: trackRow
+                    required property var modelData
+                    required property int index
+                    width: ListView.view.width
+                    track: modelData
+                    columns: view.columns
+                    separateArtist: view.modelBacked
+                    selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
+                    playing: view.workspace.playingId === modelData.id
+                    paused: !view.workspace.isPlaying
+                    current: view.activeFocus && list.currentIndex === index
+                    inPlaylist: view.workspace.playlistsContaining(modelData.id, view.workspace.revision).length > 0
+                    onPressed: (event) => view.press(index, event)
+                    onActivated: view.play(index)
+                    onToggleRequested: view.workspace.togglePlay()
+                    onInfoRequested: {
+                        view.workspace.selectTrack(modelData.id, "single", [])
+                        view.workspace.showRightPanel("info")
+                    }
+                    onPlaylistRequested: (anchor) => view.openPlaylistMenu(anchor, modelData.id)
+                    onContextRequested: (x, y) => {
+                        contextMenu.trackId = modelData.id
+                        contextMenu.folderId = modelData.folder
+                        contextMenu.trackIds = view.workspace.selectedIds
+                        contextMenu.popup(trackRow, x, y)
+                    }
+                }
             }
         }
     }
@@ -250,7 +391,8 @@ FocusScope {
         cellHeight: cellWidth + 58
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        model: view.artwork ? view.rows : []
+        reuseItems: true
+        model: view.artwork ? view.trackModel : []
         footer: Item { width: 1; height: view.bottomInset + 8 }
         ScrollBar.vertical: ThinScrollBar {}
 
@@ -272,6 +414,7 @@ FocusScope {
                 width: tile.width - 16
                 height: width
                 pattern: tile.modelData.cover
+                source: tile.modelData.coverUrl || ""
             }
 
             Column {
@@ -310,6 +453,7 @@ FocusScope {
                 onClicked: (event) => {
                     if (event.button === Qt.RightButton) {
                         contextMenu.trackId = tile.modelData.id
+                        contextMenu.folderId = tile.modelData.folder
                         contextMenu.trackIds = view.workspace.selectedIds
                         contextMenu.popup(tile, event.x, event.y)
                     }
@@ -334,9 +478,8 @@ FocusScope {
 
         property string label: ""
         property string sortKey: ""
-        property string icon: ""
+        property string columnKey: ""
         property bool alignRight: false
-        property bool centered: false
         readonly property bool sorted: view.tab.sortKey === sortKey && sortKey !== "index"
 
         height: parent.height
@@ -344,17 +487,8 @@ FocusScope {
         Row {
             anchors.verticalCenter: parent.verticalCenter
             anchors.right: cell.alignRight ? parent.right : undefined
-            anchors.horizontalCenter: cell.centered ? parent.horizontalCenter : undefined
             spacing: 4
             layoutDirection: cell.alignRight ? Qt.RightToLeft : Qt.LeftToRight
-
-            Icon {
-                visible: cell.icon.length > 0
-                anchors.verticalCenter: parent.verticalCenter
-                name: cell.icon
-                size: 16
-                color: cell.sorted || headerMouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
-            }
 
             Text {
                 visible: cell.label.length > 0
@@ -378,8 +512,57 @@ FocusScope {
             id: headerMouse
             anchors.fill: parent
             hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.PointingHandCursor
-            onClicked: view.workspace.setSort(view.tab.id, cell.sortKey)
+            onClicked: (event) => {
+                if (event.button === Qt.RightButton)
+                    reorderMenu.open()
+                else if (cell.sortKey.length > 0)
+                    view.workspace.setSort(view.tab.id, cell.sortKey)
+            }
+        }
+
+        Menu {
+            id: reorderMenu
+            MenuItem {
+                text: "Move left"
+                onTriggered: view.workspace.moveColumn(view.tab.id, cell.columnKey, -1)
+            }
+            MenuItem {
+                text: "Move right"
+                onTriggered: view.workspace.moveColumn(view.tab.id, cell.columnKey, 1)
+            }
+        }
+
+        MouseArea {
+            id: resizeHandle
+            visible: view.modelBacked && cell.columnKey.length > 0
+            z: 2
+            width: 8
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeHorCursor
+            property real startX: 0
+            property int startWidth: 0
+
+            onPressed: (mouse) => {
+                startX = mouse.x
+                startWidth = cell.width
+            }
+            onPositionChanged: (mouse) => {
+                if (pressed) {
+                    const resized = Math.max(44, startWidth + mouse.x - startX)
+                    const next = Object.assign({}, view.localColumnWidths)
+                    next[cell.columnKey] = resized
+                    view.localColumnWidths = next
+                }
+            }
+            onReleased: {
+                const resized = Number(view.localColumnWidths[cell.columnKey] || cell.width)
+                view.workspace.resizeColumn(view.tab.id, cell.columnKey, Math.round(resized))
+            }
         }
     }
 }

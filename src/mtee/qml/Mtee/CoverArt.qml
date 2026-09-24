@@ -6,20 +6,35 @@ Rectangle {
     id: cover
 
     property int pattern: -1
+    property string source: ""
     readonly property var palettes: [
         ["#3B2A5E", "#FF5F7E"], ["#123C3A", "#7CF2C2"], ["#4A2A12", "#FFB347"],
         ["#1E2A4F", "#6FA8FF"], ["#2B2B2B", "#E9E9E9"], ["#4B1034", "#FF7AD1"],
         ["#2F3A12", "#D6F25F"], ["#10313F", "#48D1E8"]
     ]
-    readonly property bool missing: pattern < 0
-    readonly property var colours: missing ? [Theme.selection, Theme.textMuted] : palettes[pattern % palettes.length]
+    readonly property bool missing: pattern < 0 && source.length === 0
+    readonly property var colours: {
+        if (missing)
+            return [Theme.selection, Theme.textMuted]
+        const index = ((pattern % palettes.length) + palettes.length) % palettes.length
+        return palettes[index]
+    }
     readonly property int shape: missing ? -1 : pattern % 4
 
     color: colours[0]
     clip: true
 
+    Image {
+        anchors.fill: parent
+        source: cover.source
+        visible: cover.source.length > 0
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        cache: true
+    }
+
     Rectangle {
-        visible: cover.shape === 0
+        visible: cover.source.length === 0 && cover.shape === 0
         width: cover.width * 0.56
         height: width
         radius: width / 2
@@ -28,7 +43,7 @@ Rectangle {
     }
 
     Rectangle {
-        visible: cover.shape === 1
+        visible: cover.source.length === 0 && cover.shape === 1
         width: cover.width * 1.6
         height: cover.height * 0.22
         anchors.centerIn: parent
@@ -38,7 +53,7 @@ Rectangle {
     }
 
     Column {
-        visible: cover.shape === 2
+        visible: cover.source.length === 0 && cover.shape === 2
         anchors.bottom: parent.bottom
         anchors.bottomMargin: cover.height * 0.14
         anchors.horizontalCenter: parent.horizontalCenter
@@ -57,7 +72,7 @@ Rectangle {
     }
 
     Rectangle {
-        visible: cover.shape === 3
+        visible: cover.source.length === 0 && cover.shape === 3
         width: cover.width * 0.5
         height: width
         x: cover.width * 0.32
