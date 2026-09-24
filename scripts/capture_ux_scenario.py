@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QTimer
+from PySide6.QtCore import QCoreApplication, Qt, QTimer
 from PySide6.QtQuick import QQuickWindow
 
 from mtee import app as mtee_app
@@ -42,6 +42,8 @@ def main() -> int:
     if not isinstance(window, QQuickWindow):
         print("MTEE root is not a QQuickWindow", file=sys.stderr)
         return 1
+    # Ignore the real pointer so a capture never shows an accidental hover state.
+    window.setFlags(window.flags() | Qt.WindowType.WindowTransparentForInput)
     window.resize(width, height)
 
     def capture() -> None:

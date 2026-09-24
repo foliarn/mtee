@@ -89,7 +89,7 @@ Après publication, relire le chemin final, contrôler les valeurs et enregistre
 ### Jalon 3 — Autosauvegarde et sélection multiple
 
 
-Créer `src/mtee/models/metadata_editor_model.py`, compléter `src/mtee/qml/components/MetadataInspector.qml` et `src/mtee/qml/views/FullscreenPlayer.qml` des plans précédents, puis ajouter `src/mtee/qml/components/MetadataField.qml`. Chaque champ possède valeur lue, brouillon, numéro de version, capacité et état d'enregistrement. Entrée et perte de focus déclenchent une seule requête par version ; chaque frappe ne déclenche aucune écriture.
+Créer `src/mtee/models/metadata_editor_model.py`, compléter `src/mtee/qml/components/InfoPanel.qml` et `src/mtee/qml/views/FullscreenPlayer.qml` des plans précédents, puis compléter `src/mtee/qml/components/FieldEditor.qml`. Chaque champ possède valeur lue, brouillon, numéro de version, capacité et état d'enregistrement. Entrée et perte de focus déclenchent une seule requête par version ; chaque frappe ne déclenche aucune écriture.
 
 Une sauvegarde lente n'empêche pas une nouvelle saisie : conserver la dernière version de brouillon et sérialiser les intentions par UUID. Un retour ancien ne remet pas Saved sur une valeur plus récente non enregistrée. Un changement de sélection valide le champ en cours contre ses anciennes cibles avant d'afficher les nouvelles ; il ne redirige pas la requête vers la nouvelle sélection.
 
@@ -162,7 +162,7 @@ Sur `main` et avec `origin` vérifié vers `https://github.com/foliarn/mtee.git`
 
     git status --short
     git diff --check
-    git add -- src/mtee/domain/metadata_edit.py src/mtee/services/metadata_adapters src/mtee/services/metadata_writer.py src/mtee/services/file_replacement.py src/mtee/persistence/metadata_history_repository.py src/mtee/models/metadata_editor_model.py src/mtee/qml/components/MetadataInspector.qml src/mtee/qml/components/MetadataField.qml src/mtee/qml/views/FullscreenPlayer.qml tests/unit/test_metadata_mapping.py tests/unit/test_metadata_edit_service.py tests/integration/test_metadata_roundtrip.py tests/integration/test_metadata_recovery.py tests/ui/test_metadata_editor.py tests/fixtures/audio/manifest.json docs/metadata-mapping.md docs/validation/05-metadonnees.md "Plans d'exécution/05-metadonnees.md"
+    git add -- src/mtee/domain/metadata_edit.py src/mtee/services/metadata_adapters src/mtee/services/metadata_writer.py src/mtee/services/file_replacement.py src/mtee/persistence/metadata_history_repository.py src/mtee/models/metadata_editor_model.py src/mtee/qml/components/InfoPanel.qml src/mtee/qml/components/FieldEditor.qml src/mtee/qml/views/FullscreenPlayer.qml tests/unit/test_metadata_mapping.py tests/unit/test_metadata_edit_service.py tests/integration/test_metadata_roundtrip.py tests/integration/test_metadata_recovery.py tests/ui/test_metadata_editor.py tests/fixtures/audio/manifest.json docs/metadata-mapping.md docs/validation/05-metadonnees.md "Plans d'exécution/05-metadonnees.md"
     git diff --cached --check
     git diff --cached
 

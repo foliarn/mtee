@@ -7,11 +7,38 @@ Cette page sert de support à la revue des maquettes de MTEE. Les contenus
 sont fictifs et le mode démo ne lit ni n'écrit aucun fichier audio. Chaque
 scénario est reproductible avec `--demo --scenario <nom>`.
 
+## Revue 2 — prototype révisé (24 septembre 2026)
+
+Chaque scénario s'ouvre avec `uv run python -m mtee --demo --scenario <nom>`.
+
+| Scénario | Ce qu'il permet de vérifier | Capture |
+|---|---|---|
+| `explorer` | Fenêtre sans cadre, barre d'activités, arborescence, onglets, lignes Spotify, îlot | [Explorer](screenshots/explorer.png) |
+| `explorer-info` | Panneau Info sur la sélection, champs modifiables, fichier en lecture seule | [Info](screenshots/explorer-info.png) |
+| `explorer-split` | Deux groupes d'onglets, groupe actif souligné, colonnes réduites | [Split](screenshots/explorer-split.png) |
+| `explorer-multi` | Multisélection, Mixed values, échec de sauvegarde puis Retry / Undo | [Multi](screenshots/explorer-multi.png) |
+| `explorer-no-artwork` | Vue Artwork et pochettes absentes | [Artwork](screenshots/explorer-no-artwork.png) |
+| `playing-queue` | Onglet Queue, lecture aléatoire et répétition actives | [Queue](screenshots/playing-queue.png) |
+| `fullscreen` | Fullscreen player : source, pochette, waveform fictive, transport | [Fullscreen](screenshots/fullscreen.png) |
+| `convert`, `convert-error` | Activité et onglet Convert, erreur par fichier avec Retry | [Convert](screenshots/convert.png), [erreur](screenshots/convert-error.png) |
+| `tasks` | Tâches de fond, progression et erreur | [Tasks](screenshots/tasks.png) |
+| `playlists` | Playlists fictives et onglet de playlist | [Playlists](screenshots/playlists.png) |
+| `settings` | Onglet Settings, interrupteur de l'îlot | [Settings](screenshots/settings.png) |
+
+Tailles réduites : [1024 × 768](screenshots/explorer-1024x768.png) (barre
+latérale repliée), [deux groupes à 1024 × 768](screenshots/explorer-split-1024x768.png)
+et [Info à 1280 × 720](screenshots/explorer-info-1280x720.png).
+
+À essayer à la main : déplacer la fenêtre par la barre de titre, l'ancrer à un
+bord, survoler Maximize (Snap Layouts), redimensionner par les bords ; double-
+clic pour jouer, `Ctrl+I` ou ⓘ pour éditer, `+` pour ajouter à une playlist,
+clic droit sur une ligne, `Ctrl+\` pour diviser, `F11` puis `Esc`, Espace
+pendant la saisie dans un champ (ne doit pas lancer la lecture).
+
 ## Parcours examinés en revue 1 (prototype du 22 septembre)
 
-Ces scénarios et captures documentent le premier prototype, refusé le
-24 septembre. Ils seront remplacés par les scénarios du prototype révisé
-listés dans l'ExecPlan 02.
+Ces scénarios documentent le premier prototype, refusé le 24 septembre.
+Leurs captures ont été remplacées par celles de la revue 2.
 
 | Scénario | Ce qu'il permet de vérifier | Capture |
 |---|---|---|
@@ -100,5 +127,8 @@ lime `#C6FF1A`, secondaire magenta `#FF2E88`).
 
 Point ouvert : contenu futur de Profile et Plugins.
 
-Prochaine revue : captures du prototype révisé, après application de ces
-décisions.
+Prochaine revue : revue 2, sur le prototype révisé ci-dessus.
+
+### Revue 2
+
+Décision utilisateur : _en attente_.

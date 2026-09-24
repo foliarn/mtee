@@ -12,19 +12,22 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from PySide6.QtCore import QCoreApplication, QTimer, QUrl
-from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtGui import QFont, QGuiApplication, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 
 from mtee import __version__
 from mtee.assets import main_qml, qml_dir
 from mtee.cli import AppOptions, parse_arguments
+from mtee.demo.scenarios import DEFAULT_SCENARIO
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
+from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.models.jobs_model import JobsListModel
 from mtee.models.shell_controller import ShellController
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.settings_repository import SettingsRepository
+from mtee.platform.windows_frame import WindowFrame
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.jobs import JobService
 
@@ -57,6 +60,7 @@ class _Runtime:
     jobs_model: JobsListModel
     tracks_model: DemoTracksModel
     workspace: DemoWorkspace
+    frame: WindowFrame
 
 
 def create_application(argv: Sequence[str] | None = None) -> QGuiApplication:
@@ -115,7 +119,8 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     jobs = JobService(application)
     jobs_model = JobsListModel(jobs)
     tracks_model = DemoTracksModel()
-    workspace = DemoWorkspace(options.scenario if options.demo else "browser")
+    workspace = DemoWorkspace(options.scenario if options.demo else DEFAULT_SCENARIO)
+    frame = WindowFrame()
     controller = ShellController(
         paths=paths,
         settings=settings,
@@ -126,11 +131,13 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(qml_dir()))
+    engine.addImageProvider(ICON_PROVIDER_ID, IconProvider())
     context = engine.rootContext()
     context.setContextProperty("shell", controller)
     context.setContextProperty("jobsModel", jobs_model)
     context.setContextProperty("tracksModel", tracks_model)
     context.setContextProperty("workspace", workspace)
+    context.setContextProperty("windowFrame", frame)
 
     window_file = main_qml()
     if not window_file.is_file():
@@ -140,6 +147,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     if not engine.rootObjects():
         _report(f"MTEE could not load its interface from {window_file}")
         return None
+    window = engine.rootObjects()[0]
+    if isinstance(window, QWindow):
+        frame.attach(window)
 
     return _Runtime(
         paths=paths,
@@ -150,6 +160,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         jobs_model=jobs_model,
         tracks_model=tracks_model,
         workspace=workspace,
+        frame=frame,
     )
 
 

@@ -170,10 +170,10 @@ Sur `main`, avec `origin` vérifié vers `https://github.com/foliarn/mtee.git`, 
 Ajouter séparément les raccordements réellement nécessaires dans le bootstrap et le navigateur, en excluant tout travail étranger. Adapter le corps du commit aux vérifications effectuées, puis utiliser une here-string non interpolée :
 
     $mteeCommitMessage = @'
-    feat(player): integrate shared libmpv playback and listening view
+    feat(player): integrate shared libmpv playback and fullscreen player
 
     Changes: one playback service, stable queue snapshots, transport controls,
-    independent browser selection and a listening view that preserves playback.
+    independent explorer selection and a fullscreen player that preserves playback.
     Validation: record unit, UI, native-format and standalone Windows results
     in docs/validation/04-lecteur.md, including runtime provenance.
     Limits: classic seek bar; waveform and metadata writing arrive later.

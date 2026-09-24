@@ -87,14 +87,14 @@ Exposer position, fenêtre visible, état de chargement et plage A/B à QML par 
 
 Ajouter commandes clavier documentées pour zoom, déplacement et bornes A/B. Préserver Espace dans les champs de texte ; le focus waveform permet lecture/pause selon le contrat existant. Vérifier le hit testing à différents facteurs DPI et la lisibilité des marqueurs indépendamment de leur couleur.
 
-Créer `tests/unit/test_waveform_reduction.py`, `tests/unit/test_waveform_timing.py`, `tests/integration/test_waveform_cache.py` et `tests/ui/test_listening_waveform.py`. Les premiers utilisent de petits tableaux synthétiques ; l'intégration décode de vrais fixtures et la vue utilise un lecteur simulé, complété par un parcours manuel avec mpv.
+Créer `tests/unit/test_waveform_reduction.py`, `tests/unit/test_waveform_timing.py`, `tests/integration/test_waveform_cache.py` et `tests/ui/test_fullscreen_waveform.py`. Les premiers utilisent de petits tableaux synthétiques ; l'intégration décode de vrais fixtures et la vue utilise un lecteur simulé, complété par un parcours manuel avec mpv.
 
 Exécuter les contrôles après implémentation :
 
     uv run ruff check .
     uv run ruff format --check .
     uv run pyright
-    uv run pytest tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py tests/integration/test_waveform_cache.py tests/ui/test_listening_waveform.py
+    uv run pytest tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py tests/integration/test_waveform_cache.py tests/ui/test_fullscreen_waveform.py
     uv run python -m mtee --data-dir .local/validation/08
     pwsh -File scripts/build_windows.ps1
     & .\dist\MTEE\MTEE.exe --data-dir .local/validation/08-packaged --smoke-test
@@ -145,7 +145,7 @@ Renseigner les sections vivantes, les mesures et les limitations avant le commit
 
     git status --short
     git diff --check
-    git add -- src/mtee/domain/time.py src/mtee/domain/waveform.py src/mtee/services/waveform_service.py src/mtee/persistence/waveform_cache.py src/mtee/models/waveform_model.py src/mtee/qml/views/FullscreenPlayer.qml src/mtee/qml/components/WaveformView.qml tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py tests/integration/test_waveform_cache.py tests/ui/test_listening_waveform.py docs/validation/08-waveform.md "Plans d'exécution/08-waveform.md"
+    git add -- src/mtee/domain/time.py src/mtee/domain/waveform.py src/mtee/services/waveform_service.py src/mtee/persistence/waveform_cache.py src/mtee/models/waveform_model.py src/mtee/qml/views/FullscreenPlayer.qml src/mtee/qml/components/WaveformView.qml tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py tests/integration/test_waveform_cache.py tests/ui/test_fullscreen_waveform.py docs/validation/08-waveform.md "Plans d'exécution/08-waveform.md"
     git diff --cached --check
     git diff --cached
 
@@ -154,7 +154,7 @@ Le message suivant doit être complété avec les observations exactes ; ne pas 
     git fetch origin
     git log --oneline --left-right HEAD...origin/main
     $mteeCommitMessage = @'
-    feat(waveform): add cached waveform and shared listening controls
+    feat(waveform): add cached waveform to the fullscreen player
 
     Changes: add bounded waveform generation, versioned cache, zoom,
     playhead seeking and A/B looping through the shared player.

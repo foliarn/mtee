@@ -15,7 +15,7 @@ def test_a_run_without_argument_uses_the_normal_mode() -> None:
     assert options.data_dir is None
     assert options.demo is False
     assert options.smoke_test is False
-    assert options.scenario == "browser"
+    assert options.scenario == "explorer"
 
 
 def test_the_recipe_options_are_recognised(tmp_path: Path) -> None:

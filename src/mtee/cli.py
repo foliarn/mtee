@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from mtee.demo.scenarios import DEFAULT_SCENARIO, SCENARIO_NAMES
+
 __all__ = ["AppOptions", "build_parser", "parse_arguments"]
 
 PROGRAM_NAME = "mtee"
@@ -24,7 +26,7 @@ class AppOptions:
     data_dir: Path | None = None
     demo: bool = False
     smoke_test: bool = False
-    scenario: str = "browser"
+    scenario: str = DEFAULT_SCENARIO
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,17 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--scenario",
-        choices=(
-            "browser",
-            "browser-inspector",
-            "browser-split",
-            "browser-multi",
-            "browser-no-artwork",
-            "listening",
-            "convert",
-            "convert-error",
-        ),
-        default="browser",
+        choices=SCENARIO_NAMES,
+        default=DEFAULT_SCENARIO,
         help="Open a deterministic demo review scenario.",
     )
     return parser

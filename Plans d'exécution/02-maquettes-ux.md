@@ -17,11 +17,11 @@ Ce plan vivant suit `PLANS.md` et couvre le jalon distinct de `PLAN.md` §3. Il 
 - [x] (2026-09-22) Mettre à jour le suivi et préparer le commit intermédiaire ; le push reste à confirmer.
 - [x] (2026-09-24) Revue 1 obtenue : structure refusée, esquisse utilisateur analysée, décisions consignées dans `PLAN.md` §3, `docs/ux/specification.md` et `docs/ux/review-02.md`.
 - [x] (2026-09-24) Palette A — Acid choisie par l'utilisateur.
-- [ ] Jalon R1 — fenêtre sans cadre, barre de titre, barre d'activités et barre latérale.
-- [ ] Jalon R2 — éditeur à onglets, listes de style Spotify, panneau Info/Queue.
-- [ ] Jalon R3 — îlot de lecture et Fullscreen player.
-- [ ] Jalon R4 — Convert, Tasks, Playlists, Settings, Plugins et Profile réservés.
-- [ ] Jalon R5 — scénarios, captures, distribution Windows et revue 2.
+- [x] (2026-09-24) Jalon R1 — fenêtre sans cadre, barre de titre, barre d'activités et barre latérale.
+- [x] (2026-09-24) Jalon R2 — éditeur à onglets, listes de style Spotify, panneau Info/Queue.
+- [x] (2026-09-24) Jalon R3 — îlot de lecture et Fullscreen player.
+- [x] (2026-09-24) Jalon R4 — Convert, Tasks, Playlists, Settings, Plugins et Profile réservés.
+- [x] (2026-09-24) Jalon R5 — scénarios, captures et distribution Windows ; revue 2 prête, décision utilisateur en attente.
 
 ## Surprises & Discoveries
 
@@ -32,6 +32,8 @@ Le contexte du plan 01 ne correspondait pas exactement au dépôt livré : le th
 Pendant la première capture, le contexte QML nommé `workspace` s'annulait dans les composants qui déclaraient une propriété du même nom ; les vues affichaient alors un inspecteur vide et une table sans largeur. Le shell garde désormais un alias `demoWorkspace` pour injecter explicitement le même objet dans chaque vue.
 
 À 1280 × 720, la somme des largeurs de la rangée incluait deux espacements en plus des panneaux ; la largeur de la bibliothèque a été corrigée avant de figer les captures.
+
+Révision du 24 septembre 2026 : les éléments créés par `Repeater` et `Loader` ne sont pas des enfants QObject de la fenêtre ; les tests UI parcourent donc l'arbre visuel (`childItems`). Qt maximise une fenêtre sans cadre en la redimensionnant à la zone de travail sans l'état « zoomé » de Windows : le test de position utilise l'état de Qt. À 150 %, la taille de référence 1440 × 900 dépasse la zone de travail (885 px logiques) : la taille initiale est bornée à l'écran disponible. Une superposition du panneau droit sous 1280 px masquait l'îlot : le panneau reste ancré et les colonnes se masquent. Le démarrage de la lecture capturait l'ordre naturel du dossier au lieu de l'ordre trié visible ; corrigé et couvert par un test.
 
 ## Decision Log
 
@@ -63,7 +65,9 @@ Note de révision — 2026-09-22, Claude : prototype, scénarios, captures, spé
 
 Résultat de la revue 1, 24 septembre 2026 : la structure du prototype est refusée ; les composants de données fictives (`DemoWorkspace`, scénarios, champs Saving/Saved/Mixed values, erreur de conversion) restent réutilisables. Le jalon n'est pas validé ; la révision R1 à R5 ci-dessous le rouvre.
 
-Note de révision — 2026-09-24, Claude : intégration de l'esquisse utilisateur, nouveaux jalons R1 à R5, nouveaux scénarios et critères ; aucun code de la révision encore écrit.
+Note de révision — 2026-09-24, Claude : intégration de l'esquisse utilisateur, nouveaux jalons R1 à R5, nouveaux scénarios et critères.
+
+Résultat de la révision, 24 septembre 2026 : R1 à R5 réalisés. Douze scénarios, fenêtre sans cadre native sous Windows, 109 tests passants, ruff et Pyright propres, distribution Windows reconstruite et scénarios packagés quittant avec le code 0. Preuves dans `docs/validation/02-maquettes-ux.md`, captures dans `docs/ux/screenshots/`, parcours dans `docs/ux/review-02.md`. La revue 2 reste à obtenir ; l'étape 03 ne commence pas avant sa décision.
 
 ## Contexte et prérequis
 
@@ -124,23 +128,29 @@ Examiner le prototype et corriger les chevauchements, textes coupés et focus in
 Depuis `C:/Users/flori/Desktop/dev/MTEE`, après création des composants et du sélecteur de scénarios :
 
     uv sync --locked
-    uv run python -m mtee --demo --scenario browser
-    uv run python -m mtee --demo --scenario browser-inspector
-    uv run python -m mtee --demo --scenario browser-split
-    uv run python -m mtee --demo --scenario browser-multi
-    uv run python -m mtee --demo --scenario browser-no-artwork
-    uv run python -m mtee --demo --scenario listening
+    uv run python -m mtee --demo --scenario explorer
+    uv run python -m mtee --demo --scenario explorer-info
+    uv run python -m mtee --demo --scenario explorer-split
+    uv run python -m mtee --demo --scenario explorer-multi
+    uv run python -m mtee --demo --scenario explorer-no-artwork
+    uv run python -m mtee --demo --scenario playing-queue
+    uv run python -m mtee --demo --scenario fullscreen
     uv run python -m mtee --demo --scenario convert
     uv run python -m mtee --demo --scenario convert-error
+    uv run python -m mtee --demo --scenario tasks
+    uv run python -m mtee --demo --scenario playlists
+    uv run python -m mtee --demo --scenario settings
+
+Les captures de référence se régénèrent avec `uv run python scripts/capture_ux_scenario.py <scénario> docs/ux/screenshots/<scénario>.png [largeur hauteur]`.
 
 Fermer une session avant de lancer la suivante, ou utiliser des répertoires de données distincts. Créer `tests/ui/test_demo_navigation.py` et `tests/unit/test_demo_scenarios.py` pour les transitions et l'absence d'accès aux services réels, puis lancer :
 
     uv run ruff check .
     uv run ruff format --check .
     uv run pyright
-    uv run pytest tests/ui/test_demo_navigation.py tests/unit/test_demo_scenarios.py
+    uv run pytest tests/ui/test_demo_navigation.py tests/unit/test_demo_scenarios.py tests/unit/test_windows_frame.py tests/unit/test_icon_provider.py
     pwsh -File scripts/build_windows.ps1
-    & .\dist\MTEE\MTEE.exe --demo --scenario browser
+    & .\dist\MTEE\MTEE.exe --demo --scenario explorer
 
 Les tests doivent réussir et le prototype packagé présenter les mêmes scénarios. Consigner le rendu à 100 %, 125 % et 150 % de mise à l'échelle Windows, en indiquant les essais réellement possibles sur le matériel disponible.
 

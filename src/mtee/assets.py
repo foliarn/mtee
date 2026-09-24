@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-__all__ = ["fonts_dir", "is_frozen", "main_qml", "qml_dir", "resources_root"]
+__all__ = ["fonts_dir", "icons_dir", "is_frozen", "main_qml", "qml_dir", "resources_root"]
 
 
 def is_frozen() -> bool:
@@ -38,3 +38,8 @@ def main_qml() -> Path:
 def fonts_dir() -> Path:
     """Return the directory of the embedded fonts."""
     return resources_root() / "resources" / "fonts"
+
+
+def icons_dir() -> Path:
+    """Return the directory of the interface icons."""
+    return resources_root() / "resources" / "icons"

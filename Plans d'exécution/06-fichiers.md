@@ -88,7 +88,7 @@ Après réussite, émettre `TrackLocationChanged(track_id, old_path, new_path, r
 ### Jalon 3 — Menus, panneaux et corbeille
 
 
-Créer `src/mtee/models/file_operation_model.py`, `src/mtee/qml/components/FileActionsMenu.qml` et `FileOperationDialog.qml`, puis les relier à `src/mtee/qml/views/BrowserView.qml` existant. Relier Rename à F2 et Move to trash à Delete lorsque le navigateur possède le focus ; ces raccourcis n'interceptent pas les champs de saisie. Les commandes désignent les UUID sélectionnés au moment de leur déclenchement, pas une sélection modifiable pendant l'exécution.
+Créer `src/mtee/models/file_operation_model.py`, `src/mtee/qml/components/FileActionsMenu.qml` et `FileOperationDialog.qml`, puis les relier à `src/mtee/qml/components/EditorArea.qml` existant. Relier Rename à F2 et Move to trash à Delete lorsque le navigateur possède le focus ; ces raccourcis n'interceptent pas les champs de saisie. Les commandes désignent les UUID sélectionnés au moment de leur déclenchement, pas une sélection modifiable pendant l'exécution.
 
 Le menu Move et le déplacement entre panneaux affichent fichiers, chemin source, destination absolue lisible, collisions et fichiers occupés. Le glisser-déposer ne démarre la mutation qu'après confirmation de cette prévisualisation. Un clic dans l'arbre ou un changement d'onglet ne crée aucune opération. Pour les lots, afficher résultats individuels et progression sans bloquer la navigation.
 
@@ -169,7 +169,7 @@ Sur `main`, avec `origin` vérifié vers `https://github.com/foliarn/mtee.git`, 
 
     git status --short
     git diff --check
-    git add -- pyproject.toml uv.lock src/mtee/domain/file_operations.py src/mtee/services/file_operation_service.py src/mtee/services/platform/windows_file_ops.py src/mtee/persistence/file_operation_repository.py src/mtee/models/file_operation_model.py src/mtee/qml/components/FileActionsMenu.qml src/mtee/qml/components/FileOperationDialog.qml src/mtee/qml/views/BrowserView.qml tests/unit/test_file_operation_preview.py tests/unit/test_file_operation_service.py tests/integration/test_file_moves.py tests/integration/test_file_operation_recovery.py tests/integration/test_windows_trash.py tests/ui/test_file_actions.py docs/native-dependencies.md docs/validation/06-fichiers.md "Plans d'exécution/06-fichiers.md"
+    git add -- pyproject.toml uv.lock src/mtee/domain/file_operations.py src/mtee/services/file_operation_service.py src/mtee/services/platform/windows_file_ops.py src/mtee/persistence/file_operation_repository.py src/mtee/models/file_operation_model.py src/mtee/qml/components/FileActionsMenu.qml src/mtee/qml/components/FileOperationDialog.qml src/mtee/qml/components/EditorArea.qml tests/unit/test_file_operation_preview.py tests/unit/test_file_operation_service.py tests/integration/test_file_moves.py tests/integration/test_file_operation_recovery.py tests/integration/test_windows_trash.py tests/ui/test_file_actions.py docs/native-dependencies.md docs/validation/06-fichiers.md "Plans d'exécution/06-fichiers.md"
     git diff --cached --check
     git diff --cached
 

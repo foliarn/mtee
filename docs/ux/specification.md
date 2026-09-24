@@ -168,11 +168,13 @@ folder est visible mais simulé.
 
 ## Largeurs réduites
 
-Sous 1280 px, le panneau droit se superpose à l'éditeur au lieu de le réduire.
-Sous 1160 px, la barre latérale se replie (la barre d'activités reste). Sous
-930 px, un seul groupe d'onglets est affiché avec un contrôle pour retrouver
-l'autre ; onglets et sélections restent en mémoire. Les colonnes Album puis
-Genre se masquent avant Title, BPM et Key.
+Le panneau droit reste ancré à toutes les largeurs ; une superposition masquait
+l'îlot de lecture et les colonnes. Sous 1160 px, la barre latérale se replie
+(la barre d'activités reste) ; rouverte, elle se superpose à l'éditeur jusqu'à
+un clic en dehors. Sous 930 px, un seul groupe d'onglets est affiché avec un
+contrôle pour retrouver l'autre ; onglets et sélections restent en mémoire.
+Les colonnes Album puis Genre se masquent avant Title, BPM et Key, et un groupe
+de moins de 600 px resserre marges et espacements.
 
 ## Vocabulaire
 

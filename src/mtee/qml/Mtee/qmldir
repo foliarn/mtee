@@ -1,10 +1,17 @@
 module Mtee
 singleton Theme 1.0 Theme.qml
-Panel 1.0 Panel.qml
+Icon 1.0 Icon.qml
+IconButton 1.0 IconButton.qml
+TextButton 1.0 TextButton.qml
+CoverArt 1.0 CoverArt.qml
+KeyBadge 1.0 KeyBadge.qml
+HoverTip 1.0 HoverTip.qml
+AppMenu 1.0 AppMenu.qml
+AppMenuItem 1.0 AppMenuItem.qml
+AppMenuSeparator 1.0 AppMenuSeparator.qml
+ThinScrollBar 1.0 ThinScrollBar.qml
+LineSlider 1.0 LineSlider.qml
+ProgressLine 1.0 ProgressLine.qml
+PaneHeader 1.0 PaneHeader.qml
+ToggleSwitch 1.0 ToggleSwitch.qml
 SectionLabel 1.0 SectionLabel.qml
-ToolButton 1.0 ToolButton.qml
-TrackTable 1.0 TrackTable.qml
-JobStrip 1.0 JobStrip.qml
-PlayerBar 1.0 PlayerBar.qml
-DetailsPanel 1.0 DetailsPanel.qml
-ExplorerPanel 1.0 ExplorerPanel.qml

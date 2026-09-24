@@ -2,13 +2,14 @@
 
 The scenarios are deliberately small and deterministic. They describe what a
 reviewer sees; they do not model an audio file, call a service or touch disk.
+A tab is written ``kind:ref``, for example ``folder:dnb`` or ``convert:``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-__all__ = ["SCENARIO_NAMES", "DemoScenario", "load_scenario"]
+__all__ = ["DEFAULT_SCENARIO", "SCENARIO_NAMES", "DemoScenario", "load_scenario"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,49 +17,98 @@ class DemoScenario:
     """Complete visual state for one reviewable prototype scenario."""
 
     name: str
-    screen: str = "browser"
-    inspector_visible: bool = False
-    split_view: bool = True
-    artwork_view: bool = False
-    multi_selection: bool = False
-    no_artwork: bool = False
-    save_state: str = "idle"
+    activity: str = "explorer"
+    sidebar_visible: bool = True
+    groups: tuple[tuple[str, ...], ...] = (("folder:dnb", "folder:ukg"),)
+    active_tabs: tuple[str, ...] = ("folder:dnb",)
+    artwork_tabs: tuple[str, ...] = ()
+    right_panel: str = ""
+    fullscreen: bool = False
+    selected: tuple[str, ...] = ("dnb03",)
+    playing: str = "dnb02"
+    playing_source: str = "folder:dnb"
+    is_playing: bool = True
+    position: int = 94
+    shuffle: bool = False
+    repeat: str = "off"
+    save_fails: bool = False
     conversion_error: bool = False
-    selected_rows: tuple[int, ...] = (0,)
-    playing_row: int = 1
+    island_enabled: bool = True
 
+
+DEFAULT_SCENARIO = "explorer"
 
 SCENARIO_NAMES = (
-    "browser",
-    "browser-inspector",
-    "browser-split",
-    "browser-multi",
-    "browser-no-artwork",
-    "listening",
+    "explorer",
+    "explorer-info",
+    "explorer-split",
+    "explorer-multi",
+    "explorer-no-artwork",
+    "playing-queue",
+    "fullscreen",
     "convert",
     "convert-error",
+    "tasks",
+    "playlists",
+    "settings",
 )
 
+_CONVERT_TABS = (("folder:dnb", "convert:"),)
+
 _SCENARIOS = {
-    "browser": DemoScenario(name="browser", split_view=False),
-    "browser-inspector": DemoScenario(
-        name="browser-inspector", inspector_visible=True, split_view=False
+    "explorer": DemoScenario(name="explorer"),
+    "explorer-info": DemoScenario(name="explorer-info", right_panel="info"),
+    "explorer-split": DemoScenario(
+        name="explorer-split",
+        groups=(("folder:dnb",), ("folder:ukg", "playlist:peak")),
+        active_tabs=("folder:dnb", "folder:ukg"),
     ),
-    "browser-split": DemoScenario(name="browser-split", split_view=True),
-    "browser-multi": DemoScenario(
-        name="browser-multi",
-        inspector_visible=True,
-        multi_selection=True,
-        selected_rows=(0, 2, 4),
-        playing_row=3,
+    "explorer-multi": DemoScenario(
+        name="explorer-multi",
+        right_panel="info",
+        selected=("dnb01", "dnb04", "dnb06"),
+        save_fails=True,
     ),
-    "browser-no-artwork": DemoScenario(
-        name="browser-no-artwork", artwork_view=True, no_artwork=True, split_view=False
+    "explorer-no-artwork": DemoScenario(
+        name="explorer-no-artwork",
+        groups=(("folder:dnb", "folder:samples"),),
+        active_tabs=("folder:samples",),
+        artwork_tabs=("folder:samples",),
+        selected=("smp02",),
     ),
-    "listening": DemoScenario(name="listening", screen="listening", playing_row=1),
-    "convert": DemoScenario(name="convert", screen="convert", selected_rows=(0, 1)),
+    "playing-queue": DemoScenario(
+        name="playing-queue", right_panel="queue", shuffle=True, repeat="all", position=187
+    ),
+    "fullscreen": DemoScenario(name="fullscreen", fullscreen=True, position=131),
+    "convert": DemoScenario(
+        name="convert",
+        activity="convert",
+        groups=_CONVERT_TABS,
+        active_tabs=("convert:",),
+        selected=("dnb01", "dnb02"),
+    ),
     "convert-error": DemoScenario(
-        name="convert-error", screen="convert", conversion_error=True, selected_rows=(0, 1)
+        name="convert-error",
+        activity="convert",
+        groups=_CONVERT_TABS,
+        active_tabs=("convert:",),
+        selected=("dnb01", "dnb02"),
+        conversion_error=True,
+    ),
+    "tasks": DemoScenario(name="tasks", activity="tasks"),
+    "playlists": DemoScenario(
+        name="playlists",
+        activity="playlists",
+        groups=(("folder:dnb", "playlist:peak"),),
+        active_tabs=("playlist:peak",),
+        selected=("dnb10",),
+        playing="dnb06",
+        playing_source="playlist:peak",
+    ),
+    "settings": DemoScenario(
+        name="settings",
+        groups=(("folder:dnb", "settings:"),),
+        active_tabs=("settings:",),
     ),
 }
 
