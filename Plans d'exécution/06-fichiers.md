@@ -30,6 +30,7 @@ Les opérations s'effectuent hors thread UI avec état, progression et résultat
 - [x] (2026-09-24) Mettre à jour les preuves, committer la tranche et confirmer le push : `7d10b05dad89d9d00141a31cc0851552bbaa2a0d` est présent sur `origin/main`.
 - [x] (2026-09-24) Ajouter l'aperçu Move par dépôt entre groupes ; `4da180c7c3d75b64374f1d95331dc944f9e712ff` est présent sur `origin/main` après fetch et comparaison des hashes.
 - [x] (2026-09-24) Publier le protocole copy-first intervolume et la migration 006 ; `18a37af6aac34a4b3ae20b36e001f73499112274` est présent sur `origin/main` après push, fetch et comparaison des hashes.
+- [x] (2026-09-24) Publier la reprise de destination vérifiée et la réservation des chemins au scan ; `5aa82455e3f96366d9713fa4f1b93f54e4576dca` est présent sur `origin/main` après push, fetch et comparaison des hashes.
 
 ## Surprises & Discoveries
 
