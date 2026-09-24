@@ -54,6 +54,10 @@ définitive comme solution de repli.
   appartenances aux racines dans une transaction sans changer l'UUID. Un lot
   de scan ancien qui présente ensuite l'ancien chemin ne crée pas un deuxième
   morceau.
+- Le scénario de destination publiée puis base périmée ferme et rouvre SQLite ;
+  l'inspection à froid retrouve l'opération et la destination sans modifier le
+  chemin encore enregistré du morceau. Cela vérifie la détection après
+  redémarrage, pas une résolution automatique.
 - Undo est une opération inverse journalisée. Il refuse le fichier déplacé
   modifié ou un ancien chemin désormais occupé. Le dernier Undo disponible est
   retrouvé depuis le journal au démarrage.
