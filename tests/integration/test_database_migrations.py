@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -41,8 +42,8 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
 
     applied = database.migrate()
 
-    assert [migration.version for migration in applied] == [1, 2, 3]
-    assert database.schema_version() == 3
+    assert [migration.version for migration in applied] == [1, 2, 3, 4]
+    assert database.schema_version() == 4
     tables = {
         str(row["name"])
         for row in database.connection().execute(
@@ -51,6 +52,30 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
     }
     assert {"settings", "schema_migrations"} <= tables
     database.close()
+
+
+def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> None:
+    older_migrations = tmp_path / "schema-v3"
+    older_migrations.mkdir()
+    for migration in Database(tmp_path / "unused.sqlite3").migrations[:3]:
+        shutil.copyfile(migration.path, older_migrations / migration.file_name)
+    path = tmp_path / "mtee.sqlite3"
+    original = Database(path, migrations_dir=older_migrations)
+    assert [item.version for item in original.migrate()] == [1, 2, 3]
+    SettingsRepository(original).set("workspace/name", "preserved")
+    original.close()
+
+    upgraded = Database(path)
+    assert [item.version for item in upgraded.migrate()] == [4]
+    assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
+    backups = list(tmp_path.glob("mtee.sqlite3.v3.*.backup"))
+    assert len(backups) == 1
+    with sqlite3.connect(backups[0]) as backup:
+        assert backup.execute("PRAGMA user_version").fetchone() == (3,)
+        assert backup.execute(
+            "SELECT value FROM settings WHERE key='workspace/name'"
+        ).fetchone() == ("preserved",)
+    upgraded.close()
 
 
 def test_opening_an_up_to_date_database_applies_nothing(tmp_path: Path) -> None:

@@ -30,6 +30,7 @@ class PlayerService(QObject):
 
     stateChanged = Signal()
     queueChanged = Signal()
+    trackAccessReleased = Signal(str)
 
     def __init__(
         self,
@@ -49,6 +50,7 @@ class PlayerService(QObject):
         self._base_ids: tuple[str, ...] = ()
         self._track_rows: dict[str, dict[str, Any]] = {}
         self._read_contexts: dict[int, AbstractContextManager] = {}
+        self._read_track_ids: dict[int, str] = {}
         self._history_ids: list[str] = []
         self._unmuted_volume = self._state.volume
         self._pending_seek_us: int | None = None
@@ -70,6 +72,18 @@ class PlayerService(QObject):
     @property
     def current_track(self) -> dict[str, Any]:
         return dict(self._track_rows.get(self._state.current_id, {}))
+
+    def refresh_track(self, track_id: str) -> None:
+        """Refresh queue labels after a verified source metadata edit."""
+        if track_id not in self._track_rows:
+            return
+        with suppress(Exception):
+            row = self._resolver(track_id)
+            if row:
+                self._track_rows[track_id] = dict(row)
+        self.queueChanged.emit()
+        if track_id == self._state.current_id:
+            self.stateChanged.emit()
 
     def queue_rows(self) -> list[dict[str, Any]]:
         rows = []
@@ -349,6 +363,7 @@ class PlayerService(QObject):
             )
             context.__enter__()
             self._read_contexts[session_id] = context
+            self._read_track_ids[session_id] = track_id
             self._backend.set_volume(0 if self._state.muted else self._state.volume)
             self._backend.load(path, session_id)
         except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
@@ -474,14 +489,21 @@ class PlayerService(QObject):
 
     def _release_read_lease(self, session_id: int | None = None) -> None:
         if session_id is None:
+            sessions = tuple(self._read_contexts)
             contexts = tuple(self._read_contexts.values())
             self._read_contexts.clear()
+            track_ids = tuple(self._read_track_ids.pop(key, "") for key in sessions)
         else:
             context = self._read_contexts.pop(session_id, None)
             contexts = (context,) if context is not None else ()
+            track_id = self._read_track_ids.pop(session_id, "")
+            track_ids = (track_id,) if context is not None else ()
         for context in contexts:
             if context is not None:
                 context.__exit__(None, None, None)
+        for track_id in track_ids:
+            if track_id:
+                self.trackAccessReleased.emit(track_id)
 
 
 def _available(track: dict[str, Any]) -> bool:

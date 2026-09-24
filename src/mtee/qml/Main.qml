@@ -100,6 +100,7 @@ Window {
                 anchors.fill: parent
                 visible: root.ws.fullscreen
                 workspace: root.ws
+                metadataEditor: root.ws.metadataEditable ? root.ws.metadataEditor : null
             }
 
             PlayerIsland {

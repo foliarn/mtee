@@ -8,6 +8,7 @@ import os
 import sqlite3
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,17 @@ from mtee.domain.tracks import SourceRevision, TrackId
 from mtee.persistence.database import Database
 
 __all__ = ["LibraryRepository"]
+
+
+@dataclass(frozen=True, slots=True)
+class TrackSource:
+    """Current library snapshot required before a safe file mutation."""
+
+    track_id: str
+    path: Path
+    revision: SourceRevision
+    snapshot: MetadataSnapshot
+    status: str
 
 
 class LibraryRepository:
@@ -280,6 +292,32 @@ class LibraryRepository:
         if row is None:
             return {}
         return _track_dict(row, str(row["root_id"] or ""), track_id=track_id)
+
+    def source_record(self, track_id: str) -> TrackSource | None:
+        """Return the path, cached metadata, and exact stored source revision."""
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT path,size_bytes,mtime_ns,file_id,generation,status,metadata_json "
+                "FROM track_locations WHERE track_id=?",
+                (track_id,),
+            )
+            .fetchone()
+        )
+        if row is None:
+            return None
+        return TrackSource(
+            track_id=track_id,
+            path=Path(str(row["path"])),
+            revision=SourceRevision(
+                size_bytes=int(row["size_bytes"]),
+                mtime_ns=int(row["mtime_ns"]),
+                file_id=row["file_id"],
+                generation=int(row["generation"]),
+            ),
+            snapshot=MetadataSnapshot.from_dict(json.loads(str(row["metadata_json"]))),
+            status=str(row["status"]),
+        )
 
     def artwork_source(self, track_id: str) -> tuple[Path, SourceRevision] | None:
         row = (

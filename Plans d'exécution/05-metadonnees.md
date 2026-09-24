@@ -1,7 +1,7 @@
 # 05 — Édition manuelle des métadonnées — livraison B, partie 2
 
 
-Ce plan vivant applique [PLANS.md](../PLANS.md) et `PLAN.md`, §3 « Sélection, lecture et édition » et §4.3. Il complète la livraison B après le lecteur. Préparé le 2026-09-10 ; aucune écriture audio, validation ou publication n'est déclarée effectuée.
+Ce plan vivant applique [PLANS.md](../PLANS.md) et `PLAN.md`, §3 « Sélection, lecture et édition » et §4.3. Il complète la livraison B après le lecteur. Préparé le 2026-09-10 ; exécution commencée le 2026-09-24.
 
 ## Objectif et résultat observable
 
@@ -15,18 +15,20 @@ Les tags inconnus, les pochettes et les champs non modifiés sont conservés. Le
 ## Progress
 
 
-- [x] (2026-09-10) Plan préparé ; développement et tests d'écriture restent à réaliser.
-- [ ] Vérifier les contrats des plans 01, 03 et 04 et préparer les copies de test.
-- [ ] Établir la matrice de champs et capacités d'écriture par format.
-- [ ] Implémenter le journal, les écritures sérialisées, la vérification et les conflits.
-- [ ] Relier autosauvegarde, sélection multiple et Undo aux deux vues.
-- [ ] Tester pertes évitées, verrouillages, pannes, redémarrage et distribution Windows.
+- [x] (2026-09-24) Vérifier les contrats des plans 01, 03 et 04 ; tests d'écriture confinés aux fichiers générés dans pytest.
+- [x] (2026-09-24) Établir une matrice conservatrice : WAV PCM, ID3v2.4, slots simples uniquement ; les autres versions, formats et ambiguïtés restent désactivés.
+- [x] (2026-09-24) Implémenter le journal, les écritures exclusives sur copie, la relecture, le contrôle d'empreinte, les conflits et la détection de reprise.
+- [x] (2026-09-24) Relier sauvegarde au commit, sélection capturée, Undo vérifié et états d'erreur à l'inspecteur et au lecteur plein écran.
+- [x] (2026-09-24) Construire le paquet Windows et exécuter son smoke test avec une base isolée ; l'édition interactive et le test complet combiné restent ouverts.
+- [ ] Compléter les essais de permissions, panne réelle et interaction manuelle ; les limites connues sont listées dans le rapport.
 - [ ] Actualiser les preuves et journaux, créer le commit puis vérifier son push.
 
 ## Surprises & Discoveries
 
 
-Aucun comportement observé à ce stade. Ajouter ici les changements de version ID3 imposés par la bibliothèque, limites des atomes MP4, différences entre commentaires multiples, permissions Windows et comportement de libmpv lorsqu'un fichier est ouvert. Chaque constat doit citer le format, la version Mutagen et une reproduction sur fixture autorisée.
+Mutagen 1.48.1 écrit les frames ID3 de WAV PCM et permet leur relecture avec la version de tag inchangée lorsque l'entrée est ID3v2.4. Les tests synthétiques confirment que le contenu PCM, une pochette APIC, un TXXX inconnu et un COMM non ciblé restent identiques. Un frame multivaleur, une version ID3v2.3, un codage WAV non PCM ou un slot de commentaire non ciblé rendent le champ ou le fichier non éditable. La comparaison des frames utilise `Frame._writeData()` de la version verrouillée ; toute mise à jour Mutagen doit donc refaire ces preuves.
+
+La panne injectée après `ReplaceFileW` et avant la transaction SQLite laisse la nouvelle source, la sauvegarde d'origine et une opération `needs_recovery`. Au démarrage, l'état est inspecté en tâche de fond et l'édition du morceau est bloquée jusqu'à résolution ; aucune restauration automatique n'est encore proposée.
 
 ## Decision Log
 
@@ -38,11 +40,14 @@ Les décisions initiales suivantes sont proposées par Codex le 2026-09-10 ; les
 - 2026-09-10 — Autoriser des résultats individuels pour une sélection multiple. Motif : plusieurs fichiers ne forment pas une transaction atomique ; l'interface doit indiquer précisément les réussites et les erreurs.
 - 2026-09-10 — Traiter Undo comme une nouvelle écriture vérifiée, soumise au contrôle de révision. Motif : annuler ne doit pas écraser une modification extérieure plus récente.
 - 2026-09-10 — Désactiver provisoirement une écriture dont la conservation des données annexes n'est pas démontrée, en consignant le cas dans la matrice. Motif : une capacité doit être prouvée par format et version, pas déduite du seul fait que Mutagen ouvre le fichier.
+- 2026-09-24 — Activer seulement WAV PCM (`audio_format=1`) avec ID3v2.4 et un slot simple. Motif : seul cet aller-retour est couvert par les fixtures et les essais de remplacement Windows de cette exécution ; v2.3, WAV non PCM et les autres familles restent désactivés.
+- 2026-09-24 — Comparer les octets PCM et la sérialisation de chaque frame non modifiée, puis garder la sauvegarde source jusqu'à la confirmation SQLite. Motif : la relecture du seul titre ne suffit pas à prouver la conservation des données annexes.
+- 2026-09-24 — Bloquer les nouvelles éditions lorsqu'une opération antérieure reste incomplète et afficher un avertissement pour le morceau concerné. Motif : une seconde écriture aveugle rendrait la reprise plus ambiguë.
 
 ## Outcomes & Retrospective
 
 
-À compléter après exécution avec la matrice réellement disponible, les opérations vérifiées après redémarrage, les scénarios de reprise démontrés et les restrictions restantes. Un champ désactivé pour préserver des données doit être indiqué comme non pris en charge, jamais comme une édition réussie.
+Implémentation du sous-ensemble vérifié livrée ; voir [rapport de validation 05](../docs/validation/05-metadonnees.md) et [matrice des métadonnées](../docs/metadata-mapping.md). Les essais couvrent sauvegarde, suppression explicite, préservation de tags et d'audio, conflit, verrou du lecteur, Undo après réouverture, sauvegarde de migration et panne injectée après remplacement. L'ensemble hors test natif passe séparément ; le test natif passe seul, mais sa combinaison avec les tests UI bloque encore dans la suite complète. Le build Windows et son smoke test isolé ont réussi ; la recette interactive de l'édition ne l'a pas été. Les permissions, la panne matérielle et une procédure de résolution des états `needs_recovery` restent ouvertes ; cette étape n'est pas déclarée entièrement acceptée.
 
 ## Contexte et prérequis
 

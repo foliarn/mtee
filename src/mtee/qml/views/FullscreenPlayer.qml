@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.Basic
 import Mtee
 import "../components"
 
@@ -8,9 +9,11 @@ Rectangle {
     id: player
 
     required property var workspace
+    required property var metadataEditor
     readonly property var playback: workspace.playerModel
     readonly property var track: playback.playingTrack
     readonly property real duration: playback.duration || track.seconds || 1
+    property bool showTags: false
 
     objectName: "fullscreenPlayer"
     color: Theme.editor
@@ -20,6 +23,21 @@ Rectangle {
         const minutes = Math.floor(total / 60)
         const secs = total % 60
         return minutes + ":" + (secs < 10 ? "0" : "") + secs
+    }
+
+    function recoveryForPlayingTrack() {
+        if (player.metadataEditor === null)
+            return []
+        return player.metadataEditor.recoveryOperations.filter(function(operation) {
+            return operation.situation === "inspection_failed"
+                || operation.trackId === player.playback.playingId
+        })
+    }
+
+    Timer {
+        interval: 1200
+        running: player.metadataEditor !== null && player.metadataEditor.saveState === "saved"
+        onTriggered: player.metadataEditor.finishSave()
     }
 
     Item {
@@ -52,6 +70,14 @@ Rectangle {
             spacing: 4
 
             IconButton {
+                icon: "info"
+                iconSize: 18
+                tip: player.showTags ? "Hide editable tags" : "Edit track tags"
+                visible: player.metadataEditor !== null
+                onClicked: player.showTags = !player.showTags
+            }
+
+            IconButton {
                 icon: "queue"
                 iconSize: 18
                 tip: "Queue and history"
@@ -69,6 +95,136 @@ Rectangle {
                 onClicked: player.workspace.setFullscreen(false)
             }
         }
+    }
+
+    Rectangle {
+        id: tagEditor
+        objectName: "fullscreenMetadataEditor"
+        visible: player.showTags && player.metadataEditor !== null && player.playback.playingId.length > 0
+        anchors.top: top.bottom
+        anchors.bottom: bottom.top
+        anchors.right: parent.right
+        width: Math.min(340, parent.width * 0.42)
+        color: Theme.sidebar
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 1
+            color: Theme.separator
+        }
+
+        Flickable {
+            id: tagScroller
+            anchors.fill: parent
+            anchors.margins: 16
+            contentHeight: tagColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ThinScrollBar {}
+
+            Column {
+                id: tagColumn
+                width: tagScroller.width
+                spacing: 12
+
+                SectionLabel { text: "Track tags" }
+
+                Text {
+                    width: tagColumn.width
+                    visible: player.recoveryForPlayingTrack().length > 0
+                    text: player.recoveryForPlayingTrack().some(function(operation) {
+                        return operation.situation === "inspection_failed"
+                    })
+                        ? "MTEE could not inspect a previous tag save. Review its recovery files before editing."
+                        : "A previous tag save for " + player.recoveryForPlayingTrack()[0].fileName
+                            + " needs recovery. Its source and recovery files were kept."
+                    color: Theme.danger
+                    wrapMode: Text.WordWrap
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Repeater {
+                    id: tagFields
+                    model: []
+
+                    delegate: FieldEditor {
+                        required property var modelData
+                        width: tagColumn.width
+                        label: modelData.label
+                        value: modelData.value
+                        mixed: modelData.mixed
+                        editable: modelData.editable
+                        reason: modelData.reason
+                        onEditingStarted: player.metadataEditor.beginTrackFieldEdit(
+                            player.playback.playingId, modelData.key)
+                        onCommitted: (value, remove) => player.metadataEditor.commitTrackField(
+                            player.playback.playingId, modelData.key, value, remove)
+                    }
+                }
+
+                Text {
+                    width: tagColumn.width
+                    visible: player.metadataEditor.saveState !== "idle"
+                    text: player.metadataEditor.saveState === "saving" ? "Saving…"
+                        : player.metadataEditor.saveState === "saved" ? "Saved"
+                        : player.metadataEditor.saveMessage || "Could not save"
+                    color: player.metadataEditor.saveState === "error"
+                        || player.metadataEditor.saveState === "recovery" ? Theme.danger : Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Row {
+                    spacing: 8
+
+                    TextButton {
+                        visible: player.metadataEditor.saveState === "error"
+                            || player.metadataEditor.saveState === "busy"
+                        kind: "neutral"
+                        text: "Retry"
+                        onClicked: player.metadataEditor.retrySave()
+                    }
+
+                    TextButton {
+                        visible: player.metadataEditor.saveState === "busy"
+                            && player.metadataEditor.canStopPlaybackAndSave
+                        kind: "neutral"
+                        text: "Stop playback and save"
+                        onClicked: player.metadataEditor.stopPlaybackAndSave()
+                    }
+
+                    TextButton {
+                        visible: player.metadataEditor.canUndo
+                        kind: "ghost"
+                        text: "Undo"
+                        onClicked: player.metadataEditor.undoSave()
+                    }
+                }
+            }
+        }
+
+        function refreshFields() {
+            if (player.metadataEditor !== null && player.playback.playingId.length > 0)
+                tagFields.model = player.metadataEditor.fieldsForTrack(player.playback.playingId)
+            else
+                tagFields.model = []
+        }
+
+        Connections {
+            target: player.metadataEditor
+            function onChanged() { tagEditor.refreshFields() }
+        }
+
+        Connections {
+            target: player.playback
+            function onPlaybackChanged() { tagEditor.refreshFields() }
+        }
+
+        Component.onCompleted: refreshFields()
     }
 
     Column {
