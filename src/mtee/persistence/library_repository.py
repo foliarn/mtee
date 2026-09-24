@@ -103,6 +103,14 @@ class LibraryRepository:
             identities: list[str] = []
             for relative_path, path, revision, metadata in entries:
                 source = Path(path).resolve(strict=False)
+                try:
+                    observed = SourceRevision.observe(source, generation=revision.generation)
+                except OSError:
+                    identities.append("")
+                    continue
+                if source.is_symlink() or not source.is_file() or not revision.matches(observed):
+                    identities.append("")
+                    continue
                 key = normalize_path(source)
                 encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
                 existing = connection.execute(
@@ -317,6 +325,99 @@ class LibraryRepository:
             ),
             snapshot=MetadataSnapshot.from_dict(json.loads(str(row["metadata_json"]))),
             status=str(row["status"]),
+        )
+
+    def path_owner(self, path: Path | str) -> str | None:
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT track_id FROM track_locations WHERE path_key=?",
+                (normalize_path(path),),
+            )
+            .fetchone()
+        )
+        return str(row[0]) if row is not None else None
+
+    def registered_roots_for(self, path: Path | str) -> list[tuple[str, str, int]]:
+        """Return registered roots containing a destination and its relative path."""
+        candidate = Path(path).expanduser().absolute()
+        candidate_parent = candidate.parent.resolve(strict=True)
+        candidate = candidate_parent / candidate.name
+        matches: list[tuple[str, str, int]] = []
+        rows = self._database.connection().execute(
+            "SELECT root_id,path,scan_generation FROM library_roots"
+        )
+        for row in rows:
+            root_path = Path(str(row["path"])).expanduser().resolve(strict=False)
+            try:
+                relative = candidate.relative_to(root_path).as_posix()
+            except ValueError:
+                continue
+            if relative and relative != ".":
+                matches.append((str(row["root_id"]), relative, int(row["scan_generation"])))
+        return matches
+
+    @staticmethod
+    def move_location_in_transaction(
+        connection: sqlite3.Connection,
+        *,
+        track_id: str,
+        expected_revision: SourceRevision,
+        destination: Path,
+        new_revision: SourceRevision,
+        metadata: MetadataSnapshot,
+    ) -> None:
+        """Move one UUID and all of its registered-root memberships atomically."""
+        final_path = destination.resolve(strict=True)
+        destination_key = normalize_path(final_path)
+        conflict = connection.execute(
+            "SELECT track_id FROM track_locations WHERE path_key=? AND track_id<>?",
+            (destination_key, track_id),
+        ).fetchone()
+        if conflict is not None:
+            raise ValueError("A different library track already owns the destination path.")
+        memberships: list[tuple[str, str, int]] = []
+        for root in connection.execute("SELECT root_id,path,scan_generation FROM library_roots"):
+            root_path = Path(str(root["path"])).expanduser().resolve(strict=False)
+            try:
+                relative = final_path.relative_to(root_path).as_posix()
+            except ValueError:
+                continue
+            if relative and relative != ".":
+                memberships.append((str(root["root_id"]), relative, int(root["scan_generation"])))
+        if not memberships:
+            raise ValueError("The destination is outside every registered library root.")
+        updated = connection.execute(
+            "UPDATE track_locations SET path_key=?,path=?,size_bytes=?,mtime_ns=?,file_id=?,"
+            "generation=?,duration_us=?,status=?,metadata_json=? WHERE track_id=? "
+            "AND size_bytes=? AND mtime_ns=? AND file_id IS ? AND generation=?",
+            (
+                destination_key,
+                str(final_path),
+                new_revision.size_bytes,
+                new_revision.mtime_ns,
+                new_revision.file_id,
+                new_revision.generation,
+                metadata.technical.duration_us,
+                metadata.status,
+                json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True),
+                track_id,
+                expected_revision.size_bytes,
+                expected_revision.mtime_ns,
+                expected_revision.file_id,
+                expected_revision.generation,
+            ),
+        ).rowcount
+        if updated != 1:
+            raise ValueError("The track location changed before the move could be recorded.")
+        connection.execute("DELETE FROM root_tracks WHERE track_id=?", (track_id,))
+        connection.executemany(
+            "INSERT INTO root_tracks(root_id,track_id,relative_path,seen_generation,present) "
+            "VALUES(?,?,?,?,1)",
+            [
+                (root_id, track_id, relative, generation)
+                for root_id, relative, generation in memberships
+            ],
         )
 
     def artwork_source(self, track_id: str) -> tuple[Path, SourceRevision] | None:

@@ -37,6 +37,7 @@ addopts = "-q"
 qt_api = "pyside6"
 markers = [
     "native_audio: requires the pinned Windows libmpv runtime; missing runtime is a failure, not a skip",
+    "windows_file_ops: requires native Windows file operation semantics",
 ]
 
 [tool.ruff]

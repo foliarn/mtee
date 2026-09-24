@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
+from mtee.models.file_operation_model import FileOperationModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
@@ -94,6 +95,7 @@ class WorkspaceModel(QObject):
         self._jobs = jobs
         self._player = player
         self._metadata_editor: MetadataEditorModel | None = None
+        self._file_operations: FileOperationModel | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._state = session.load()
@@ -357,6 +359,10 @@ class WorkspaceModel(QObject):
     def metadataEditor(self) -> QObject:
         return self._metadata_editor if self._metadata_editor is not None else self
 
+    @Property(QObject, constant=True)
+    def fileOperations(self) -> QObject:
+        return self._file_operations if self._file_operations is not None else self
+
     @Property(list, notify=selectionChanged)
     def infoFieldsReadOnly(self) -> list[dict[str, str]]:
         ids = self.selected_ids_snapshot()
@@ -422,6 +428,33 @@ class WorkspaceModel(QObject):
         editor.changed.connect(self._on_metadata_changed)
         self.selectionChanged.connect(editor.refresh_selection)
         editor.refresh_selection()
+
+    def attach_file_operations(self, model: FileOperationModel) -> None:
+        """Attach the shared file operation model and refresh UUID-backed views."""
+        if self._file_operations is not None:
+            raise RuntimeError("A file operation model is already attached to this workspace.")
+        self._file_operations = model
+        model.setParent(self)
+        model.operationFinished.connect(self._on_file_operation_finished)
+        model.recoveryChecked.connect(self._on_file_recovery_checked)
+        recovered = cast(list[dict[str, Any]], model.recoveryOperations)
+        if recovered:
+            self._on_file_recovery_checked(recovered)
+
+    @Slot()
+    def _on_file_operation_finished(self) -> None:
+        self._refresh_library()
+        if self._metadata_editor is not None:
+            self._metadata_editor.refresh_selection()
+        if self._file_operations is not None:
+            self._set_message(cast(str, self._file_operations.message))
+
+    @Slot(object)
+    def _on_file_recovery_checked(self, operations: object) -> None:
+        if isinstance(operations, list) and operations:
+            self._set_message(
+                f"{len(operations)} file operation(s) need inspection before more file changes."
+            )
 
     @Slot(str, str, str, str, bool, result=QObject)
     def trackModelForTab(
