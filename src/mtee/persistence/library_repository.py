@@ -354,6 +354,7 @@ def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) 
         "bpm": _number(_first(values.bpm)),
         "key": _first(values.key),
         "seconds": seconds,
+        "durationUs": duration,
         "duration": _duration(seconds),
         "format": technical.container,
         "codec": technical.codec,

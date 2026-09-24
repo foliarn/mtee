@@ -99,3 +99,52 @@ def test_no_entry_is_leaked_after_the_accesses() -> None:
             pass
 
     assert coordinator.tracked_count() == 0
+
+
+def test_playback_read_leases_can_overlap_and_block_exclusive_changes() -> None:
+    coordinator = FileAccessCoordinator()
+    track = TrackId.new()
+
+    with (
+        coordinator.acquire_read(track, "playback"),
+        coordinator.acquire_read(track, "analysis"),
+    ):
+        assert coordinator.is_busy(track)
+        assert coordinator.holder_of(track) == "analysis, playback"
+        with (
+            pytest.raises(FileAccessTimeoutError) as failure,
+            coordinator.acquire(track, "write tags", timeout_seconds=0),
+        ):
+            pass
+
+    assert failure.value.holder == "analysis, playback"
+    assert not coordinator.is_busy(track)
+    assert coordinator.tracked_count() == 0
+
+
+def test_a_shared_read_waits_for_and_releases_after_an_exclusive_writer() -> None:
+    coordinator = FileAccessCoordinator()
+    track = TrackId.new()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def write() -> None:
+        with coordinator.acquire(track, "move"):
+            entered.set()
+            release.wait(5)
+
+    writer = threading.Thread(target=write)
+    writer.start()
+    assert entered.wait(5)
+    try:
+        with (
+            pytest.raises(FileAccessTimeoutError) as failure,
+            coordinator.acquire_read(track, "playback", timeout_seconds=0),
+        ):
+            pass
+    finally:
+        release.set()
+        writer.join(timeout=5)
+
+    assert failure.value.holder == "move"
+    assert not coordinator.is_busy(track)

@@ -1,0 +1,31 @@
+Third-party software included with MTEE
+=======================================
+
+libmpv Windows x86-64
+---------------------
+MTEE bundles libmpv-2.dll from the zhongfly/mpv-winbuild project.
+
+Provider: https://github.com/zhongfly/mpv-winbuild
+Release: 2026-09-23-6fd80b2003
+Archive: mpv-dev-lgpl-x86_64-20260923-git-6fd80b2003.7z
+Archive SHA-256: 8d65bab888f5dfff059c50431d2c72c4c6ab78706c363056697176694563321d
+DLL SHA-256: 85071ee7c8bfc9f3690a0eb140f15bbb697cdf81bc96e9c905dc8a54cfff8c10d
+
+The provider describes this build as libmpv under LGPL-2.1-or-later with
+FFmpeg statically linked under LGPL-3.0-or-later. The provider's Windows build
+scripts are licensed under MIT. License texts and source are available at:
+
+  mpv: https://github.com/mpv-player/mpv
+  FFmpeg: https://github.com/FFmpeg/FFmpeg
+  Build scripts: https://github.com/zhongfly/mpv-winbuild
+  LGPL-2.1: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+  LGPL-3.0: https://www.gnu.org/licenses/lgpl-3.0.txt
+  MIT: https://opensource.org/license/mit
+
+The builder cautions that it cannot guarantee all LGPL-incompatible packages
+were disabled. MTEE has not completed a transitive dependency or legal audit
+of this binary. See docs/native-dependencies.md in the source distribution
+for the observed dependencies, provenance, and remaining redistribution work.
+
+No ffmpeg.exe or ffprobe.exe is included. The FFmpeg libraries described above
+are statically linked inside the bundled libmpv runtime.

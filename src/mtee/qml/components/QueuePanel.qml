@@ -7,6 +7,7 @@ Item {
     id: queue
 
     required property var workspace
+    readonly property var player: workspace.playerModel
     property int bottomInset: 0
 
     objectName: "queuePanel"
@@ -28,8 +29,8 @@ Item {
             SectionLabel { x: 16; text: "Now playing" }
 
             QueueRow {
-                visible: queue.workspace.playingId.length > 0
-                track: queue.workspace.playingTrack
+                visible: queue.player.playingId.length > 0
+                track: queue.player.playingTrack
                 playing: true
             }
 
@@ -37,22 +38,29 @@ Item {
 
             SectionLabel {
                 x: 16
-                text: "Next from " + queue.workspace.playingSourceTitle + (queue.workspace.shuffle ? " · shuffled" : "")
+                text: "Next from " + queue.player.playingSourceTitle + (queue.player.shuffle ? " · shuffled" : "")
+            }
+
+            PlaybackQueueView {
+                visible: queue.player.hasQueueModel
+                width: body.width
+                player: queue.player
+                nextOnly: true
             }
 
             Repeater {
-                model: queue.workspace.upNext
+                model: queue.player.hasQueueModel ? [] : queue.player.upNext
                 delegate: QueueRow {
                     required property var modelData
                     track: modelData
-                    source: queue.workspace.playingSource
+                    source: queue.player.playingSource
                 }
             }
 
             Text {
                 x: 16
-                visible: queue.workspace.upNext.length === 0
-                text: queue.workspace.repeat === "all" ? "The queue starts again after this track." : "Nothing next."
+                visible: queue.player.upNext.length === 0
+                text: queue.player.repeat === "all" ? "The queue starts again after this track." : "Nothing next."
                 color: Theme.textMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
@@ -63,7 +71,7 @@ Item {
             SectionLabel { x: 16; text: "History" }
 
             Repeater {
-                model: queue.workspace.history
+                model: queue.player.history
                 delegate: QueueRow {
                     required property var modelData
                     track: modelData

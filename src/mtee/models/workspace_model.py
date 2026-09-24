@@ -14,6 +14,7 @@ from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.models.folder_tree_model import FolderTreeModel
+from mtee.models.player_model import PlayerModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
@@ -73,6 +74,8 @@ class WorkspaceModel(QObject):
     batchReady = Signal(str, str, object)
     scanFinished = Signal(str, str, object)
     activationRequested = Signal(str, list)
+    playbackChanged = Signal()
+    positionChanged = Signal()
 
     def __init__(
         self,
@@ -80,12 +83,14 @@ class WorkspaceModel(QObject):
         library: LibraryRepository,
         session: WorkspaceRepository,
         jobs: JobService,
+        player: PlayerModel | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._library = library
         self._session = session
         self._jobs = jobs
+        self._player = player
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._state = session.load()
@@ -135,6 +140,9 @@ class WorkspaceModel(QObject):
         self.batchReady.connect(self._on_scan_batch)
         self.scanFinished.connect(self._on_scan_finished)
         jobs.jobUpdated.connect(self._on_job_updated)
+        if player is not None:
+            player.playbackChanged.connect(self.playbackChanged.emit)
+            player.playbackChanged.connect(self.positionChanged.emit)
         self._persist()
 
     # ---------------------------------------------------------------- properties
@@ -202,6 +210,10 @@ class WorkspaceModel(QObject):
         return self._island_enabled
 
     @Property(QObject, constant=True)
+    def playerModel(self) -> QObject:
+        return self._player if self._player is not None else self
+
+    @Property(QObject, constant=True)
     def folderTreeModel(self) -> QObject:
         return self._folder_model
 
@@ -217,57 +229,57 @@ class WorkspaceModel(QObject):
         tab_id = str(self._groups[self._active_group]["active"])
         return list(self._selection_by_tab.get((self._active_group, tab_id), []))
 
-    @Property(str, constant=True)
+    @Property(str, notify=playbackChanged)
     def playingId(self) -> str:
-        return ""
+        return self._player.playing_id_value() if self._player is not None else ""
 
-    @Property(dict, constant=True)
+    @Property(dict, notify=playbackChanged)
     def playingTrack(self) -> dict[str, Any]:
-        return {}
+        return self._player.playing_track_value() if self._player is not None else {}
 
-    @Property(str, constant=True)
+    @Property(str, notify=playbackChanged)
     def playingSourceTitle(self) -> str:
-        return ""
+        return self._player.playing_source_title_value() if self._player is not None else ""
 
-    @Property(str, constant=True)
+    @Property(str, notify=playbackChanged)
     def playingSource(self) -> str:
-        return ""
+        return self._player.playing_source_value() if self._player is not None else ""
 
-    @Property(str, constant=True)
+    @Property(str, notify=playbackChanged)
     def playingSourceKind(self) -> str:
-        return ""
+        return self._player.playing_source_kind_value() if self._player is not None else ""
 
-    @Property(bool, constant=True)
+    @Property(bool, notify=playbackChanged)
     def isPlaying(self) -> bool:
-        return False
+        return self._player.is_playing_value() if self._player is not None else False
 
-    @Property(float, constant=True)
+    @Property(float, notify=positionChanged)
     def position(self) -> float:
-        return 0.0
+        return self._player.position_value() if self._player is not None else 0.0
 
-    @Property(int, constant=True)
+    @Property(int, notify=playbackChanged)
     def volume(self) -> int:
-        return 72
+        return self._player.volume_value() if self._player is not None else 72
 
-    @Property(bool, constant=True)
+    @Property(bool, notify=playbackChanged)
     def muted(self) -> bool:
-        return False
+        return self._player.muted_value() if self._player is not None else False
 
-    @Property(bool, constant=True)
+    @Property(bool, notify=playbackChanged)
     def shuffle(self) -> bool:
-        return False
+        return self._player.shuffle_value() if self._player is not None else False
 
-    @Property(str, constant=True)
+    @Property(str, notify=playbackChanged)
     def repeat(self) -> str:
-        return "off"
+        return self._player.repeat_value() if self._player is not None else "off"
 
-    @Property(list, constant=True)
+    @Property(list, notify=playbackChanged)
     def upNext(self) -> list[dict[str, Any]]:
-        return []
+        return self._player.up_next_value() if self._player is not None else []
 
-    @Property(list, constant=True)
+    @Property(list, notify=playbackChanged)
     def history(self) -> list[dict[str, Any]]:
-        return []
+        return self._player.history_value() if self._player is not None else []
 
     @Property(str, constant=True)
     def saveState(self) -> str:
@@ -840,7 +852,7 @@ class WorkspaceModel(QObject):
             root_id, relative = "", ""
         model = self._track_models.get(f"folder:{root_id}/{relative}")
         if model:
-            order = model.trackIds
+            order = model.track_ids_snapshot()
         elif root_id:
             tab_id = f"folder:{root_id}/{relative}"
             state = self._tab_state(tab_id)
@@ -867,39 +879,63 @@ class WorkspaceModel(QObject):
         else:
             order = [track_id]
         self.activationRequested.emit(track_id, order)
-        self._set_message("Playback will be available in the next step.")
+        if self._player is not None:
+            if track_id not in order:
+                order.append(track_id)
+            title = self._playback_source_title(source, track)
+            self._player.playQueue(order, order.index(track_id), source, title)
+        else:
+            self._set_message("The audio runtime is unavailable.")
+
+    def _playback_source_title(self, source: str, track: dict[str, Any]) -> str:
+        folder = _parse_folder_id(source)
+        if folder is not None:
+            root_id, relative = folder
+            if relative:
+                return Path(relative).name
+            root = next((row for row in self._library.roots() if row["id"] == root_id), {})
+            return str(root.get("name") or track.get("title") or "Folder")
+        return str(track.get("album") or track.get("title") or "Library")
 
     @Slot()
     def togglePlay(self) -> None:
-        self._set_message("Playback will be available in the next step.")
+        if self._player is not None:
+            self._player.togglePlay()
 
     @Slot()
     def previous(self) -> None:
-        self.togglePlay()
+        if self._player is not None:
+            self._player.previous()
 
     @Slot()
     def next(self) -> None:
-        self.togglePlay()
+        if self._player is not None:
+            self._player.next()
 
     @Slot()
     def toggleShuffle(self) -> None:
-        self._set_message("Playback controls will be available in the next step.")
+        if self._player is not None:
+            self._player.toggleShuffle()
 
     @Slot()
     def cycleRepeat(self) -> None:
-        self._set_message("Playback controls will be available in the next step.")
+        if self._player is not None:
+            self._player.cycleRepeat()
 
     @Slot(float)
-    def seek(self, _position: float) -> None:
-        self.togglePlay()
+    def seek(self, position: float) -> None:
+        if self._player is not None:
+            self._player.seek(position)
 
     @Slot(int)
-    def setVolume(self, _volume: int) -> None:
-        self.togglePlay()
+    def setVolume(self, volume: int) -> None:
+        if self._player is not None:
+            self._player.setVolume(volume)
 
     @Slot()
     def toggleMute(self) -> None:
-        self.togglePlay()
+        if self._player is not None:
+            self._player.toggleMute()
 
     @Slot(str, str)
     def commitField(self, _field: str, _value: str) -> None:

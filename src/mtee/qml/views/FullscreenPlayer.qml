@@ -8,8 +8,9 @@ Rectangle {
     id: player
 
     required property var workspace
-    readonly property var track: workspace.playingTrack
-    readonly property real duration: track.seconds || 1
+    readonly property var playback: workspace.playerModel
+    readonly property var track: playback.playingTrack
+    readonly property real duration: playback.duration || track.seconds || 1
 
     objectName: "fullscreenPlayer"
     color: Theme.editor
@@ -32,11 +33,11 @@ Rectangle {
             spacing: 2
 
             SectionLabel {
-                text: "Playing from " + (player.workspace.playingSourceKind === "playlist" ? "playlist" : "folder")
+                text: "Playing from " + (player.playback.playingSourceKind === "playlist" ? "playlist" : "folder")
             }
 
             Text {
-                text: player.workspace.playingSourceTitle
+                text: player.playback.playingSourceTitle
                 color: Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeBody
@@ -130,8 +131,46 @@ Rectangle {
             width: parent.width
             height: 72
             seed: player.track.id || ""
-            ratio: player.workspace.position / player.duration
-            onSeekRequested: (ratio) => player.workspace.seek(ratio * player.duration)
+            enabled: player.playback.seekable
+            visible: player.playback.status !== "Error"
+            ratio: player.playback.position / player.duration
+            onSeekRequested: (ratio) => player.playback.seek(ratio * player.duration)
+        }
+
+        Row {
+            visible: player.playback.status === "Error"
+            width: parent.width
+            spacing: 8
+
+            Text {
+                width: parent.width - retryButton.width - nextButton.width - 16
+                text: player.playback.errorMessage || "Playback failed."
+                elide: Text.ElideRight
+                color: Theme.danger
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeBody
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            IconButton {
+                id: retryButton
+                width: 32
+                height: 30
+                icon: "play"
+                iconSize: 16
+                tip: "Retry"
+                onClicked: player.playback.retry()
+            }
+
+            IconButton {
+                id: nextButton
+                width: 32
+                height: 30
+                icon: "next"
+                iconSize: 16
+                tip: "Next"
+                onClicked: player.playback.next()
+            }
         }
 
         Item {
@@ -139,7 +178,7 @@ Rectangle {
             height: 16
 
             Text {
-                text: player.time(player.workspace.position)
+                text: player.time(player.playback.position)
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
@@ -162,7 +201,7 @@ Rectangle {
 
             TransportControls {
                 anchors.centerIn: parent
-                workspace: player.workspace
+                player: player.playback
                 spacing: 20
                 buttonSize: 40
                 iconSize: 22
@@ -177,10 +216,10 @@ Rectangle {
                 IconButton {
                     anchors.verticalCenter: parent.verticalCenter
                     hoverBackground: false
-                    icon: player.workspace.muted || player.workspace.volume === 0 ? "volume-off" : "volume"
+                    icon: player.playback.muted || player.playback.volume === 0 ? "volume-off" : "volume"
                     iconSize: 20
-                    tip: player.workspace.muted ? "Unmute" : "Mute"
-                    onClicked: player.workspace.toggleMute()
+                    tip: player.playback.muted ? "Unmute" : "Mute"
+                    onClicked: player.playback.toggleMute()
                 }
 
                 LineSlider {
@@ -188,8 +227,8 @@ Rectangle {
                     width: 110
                     from: 0
                     to: 100
-                    value: player.workspace.muted ? 0 : player.workspace.volume
-                    onMoved: (value) => player.workspace.setVolume(Math.round(value))
+                    value: player.playback.muted ? 0 : player.playback.volume
+                    onMoved: (value) => player.playback.setVolume(Math.round(value))
                 }
             }
         }

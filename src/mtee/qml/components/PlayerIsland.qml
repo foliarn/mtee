@@ -7,7 +7,8 @@ Rectangle {
     id: island
 
     required property var workspace
-    readonly property var track: workspace.playingTrack
+    readonly property var player: workspace.playerModel
+    readonly property var track: player.playingTrack
     readonly property bool inPlaylist: track.id !== undefined
         && workspace.playlistsContaining(track.id, workspace.revision).length > 0
 
@@ -104,10 +105,11 @@ Rectangle {
 
         TransportControls {
             anchors.horizontalCenter: parent.horizontalCenter
-            workspace: island.workspace
+            player: island.player
         }
 
         Row {
+            visible: island.player.status !== "Error"
             width: parent.width
             spacing: 8
 
@@ -115,7 +117,7 @@ Rectangle {
                 width: 36
                 horizontalAlignment: Text.AlignRight
                 anchors.verticalCenter: parent.verticalCenter
-                text: island.time(island.workspace.position)
+                text: island.time(island.player.position)
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeCaption
@@ -127,9 +129,10 @@ Rectangle {
                 width: parent.width - 88
                 anchors.verticalCenter: parent.verticalCenter
                 from: 0
-                to: island.track.seconds || 1
-                value: island.workspace.position
-                onMoved: (value) => island.workspace.seek(value)
+                enabled: island.player.seekable
+                to: island.player.duration || island.track.seconds || 1
+                value: island.player.position
+                onMoved: (value) => island.player.seek(value)
             }
 
             Text {
@@ -140,6 +143,42 @@ Rectangle {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeCaption
                 font.features: { "tnum": 1 }
+            }
+        }
+
+        Row {
+            visible: island.player.status === "Error"
+            width: parent.width
+            spacing: 6
+
+            Text {
+                width: parent.width - retryButton.width - nextButton.width - 12
+                text: island.player.errorMessage || "Playback failed."
+                elide: Text.ElideRight
+                color: Theme.danger
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeCaption
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            IconButton {
+                id: retryButton
+                width: 26
+                height: 24
+                icon: "play"
+                iconSize: 14
+                tip: "Retry"
+                onClicked: island.player.retry()
+            }
+
+            IconButton {
+                id: nextButton
+                width: 26
+                height: 24
+                icon: "next"
+                iconSize: 14
+                tip: "Next"
+                onClicked: island.player.next()
             }
         }
     }
@@ -163,10 +202,10 @@ Rectangle {
         IconButton {
             anchors.verticalCenter: parent.verticalCenter
             hoverBackground: false
-            icon: island.workspace.muted || island.workspace.volume === 0 ? "volume-off" : "volume"
+            icon: island.player.muted || island.player.volume === 0 ? "volume-off" : "volume"
             iconSize: 18
-            tip: island.workspace.muted ? "Unmute" : "Mute"
-            onClicked: island.workspace.toggleMute()
+            tip: island.player.muted ? "Unmute" : "Mute"
+            onClicked: island.player.toggleMute()
         }
 
         LineSlider {
@@ -175,8 +214,8 @@ Rectangle {
             width: Math.min(96, Math.max(48, island.width * 0.08))
             from: 0
             to: 100
-            value: island.workspace.muted ? 0 : island.workspace.volume
-            onMoved: (value) => island.workspace.setVolume(Math.round(value))
+            value: island.player.muted ? 0 : island.player.volume
+            onMoved: (value) => island.player.setVolume(Math.round(value))
         }
 
         IconButton {

@@ -1,0 +1,501 @@
+"""Single playback queue and native-player lifetime for every presentation."""
+
+from __future__ import annotations
+
+import random
+from collections.abc import Callable
+from contextlib import AbstractContextManager, suppress
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+
+from mtee.domain.playback import PlaybackState, PlaybackStatus
+from mtee.domain.tracks import TrackId
+from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
+from mtee.services.player_backend import BackendEvent, PlayerBackend
+
+__all__ = ["PlayerService"]
+
+TrackResolver = Callable[[str], dict[str, Any]]
+
+
+class _BackendEventBridge(QObject):
+    eventReceived = Signal(object)
+
+
+class PlayerService(QObject):
+    """Own the immutable queue, file read lease and state transitions."""
+
+    stateChanged = Signal()
+    queueChanged = Signal()
+
+    def __init__(
+        self,
+        resolver: TrackResolver,
+        file_access: FileAccessCoordinator,
+        backend: PlayerBackend | None,
+        *,
+        backend_error: str = "",
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._resolver = resolver
+        self._file_access = file_access
+        self._backend = backend
+        self._backend_error = backend_error
+        self._state = PlaybackState()
+        self._base_ids: tuple[str, ...] = ()
+        self._track_rows: dict[str, dict[str, Any]] = {}
+        self._read_contexts: dict[int, AbstractContextManager] = {}
+        self._history_ids: list[str] = []
+        self._unmuted_volume = self._state.volume
+        self._pending_seek_us: int | None = None
+        self._closed = False
+        self._bridge = _BackendEventBridge(self)
+        self._bridge.eventReceived.connect(
+            self._handle_backend_event, Qt.ConnectionType.QueuedConnection
+        )
+        if backend is not None:
+            backend.set_event_handler(self._bridge.eventReceived.emit)
+        self._position_timer = QTimer(self)
+        self._position_timer.setInterval(100)
+        self._position_timer.timeout.connect(self._poll_position)
+
+    @property
+    def state(self) -> PlaybackState:
+        return self._state
+
+    @property
+    def current_track(self) -> dict[str, Any]:
+        return dict(self._track_rows.get(self._state.current_id, {}))
+
+    def queue_rows(self) -> list[dict[str, Any]]:
+        rows = []
+        for index, track_id in enumerate(self._state.track_ids):
+            track = dict(self._track_rows.get(track_id, {}))
+            rows.append(
+                {
+                    **track,
+                    "id": track_id,
+                    "current": index == self._state.current_index,
+                    "available": _available(track),
+                    "index": index,
+                }
+            )
+        return rows
+
+    def up_next(self) -> list[dict[str, Any]]:
+        start = max(0, self._state.current_index + 1)
+        return [dict(row) for row in self.queue_rows()[start:]]
+
+    def history_rows(self) -> list[dict[str, Any]]:
+        return [
+            dict(self._track_rows[track_id])
+            for track_id in reversed(self._history_ids[-20:])
+            if track_id in self._track_rows
+        ]
+
+    def play_queue(
+        self,
+        track_ids: list[str] | tuple[str, ...],
+        start_index: int = 0,
+        *,
+        source: str = "",
+        source_title: str = "",
+    ) -> None:
+        """Copy the visible order now; later view changes cannot mutate this queue."""
+        ids = tuple(str(track_id) for track_id in track_ids)
+        if not ids or not 0 <= start_index < len(ids):
+            return
+        self._base_ids = ids
+        for track_id in ids:
+            if track_id not in self._track_rows:
+                with suppress(Exception):
+                    row = self._resolver(track_id)
+                    if row:
+                        self._track_rows[track_id] = dict(row)
+        self._open_index(
+            start_index,
+            track_ids=ids,
+            source=source,
+            source_title=source_title,
+        )
+
+    @Slot()
+    def toggle_play(self) -> None:
+        if self._state.status is PlaybackStatus.PLAYING:
+            self.pause()
+        elif self._state.status is PlaybackStatus.PAUSED:
+            self.resume()
+        elif self._state.status in (PlaybackStatus.ERROR, PlaybackStatus.ENDED):
+            self.retry()
+
+    @Slot()
+    def pause(self) -> None:
+        if self._backend is None or self._state.status is not PlaybackStatus.PLAYING:
+            return
+        try:
+            self._backend.set_paused(True)
+            self._publish(status=PlaybackStatus.PAUSED)
+        except Exception as error:
+            self._fail(str(error))
+
+    @Slot()
+    def resume(self) -> None:
+        if self._backend is None or self._state.status is not PlaybackStatus.PAUSED:
+            return
+        try:
+            self._backend.set_paused(False)
+            self._publish(status=PlaybackStatus.PLAYING)
+        except Exception as error:
+            self._fail(str(error))
+
+    @Slot()
+    def next(self) -> None:
+        if not self._state.track_ids:
+            return
+        next_index = self._state.current_index + 1
+        if next_index < len(self._state.track_ids):
+            self._open_index(next_index)
+        else:
+            self._finish(stop_backend=True)
+
+    @Slot(int)
+    def play_index(self, index: int) -> None:
+        """Play an existing row without capturing or rebuilding the queue."""
+        self._open_index(int(index))
+
+    @Slot()
+    def previous(self) -> None:
+        if not self._state.track_ids:
+            return
+        previous_index = self._state.current_index - 1
+        if previous_index >= 0:
+            self._open_index(previous_index)
+        else:
+            self.seek(0)
+
+    @Slot(int)
+    def seek(self, position_us: int) -> None:
+        if (
+            self._backend is None
+            or not self._state.current_id
+            or not self._state.seekable
+            or self._state.duration_us is None
+        ):
+            return
+        target = max(0, min(int(position_us), self._state.duration_us))
+        try:
+            self._backend.seek(target)
+            self._pending_seek_us = target
+            self._publish(seeking=True)
+        except Exception as error:
+            self._fail(str(error))
+
+    @Slot(int)
+    def set_volume(self, volume: int) -> None:
+        value = max(0, min(100, int(volume)))
+        muted = self._state.muted
+        try:
+            if self._backend is not None:
+                self._backend.set_volume(0 if muted else value)
+            if value:
+                self._unmuted_volume = value
+            self._publish(volume=value)
+        except Exception as error:
+            self._fail(str(error))
+
+    @Slot()
+    def toggle_mute(self) -> None:
+        muted = not self._state.muted
+        try:
+            if self._backend is not None:
+                self._backend.set_volume(0 if muted else self._state.volume)
+            if not muted:
+                self._unmuted_volume = max(1, self._state.volume)
+            self._publish(muted=muted)
+        except Exception as error:
+            self._fail(str(error))
+
+    @Slot()
+    def toggle_shuffle(self) -> None:
+        enabled = not self._state.shuffle
+        ids = list(self._state.track_ids)
+        current_index = self._state.current_index
+        if enabled:
+            remaining = ids[self._state.current_index + 1 :]
+            random.shuffle(remaining)
+            ids = ids[: self._state.current_index + 1] + remaining
+        else:
+            current = self._state.current_id
+            base_index = self._base_ids.index(current) if current in self._base_ids else 0
+            ids = list(self._base_ids)
+            current_index = base_index
+        self._publish(track_ids=tuple(ids), current_index=current_index, shuffle=enabled)
+        self.queueChanged.emit()
+
+    @Slot()
+    def cycle_repeat(self) -> None:
+        value = {"off": "all", "all": "one", "one": "off"}[self._state.repeat]
+        self._publish(repeat=value)
+
+    @Slot()
+    def retry(self) -> None:
+        if self._state.current_index >= 0:
+            self._open_index(self._state.current_index)
+
+    @Slot(str)
+    def stop_and_release(self, track_id: str = "") -> bool:
+        """Stop the currently played UUID and explicitly release its read lease."""
+        if not self._state.current_id or (track_id and track_id != self._state.current_id):
+            return False
+        next_session = self._state.session_id + 1
+        self._publish(
+            status=PlaybackStatus.IDLE,
+            session_id=next_session,
+            current_id="",
+            current_index=-1,
+            position_us=0,
+            duration_us=None,
+            seekable=False,
+            error_message="",
+            seeking=False,
+        )
+        self._position_timer.stop()
+        if self._backend is not None:
+            try:
+                self._backend.stop()
+            except Exception as error:
+                self._publish(status=PlaybackStatus.ERROR, error_message=str(error))
+        else:
+            self._release_read_lease(self._state.session_id - 1)
+        return True
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._position_timer.stop()
+        self.stop_and_release()
+        try:
+            if self._backend is not None:
+                self._backend.set_event_handler(None)
+                self._backend.close()
+        finally:
+            # close() joins libmpv's event thread, so no native file handle can
+            # outlive this final cleanup even if its queued Qt event was dropped.
+            self._release_read_lease()
+
+    def _open_index(
+        self,
+        index: int,
+        *,
+        track_ids: tuple[str, ...] | None = None,
+        source: str | None = None,
+        source_title: str | None = None,
+    ) -> None:
+        ids = track_ids or self._state.track_ids or self._base_ids
+        if not 0 <= index < len(ids):
+            return
+        track_id = ids[index]
+        previous_id = self._state.current_id
+        if previous_id and previous_id != track_id:
+            self._history_ids.append(previous_id)
+        session_id = self._state.session_id + 1
+        current_source = self._state.source if source is None else source
+        current_title = self._state.source_title if source_title is None else source_title
+        self._publish(
+            status=PlaybackStatus.LOADING,
+            track_ids=tuple(ids),
+            current_id=track_id,
+            current_index=index,
+            position_us=0,
+            duration_us=_duration_us(self._track_rows.get(track_id, {})),
+            seekable=False,
+            error_message="",
+            session_id=session_id,
+            source=current_source,
+            source_title=current_title,
+            codec="",
+            sample_rate=None,
+            channels="",
+            seeking=False,
+            history=tuple(self._history_ids[-20:]),
+        )
+        self.queueChanged.emit()
+        self._pending_seek_us = None
+        if self._backend is not None and previous_id:
+            try:
+                self._backend.stop()
+            except Exception as error:
+                self._fail(str(error))
+                return
+        self._position_timer.start()
+        if self._backend is None:
+            self._fail(self._backend_error or "The audio runtime is unavailable.")
+            return
+        try:
+            # Resolve again at load time so a moved or replaced file does not rely
+            # on a path captured when the queue was created.
+            track = self._resolver(track_id)
+            self._track_rows[track_id] = dict(track)
+            path = Path(str(track.get("path", "")))
+            if not path.is_file():
+                raise FileNotFoundError(f"The audio file is unavailable: {path}")
+            context = self._file_access.acquire_read(
+                TrackId.parse(track_id), "playback", timeout_seconds=0
+            )
+            context.__enter__()
+            self._read_contexts[session_id] = context
+            self._backend.set_volume(0 if self._state.muted else self._state.volume)
+            self._backend.load(path, session_id)
+        except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
+            self._release_read_lease(session_id)
+            self._fail(str(error))
+        except Exception as error:
+            self._release_read_lease(session_id)
+            self._fail(str(error))
+
+    def _handle_backend_event(self, event: object) -> None:
+        if not isinstance(event, BackendEvent):
+            return
+        if event.name == "stopped":
+            self._release_read_lease(event.session_id)
+            if event.session_id == self._state.session_id:
+                self._position_timer.stop()
+            return
+        if event.name == "error":
+            self._release_read_lease(event.session_id)
+            if event.session_id == self._state.session_id:
+                self._fail(
+                    str(event.value or "The audio file could not be played."),
+                    source_closed=True,
+                )
+            return
+        if event.session_id != self._state.session_id:
+            return
+        if event.name == "start-file":
+            return
+        if event.name == "loaded":
+            for previous_session in tuple(self._read_contexts):
+                if previous_session != event.session_id:
+                    self._release_read_lease(previous_session)
+            self._publish(status=PlaybackStatus.PLAYING, error_message="")
+            self._position_timer.start()
+        elif event.name == "eof":
+            self._release_read_lease(event.session_id)
+            self._on_eof()
+        elif event.name == "pause":
+            if self._state.status in (PlaybackStatus.PLAYING, PlaybackStatus.PAUSED):
+                status = PlaybackStatus.PAUSED if bool(event.value) else PlaybackStatus.PLAYING
+                self._publish(status=status)
+        elif event.name == "duration":
+            value = event.value if isinstance(event.value, int) else None
+            self._publish(duration_us=max(0, value) if value is not None else None)
+        elif event.name == "seekable":
+            self._publish(seekable=bool(event.value))
+        elif event.name == "codec":
+            self._publish(codec=str(event.value or ""))
+        elif event.name == "sample-rate":
+            value = event.value if isinstance(event.value, int) else 0
+            self._publish(sample_rate=value if value > 0 else None)
+        elif event.name == "channels":
+            self._publish(channels=str(event.value or ""))
+
+    def _poll_position(self) -> None:
+        if self._backend is None or not self._state.current_id:
+            return
+        if self._state.status not in (PlaybackStatus.PLAYING, PlaybackStatus.PAUSED):
+            return
+        try:
+            position = self._backend.position_us()
+        except Exception as error:
+            self._fail(str(error))
+            return
+        if position is None:
+            return
+        if self._state.duration_us is not None:
+            position = min(position, self._state.duration_us)
+        seeking = self._state.seeking
+        if self._pending_seek_us is not None and abs(position - self._pending_seek_us) <= 300_000:
+            self._pending_seek_us = None
+            seeking = False
+        self._publish(position_us=max(0, position), seeking=seeking)
+
+    def _on_eof(self) -> None:
+        if self._state.repeat == "one":
+            self._open_index(self._state.current_index)
+        elif self._state.current_index + 1 < len(self._state.track_ids):
+            self._open_index(self._state.current_index + 1)
+        elif self._state.repeat == "all" and self._state.track_ids:
+            self._open_index(0)
+        else:
+            self._finish()
+
+    def _finish(self, *, stop_backend: bool = False) -> None:
+        self._position_timer.stop()
+        self._publish(
+            status=PlaybackStatus.ENDED,
+            position_us=self._state.duration_us or self._state.position_us,
+            seekable=False,
+            seeking=False,
+        )
+        if stop_backend and self._backend is not None:
+            try:
+                self._backend.stop()
+            except Exception as error:
+                self._publish(status=PlaybackStatus.ERROR, error_message=str(error))
+        else:
+            self._release_read_lease(self._state.session_id)
+        self.queueChanged.emit()
+
+    def _fail(self, message: str, *, source_closed: bool = False) -> None:
+        self._position_timer.stop()
+        self._pending_seek_us = None
+        self._publish(
+            status=PlaybackStatus.ERROR,
+            error_message=message,
+            seekable=False,
+            seeking=False,
+        )
+        if source_closed:
+            self._release_read_lease(self._state.session_id)
+        elif self._backend is not None:
+            with suppress(Exception):
+                self._backend.stop()
+        else:
+            self._release_read_lease(self._state.session_id)
+
+    def _publish(self, **changes: Any) -> None:
+        self._state = replace(self._state, **changes)
+        self.stateChanged.emit()
+
+    def _release_read_lease(self, session_id: int | None = None) -> None:
+        if session_id is None:
+            contexts = tuple(self._read_contexts.values())
+            self._read_contexts.clear()
+        else:
+            context = self._read_contexts.pop(session_id, None)
+            contexts = (context,) if context is not None else ()
+        for context in contexts:
+            if context is not None:
+                context.__exit__(None, None, None)
+
+
+def _available(track: dict[str, Any]) -> bool:
+    path = str(track.get("path", ""))
+    return bool(path) and Path(path).is_file()
+
+
+def _duration_us(track: dict[str, Any]) -> int | None:
+    value = track.get("durationUs")
+    if isinstance(value, int) and value > 0:
+        return value
+    seconds = track.get("seconds")
+    return (
+        max(0, int(seconds) * 1_000_000)
+        if isinstance(seconds, (int, float)) and seconds > 0
+        else None
+    )

@@ -272,6 +272,15 @@ class DemoWorkspace(QObject):
     def islandEnabled(self) -> bool:
         return self._island_enabled
 
+    @Property(QObject, constant=True)
+    def playerModel(self) -> QObject:
+        """Let shared player views bind to the same in-memory demo bridge."""
+        return self
+
+    @Property(bool, constant=True)
+    def hasQueueModel(self) -> bool:
+        return False
+
     @Property(list, notify=explorerChanged)
     def explorerRows(self) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
@@ -356,9 +365,27 @@ class DemoWorkspace(QObject):
     def isPlaying(self) -> bool:
         return self._is_playing
 
+    @Property(str, notify=playbackChanged)
+    def status(self) -> str:
+        if not self._playing:
+            return "Idle"
+        return "Playing" if self._is_playing else "Paused"
+
     @Property(float, notify=positionChanged)
     def position(self) -> float:
         return self._position
+
+    @Property(float, notify=playbackChanged)
+    def duration(self) -> float:
+        return float(self._tracks[self._playing]["seconds"]) if self._playing else 0.0  # type: ignore[arg-type]
+
+    @Property(bool, notify=playbackChanged)
+    def seekable(self) -> bool:
+        return bool(self._playing)
+
+    @Property(str, notify=playbackChanged)
+    def errorMessage(self) -> str:
+        return ""
 
     @Property(int, notify=playbackChanged)
     def volume(self) -> int:

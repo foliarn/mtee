@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Window
 import Mtee
 import "components"
@@ -36,10 +37,20 @@ Window {
     onCompactSidebarChanged: if (compactSidebar) ws.setSidebarVisible(false)
     Component.onCompleted: if (compactSidebar) ws.setSidebarVisible(false)
 
+    function textInputFocused() {
+        const focused = root.activeFocusItem
+        return focused !== null && focused !== undefined
+            && (focused.objectName === "folderSearchField"
+                || focused.objectName === "fieldEditorInput"
+                || focused instanceof AbstractButton
+                || focused instanceof TextInput
+                || focused instanceof TextEdit)
+    }
+
     Timer {
         interval: 250
         repeat: true
-        running: root.ws.isPlaying
+        running: shell.demoMode && root.ws.isPlaying
         onTriggered: root.ws.tick(0.25)
     }
 
@@ -196,7 +207,11 @@ Window {
         }
     }
 
-    Shortcut { sequence: "Space"; onActivated: root.ws.togglePlay() }
+    Shortcut {
+        sequence: "Space"
+        enabled: root.ws.playingId.length > 0 && !root.textInputFocused()
+        onActivated: root.ws.togglePlay()
+    }
     Shortcut { sequence: "Ctrl+I"; onActivated: root.ws.toggleRightPanel("info") }
     Shortcut { sequence: "Ctrl+B"; onActivated: root.ws.toggleSidebar() }
     Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.ws.setActivity("explorer") }
