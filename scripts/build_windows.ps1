@@ -11,22 +11,39 @@
     Keeps the console output of the executable, to diagnose a QML or DLL
     loading problem.
 
+.PARAMETER DistDirectory
+    Distribution directory, relative to the project root. Defaults to dist.
+
+.PARAMETER WorkDirectory
+    PyInstaller work directory, relative to the project root. Defaults to build.
+
 .EXAMPLE
     pwsh -File scripts/build_windows.ps1
+
+.EXAMPLE
+    pwsh -File scripts/build_windows.ps1 -DistDirectory dist/fix-build -WorkDirectory build/fix-build
 #>
 
 [CmdletBinding()]
 param(
-    [switch]$Console
+    [switch]$Console,
+    [string]$DistDirectory = 'dist',
+    [string]$WorkDirectory = 'build'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRootPrefix = [IO.Path]::GetFullPath($projectRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
 $specFile = Join-Path $projectRoot 'packaging/mtee.spec'
-$distRoot = Join-Path $projectRoot 'dist'
-$workRoot = Join-Path $projectRoot 'build'
+$distRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot $DistDirectory))
+$workRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot $WorkDirectory))
+if (-not $distRoot.StartsWith($projectRootPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+    -not $workRoot.StartsWith($projectRootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    Write-Error 'Build output and work directories must stay inside the project root.'
+    exit 1
+}
 $expectedExe = Join-Path $distRoot 'MTEE/MTEE.exe'
 $mpvLibrary = Join-Path $projectRoot 'vendor/mpv/libmpv-2.dll'
 $manifestPath = Join-Path $projectRoot 'resources/native/mpv/manifest.json'
