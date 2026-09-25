@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "provider": "BtbN/FFmpeg-Builds",
+  "release_tag": "autobuild-2026-09-24-14-14",
+  "architecture": "win64",
+  "ffmpeg_version": "n9.0.2-3-ga5923073bf-20260924",
+  "ffmpeg_commit": "a5923073bf",
+  "archive": {
+    "name": "ffmpeg-n9.0.2-3-ga5923073bf-win64-lgpl-shared-9.0.zip",
+    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-24-14-14/ffmpeg-n9.0.2-3-ga5923073bf-win64-lgpl-shared-9.0.zip",
+    "sha256": "735bae484ba2c3342bfb34df477b9c6b0f43f9819f4d2fde011be293ee1b6517",
+    "size_bytes": 76974101,
+    "archive_prefix": "ffmpeg-n9.0.2-3-ga5923073bf-win64-lgpl-shared-9.0"
+  },
+  "license": {
+    "name": "LGPL-3.0-or-later",
+    "archive_member": "LICENSE.txt",
+    "bundled_path": "mtee/resources/LICENSE.txt",
+    "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+    "size_bytes": 7651
+  },
+  "binaries": [
+    {"name": "ffmpeg.exe", "sha256": "d38726268588fa40436b7cc02e3800dbe1c02939370f65e82b157c0af973b305", "size_bytes": 540160},
+    {"name": "ffprobe.exe", "sha256": "7b15a57dcda647d86254030f724cb5c1f4b1cabe2d8cc7d5fcc0f0ec8d16fbc0", "size_bytes": 229888},
+    {"name": "avcodec-63.dll", "sha256": "9d82d5c867632d3c0758edb6273b47ad8f3e97aeda66d4c4ac784f00320597f8", "size_bytes": 91182080},
+    {"name": "avdevice-63.dll", "sha256": "1ee302b53b874b93caf0c08a3077d4926a121ceca439cfb7e776c6fb5fb4cb9d", "size_bytes": 4948480},
+    {"name": "avfilter-12.dll", "sha256": "4424c0ceb373640ce6901996ba77efcd56b9e61c0392c8721cac380fd70315ec", "size_bytes": 31195648},
+    {"name": "avformat-63.dll", "sha256": "9b41797f2a749765f8c811b015461e737d09ef99bdf344c4c9bb5e4da30fe320", "size_bytes": 22764032},
+    {"name": "avutil-61.dll", "sha256": "26ee298e9e71ec1d018d0394bc8f967f6742fc73380b9a196fa95737a1ac3a9b", "size_bytes": 3016704},
+    {"name": "swresample-7.dll", "sha256": "aea51fb6a87787276334d77fa3d472154641dad9fc7815245f690fdca41ec572", "size_bytes": 734720},
+    {"name": "swscale-10.dll", "sha256": "6111399ef12f772644e21933687d993fc3bd49174e604647a2fdabf22e03ecd1", "size_bytes": 2332160}
+  ]
+}

@@ -29,3 +29,23 @@ for the observed dependencies, provenance, and remaining redistribution work.
 
 No ffmpeg.exe or ffprobe.exe is included. The FFmpeg libraries described above
 are statically linked inside the bundled libmpv runtime.
+
+FFmpeg and ffprobe Windows x86-64 runtime
+-----------------------------------------
+MTEE bundles ffmpeg.exe, ffprobe.exe and the shared FFmpeg libraries from
+BtbN/FFmpeg-Builds.
+
+Provider: https://github.com/BtbN/FFmpeg-Builds
+Release: autobuild-2026-09-24-14-14
+FFmpeg version: n9.0.2-3-ga5923073bf-20260924
+Archive: ffmpeg-n9.0.2-3-ga5923073bf-win64-lgpl-shared-9.0.zip
+Archive SHA-256: 735bae484ba2c3342bfb34df477b9c6b0f43f9819f4d2fde011be293ee1b6517
+Build variant: LGPL shared; provider describes this variant as excluding
+GPL-only dependencies. The inspected build configuration disables libx264
+and libx265. The full dependency and redistribution audit is not complete.
+License text: LICENSE.txt (LGPL-3.0)
+
+FFmpeg source: https://github.com/FFmpeg/FFmpeg
+Build scripts: https://github.com/BtbN/FFmpeg-Builds
+The exact archive manifest, file hashes and acquisition procedure are in
+resources/native/ffmpeg/manifest.json and scripts/fetch_ffmpeg.ps1.

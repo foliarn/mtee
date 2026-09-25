@@ -30,6 +30,8 @@ $workRoot = Join-Path $projectRoot 'build'
 $expectedExe = Join-Path $distRoot 'MTEE/MTEE.exe'
 $mpvLibrary = Join-Path $projectRoot 'vendor/mpv/libmpv-2.dll'
 $manifestPath = Join-Path $projectRoot 'resources/native/mpv/manifest.json'
+$ffmpegManifestPath = Join-Path $projectRoot 'resources/native/ffmpeg/manifest.json'
+$ffmpegBin = Join-Path $projectRoot 'vendor/ffmpeg/bin'
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Write-Error 'uv was not found in PATH. Install uv, then run this script again.'
@@ -46,6 +48,32 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     exit 1
 }
 
+if (-not (Test-Path -LiteralPath $ffmpegManifestPath -PathType Leaf)) {
+    Write-Error "The FFmpeg manifest is missing: $ffmpegManifestPath"
+    exit 1
+}
+$ffmpegManifest = Get-Content -LiteralPath $ffmpegManifestPath -Raw | ConvertFrom-Json
+$ffmpegLicensePath = Join-Path (Split-Path -Parent $ffmpegBin) 'LICENSE.txt'
+if (-not (Test-Path -LiteralPath $ffmpegLicensePath -PathType Leaf) -or
+    (Get-Item -LiteralPath $ffmpegLicensePath).Length -ne [long]$ffmpegManifest.license.size_bytes -or
+    (Get-FileHash -LiteralPath $ffmpegLicensePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+    ([string]$ffmpegManifest.license.sha256).ToLowerInvariant()) {
+    Write-Error 'The FFmpeg license text does not match the pinned manifest.'
+    exit 1
+}
+foreach ($binary in $ffmpegManifest.binaries) {
+    $runtimeFile = Join-Path $ffmpegBin ([string]$binary.name)
+    if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
+        Write-Error "The verified FFmpeg runtime is missing: $runtimeFile. Run scripts/fetch_ffmpeg.ps1 first."
+        exit 1
+    }
+    $runtimeHash = (Get-FileHash -LiteralPath $runtimeFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ((Get-Item -LiteralPath $runtimeFile).Length -ne [long]$binary.size_bytes -or
+        $runtimeHash -ne ([string]$binary.sha256).ToLowerInvariant()) {
+        Write-Error "The FFmpeg runtime does not match the pinned manifest: $runtimeFile"
+        exit 1
+    }
+}
 if (-not (Test-Path -LiteralPath $mpvLibrary -PathType Leaf)) {
     Write-Error "The verified libmpv runtime is missing: $mpvLibrary. Run scripts/fetch_mpv.ps1 first."
     exit 1
@@ -81,6 +109,20 @@ if (-not (Test-Path -LiteralPath $expectedExe)) {
     exit 1
 }
 
+# PyInstaller scans PE files declared as data and flattens their imported DLLs
+# into _internal. Copy this isolated CLI runtime after the build to retain one
+# adjacent copy of each shared library and avoid loading it in MTEE's process.
+$packagedFfmpegBin = Join-Path $distRoot 'MTEE/_internal/mtee/native/ffmpeg/bin'
+if (Test-Path -LiteralPath $packagedFfmpegBin) {
+    Write-Error "Refusing to replace an unexpected packaged FFmpeg directory: $packagedFfmpegBin"
+    exit 1
+}
+New-Item -ItemType Directory -Path $packagedFfmpegBin -Force | Out-Null
+foreach ($binary in $ffmpegManifest.binaries) {
+    Copy-Item -LiteralPath (Join-Path $ffmpegBin ([string]$binary.name)) `
+        -Destination (Join-Path $packagedFfmpegBin ([string]$binary.name))
+}
+
 $packagedMpv = @(Get-ChildItem -LiteralPath (Join-Path $distRoot 'MTEE') -Filter 'libmpv-2.dll' -File -Recurse)
 if ($packagedMpv.Count -ne 1) {
     Write-Error "Expected exactly one packaged libmpv-2.dll, found $($packagedMpv.Count)."
@@ -89,6 +131,42 @@ if ($packagedMpv.Count -ne 1) {
 $packagedMpvHash = (Get-FileHash -LiteralPath $packagedMpv[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($packagedMpvHash -ne $expectedMpvHash) {
     Write-Error "The packaged libmpv DLL hash does not match the verified runtime."
+    exit 1
+}
+
+$packagedFfmpegLicense = Join-Path $distRoot 'MTEE/_internal/mtee/resources/LICENSE.txt'
+if (-not (Test-Path -LiteralPath $packagedFfmpegLicense -PathType Leaf) -or
+    (Get-FileHash -LiteralPath $packagedFfmpegLicense -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+    ([string]$ffmpegManifest.license.sha256).ToLowerInvariant()) {
+    Write-Error 'The packaged FFmpeg license text is missing or has the wrong SHA-256.'
+    exit 1
+}
+
+$packagedFfmpegBin = Join-Path $distRoot 'MTEE/_internal/mtee/native/ffmpeg/bin'
+foreach ($binary in $ffmpegManifest.binaries) {
+    $packaged = Join-Path $packagedFfmpegBin ([string]$binary.name)
+    if (-not (Test-Path -LiteralPath $packaged -PathType Leaf)) {
+        Write-Error "The packaged FFmpeg runtime is missing: $packaged"
+        exit 1
+    }
+    if ((Get-FileHash -LiteralPath $packaged -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+        ([string]$binary.sha256).ToLowerInvariant()) {
+        Write-Error "The packaged FFmpeg runtime failed SHA-256 verification: $packaged"
+        exit 1
+    }
+}
+$ffmpegVersionOutput = & (Join-Path $packagedFfmpegBin 'ffmpeg.exe') -version 2>&1
+$ffmpegVersionExitCode = $LASTEXITCODE
+$packagedFfmpegVersion = $ffmpegVersionOutput | Select-Object -First 1
+if ($ffmpegVersionExitCode -ne 0 -or $packagedFfmpegVersion -notmatch [regex]::Escape([string]$ffmpegManifest.ffmpeg_version)) {
+    Write-Error 'The packaged ffmpeg.exe could not report the pinned runtime version.'
+    exit 1
+}
+$ffprobeVersionOutput = & (Join-Path $packagedFfmpegBin 'ffprobe.exe') -version 2>&1
+$ffprobeVersionExitCode = $LASTEXITCODE
+$packagedFfprobeVersion = $ffprobeVersionOutput | Select-Object -First 1
+if ($ffprobeVersionExitCode -ne 0 -or $packagedFfprobeVersion -notmatch [regex]::Escape([string]$ffmpegManifest.ffmpeg_version)) {
+    Write-Error 'The packaged ffprobe.exe could not report the pinned runtime version.'
     exit 1
 }
 
