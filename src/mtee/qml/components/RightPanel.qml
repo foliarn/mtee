@@ -1,7 +1,7 @@
 import QtQuick
 import Mtee
 
-// Right panel with two tabs: Info follows the selection, Queue the playback.
+// Right panel with Info, Queue and local audio analysis.
 Rectangle {
     id: panel
 
@@ -31,6 +31,8 @@ Rectangle {
 
             Repeater {
                 model: [{ "key": "info", "label": "Info" }, { "key": "queue", "label": "Queue" }]
+                    .concat(panel.workspace.analysisModel !== null
+                        ? [{ "key": "analysis", "label": "Analysis" }] : [])
 
                 delegate: Item {
                     id: tabItem
@@ -89,11 +91,20 @@ Rectangle {
         anchors.leftMargin: 1
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        sourceComponent: panel.workspace.rightPanelTab === "queue" ? queueComponent : infoComponent
+        sourceComponent: panel.workspace.rightPanelTab === "queue" ? queueComponent
+            : panel.workspace.rightPanelTab === "analysis" ? analysisComponent : infoComponent
     }
 
     Component { id: infoComponent; InfoPanel { workspace: panel.workspace } }
     Component { id: queueComponent; QueuePanel { workspace: panel.workspace; bottomInset: panel.bottomInset } }
+    Component {
+        id: analysisComponent
+        AnalysisPanel {
+            analysisModel: panel.workspace.analysisModel
+            trackId: panel.workspace.selectedIds.length > 0
+                ? panel.workspace.selectedIds[0] : panel.workspace.playingId
+        }
+    }
 
     MouseArea {
         property real pressX: 0

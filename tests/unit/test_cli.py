@@ -29,6 +29,16 @@ def test_the_recipe_options_are_recognised(tmp_path: Path) -> None:
     assert options.scenario == "convert-error"
 
 
+def test_analysis_smoke_test_requires_a_fixture_path(tmp_path: Path) -> None:
+    fixture = tmp_path / "copy.wav"
+    options = parse_arguments(
+        ["--analysis-smoke-test", str(fixture), "--data-dir", str(tmp_path / "data")]
+    )
+
+    assert options.analysis_smoke_test == fixture
+    assert options.data_dir == tmp_path / "data"
+
+
 def test_an_unknown_argument_is_refused_with_the_usage(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exit_info:
         parse_arguments(["--play-everything"])

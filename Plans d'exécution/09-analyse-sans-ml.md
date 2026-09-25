@@ -1,6 +1,6 @@
 # Étape 09 — Analyse audio sans apprentissage automatique
 
-ExecPlan vivant rédigé le 2026-09-10. Suivre `PLANS.md` à la racine et `PLAN.md` §4.7, en respectant l'ordre silences/technique, loudness/crêtes/dynamique, tempo, tonalité. Toutes les cases ci-dessous concernent le développement futur ; aucune analyse du corpus de l'utilisateur n'est prétendue réalisée.
+ExecPlan vivant rédigé le 2026-09-10 et réalisé le 2026-09-25. Suivre `PLANS.md` à la racine et `PLAN.md` §4.7, en respectant l'ordre silences/technique, loudness/crêtes/dynamique, tempo, tonalité. Les preuves reposent sur des fixtures synthétiques et des copies; aucune analyse du corpus de l'utilisateur n'est prétendue réalisée.
 
 ## Raccord aux retours de recette du 2026-09-25
 
@@ -16,20 +16,23 @@ La première livraison présente des mesures techniques, silences, loudness int�
 ## Progress
 
 
-État au 2026-09-10 : plan préparé, aucun jalon de développement exécuté.
+État au 2026-09-25 : l'étape est implémentée et validée sur fixtures synthétiques et copies. Aucun corpus personnel n'a été analysé; les mesures musicales ne déterminent pas une taxonomie produit.
 
-- [ ] Vérifier le corpus sur copies, les révisions et le décodage commun.
-- [ ] Livrer mesures techniques et détection des silences.
-- [ ] Livrer loudness, crêtes et dynamique avec unités documentées.
-- [ ] Livrer estimation de tempo et choix moitié/double.
-- [ ] Livrer estimation de tonalité et confirmation manuelle séparée.
-- [ ] Vérifier reproductibilité, annulation et conservation des corrections.
-- [ ] Produire les preuves, tester le paquet Windows et vérifier commit/push.
+- [x] Vérifier le pipeline, les révisions, l'annulation et les sources modifiées sur copies/fixtures.
+- [x] Livrer mesures techniques et détection des silences.
+- [x] Livrer loudness, crêtes et dynamique avec unités distinctes.
+- [x] Livrer estimation de tempo et alternatives moitié/double.
+- [x] Livrer estimation de tonalité et confirmation manuelle séparée.
+- [x] Vérifier persistance, annulation, obsolescence, réanalyse et migration.
+- [x] Produire les preuves et tester le paquet Windows copié.
+- [ ] Committer le jalon et confirmer son push sur `origin/main`.
 
 ## Surprises & Discoveries
 
 
-Aucun résultat musical n'a encore été calculé. Consigner ici les familles musicales ou encodages qui mettent en défaut les méthodes, les différences de valeurs entre versions et les limitations de durée ou de ressources, avec exemples autorisés et commandes reproductibles.
+Le 2026-09-25, une fixture WAV mono synthétique de 14 s (PCM 16 bits, 22,05 kHz, accord de do majeur et impulsions à 120 BPM) a produit 117,4538 BPM, do majeur, deux silences totalisant 2 s, −18 LUFS intégrés et des crêtes sample/true de −4 dBFS/dBTP. Cela prouve le calcul sur la fixture, pas l'exactitude générale ni la qualité musicale sur une collection réelle. L'écart de tempo observé est −2,5462 BPM; les alternatives 58,7269/234,9077 BPM sont conservées. Le test QML couvre l'inspecteur; aucun parcours manuel de la fenêtre n'a été fait.
+
+Le paquet embarque librosa, NumPy, SciPy, Numba et llvmlite. PyInstaller signale `tbb12.dll` absent pour le backend TBB facultatif de Numba; le paquet copié a néanmoins exécuté les cinq analyseurs en état `available`. L'exception SEH `0xe24c4a02` a été observée dans le test natif libmpv; un lancement complet ultérieur a terminé par access violation `-1073741819`. Le mécanisme causal n'est pas établi et aucun correctif de crash n'est revendiqué.
 
 ## Decision Log
 
@@ -43,7 +46,7 @@ Aucun résultat musical n'a encore été calculé. Consigner ici les familles mu
 ## Outcomes & Retrospective
 
 
-Non exécuté. Présenter après livraison les mesures fiables, la précision musicale observée sur le corpus, les abstentions et les limites. Conserver les chiffres d'évaluation bruts ; ne pas déclarer une exactitude universelle à partir d'un petit corpus personnel.
+Implémentation et fixtures contrôlées livrées; la précision musicale sur corpus réel demeure inconnue. Les tests d'intégration couvrent réanalyse avec conservation des corrections, changement de révision et annulation sans perdre les résultats valides. La suite `tests/unit` + `tests/integration` sans le test natif libmpv a terminé avec succès (deux tests sautés). La suite complète a interrompu le processus lors du test natif de lecture. La recette souris/clavier réelle reste non réalisée.
 
 ## Contexte et prérequis
 

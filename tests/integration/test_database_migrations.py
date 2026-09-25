@@ -42,15 +42,22 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
 
     applied = database.migrate()
 
-    assert [migration.version for migration in applied] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    assert database.schema_version() == 9
+    assert [migration.version for migration in applied] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert database.schema_version() == 10
     tables = {
         str(row["name"])
         for row in database.connection().execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         )
     }
-    assert {"settings", "schema_migrations", "file_copy_operations"} <= tables
+    assert {
+        "settings",
+        "schema_migrations",
+        "file_copy_operations",
+        "analysis_runs",
+        "analysis_results",
+        "analysis_overrides",
+    } <= tables
     operation_columns = {
         str(row[1]) for row in database.connection().execute("PRAGMA table_info(file_operations)")
     }
@@ -70,7 +77,7 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
     original.close()
 
     upgraded = Database(path)
-    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9]
+    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 10]
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     backups = list(tmp_path.glob("mtee.sqlite3.v4.*.backup"))
     assert len(backups) == 1

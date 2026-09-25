@@ -7,9 +7,11 @@ English on the standard error output.
 
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QObject, QTimer, QUrl
 from PySide6.QtGui import QFont, QGuiApplication, QWindow
@@ -18,7 +20,11 @@ from PySide6.QtQml import QQmlApplicationEngine
 from mtee import __version__
 from mtee.assets import main_qml, qml_dir
 from mtee.cli import AppOptions, parse_arguments
+from mtee.domain.analysis import AnalysisSpec
+from mtee.domain.jobs import JobCancelledError
+from mtee.domain.tracks import SourceRevision, sha256_of_file
 from mtee.fonts import register_fonts, resolve_ui_family
+from mtee.models.analysis_model import AnalysisModel
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.demo_tracks_model import DemoTracksModel
@@ -31,6 +37,7 @@ from mtee.models.player_model import PlayerModel
 from mtee.models.shell_controller import ShellController
 from mtee.models.waveform_model import WaveformModel
 from mtee.models.workspace_model import WorkspaceModel
+from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.file_operation_repository import FileOperationRepository
@@ -39,11 +46,13 @@ from mtee.persistence.metadata_history_repository import MetadataHistoryReposito
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.windows_frame import WindowFrame
+from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.conversion_service import ConversionService
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_operation_service import FileOperationService
 from mtee.services.jobs import JobService
+from mtee.services.metadata_reader import MetadataReader
 from mtee.services.metadata_writer import MetadataEditService
 from mtee.services.mpv_backend import MpvBackend
 from mtee.services.player_backend import PlayerBackendError
@@ -99,6 +108,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run MTEE and return its exit code."""
     arguments = list(argv if argv is not None else sys.argv)
     options = parse_arguments(arguments[1:])
+    if options.analysis_smoke_test is not None:
+        if options.data_dir is None:
+            return _fail(
+                EXIT_STORAGE_ERROR, "--analysis-smoke-test requires an isolated --data-dir."
+            )
+        return _analysis_smoke_test(options.analysis_smoke_test, options.data_dir)
     application = create_application(arguments[:1])
 
     try:
@@ -170,6 +185,13 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             jobs=jobs,
             player=player_model,
         )
+        analysis_model = AnalysisModel(
+            AnalysisService(library, AnalysisRepository(database), file_access),
+            jobs,
+            workspace.selected_ids_snapshot,
+            workspace,
+        )
+        workspace.attach_analysis_model(analysis_model)
         metadata_writer = MetadataEditService(
             library,
             MetadataHistoryRepository(database),
@@ -297,10 +319,83 @@ def _shutdown_services(
 
 def _report(message: str) -> None:
     """Write an explanation for the user on the standard error output."""
-    print(message, file=sys.stderr)
+    if sys.stderr is not None:
+        print(message, file=sys.stderr)
 
 
 def _fail(exit_code: int, message: str) -> int:
     """Report ``message`` and return ``exit_code``."""
     _report(message)
     return exit_code
+
+
+class _SmokeAnalysisContext:
+    is_cancelled = False
+
+    def raise_if_cancelled(self) -> None:
+        if self.is_cancelled:
+            raise JobCancelledError("analysis smoke test cancelled")
+
+    def report_progress(self, _progress: float) -> None:
+        return
+
+
+def _analysis_smoke_test(audio_path: Path, data_dir: Path) -> int:
+    """Run all packaged analyzers against one explicitly supplied local fixture."""
+    from mtee.persistence.analysis_repository import AnalysisRepository
+    from mtee.services.analysis_service import AnalysisService
+
+    source = audio_path.expanduser().resolve()
+    if not source.is_file():
+        return _fail(EXIT_RESOURCE_ERROR, f"Analysis fixture is unavailable: {source}")
+    database = Database(resolve_app_paths(data_dir).ensure().database_path)
+    try:
+        database.migrate()
+        library = LibraryRepository(database)
+        root = library.add_root(source.parent)
+        generation = library.begin_scan(str(root["id"]))
+        track_id = library.upsert_location(
+            str(root["id"]),
+            source.name,
+            source,
+            SourceRevision.observe(source),
+            MetadataReader().read(source),
+            generation,
+        )
+        library.upsert_folders(str(root["id"]), [], generation)
+        library.finish_scan(str(root["id"]), generation, complete=True)
+        digest_before = sha256_of_file(source)
+        service = AnalysisService(library, AnalysisRepository(database), FileAccessCoordinator())
+        specs = [
+            AnalysisSpec(name) for name in ("technical", "silence", "loudness", "tempo", "key")
+        ]
+        preview = service.preview([track_id], specs)
+        service.execute(preview, _SmokeAnalysisContext())
+        results = service.results(track_id)
+        digest_after = sha256_of_file(source)
+        report = {
+            "analyzers": [
+                {
+                    "name": item["analyzer"],
+                    "version": item["analyzer_version"],
+                    "status": item["status"],
+                    "metrics": item["metrics"],
+                    "diagnostics": item["diagnostics"],
+                }
+                for item in results
+            ],
+            "source_unchanged": digest_before == digest_after,
+        }
+        if sys.stdout is not None:
+            print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        expected = {spec.analyzer for spec in specs}
+        received = {item["analyzer"] for item in results}
+        if received != expected or not report["source_unchanged"]:
+            return EXIT_RESOURCE_ERROR
+        if any(item["status"] in {"failed", "stale"} for item in results):
+            return EXIT_RESOURCE_ERROR
+        return EXIT_OK
+    except Exception as error:
+        return _fail(EXIT_RESOURCE_ERROR, f"Audio analysis validation failed: {error}")
+    finally:
+        database.close()
