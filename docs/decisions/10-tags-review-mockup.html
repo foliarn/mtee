@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>MTEE — search review mock-up</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --chrome: #0b0b0c;
+      --rail: #111113;
+      --editor: #18181b;
+      --surface: #212125;
+      --selection: #2a2a30;
+      --line: #39393f;
+      --text: #fff;
+      --quiet: #a1a1aa;
+      --muted: #777780;
+      --lime: #c6ff1a;
+      --pink: #ff2e88;
+      --amber: #f3dd8a;
+      --mint: #6ff2d0;
+      --font: "Segoe UI", system-ui, sans-serif;
+      --mono: "Cascadia Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--chrome);
+      color: var(--text);
+      font: 14px/1.45 var(--font);
+    }
+    button, input, select { font: inherit; }
+    .window-bar {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      background: var(--chrome);
+      border-bottom: 1px solid var(--line);
+      color: var(--quiet);
+    }
+    .brand {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .12em;
+    }
+    .window-title { margin-left: 14px; }
+    .proposal {
+      margin-left: auto;
+      color: var(--lime);
+      font-size: 12px;
+    }
+    .app {
+      min-height: calc(100vh - 42px);
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
+    }
+    .rail {
+      padding-top: 20px;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+    }
+    .rail-item {
+      display: block;
+      min-height: 48px;
+      padding: 13px 8px;
+      border-left: 2px solid transparent;
+      color: var(--quiet);
+      text-align: center;
+      text-decoration: none;
+      font-size: 11px;
+    }
+    .rail-item[aria-current="page"] {
+      border-left-color: var(--lime);
+      background: var(--surface);
+      color: var(--text);
+    }
+    main { min-width: 0; background: var(--editor); }
+    .page-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 32px clamp(20px, 4vw, 58px) 25px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1, h2, p { margin-top: 0; }
+    h1 { margin-bottom: 7px; font-size: 26px; font-weight: 600; letter-spacing: -.025em; }
+    .lede { margin-bottom: 0; color: var(--quiet); }
+    .review-mark {
+      flex: none;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      color: var(--amber);
+      font-size: 12px;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.65fr) minmax(250px, .8fr);
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 26px clamp(20px, 4vw, 58px) 60px;
+      gap: 40px;
+    }
+    h2 {
+      margin-bottom: 8px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .section-note { margin-bottom: 18px; color: var(--quiet); font-size: 13px; }
+    .criteria {
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .criterion {
+      display: grid;
+      grid-template-columns: minmax(130px, 1fr) minmax(70px, .6fr) minmax(115px, 1fr) auto;
+      align-items: center;
+      min-height: 58px;
+      padding: 8px 0 8px 12px;
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+      border-left: 2px solid transparent;
+    }
+    .criterion:last-child { border-bottom: 0; }
+    .criterion:first-child { border-left-color: var(--lime); }
+    .field { font-weight: 600; }
+    .operator, .value {
+      min-width: 0;
+      padding: 7px 9px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+    .value { font-family: var(--mono); font-size: 12px; }
+    .origin {
+      color: var(--mint);
+      font-size: 10px;
+      letter-spacing: .07em;
+      white-space: nowrap;
+    }
+    .origin.manual { color: var(--pink); }
+    .origin.status { color: var(--amber); }
+    .rule {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 12px 0;
+      color: var(--quiet);
+      font-size: 12px;
+    }
+    .rule b { color: var(--text); font-weight: 600; }
+    .text-button {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--lime);
+      cursor: pointer;
+    }
+    .text-button:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible {
+      outline: 2px solid var(--lime);
+      outline-offset: 3px;
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin: 17px 0 33px;
+    }
+    .actions .hint { color: var(--quiet); font-size: 12px; }
+    .save {
+      padding: 9px 14px;
+      border: 0;
+      background: var(--lime);
+      color: #0b0b0c;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .save:disabled, .text-button:disabled { opacity: .62; cursor: not-allowed; }
+    .results-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid var(--line);
+    }
+    .count { color: var(--quiet); font-size: 12px; }
+    .result {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .wave {
+      height: 30px;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .wave i { width: 2px; height: var(--h); background: var(--lime); opacity: .78; }
+    .track-name { margin-bottom: 2px; font-weight: 600; }
+    .track-meta { color: var(--quiet); font-size: 12px; }
+    .bpm { font-family: var(--mono); color: var(--mint); }
+    aside { padding-left: 24px; border-left: 1px solid var(--line); }
+    .evidence {
+      margin: 15px 0 27px;
+      padding-left: 13px;
+      border-left: 2px solid var(--lime);
+    }
+    .evidence strong { display: block; margin-bottom: 5px; font-size: 14px; }
+    .evidence p { margin-bottom: 0; color: var(--quiet); font-size: 13px; }
+    .metric-list { margin: 0 0 28px; padding: 0; list-style: none; }
+    .metric-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line);
+      color: var(--quiet);
+      font-size: 12px;
+    }
+    .metric-list code { color: var(--text); font: 12px var(--mono); }
+    .choice {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+      color: var(--quiet);
+      font-size: 13px;
+    }
+    .choice input { accent-color: var(--lime); }
+    .tag-note { margin: 11px 0 0; color: var(--muted); font-size: 12px; }
+    .fine-print {
+      margin-top: 30px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    @media (max-width: 920px) {
+      .workspace { grid-template-columns: 1fr; gap: 36px; }
+      aside { padding: 24px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+    }
+    @media (max-width: 620px) {
+      .page-head { align-items: start; flex-direction: column; }
+      .criterion { grid-template-columns: 1fr 1fr; }
+      .field { grid-column: 1 / -1; }
+      .origin { justify-self: end; }
+      .workspace { padding-inline: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="window-bar">
+    <span class="brand">MTEE</span>
+    <span class="window-title">Library / Search</span>
+    <span class="proposal">Review mock-up</span>
+  </header>
+  <div class="app">
+    <div class="rail" aria-label="Navigation preview">
+      <span class="rail-item">Library</span>
+      <span class="rail-item">Player</span>
+      <span class="rail-item" aria-current="page">Search</span>
+    </div>
+    <main id="search">
+      <header class="page-head">
+        <div>
+          <h1>Find the right track</h1>
+          <p class="lede">Combine file facts, measured values, and labels you choose.</p>
+        </div>
+        <span class="review-mark">Proposal · nothing is saved</span>
+      </header>
+      <div class="workspace">
+        <section aria-labelledby="criteria-title">
+          <h2 id="criteria-title">Search criteria</h2>
+          <p class="section-note">Each value keeps its source and measurement unit.</p>
+          <div class="criteria" role="group" aria-label="Example search conditions">
+            <div class="criterion">
+              <span class="field">Estimated tempo</span>
+              <span class="operator">between</span>
+              <span class="value">112–123 BPM</span>
+              <span class="origin">COMPUTED</span>
+            </div>
+            <div class="criterion">
+              <span class="field">Estimated key</span>
+              <span class="operator">is</span>
+              <span class="value">C major</span>
+              <span class="origin">COMPUTED</span>
+            </div>
+            <div class="criterion">
+              <span class="field">Integrated loudness</span>
+              <span class="operator">at or below</span>
+              <span class="value">−18 LUFS</span>
+              <span class="origin">COMPUTED</span>
+            </div>
+            <div class="criterion">
+              <span class="field">Detected silence</span>
+              <span class="operator">is</span>
+              <span class="value">present</span>
+              <span class="origin">COMPUTED</span>
+            </div>
+          </div>
+          <div class="rule"><b>AND</b><span>All conditions must match.</span></div>
+          <button class="text-button" type="button" disabled>+ Add condition</button>
+          <div class="actions">
+            <span class="hint">Manual confirmations stay separate from estimates.</span>
+            <button class="save" type="button" disabled>Save filter</button>
+          </div>
+
+          <div class="results-head">
+            <h2>Matching tracks</h2>
+            <span class="count">1 example result</span>
+          </div>
+          <div class="result">
+            <div class="wave" aria-hidden="true">
+              <i style="--h: 9px"></i><i style="--h: 18px"></i><i style="--h: 12px"></i>
+              <i style="--h: 25px"></i><i style="--h: 14px"></i><i style="--h: 21px"></i>
+              <i style="--h: 10px"></i><i style="--h: 17px"></i><i style="--h: 7px"></i>
+              <i style="--h: 13px"></i>
+            </div>
+            <div>
+              <div class="track-name">C major pulse — synthetic fixture</div>
+              <div class="track-meta">WAV · 14 s · estimated key C major</div>
+            </div>
+            <span class="bpm">117.45 BPM</span>
+          </div>
+          <p class="fine-print">A result marked uncertain, stale, or unavailable would be shown with that state; it would not silently count as a confirmed value.</p>
+        </section>
+
+        <aside aria-labelledby="evidence-title">
+          <h2 id="evidence-title">Evidence from analysis</h2>
+          <div class="evidence">
+            <strong>One controlled fixture</strong>
+            <p>The examples come from a 14-second synthetic WAV with a C-major chord, 120 BPM pulses, and two known silent intervals.</p>
+          </div>
+          <ul class="metric-list" aria-label="Measured fixture values">
+            <li><span>Estimated tempo</span><code>117.45 BPM</code></li>
+            <li><span>Estimated key</span><code>C major</code></li>
+            <li><span>Integrated loudness</span><code>−18.0 LUFS</code></li>
+            <li><span>Silence intervals</span><code>2 · 2.0 s</code></li>
+          </ul>
+
+          <h2>Tag organization</h2>
+          <p class="section-note">Which way should personal labels work?</p>
+          <label class="choice"><input type="radio" name="tag-style"><span>Labels I create freely</span></label>
+          <label class="choice"><input type="radio" name="tag-style"><span>A shared list we define together</span></label>
+          <label class="choice"><input type="radio" name="tag-style"><span>Both, kept clearly separate</span></label>
+          <p class="tag-note">No example genre, mood, or energy labels are preselected. Their meaning and single/multiple choice need real examples and your decision.</p>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

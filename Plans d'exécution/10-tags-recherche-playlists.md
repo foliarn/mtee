@@ -16,9 +16,9 @@ Les tags personnalisés organisent la bibliothèque locale. Ils sont distincts d
 ## Progress
 
 
-État au 2026-09-10 : plan préparé, aucun jalon de développement exécuté.
+État au 2026-09-25 : préparation de la revue achevée dans `docs/decisions/10-tags-review.md` et `docs/validation/10-tags-review.md`. Aucun accord explicite sur le vocabulaire n'est consigné; le développement fonctionnel et le jalon C n'ont pas commencé.
 
-- [ ] Examiner les résultats réels de l'étape 09 et préparer le dossier de revue.
+- [x] Examiner les résultats réels de l'étape 09 et préparer le dossier de revue.
 - [ ] Obtenir et consigner la validation utilisateur du vocabulaire proposé.
 - [ ] Créer les tags locaux et les critères de recherche typés validés.
 - [ ] Ajouter filtres enregistrés et vues intelligentes.
@@ -29,7 +29,7 @@ Les tags personnalisés organisent la bibliothèque locale. Ils sont distincts d
 ## Surprises & Discoveries
 
 
-Aucune utilité de vocabulaire n'a été observée avant la revue. Consigner les besoins réellement exprimés, champs d'analyse exploitables, termes ambigus et cas où une valeur manque ou devient périmée. Chaque décision s'appuie sur un exemple examinable et anonymisé si le rapport est versionné.
+La validation 09 ne contient que des analyses synthétiques contrôlées : tempo 117,4538 BPM pour des impulsions à 120 BPM, do majeur sur un accord construit, loudness −18 LUFS, deux silences totalisant 2 s. Ces mesures donnent des exemples de champs calculés et d'états de provenance; elles ne témoignent d'aucune utilité sur une collection musicale réelle et ne justifient aucune catégorie sémantique. Le dossier décrit les limites et questions à trancher avant tout vocabulaire.
 
 ## Decision Log
 
@@ -40,10 +40,12 @@ Aucune utilité de vocabulaire n'a été observée avant la revue. Consigner les
 
 2026-09-10 — Codex — Les playlists stockent des UUID de morceaux, un identifiant par occurrence et un ordre explicite. Deux occurrences volontaires d'un morceau peuvent être conservées ; le déplacement d'un fichier ne modifie pas l'identité du morceau.
 
+2026-09-25 — Codex — Aucun accord utilisateur daté sur le vocabulaire de l'étape 10 n'apparaît dans les plans ni dans les décisions versionnées. Le dossier de revue est préparé à partir des seules sorties vérifiées de la fixture 09. Les fonctionnalités de 10 et C restent en attente; le silence de cette session ne vaut pas accord.
+
 ## Outcomes & Retrospective
 
 
-Non exécuté. Après revue et livraison, présenter les termes validés, les exemples de recherche réussis, les limites des données et les validations de références. Si la revue manque, indiquer précisément les éléments préparés et la partie fonctionnelle restant à réaliser.
+La revue et les fonctionnalités ne sont pas exécutées : aucun accord explicite n'est consigné. La revue est préparée avec quatre exemples de critères, les limites de la fixture synthétique et les questions ouvertes. Reste à recueillir la réponse, définir et versionner le vocabulaire accepté, puis reprendre C et le développement de 10 selon l'ordre du plan.
 
 ## Contexte et prérequis
 
