@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mutagen import File as MutagenFile
 
@@ -38,6 +38,16 @@ class MetadataReader:
             fields: dict[str, tuple[str, ...]] = {
                 name: _read_values(tags, aliases) for name, aliases in _TAG_ALIASES.items()
             }
+            if source.suffix.casefold() == ".m4a" and not fields["key"]:
+                raw_tags = _read_raw_tags(source)
+                fields["key"] = _read_mp4_initial_key(raw_tags)
+            elif source.suffix.casefold() in {".wav", ".mp3", ".aiff"}:
+                if not fields["comment"] or not fields["key"]:
+                    raw_tags = _read_raw_tags(source)
+                    if not fields["comment"]:
+                        fields["comment"] = _read_id3_comments(raw_tags)
+                    if not fields["key"]:
+                        fields["key"] = _read_id3_frame_text(raw_tags, "TKEY")
             info = audio.info
             duration = getattr(info, "length", None)
             technical = TechnicalInfo(
@@ -99,3 +109,52 @@ def _optional_int(value: object) -> int | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return result if result > 0 else None
+
+
+def _read_raw_tags(path: Path) -> Any:
+    audio = MutagenFile(path, easy=False)
+    return getattr(audio, "tags", None)
+
+
+def _read_mp4_initial_key(tags: Any) -> tuple[str, ...]:
+    """Read iTunes' freeform initialkey atom, which Mutagen's EasyMP4 omits."""
+    if tags is None:
+        return ()
+    values = tags.get("----:com.apple.iTunes:initialkey", ())
+    return tuple(text for value in values if (text := _decode_tag_value(value)).strip())
+
+
+def _read_id3_comments(tags: Any) -> tuple[str, ...]:
+    """Read COMM frames where Mutagen's easy reader does not expose the alias."""
+    getall = getattr(tags, "getall", None)
+    if not callable(getall):
+        return ()
+    frames = cast(Any, getall("COMM"))
+    return tuple(
+        str(item).strip()
+        for frame in frames
+        for item in getattr(frame, "text", ())
+        if str(item).strip()
+    )
+
+
+def _read_id3_frame_text(tags: Any, frame_id: str) -> tuple[str, ...]:
+    getall = getattr(tags, "getall", None)
+    if not callable(getall):
+        return ()
+    frames = cast(Any, getall(frame_id))
+    return tuple(
+        str(item).strip()
+        for frame in frames
+        for item in getattr(frame, "text", ())
+        if str(item).strip()
+    )
+
+
+def _decode_tag_value(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    data = getattr(value, "data", None)
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="replace")
+    return str(value)

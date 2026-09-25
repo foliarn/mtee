@@ -20,6 +20,9 @@ from mtee.persistence.metadata_history_repository import (
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.file_replacement import FileReplacement
 from mtee.services.metadata_adapters import Id3WaveAdapter
+from mtee.services.metadata_adapters.base import MetadataAdapter
+from mtee.services.metadata_adapters.mp4 import MP4MetadataAdapter
+from mtee.services.metadata_adapters.vorbis import VorbisCommentAdapter
 from mtee.services.metadata_reader import MetadataReader
 
 __all__ = ["MetadataEditService"]
@@ -38,7 +41,7 @@ _FIELD_ATTRIBUTES = {
 
 
 class MetadataEditService:
-    """Edit the verified ID3 WAV subset; other formats stay read-only."""
+    """Edit metadata only through a format adapter with preservation checks."""
 
     def __init__(
         self,
@@ -48,13 +51,18 @@ class MetadataEditService:
         *,
         reader: MetadataReader | None = None,
         replacement: FileReplacement | None = None,
+        adapters: tuple[MetadataAdapter, ...] | None = None,
     ) -> None:
         self._library = library
         self._history = history
         self._file_access = file_access
         self._reader = reader or MetadataReader()
         self._replacement = replacement or FileReplacement()
-        self._wav_id3 = Id3WaveAdapter()
+        self._adapters = adapters or (
+            Id3WaveAdapter(),
+            VorbisCommentAdapter(),
+            MP4MetadataAdapter(),
+        )
 
     def capabilities(self, track_id: str) -> dict[str, tuple[bool, str]]:
         source = self._library.source_record(track_id)
@@ -64,7 +72,11 @@ class MetadataEditService:
             return self._unsupported(
                 "A previous save needs recovery. Inspect its recovery files before editing."
             )
-        return self._wav_id3.capabilities(source.path)
+        adapter = self._adapter_for(source.path)
+        if adapter is None:
+            reason = self._unsupported_format_reason(source.path)
+            return self._unsupported(reason)
+        return adapter.capabilities(source.path)
 
     def save(
         self,
@@ -171,7 +183,12 @@ class MetadataEditService:
                 track_id, "conflict", "The source changed; reload its metadata before saving."
             )
         try:
-            capabilities = self._wav_id3.capabilities(source.path)
+            adapter = self._adapter_for(source.path)
+            if adapter is None:
+                return MetadataEditResult(
+                    track_id, "unsupported", self._unsupported_format_reason(source.path)
+                )
+            capabilities = adapter.capabilities(source.path)
             unsupported = [
                 (field, capabilities.get(field, (False, "Unknown metadata field."))[1])
                 for field, _value in patch.changes
@@ -179,16 +196,9 @@ class MetadataEditService:
             ]
             if unsupported:
                 return MetadataEditResult(track_id, "unsupported", unsupported[0][1])
-            audio_before, _reason = self._wav_id3.inspect(source.path)
-            if audio_before.tags is not None:
-                for field, _value in patch.changes:
-                    if not self._field_has_single_slot(audio_before.tags, field):
-                        return MetadataEditResult(
-                            track_id,
-                            "unsupported",
-                            f"{field.replace('_', ' ').title()} has multiple values or slots; "
-                            "editing is disabled to preserve them.",
-                        )
+            audio_before, reason = adapter.inspect(source.path)
+            if reason or audio_before is None:
+                return MetadataEditResult(track_id, "unsupported", reason or "Unsupported audio.")
         except Exception as error:
             return MetadataEditResult(track_id, "unsupported", str(error))
 
@@ -236,9 +246,9 @@ class MetadataEditService:
                 undo_of=undo_of,
             )
             self._copy_new_file(source_path, temporary_path)
-            prepared_audio, preserved = self._wav_id3.prepare(temporary_path, patch)
-            prepared_audio.save(v2_version=4, v1=1)
-            self._wav_id3.verify(temporary_path, preserved, patch)
+            prepared_audio, preserved = adapter.prepare(temporary_path, patch)
+            adapter.save(prepared_audio, temporary_path)
+            adapter.verify(temporary_path, preserved, patch)
             after_snapshot = self._reader.read(temporary_path)
             if after_snapshot.status != "readable":
                 raise ValueError("The edited copy could not be read back as audio.")
@@ -335,31 +345,17 @@ class MetadataEditService:
             if descriptor >= 0:
                 os.close(descriptor)
 
+    def _adapter_for(self, path: Path) -> MetadataAdapter | None:
+        return next((adapter for adapter in self._adapters if adapter.supports_path(path)), None)
+
     @staticmethod
-    def _field_has_single_slot(tags: Any, field: str) -> bool:
-        if field == "comment":
-            comments = tags.getall("COMM")
-            default = [
-                frame
-                for frame in comments
-                if frame.lang.casefold() in {"eng", "xxx"} and frame.desc == ""
-            ]
-            return len(comments) <= 1 and len(default) <= 1 and (not comments or len(default) == 1)
-        if field == "date" and "TDRC" in tags and "TYER" in tags:
-            return False
-        frames = {
-            "title": "TIT2",
-            "artist": "TPE1",
-            "album": "TALB",
-            "genre": "TCON",
-            "date": "TDRC" if "TDRC" in tags else "TYER",
-            "track_number": "TRCK",
-            "bpm": "TBPM",
-            "key": "TKEY",
-        }
-        frame_id = frames[field]
-        existing = tags.getall(frame_id)
-        return len(existing) <= 1 and (not existing or len(existing[0].text) <= 1)
+    def _unsupported_format_reason(path: Path) -> str:
+        if path.suffix.casefold() in {".aac", ".adts"}:
+            return (
+                "AAC/ADTS metadata editing is unavailable because a safe tag round-trip "
+                "has not been verified."
+            )
+        return "Metadata writing has not been verified for this audio format."
 
     @staticmethod
     def _unsupported(reason: str) -> dict[str, tuple[bool, str]]:
