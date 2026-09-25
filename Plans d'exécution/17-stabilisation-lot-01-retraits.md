@@ -24,7 +24,7 @@ Restaurer uniquement les éléments manquants depuis le commit précédent, sans
 
 - [x] Retraits ciblés effectués dans le domaine, les services, les modèles, la démo, les vues, la CLI et les dépendances; le presse-papiers et les contrôles de fichiers abandonnés sont retirés.
 - [x] La migration 010 reste absente et les migrations ultérieures gardent leurs numéros; imports Python critiques, compilation syntaxique et lint QML passent (avertissements existants de bindings non qualifiés).
-- [ ] Le refus d'une base réelle ayant appliqué 010 et le paquet construit restent à vérifier.
+- [ ] Le refus d'une base réelle ayant appliqué 010 reste à vérifier; le build Windows final est consigné au lot 22.
 
 ## Surprises & Discoveries
 
@@ -37,4 +37,4 @@ Restaurer uniquement les éléments manquants depuis le commit précédent, sans
 
 ## Outcomes & Retrospective
 
-L'analyse produit, ses services/dépôts/modèles/vues et tests dédiés ont été retirés, ainsi que zoom, déplacement horizontal, boucle A/B, presse-papiers et anciennes opérations Move/Copy/Rename. Les dépendances directes devenues inutiles ont été retirées. `uv run --no-sync python -m compileall -q src` et les imports des modèles/services critiques passent. Aucun démarrage applicatif, test automatisé, migration sur copie de base ou build n'a encore été exécuté à cette étape. La validation du refus de migration 010 est donc statique uniquement.
+L'analyse produit, ses services/dépôts/modèles/vues et tests dédiés ont été retirés, ainsi que zoom, déplacement horizontal, boucle A/B, presse-papiers et anciennes opérations Move/Copy/Rename. Les dépendances directes devenues inutiles ont été retirées. `uv run --no-sync python -m compileall -q src` et les imports des modèles/services critiques passent. Aucun démarrage applicatif, test automatisé ou migration sur copie de base n'a été exécuté. Le build Windows est consigné au lot 22; le refus de migration 010 reste validé statiquement uniquement.

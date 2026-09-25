@@ -20,11 +20,13 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 
 - [x] Tests dédiés aux fonctions retirées supprimés et attentes de migration ajustées; aucun test n'a été exécuté.
 - [x] Déclenchement CI étendu à `fix` et runtimes FFmpeg verrouillés déjà présents sur l'environnement; compilation Python, imports critiques et lint QML passent.
-- [ ] Build Windows dans un dossier de sortie isolé, contrôle du paquet, note de validation et push restent à effectuer.
+- [x] Build Windows depuis le commit `6098748` réussi dans un dossier isolé; vérification des runtimes, DLL et licence effectuée par le script.
+- [x] Inspection du contenu et empreinte de l'exécutable consignées dans `docs/validation/stabilisation-fix-6098748.md`.
+- [ ] Smoke-test paqueté et parcours natifs non exécutés; commit de la note et push restent à faire.
 
 ## Surprises & Discoveries
 
-À consigner après les builds et parcours; aucun résultat futur n'est anticipé.
+2026-09-25 — Le build isolé a réussi. Le smoke-test paqueté et les parcours natifs ne sont pas exécutés.
 
 - 2026-09-25 — Le build standard a produit l'exécutable, puis PyInstaller a échoué en nettoyant `dist/MTEE` car `libmpv-2.dll` était verrouillée. Le script accepte maintenant des répertoires de sortie et de travail alternatifs pour compiler sans toucher à cet artefact.
 
@@ -34,4 +36,4 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 
 ## Outcomes & Retrospective
 
-La compilation syntaxique et la résolution des imports critiques passent. Le build Windows, la note de validation, le commit final et le push restent en attente. Les tests automatisés, le smoke-test paqueté et les parcours natifs ne sont pas exécutés.
+Compilation syntaxique, imports critiques et lint QML passent. Le build Windows depuis `fix` au commit `6098748` a produit `MTEE.exe` dans `dist/fix-6098748/MTEE/`; le script a vérifié les empreintes et versions FFmpeg/libmpv ainsi que la licence FFmpeg. L'exécutable fait 2.83 MiB; SHA-256 et inventaire du paquet sont dans la note de validation. Les tests automatisés, le smoke-test paqueté et les parcours natifs restent non exécutés. La note de validation doit encore être committée et la branche poussée.
