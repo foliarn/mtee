@@ -20,11 +20,13 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 
 - [x] Tests dédiés aux fonctions retirées supprimés et attentes de migration ajustées; aucun test n'a été exécuté.
 - [x] Déclenchement CI étendu à `fix` et runtimes FFmpeg verrouillés déjà présents sur l'environnement; compilation Python, imports critiques et lint QML passent.
-- [ ] Build Windows, contenu du paquet, note de validation, commit final et push restent à effectuer.
+- [ ] Build Windows dans un dossier de sortie isolé, contrôle du paquet, note de validation et push restent à effectuer.
 
 ## Surprises & Discoveries
 
-À consigner après les builds et parcours; aucun résultat futur n’est anticipé.
+À consigner après les builds et parcours; aucun résultat futur n'est anticipé.
+
+- 2026-09-25 — Le build standard a produit l'exécutable, puis PyInstaller a échoué en nettoyant `dist/MTEE` car `libmpv-2.dll` était verrouillée. Le script accepte maintenant des répertoires de sortie et de travail alternatifs pour compiler sans toucher à cet artefact.
 
 ## Decision Log
 
