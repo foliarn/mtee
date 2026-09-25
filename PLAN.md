@@ -1,6 +1,14 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum de trajectoire — 2026-09-25
+
+La trajectoire fonctionnelle décrite ci-dessous est suspendue pendant la remise en état de la version Windows. La série [16–22 — Stabilisation](Plans%20d'ex%C3%A9cution/README.md) devient prioritaire et ses critères remplacent temporairement les livraisons C–K ci-dessous.
+
+Le périmètre actuellement retenu conserve l’exploration, la lecture, les métadonnées écrites (y compris BPM et Key déjà présents), la conversion, l’affichage monochrome de la waveform avec recherche par clic et la corbeille Windows. L’analyse calculée est retirée. Zoom, déplacement horizontal, boucle A/B, indexation globale des waveforms, nouvelles mesures audio, renommage, déplacement, copie, presse-papiers de fichiers et déplacement par glisser-déposer sont suspendus ou retirés selon les lots de stabilisation. Les autres fonctionnalités restent différées jusqu’à la clôture de cette stabilisation et aux validations produit prévues.
+
+Cet addendum ne supprime pas l’historique de conception ci-dessous. Les exigences qu’il remplace y restent comme trace de la trajectoire initialement envisagée. Les validations utilisateur antérieures, notamment les maquettes, ne sont pas annulées.
+
 ## 1. Contexte, vision et stack retenue
 
 **MTEE — Music Tagging and Editing Explorer — est une application desktop personnelle pour explorer, écouter, organiser, modifier et préparer une collection de fichiers audio.** Le projet pourra être publié en open source ; sa priorité est de répondre à ton usage.

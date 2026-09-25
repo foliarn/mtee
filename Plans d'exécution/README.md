@@ -2,6 +2,22 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Stabilisation prioritaire — 2026-09-25
+
+La trajectoire fonctionnelle historique est suspendue jusqu’à la clôture de cette série. Les sept documents ci-dessous décrivent d’abord le cadrage et la validation, puis les six lots à exécuter dans l’ordre. Leur état distingue préparation, développement et recette; une compilation réussie ne vaut pas validation manuelle.
+
+| Plan | Livrable et prérequis |
+|---|---|
+| [16 — Cadrage et validation](16-stabilisation-cadrage.md) | Périmètre, contrats, preuves et coordination; préalable aux lots |
+| [17 — Retirer l’analyse et les fonctions abandonnées](17-stabilisation-lot-01-retraits.md) | Retrait ciblé, compatibilité de migration, QML et packaging |
+| [18 — Notifications, tâches et lecteur](18-stabilisation-lot-02-jobs-lecteur.md) | Progressions bornées, file légère, annulation et fermeture |
+| [19 — Explorer, pochettes et waveform](19-stabilisation-lot-03-explorer-waveform.md) | Navigation asynchrone, cache de cover et calcul de waveform |
+| [20 — Conversion fiable](20-stabilisation-lot-04-conversion.md) | Aperçus, processus annulables et publication reprenable |
+| [21 — Corbeille Windows](21-stabilisation-lot-05-corbeille.md) | Recyclage natif, confirmation et résultats par fichier |
+| [22 — Suite et distribution](22-stabilisation-lot-06-livraison.md) | Tests maintenus, fixtures reproductibles, CI et build final |
+
+Ne pas poursuivre les étapes fonctionnelles 07–15 ci-dessous avant cette clôture. Elles sont conservées comme historique; leur présence dans l’index ne signifie plus qu’elles sont l’ordre actif.
+
 La numérotation sépare la préparation technique, la revue des maquettes et chacune des livraisons fonctionnelles. Elle sépare également ML et Spotify/Shovel, réunis dans la section 4.11 du document initial mais distingués par les livraisons J et K. Le portage est un jalon ultérieur, hors de la première trajectoire Windows.
 
 | Plan | Référence `PLAN.md` | Livrable et prérequis |
