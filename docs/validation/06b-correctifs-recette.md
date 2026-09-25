@@ -28,7 +28,7 @@ retour utilisateur a été réfuté. Les traces brutes restent sous
 |---|---|---|---|---|---|
 | R01 | À confirmer | Oui | Provider sur fixture image synthétique, 256 px demandé | Recette Windows multi-DPI non faite | La cover suit désormais la taille physique avec paliers jusqu'à 1024 px; le provider garde une limite et un cache. La source haute résolution du retour utilisateur n'est pas disponible. |
 | R02 | Confirmé dans les sources | Oui | Fixture UI 140 WAV: 0 relecture inchangée; modification/nouveauté relues, suppression retirée; sans reset | Redémarrage réel d'un même profil et collection volumineuse non recettés | La reprise est prioritaire basse, masquée de l'arbre et des tâches; les références restent lors d'un scan incomplet/hors ligne. Le test appelle `resumeRoots()` sur un catalogue déjà indexé, sans fermer/réouvrir le processus. |
-| R03 | Confirmé dans les sources | Non | Non | Non | Adaptateur actuellement WAV seulement selon `docs/validation/05-metadonnees.md`; B après runtime FFmpeg. |
+| R03 | Confirmé dans les sources | Oui, sous-ensemble explicite | 17 ciblés, round-trip de 9 champs et Undo pour 8 formats sur copies, hash PCM égal | UI/manuelle non faite | WAV PCM ID3v2.4, MP3/AIFF ID3v2.3/2.4 (Date v2.3 refusée), FLAC, Vorbis, Opus, M4A AAC/ALAC. AAC/ADTS lecture seule. Voir `docs/metadata-mapping.md`; pas toute la matrice du plan 05. |
 | R04 | Confirmé dans les sources | Oui | Formatter testé; donnée brute conservée | Non | Affichage `kbps` arrondi et valeur inconnue lisible. |
 | R05 | Reproduit partiellement | Partiel | 20/20 smoke EXE; SEH `0xe24c4a02` imprimé de nouveau pendant un groupe intégration + UI (tests terminés) | Recette Windows interactive non faite | Le harnais a observé deux sorties `0xC0000005` sur 20 cycles Python avant A0 (cycles 14 et 19), puis 0/20 après et 0/20 sur l'EXE reconstruit. Des suites de tests ont également imprimé le fatal SEH du thread libmpv, sans module fautif prouvé ni lien causal établi avec l'accès mémoire utilisateur ou `qwindows.dll`. A0 apporte des protections de durée de vie, pas un correctif causal prouvé. |
 | R06 | Confirmé dans les sources | Partiel | Dates unitaires, migration et lecture catalogue testées; nouveau fichier copié obtient son identité et ses dates propres | Recette Windows UI non faite | Migration 007 stocke les dates en ns UTC, sans ctime de repli; colonnes Date created/Date modified et Info sont raccordés. Le déplacement et Copy actualisent via l'observation destination; conversion reste à raccorder; filtres dates réservés à C. |
@@ -37,9 +37,39 @@ retour utilisateur a été réfuté. Les traces brutes restent sous
 | R09 | Confirmé dans les sources | Oui | Tests d'initialisation et persistance du workspace | Recette audio Windows non faite | L'îlot apparaît par défaut; le choix false est conservé après réouverture. |
 | R10 | Hypothèse statique | Partiel | Test UI franchit Play ↔ Info, clic Play unique | Recette DPI Windows non faite | Le `HoverHandler` de ligne garde les actions visibles pendant les passages simulés. Le scintillement de la recette n'a pas été observé manuellement sur Windows. |
 | R11 | Confirmé dans les sources | Oui | Binding aux données du morceau joué; provider d'artwork testé séparément | A/B/C avec images distinctes non fait | Les deux lecteurs utilisent `playingTrack.coverUrl`, non la sélection de l'inspecteur. Le scénario rapide avec fichiers et retours périmés reste à recetter. |
-| R12 | Confirmé dans les sources | Non | Non | Non | Motif générique du seul adaptateur WAV; B. |
+| R12 | Confirmé dans les sources | Oui | Capacités refusées par raison de conteneur, codec, version ou champ ambigu | UI/manuelle non faite | AAC/ADTS précise qu'aucun aller-retour sûr n'est vérifié; WAV non PCM et extensions/containers incompatibles refusés après inspection. |
 | R13 | Confirmé dans les sources | Partiel | Adaptateur vérifié avec chemin accentué, espace, virgule et apostrophe; fixture manquante refusée | Ouverture Explorer réelle non recettée | Le menu transmet maintenant l'UUID au modèle; Windows reçoit un vecteur d'arguments sans shell. Succès indique la demande envoyée, pas la sélection confirmée par Explorer. |
 | R14 | Reproduit dans fixture UI | Oui | Double-clic réel QTest sur la ligne 84/140; morceau actif, dossier inchangé, ancre conservée pendant modification/ajout/suppression | Recette interactive à un pixel, 2 panneaux et plein écran non faite | La ligne et l'arbre n'émettent pas de reset complet; les changements structurels utilisent les signaux Qt incrémentaux. |
+
+## B — Matrice automatique des métadonnées
+
+`MetadataEditService` choisit un adaptateur par extension, puis vérifie le type
+Mutagen, le codec et la version de tags observés dans le fichier. Le service
+conserve son verrou, contrôle de révision, copie temporaire, journal de
+récupération, remplacement et Undo existants. Un champ non ciblé est comparé
+par snapshot propre à l'adaptateur; après save, le fichier est relu avant sa
+publication.
+
+- Sur les huit fichiers générés en local, les neuf champs (title, artist,
+  album, genre, date, comment, track number, BPM, Key) sont écrits puis annulés
+  par Undo. Le test appelle le service complet sur une copie hors collection.
+- Chaque entrée garde un marqueur de tag inconnu; les essais vérifient aussi
+  APIC pour les trois conteneurs ID3, commentaire + picture FLAC, COVERART des
+  flux Ogg et atomes/covr M4A.
+- FFmpeg calcule le hash SHA-256 du PCM décodé avant et après écriture et Undo;
+  les valeurs sont identiques pour chaque format (MP3, Vorbis et Opus compris).
+- Le numéro de piste garde `/12`. Le titre ID3v2.3 est éditable; Date v2.3 est
+  refusée explicitement après observation du conflit TYER/TDRC. M4A stocke le
+  BPM comme entier iTunes (1–1000), et la tonalité comme atome libre UTF-8
+  `initialkey`; `MetadataReader` le relit par le chemin natif Mutagen.
+- AAC brut/ADTS est lisible, mais le champ de capacité et la sauvegarde restent
+  désactivés avec le motif d'absence de round-trip sûr.
+- Ruff check, format et Pyright passent. Le paquet Windows pour B a ensuite été
+  reconstruit : 2,29 Mo; copie sous `%TEMP%` smoke code 0 et génération de 9
+  fixtures avec les DLL copiées. La recette d'édition/Undo par
+  geste UI, sur copie manipulée dans l'application et sur installation propre,
+  n'a pas été faite. Ce résultat ne valide pas les formats et variantes absents
+  du sous-ensemble ci-dessus.
 
 ## A0 — Diagnostic natif et fermeture
 

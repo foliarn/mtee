@@ -4,7 +4,7 @@ Ce document est un ExecPlan vivant rédigé le 2026-09-10. Son exécution suit `
 
 ## Raccord aux retours de recette du 2026-09-25
 
-Exécuter d'abord A du [complément 06b](06b-correctifs-recette.md). Dans le présent plan, réaliser ensuite le runtime FFmpeg/ffprobe, sa matrice et les fixtures synthétiques nécessaires, puis exécuter B de 06b avant d'achever le transfert des métadonnées et la recette de conversion. L'édition actuelle est limitée au WAV PCM/ID3v2.4 : ne pas supposer que les autres adaptateurs du plan 05 existent. Réutiliser les adaptateurs vérifiés de B pour les sorties compatibles, en distinguant édition d'une source et transfert vers un dérivé. Le dérivé conserve son UUID propre et ses dates de fichiers réellement observées. Consigner la progression de ce raccord dans les deux plans ; aucun développement supplémentaire n'est déclaré accompli par cette note.
+Exécuter d'abord A du [complément 06b](06b-correctifs-recette.md). Le runtime FFmpeg/ffprobe et les fixtures synthétiques nécessaires ont été réalisés, puis B de 06b a été exécuté sur copies : adaptateurs ID3, Vorbis comments et M4A AAC/ALAC ont désormais leurs essais automatiques de transfert et Undo. La recette UI/manuelle par version reste à faire. Réutiliser ces adaptateurs vérifiés pour les sorties compatibles, en distinguant édition d'une source et transfert vers un dérivé. Le dérivé conserve son UUID propre et ses dates de fichiers réellement observées. Consigner la progression dans les deux plans.
 
 ## Objectif et résultat observable
 
@@ -16,9 +16,10 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 ## Progress
 
 
-État au 2026-09-10 : plan préparé, aucun jalon de développement exécuté.
+État au 2026-09-25 : le runtime, le paquet et les fixtures sont exécutés; B métadonnées est passé sur copies. Le service de conversion, sa matrice et l'interface restent à implémenter.
 
 - [x] 2026-09-25 — Vérifier les prérequis, les contrats existants et les binaires distribuables; le runtime, le paquet et les fixtures initiales sont consignés dans `docs/validation/07-conversion.md`.
+- [x] 2026-09-25 — Raccord B 06b : round-trip des neuf champs et Undo sur les huit combinaisons éditables, audio décodé, tags inconnus et pochettes vérifiés sur copies synthétiques; date ID3v2.3 et AAC/ADTS refusés avec raison.
 - [ ] Implémenter l'inspection et la matrice de capacités vérifiées.
 - [ ] Implémenter aperçu, réservation des noms et file limitée à deux conversions.
 - [ ] Implémenter vérification de sortie, publication sans écrasement et filiation.
@@ -28,12 +29,14 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 
 2026-09-25 — Tranche FFmpeg et fixtures du raccord 06b effectuée : runtime Windows x64 épinglé, manifesté et ajouté au paquet; neuf fixtures synthétiques locales produites et identifiées par ffprobe. Voir `docs/validation/07-conversion.md`. L'inspection complète des capacités et les conversions restent à faire.
 
+2026-09-25 — B 06b exécuté avant la suite de 07 : les neuf champs MTEE ont été écrits puis annulés dans WAV, MP3, AIFF, FLAC, Vorbis, Opus, M4A/AAC et M4A/ALAC sur copies générées. Les empreintes PCM décodées restent identiques, les valeurs non ciblées et pochettes testées sont vérifiées; 21 tests ciblés passent. AAC/ADTS et Date ID3v2.3 restent explicitement non éditables. La recette UI et les copies manuelles ne sont pas faites.
+
 ## Surprises & Discoveries
 
 
 2026-09-25 — L'archive `lgpl-shared` de BtbN identifie les mêmes AAC/ALAC `.m4a` par leurs codecs réels (`aac` et `alac`); les neuf fixtures audio et l'artwork PNG synthétique sont consignés dans `.local/fixtures/07-metadata/audio/manifest.json`. Cette génération et l'inspection ffprobe ne certifient pas encore les conversions de sortie.
 
-2026-09-25 — PyInstaller copiait aussi les dépendances FFmpeg à la racine lorsqu'on déclarait les PE comme binaires ou données. Le build copie désormais les neuf fichiers runtime hashés après PyInstaller, dans un unique dossier adjacent sous `_internal/mtee/native/ffmpeg/bin`. Le paquet testé fait 412 961 278 octets au total; ce coût est visible avant toute conversion.
+2026-09-25 — PyInstaller copiait aussi les dépendances FFmpeg à la racine lorsqu'on déclarait les PE comme binaires ou données. Le build copie désormais les neuf fichiers runtime hashés après PyInstaller, dans un unique dossier adjacent sous `_internal/mtee/native/ffmpeg/bin`. Le paquet de base runtime fait 412 961 278 octets; après B, le rebuild comprend 1 970 fichiers pour 412 978 343 octets. Une copie externe smoke-test code 0 et a regénéré les neuf fixtures à partir du runtime copié. Cela reste un test sur le même Windows, pas une installation propre.
 
 ## Decision Log
 
@@ -49,7 +52,7 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 ## Outcomes & Retrospective
 
 
-Tranche runtime/fixtures uniquement : runtime FFmpeg/ffprobe épinglé et vérifié; 9 signaux de trois secondes générés et inspectés avec le runtime de développement puis le runtime empaqueté; paquet Windows en répertoire reconstruit et hashé, copie isolée MTEE smoke-test code 0. Aucun service de conversion, adaptateur métadonnées de B, matrice de sorties, conversion d'un lot, annulation ou recette interactive n'est encore livré. La copie du paquet (412 961 278 octets) a été lancée sur le même poste Windows, pas sur une installation propre. Les obligations de redistribution n'ont pas fait l'objet d'un audit complet.
+Runtime/fixtures et B exécutés : runtime FFmpeg/ffprobe épinglé et vérifié; neuf signaux de trois secondes générés et inspectés avec le runtime de développement puis empaqueté. B ajoute des round-trips automatiques et Undo pour neuf champs sur huit formats via copies synthétiques; ADTS refuse l'écriture, ID3v2.3 Date demeure en lecture seule. Le paquet Windows de B et ses DLL doivent encore être reconstruits et contrôlés avant commit. Aucun service de conversion, matrice de sorties, conversion d'un lot, annulation ou recette interactive n'est livré. La copie de runtime précédente a été lancée sur le même poste Windows, pas sur une installation propre; l'audit de redistribution transitive reste ouvert.
 
 ## Contexte et prérequis
 

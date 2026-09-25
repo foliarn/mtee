@@ -1,11 +1,14 @@
-"""Conservative ID3 writer for WAV files using Mutagen 1.48.x."""
+"""Conservative ID3 writer for verified WAV, MP3, and AIFF containers."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from mutagen import File as MutagenFile
+from mutagen.aiff import AIFF
 from mutagen.id3 import COMM, ID3, TALB, TBPM, TCON, TDRC, TIT2, TKEY, TPE1, TRCK, TYER
+from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 
 from mtee.domain.metadata_edit import EDITABLE_METADATA_FIELDS, MetadataPatch
@@ -54,27 +57,58 @@ class Id3PreservationSnapshot:
 
 
 class Id3WaveAdapter:
-    """ID3 adapter intentionally limited to WAV audio with ID3v2.4 tags."""
+    """ID3 adapter for PCM WAV v2.4, MP3 v2.3/v2.4, and PCM AIFF."""
 
     reason_unverified = "Writing has not been verified for this audio format."
-    reason_id3_version = "Only ID3v2.4 WAV tags are enabled until other versions are verified."
     reason_wave_encoding = "Only PCM WAV files have been verified for metadata writes."
+    reason_aiff_encoding = (
+        "Only uncompressed AIFF PCM files have been verified for metadata writes."
+    )
+    reason_container = "This file's inspected audio container does not match its extension."
+    reason_id3_version = "Only ID3v2.3 and ID3v2.4 tags are enabled for this container."
+    reason_v23_date = "ID3v2.3 Date editing is disabled; the Mutagen round-trip is ambiguous."
 
     def supports_path(self, path: Any) -> bool:
-        return str(path).casefold().endswith(".wav")
+        return str(path).casefold().endswith((".wav", ".mp3", ".aiff"))
 
-    def inspect(self, path: Any) -> tuple[WAVE, str]:
-        audio = WAVE(path)
-        if audio.info.audio_format != 1:
-            return audio, self.reason_wave_encoding
+    def inspect(self, path: Any) -> tuple[Any, str]:
+        source = str(path).casefold()
+        audio = MutagenFile(path, easy=False)
+        if audio is None or audio.info is None:
+            return audio, self.reason_container
+        if source.endswith(".wav") and isinstance(audio, WAVE):
+            if audio.info.audio_format != 1:
+                return audio, self.reason_wave_encoding
+        elif not (
+            (source.endswith(".mp3") and isinstance(audio, MP3))
+            or (source.endswith(".aiff") and isinstance(audio, AIFF))
+        ):
+            return audio, self.reason_container
+        elif source.endswith(".aiff"):
+            with open(path, "rb") as stream:
+                header = stream.read(12)
+            if len(header) != 12 or header[:4] != b"FORM" or header[8:12] != b"AIFF":
+                return audio, self.reason_aiff_encoding
         if audio.tags is None:
             return audio, ""
         if not isinstance(audio.tags, ID3):
-            return audio, self.reason_unverified
+            return audio, "This container uses tags that are not safe to replace."
         version = audio.tags.version
-        if len(version) < 2 or version[0] != 2 or version[1] != 4:
+        if len(version) < 2 or version[0] != 2 or version[1] not in {3, 4}:
+            return audio, self.reason_id3_version
+        if isinstance(audio, WAVE) and version[1] != 4:
             return audio, self.reason_id3_version
         return audio, ""
+
+    def save(self, audio: Any, path: Any) -> None:
+        """Save using the source ID3 version; WAV keeps its established v1 policy."""
+        version = 4
+        if isinstance(audio.tags, ID3) and len(audio.tags.version) > 1:
+            version = audio.tags.version[1]
+        if isinstance(audio, WAVE):
+            audio.save(v2_version=4, v1=1)
+        else:
+            audio.save(v2_version=version)
 
     def capabilities(self, path: Any) -> dict[str, tuple[bool, str]]:
         if not self.supports_path(path):
@@ -89,9 +123,14 @@ class Id3WaveAdapter:
         if audio is None:
             return {field: (False, self.reason_unverified) for field in EDITABLE_METADATA_FIELDS}
         tags = audio.tags
-        return {field: self._field_capability(tags, field) for field in EDITABLE_METADATA_FIELDS}
+        version = audio.tags.version[1] if audio.tags is not None else 4
+        capabilities = {
+            field: self._field_capability(tags, field, version)
+            for field in EDITABLE_METADATA_FIELDS
+        }
+        return capabilities
 
-    def prepare(self, path: Any, patch: MetadataPatch) -> tuple[WAVE, Id3PreservationSnapshot]:
+    def prepare(self, path: Any, patch: MetadataPatch) -> tuple[Any, Id3PreservationSnapshot]:
         audio, reason = self.inspect(path)
         if reason:
             raise ValueError(reason)
@@ -100,7 +139,7 @@ class Id3WaveAdapter:
         assert isinstance(audio.tags, ID3)
         tags = audio.tags
         for field, _value in patch.changes:
-            editable, reason = self._field_capability(tags, field)
+            editable, reason = self._field_capability(tags, field, tags.version[1])
             if not editable:
                 raise ValueError(reason)
         preserved = self._preserved_snapshot(tags, patch)
@@ -108,9 +147,13 @@ class Id3WaveAdapter:
         return audio, preserved
 
     @staticmethod
-    def _field_capability(tags: ID3 | None, field: str) -> tuple[bool, str]:
+    def _field_capability(
+        tags: ID3 | None, field: str, version: int | None = None
+    ) -> tuple[bool, str]:
         if tags is None:
             return True, ""
+        if field == "date" and version == 3:
+            return False, Id3WaveAdapter.reason_v23_date
         if field == "comment":
             comments = tags.getall("COMM")
             default = [
@@ -161,7 +204,8 @@ class Id3WaveAdapter:
     def _apply(tags: ID3, patch: MetadataPatch) -> None:
         for field, value in patch.changes:
             if field == "date":
-                frame_id = "TDRC" if "TDRC" in tags or "TYER" not in tags else "TYER"
+                version = tags.version[1] if len(tags.version) > 1 else 4
+                frame_id = "TDRC" if version >= 4 else "TYER"
                 frame_type = TDRC if frame_id == "TDRC" else TYER
             elif field == "comment":
                 existing = [
@@ -198,10 +242,11 @@ class Id3WaveAdapter:
         excluded: set[str] = set()
         for field, _value in patch.changes:
             if field == "comment":
-                excluded.add("COMM:eng:")
-                excluded.add("COMM:xxx:")
+                excluded.add("COMM::eng")
+                excluded.add("COMM::xxx")
             elif field == "date":
-                excluded.add("TDRC" if "TDRC" in tags or "TYER" not in tags else "TYER")
+                version = tags.version[1] if len(tags.version) > 1 else 4
+                excluded.add("TDRC" if version >= 4 else "TYER")
             else:
                 excluded.update(_FIELD_FRAMES[field])
         frames = tuple(

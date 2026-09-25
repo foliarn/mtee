@@ -19,7 +19,7 @@ Ce complément accompagne les jalons clés 07 à 10. Les étapes 11 et suivantes
 - [x] A2 — Reprise silencieuse/priorité basse, relecture des seuls fichiers nouveaux/modifiés et modèles Qt incrémentaux vérifiés sur 140 WAV temporaires; vrai redémarrage et grande bibliothèque réelle restent à recetter.
 - [ ] A3 — Ajouter dates de fichiers, révélation Windows, destinations et interactions de fichiers.
 - [ ] Valider et livrer A avant le développement fonctionnel de 07.
-- [ ] B — Au début de 07, après disponibilité du runtime FFmpeg et des fixtures, étendre les adaptateurs de métadonnées et leurs capacités vérifiées.
+- [x] B — Après runtime/fixtures, adaptateurs ID3, Vorbis et MP4 étendus, lecture Key corrigée; round-trip sur copies synthétiques, conservation et Undo testés. La recette manuelle par format reste non réalisée.
 - [x] 2026-09-25 — Prérequis de B/07 : runtime FFmpeg x64 verrouillé dans `resources/native/ffmpeg/manifest.json`, distribution vérifiée et 9 fixtures synthétiques disponibles localement; résultats dans `docs/validation/07-conversion.md`.
 - [ ] Achever 07, puis 08 et 09 avec les contrôles de non-régression de ce document.
 - [ ] Préparer la revue 10 sur les analyses réelles et consigner la décision utilisateur.
@@ -50,6 +50,8 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 2026-09-25 — 07/runtime et fixtures — BtbN `lgpl-shared` FFmpeg `n9.0.2-3-ga5923073bf-20260924`, archive 76 974 101 octets et SHA-256 verrouillé; ffmpeg/ffprobe et sept DLL vérifiés. Les encodeurs annoncés incluent AAC, ALAC, FLAC, MP3, Vorbis et Opus. Neuf fichiers 3 s générés sous `.local/fixtures/07/audio`, chacun identifié par ffprobe; AAC ADTS et M4A AAC sont `aac`, M4A ALAC est `alac`. Une deuxième génération destinée aux tests de métadonnées ajoute une PNG synthétique dans `.local/fixtures/07-metadata/audio`. Un build PyInstaller de test a d'abord dupliqué les DLL à la racine via son analyse PE; la copie explicite après build règle le doublonnage, conservant un seul ensemble runtime dans le répertoire interne. Paquet Windows total : 412 961 278 octets. Une copie sous `%TEMP%`, hors checkout et lancée depuis son propre dossier, a passé `MTEE.exe --smoke-test` (code 0) et régénéré les neuf fixtures avec le runtime copié. Ce n'est pas une machine Windows propre ni une recette interactive.
 
+2026-09-25 — B (R03/R12) — Adaptateurs ID3 WAV PCM v2.4, MP3/AIFF PCM v2.3 et v2.4, Vorbis comments FLAC/Ogg Vorbis/Opus, et M4A AAC/ALAC. Tests de service sur copies synthétiques : neuf champs modifiés puis annulés dans chacun des huit conteneurs/formats éditables, hash PCM décodé égal avant/après, tags hors patch et pochettes vérifiés; couverture incluant répétitions existantes, total de piste, marqueurs inconnus, atomes et reprise Undo. AIFC compressé portant une extension AIFF est refusé après inspection FORM. 21 tests ciblés réussis, Ruff et Pyright propres. AAC/ADTS reste explicitement non éditable. Date ID3v2.3 refusée après échec d'un round-trip Mutagen TYER/TDRC; titre et autres champs v2.3 sont vérifiés. M4A BPM = entier 1–1000 dans `tmpo`, Key = atome libre UTF-8 `initialkey`; la relecture de cet atome est ajoutée à `MetadataReader`. Le paquet reconstruit est à 412 978 343 octets; copie externe smoke code 0 et neuf fixtures régénérées avec le runtime copié. Recette UI et tests manuels sur chaque format/version non réalisés; A0/R05 et A3 manuel restent ouverts.
+
 ## Decision Log
 
 2026-09-25 — Codex — Répartir ce complément en A avant 07, B dans le début de 07 et C dans 10. B réutilise FFmpeg pour générer et vérifier des fixtures audio ; le runtime n'est pas ajouté rétroactivement aux livraisons A/B historiques. Les interfaces d'adaptateurs peuvent être préparées en A, mais les formats ne deviennent éditables qu'après leurs preuves.
@@ -66,7 +68,7 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 ## Outcomes & Retrospective
 
-Exécution en cours. A0 garde des protections de durée de vie mesurées, mais les suites intégration/UI ont de nouveau imprimé le SEH libmpv; le lien avec le crash utilisateur n'est pas prouvé et R05 reste ouvert. A1 et A2 sont testés sur fixtures; le paquet A2 a réussi 20/20 démarrages isolés. A3 est partiel : dates et Explorer (sans recette manuelle), copie hashée sur fixtures, destinations catalogue et presse-papiers sont implémentés; le paquet A3 a réussi 20/20 smoke isolés. Le drag natif, le vrai collage/clavier, l'ouverture Explorer, conversion et tests multi-panneaux restent à prouver ou raccorder. Le prérequis runtime et fixtures pour B est maintenant disponible; B n'a pas encore été exécuté. Aucune collection personnelle n'a été utilisée ou modifiée.
+Exécution en cours. A0 garde des protections de durée de vie mesurées, mais les suites intégration/UI ont de nouveau imprimé le SEH libmpv; le lien avec le crash utilisateur n'est pas prouvé et R05 reste ouvert. A1 et A2 sont testés sur fixtures; le paquet A2 a réussi 20/20 démarrages isolés. A3 est partiel : dates et Explorer (sans recette manuelle), copie hashée sur fixtures, destinations catalogue et presse-papiers sont implémentés; le paquet A3 a réussi 20/20 smoke isolés. Le drag natif, le vrai collage/clavier, l'ouverture Explorer et les contrôles multi-panneaux restent à prouver ou raccorder. Le runtime et B sont exécutés sur copies synthétiques, et non en recette UI; le jalon 07 reste à achever. Aucune collection personnelle n'a été utilisée ou modifiée.
 
 ## Ordre de travail pour la session nocturne
 
@@ -74,7 +76,7 @@ Exécution en cours. A0 garde des protections de durée de vie mesurées, mais l
 | --- | --- | --- |
 | A0 à A3, ce document | Stabilisation des fonctions existantes ; dates/colonnes et interactions de fichiers | Tests appropriés, comportement vérifié, paquet contrôlé ; limitations identifiées individuellement |
 | Début de [07](07-conversion.md) | Inspection, capacités et runtime FFmpeg/ffprobe ; création de fixtures synthétiques redistribuables ou locales | Binaires verrouillés, provenance et paquet vérifiés |
-| B, ce document | Adaptateurs de métadonnées et matrice d'écriture ; réutilisables pour le transfert de tags de 07 | Preuves par format/champ/version et préservation des données |
+| B, ce document | Adaptateurs de métadonnées et matrice d'écriture ; réutilisables pour le transfert de tags de 07 | Round-trip sur copies synthétiques, Undo, contenu audio et tags/pochettes non ciblés contrôlés; recette manuelle reste non réalisée |
 | Suite de 07 | Aperçu, file de conversion, validation et filiation | Recette 07 et non-régression A/B |
 | [08](08-waveform.md) | Waveform sur le lecteur désormais visible et illustré | Même PlayerService, pochettes/timeline/navigation conservées |
 | [09](09-analyse-sans-ml.md) | Analyse sur le décodage commun | Provenances séparées, corrections manuelles conservées |

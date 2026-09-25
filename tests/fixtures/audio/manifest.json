@@ -14,12 +14,12 @@
       {"format": "WAV PCM", "file": "wav.wav", "codec": "pcm_s16le", "rights": "Project-generated"},
       {"format": "AIFF PCM", "file": "aiff.aiff", "codec": "pcm_s16be", "rights": "Project-generated"},
       {"format": "Ogg/Vorbis", "file": "vorbis.ogg", "codec": "vorbis", "rights": "Project-generated"},
-      {"format": "Opus", "file": "opus.ogg", "codec": "opus", "rights": "Project-generated"},
+      {"format": "Opus", "file": "opus.opus", "codec": "opus", "rights": "Project-generated"},
       {"format": "AAC raw", "file": "aac-adts.adts", "codec": "aac", "rights": "Project-generated"},
       {"format": "M4A/AAC", "file": "m4a-aac.m4a", "codec": "aac", "rights": "Project-generated"},
       {"format": "M4A/ALAC", "file": "m4a-alac.m4a", "codec": "alac", "rights": "Project-generated"}
     ],
-    "status": "Generation and ffprobe identification observed locally on 2026-09-25; metadata edit round-trip tests are part of B."
+    "status": "Generation/ffprobe and automatic metadata edit/Undo round-trips observed locally on 2026-09-25; manual format recipe remains unperformed."
   },
   "available_fixtures": [
     {
@@ -42,14 +42,14 @@
     }
   ],
   "format_matrix": [
-    {"format": "MP3", "container": "MPEG audio", "codec": "MP3", "sample": null, "rights": "Not acquired", "status": "Not validated"},
-    {"format": "FLAC", "container": "FLAC", "codec": "FLAC", "sample": null, "rights": "Not acquired", "status": "Not validated"},
-    {"format": "AAC raw", "container": "ADTS", "codec": "AAC-LC", "sample": null, "rights": "Not acquired", "status": "Not validated"},
-    {"format": "WAV PCM", "container": "WAV", "codec": "PCM signed 16-bit little-endian", "sample": "Generated test tone", "rights": "Project-generated", "status": "Native decode tested with null output; audible output not tested"},
-    {"format": "AIFF PCM", "container": "AIFF", "codec": "PCM signed 16-bit big-endian", "sample": null, "rights": "Not acquired", "status": "Not validated"},
-    {"format": "Ogg/Vorbis", "container": "Ogg", "codec": "Vorbis", "sample": null, "rights": "Not acquired", "status": "Not validated"},
-    {"format": "Opus", "container": "Ogg", "codec": "Opus", "sample": null, "rights": "Not acquired", "status": "Not validated"},
-    {"format": "M4A/AAC", "container": "M4A", "codec": "AAC-LC", "sample": null, "rights": "Not acquired", "status": "Not validated"},
-    {"format": "M4A/ALAC", "container": "M4A", "codec": "ALAC", "sample": null, "rights": "Not acquired", "status": "Not validated"}
+    {"format": "MP3", "container": "MPEG audio", "codec": "MP3", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "All nine fields edit/Undo and decoded PCM hash checked automatically; manual recipe not done"},
+    {"format": "FLAC", "container": "FLAC", "codec": "FLAC", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "All nine fields edit/Undo, comments/picture, and decoded PCM hash checked automatically; manual recipe not done"},
+    {"format": "AAC raw", "container": "ADTS", "codec": "AAC-LC", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "Readable; metadata writes intentionally disabled; manual playback not tested"},
+    {"format": "WAV PCM", "container": "WAV", "codec": "PCM signed 16-bit little-endian", "sample": "Generated test tone", "rights": "Project-generated", "status": "All nine fields edit/Undo and decoded PCM hash checked automatically; audible output not tested"},
+    {"format": "AIFF PCM", "container": "AIFF", "codec": "PCM signed 16-bit big-endian", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "All nine fields edit/Undo and decoded PCM hash checked automatically; manual recipe not done"},
+    {"format": "Ogg/Vorbis", "container": "Ogg", "codec": "Vorbis", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "All nine fields edit/Undo and decoded PCM hash checked automatically; manual recipe not done"},
+    {"format": "Opus", "container": "Ogg", "codec": "Opus", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "All nine fields edit/Undo and decoded PCM hash checked automatically; manual recipe not done"},
+    {"format": "M4A/AAC", "container": "M4A", "codec": "AAC-LC", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "All nine fields edit/Undo and decoded PCM hash checked automatically; manual recipe not done"},
+    {"format": "M4A/ALAC", "container": "M4A", "codec": "ALAC", "sample": "Local synthetic tone", "rights": "Project-generated", "status": "All nine fields edit/Undo and decoded PCM hash checked automatically; manual recipe not done"}
   ]
 }

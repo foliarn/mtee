@@ -87,5 +87,33 @@ UI/conversion.
 - Génération réelle : 9 fichiers créés par le runtime source puis recréés avec le runtime du paquet; codecs distincts AAC/ALAC identifiés.
 - Recette de conversion, transfert tags, contrôles d'annulation/progression, lot réel et compatibilité matériel — non réalisés à cette tranche.
 
+## Raccord B — métadonnées sur copies synthétiques
+
+Après le contrôle du runtime, la suite de 06b a étendu l'édition contrôlée aux
+neuf champs sur WAV PCM, MP3, AIFF, FLAC, Ogg/Vorbis, Ogg/Opus, M4A/AAC et
+M4A/ALAC. `tests/integration/test_metadata_formats.py` génère ces fichiers
+dans `tmp_path`, ajoute une pochette synthétique et un marqueur inconnu, édite
+les champs par `MetadataEditService`, puis annule par Undo. Le hash SHA-256 du
+PCM décodé avant/après chaque édition et Undo est identique. Les tests gardent
+les tags/pochettes hors patch, les totaux `/12` et vérifient les valeurs relues.
+
+| Politique constatée | Résultat automatisé |
+| --- | --- |
+| AAC/ADTS brut | Écriture refusée avec motif explicite; aucun round-trip revendiqué |
+| ID3v2.3 date | Écriture refusée; essai direct Mutagen a révélé TYER/TDRC ambigu, alors que les autres champs v2.3 passent |
+| M4A BPM | Atome `tmpo`, valeur entière de 1 à 1000 |
+| M4A Key | Atome libre UTF-8 `initialkey`, lu par le reader natif en complément de EasyMP4 |
+| Champs non ciblés / artwork | Tags inconnus et pochettes testés; FLAC picture, Ogg COVERART, MP4 covr et ID3 APIC |
+
+21 tests ciblés de métadonnées réussis; `uv run ruff check .`,
+`uv run ruff format --check .` (168 fichiers) et `uv run pyright` (0 erreur,
+0 avertissement) réussis. Le rebuild B fait 412 978 343 octets (1 970 fichiers,
+EXE 2,29 Mo), et contient exactement un `ffmpeg.exe` et un `ffprobe.exe`.
+Copié sous `%TEMP%`, `MTEE.exe --smoke-test` termine code 0; le générateur
+utilisant les DLL du dossier copié a recréé les 9 fixtures avec le codec attendu.
+Il s'agit de preuves de code et de service sur copies synthétiques : aucune
+recette UI, édition manuelle de chaque version, installation Windows propre,
+ni validation d'une collection utilisateur n'a été réalisée.
+
 Le runtime et les fixtures rendent B exécutable; ils ne clôturent ni le jalon
 07, ni les retours A0/A3 dont les parcours interactifs restent partiels.
