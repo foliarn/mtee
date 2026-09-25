@@ -1,8 +1,9 @@
-# Validation — Étape 07 (préparation du runtime et des fixtures)
+# Validation — Étape 07 (runtime, conversion et fichiers dérivés)
 
-État au 2026-09-25 : début de 07 effectué jusqu'au runtime FFmpeg/ffprobe et
-aux fixtures, avant B de `06b-correctifs-recette.md`. Cette note ne déclare pas
-la conversion audio ou la recette des métadonnées comme livrées.
+État au 2026-09-25 : runtime FFmpeg/ffprobe et fixtures créés, B de
+`06b-correctifs-recette.md` exécuté sur copies synthétiques, puis service de
+conversion implémenté, exercé et empaqueté. Ce rapport distingue les contrôles
+automatisés observés des gestes de recette encore non réalisés.
 
 ## Environnement et provenance
 
@@ -114,6 +115,50 @@ utilisant les DLL du dossier copié a recréé les 9 fixtures avec le codec atte
 Il s'agit de preuves de code et de service sur copies synthétiques : aucune
 recette UI, édition manuelle de chaque version, installation Windows propre,
 ni validation d'une collection utilisateur n'a été réalisée.
+
+## Service Convert, tests et paquet final de cette tranche
+
+Le service et la vue Convert ont été implémentés après B. Le runtime énumère
+huit profils disponibles (MP3, FLAC, WAV, AIFF, Vorbis, Opus, M4A/AAC et
+M4A/ALAC). L'aperçu bloque une destination existante. Une conversion vérifie
+la révision et le hash de la source, les paramètres et le flux audio de sortie,
+puis publie sans remplacer un fichier déjà présent. L'annulation pendant le
+processus enlève le temporaire. Le journal enregistre tentatives et filiation.
+Le rapport de transfert distingue valeurs vérifiées, représentations modifiées
+et champs/pochettes non transférés. La sortie n'est pas automatiquement
+ajoutée à la bibliothèque; le transfert de pochettes n'est pas implémenté.
+
+Les huit conversions ont été rejouées depuis le runtime extrait d'une copie
+externe du paquet Windows final, vers des sous-dossiers distincts, avec une
+source synthétique copiée sous un chemin accentué contenant espaces et
+apostrophe. ffprobe a confirmé chacun des codecs attendus. La source de copie
+a conservé le SHA-256
+`f95cf15299c1238233ebbcf2349fea54aa6f1195d33de52f052096de4e333e15`.
+Les sorties ont été écrites dans `%TEMP%`, jamais sur la fixture suivie.
+
+Le rebuild courant (`scripts/build_windows.ps1`) a réussi sous Windows 11
+10.0.26200, Python 3.12.14 et PyInstaller 6.22.2. Une copie du répertoire
+`dist/MTEE` placée sous `%TEMP%` a été lancée avec `--smoke-test` et un
+`--data-dir` isolé : code de sortie 0, 1 971 fichiers, 413 026 280 octets,
+un seul `ffmpeg.exe` et un seul `ffprobe.exe`. Les conversions ci-dessus ont
+utilisé ces exécutables copiés. Ce n'est pas un essai sur une installation
+Windows propre.
+
+Contrôles finaux de 07 : `uv run ruff check .` réussi; `uv run ruff format
+--check .` réussi (178 fichiers); `uv run pyright` sans erreurs,
+avertissements ni informations; suite ciblée de conversion/queue/décodage,
+migrations et chargement QML réussie (25 tests); `uv run pytest -q` réussi,
+deux tests sautés. Plusieurs exécutions pytest ont imprimé l'exception native
+Windows libmpv `0xe24c4a02`, avec des traces dans `_event_loop`/fermeture. Les
+tests pytest finissent néanmoins avec succès; la cause et l'éventuel lien avec
+R05 ne sont pas démontrés. Il s'agit d'une hypothèse de crash, pas d'un
+correctif prouvé.
+
+La recette manuelle de l'onglet Convert, du glisser-déposer natif, de la
+progression visible et des parcours de reprise n'a pas été réalisée. Aucun
+essai sur la collection musicale de l'utilisateur ni sur une machine Windows
+propre n'est revendiqué. L'audit des dépendances transitives de FFmpeg demeure
+ouvert.
 
 Le runtime et les fixtures rendent B exécutable; ils ne clôturent ni le jalon
 07, ni les retours A0/A3 dont les parcours interactifs restent partiels.

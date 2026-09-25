@@ -1,10 +1,9 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import Mtee
 
-// Convert tab: input files on the left, output settings on the right. The
-// options are invented for the review; the real ones will come from the FFmpeg
-// shipped with MTEE (plan 07). Sources are never modified.
+// Convert tab: inspect a batch, review destinations, then create verified copies.
 Rectangle {
     id: convert
 
@@ -12,15 +11,26 @@ Rectangle {
     required property var workspace
     property int bottomInset: 0
     property bool advancedOpen: false
-    property bool started: workspace.conversionError
-    property int formatIndex: 0
-    readonly property var formats: [
-        { "name": "MP3", "quality": "320 kbps · CBR" },
-        { "name": "AIFF", "quality": "16-bit · 44.1 kHz" },
-        { "name": "FLAC", "quality": "Level 5 · lossless" },
-        { "name": "WAV", "quality": "16-bit PCM" }
-    ]
+    readonly property bool started: convert.inputs.some(function (item) {
+        return item.status === "completed" || item.status === "failed" || item.status === "cancelled"
+    })
+    readonly property int formatIndex: convert.workspace.conversionModel.formatIndex
+    readonly property var formats: convert.workspace.conversionModel.formats
     readonly property var inputs: workspace.convertInputs
+
+    FolderDialog {
+        id: outputFolderDialog
+        title: "Choose output folder"
+        onAccepted: convert.workspace.conversionModel.set_output_folder(selectedFolder.toString())
+    }
+
+    FileDialog {
+        id: inputFilesDialog
+        title: "Add audio files"
+        fileMode: FileDialog.OpenFiles
+        nameFilters: ["Audio files (*.mp3 *.flac *.wav *.aiff *.ogg *.opus *.m4a *.aac *.adts)", "All files (*)"]
+        onAccepted: convert.workspace.conversionModel.add_files(selectedFiles)
+    }
 
     color: Theme.editor
 
@@ -67,7 +77,13 @@ Rectangle {
             anchors.bottomMargin: 14
             spacing: 8
 
-            TextButton { kind: "ghost"; icon: "plus"; text: "Add files"; enabledAction: false; tip: "Not available in the demo" }
+            TextButton {
+                kind: "ghost"
+                icon: "plus"
+                text: "Add files"
+                onClicked: inputFilesDialog.open()
+            }
+
             TextButton {
                 kind: "neutral"
                 icon: "plus"
@@ -112,11 +128,16 @@ Rectangle {
                     id: entry
                     required property var modelData
                     required property int index
-                    readonly property bool failed: convert.workspace.conversionError && index === 1
+                    readonly property bool failed: ["failed", "conflict", "unsupported", "cancelled"].indexOf(entry.modelData.status) >= 0
+                    readonly property bool completed: entry.modelData.status === "completed"
+                    readonly property bool running: entry.modelData.status === "running"
 
                     width: ListView.view.width
                     height: 64
                     color: failed ? Qt.rgba(1, 0.3, 0.3, 0.08) : entryMouse.containsMouse ? Theme.surface : Theme.sidebar
+                    ToolTip.visible: entryMouse.containsMouse && entry.modelData.metadataReport.length > 0
+                    ToolTip.delay: 700
+                    ToolTip.text: entry.modelData.metadataReport
 
                     MouseArea { id: entryMouse; anchors.fill: parent; hoverEnabled: true }
 
@@ -155,9 +176,9 @@ Rectangle {
 
                         Text {
                             width: parent.width
-                            text: entry.failed
-                                ? "Could not write the output. The source file is untouched."
-                                : entry.modelData.format + " · " + entry.modelData.bitrate + " · " + entry.modelData.duration
+                        text: entry.failed ? entry.modelData.summary
+                            : entry.completed ? entry.modelData.destination
+                            : entry.modelData.format + " · " + entry.modelData.bitrate + " · " + entry.modelData.duration
                             elide: Text.ElideRight
                             color: entry.failed ? Theme.danger : Theme.textSecondary
                             font.family: Theme.fontFamily
@@ -165,10 +186,9 @@ Rectangle {
                         }
 
                         ProgressLine {
-                            visible: convert.started
-                            width: parent.width
-                            progress: entry.failed ? 0.62 : 1
-                            status: entry.failed ? "error" : "done"
+                        visible: entry.running || entry.completed || entry.failed
+                        progress: Number(entry.modelData.progress || 0) / 100
+                        status: entry.failed ? "error" : entry.completed ? "done" : "running"
                         }
                     }
 
@@ -188,8 +208,11 @@ Rectangle {
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: !entry.failed
-                                text: convert.started ? "Converted" : "Ready"
-                                color: convert.started ? Theme.primary : Theme.textSecondary
+                                text: entry.completed ? "Converted"
+                                    : entry.failed ? "Failed"
+                                    : entry.running ? "Converting " + entry.modelData.progress + "%"
+                                    : "Ready"
+                                color: entry.completed ? Theme.primary : entry.failed ? Theme.danger : Theme.textSecondary
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeSmall
                             }
@@ -232,21 +255,23 @@ Rectangle {
 
                     Setting {
                         label: "Format"
-                        value: convert.formats[convert.formatIndex].name
+                        value: convert.formats.length ? convert.formats[convert.formatIndex].name : "Unavailable"
                         chooser: true
-                        onActivated: convert.formatIndex = (convert.formatIndex + 1) % convert.formats.length
+                        onActivated: convert.workspace.conversionModel.next_format()
                     }
 
                     Setting {
                         label: "Quality"
-                        value: convert.formats[convert.formatIndex].quality
+                        value: convert.formats.length ? convert.formats[convert.formatIndex].quality : "Unavailable"
                         chooser: true
+                        onActivated: convert.workspace.conversionModel.next_quality()
                     }
 
                     Setting {
                         label: "Output folder"
-                        value: "Music/Converted/" + convert.formats[convert.formatIndex].name
+                        value: convert.workspace.conversionModel.outputFolder
                         action: "Choose…"
+                        onActivated: outputFolderDialog.open()
                     }
 
                     Rectangle {
@@ -287,22 +312,58 @@ Rectangle {
                         width: parent.width
                         spacing: 14
 
-                        Setting { label: "Sample rate"; value: "44.1 kHz"; chooser: true }
-                        Setting { label: "Channels"; value: "Stereo"; chooser: true }
-                        Setting { label: "Metadata"; value: "Copy compatible tags"; chooser: true }
+                        Setting {
+                            label: "Sample rate"
+                            value: convert.workspace.conversionModel.sampleRate
+                            chooser: convert.workspace.conversionModel.sampleRateOptions.length > 1
+                            onActivated: convert.workspace.conversionModel.next_sample_rate()
+                        }
+                        Setting {
+                            label: "Channels"
+                            value: convert.workspace.conversionModel.channels
+                            chooser: convert.workspace.conversionModel.channelOptions.length > 1
+                            onActivated: convert.workspace.conversionModel.next_channels()
+                        }
+                        Setting {
+                            visible: convert.workspace.conversionModel.bitDepthOptions.length > 1
+                            label: "Bit depth"
+                            value: convert.workspace.conversionModel.bitDepth
+                            chooser: true
+                            onActivated: convert.workspace.conversionModel.next_bit_depth()
+                        }
+                        Setting {
+                            visible: convert.formats.length > 0
+                                && ["wav", "aiff"].indexOf(convert.formats[convert.formatIndex].id) >= 0
+                                && convert.workspace.conversionModel.bitDepth !== "Keep source"
+                            label: "Dither"
+                            value: convert.workspace.conversionModel.dither ? "On" : "Off"
+                            chooser: true
+                            onActivated: convert.workspace.conversionModel.toggle_dither()
+                        }
+                        Setting {
+                            label: "Metadata"
+                            value: convert.workspace.conversionModel.copyMetadata
+                                ? "Copy compatible tags"
+                                : "Skip tags"
+                            chooser: true
+                            onActivated: convert.workspace.conversionModel.toggle_metadata()
+                        }
                     }
 
                     TextButton {
                         width: parent.width
                         kind: "primary"
-                        text: "Start conversion"
-                        onClicked: convert.started = true
+                        text: convert.workspace.conversionModel.hasPreview
+                            ? (convert.workspace.conversionModel.previewExecutable ? "Start conversion" : "Review blocked preview")
+                            : "Review conversion"
+                        enabledAction: convert.inputs.length > 0 && convert.formats.length > 0
+                        onClicked: convert.workspace.conversionModel.preview_or_start()
                     }
 
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
-                        text: "Demo options. The formats offered will come from the FFmpeg shipped with MTEE. Existing files are never overwritten."
+                        text: convert.workspace.conversionModel.previewSummary
                         color: Theme.textMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSmall
@@ -342,9 +403,7 @@ Rectangle {
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: !convert.started ? convert.inputs.length + " files ready"
-                    : convert.workspace.conversionError ? "1 of 2 converted · 1 failed. Retry the failed file after checking the output folder."
-                    : convert.inputs.length + " of " + convert.inputs.length + " converted"
+                text: convert.workspace.conversionModel.previewSummary
                 color: convert.workspace.conversionError ? Theme.danger : Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
@@ -357,8 +416,20 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 8
 
-            TextButton { implicitHeight: 28; kind: "ghost"; text: "Cancel pending"; enabledAction: false }
-            TextButton { implicitHeight: 28; kind: "ghost"; text: "Open output folder"; enabledAction: convert.started; tip: "Simulated in the demo" }
+            TextButton {
+                implicitHeight: 28
+                kind: "ghost"
+                text: "Cancel conversions"
+                enabledAction: convert.workspace.conversionModel.canCancel
+                onClicked: convert.workspace.conversionModel.cancel_all()
+            }
+            TextButton {
+                implicitHeight: 28
+                kind: "ghost"
+                text: "Open output folder"
+                enabledAction: true
+                onClicked: convert.workspace.conversionModel.open_output_folder()
+            }
         }
     }
 

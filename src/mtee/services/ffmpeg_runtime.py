@@ -64,6 +64,25 @@ class FfmpegRuntime:
         except OSError as error:
             raise FfmpegRuntimeError(f"Could not start bundled {tool}: {error}") from error
 
+    def start(self, tool: str, arguments: list[str]) -> subprocess.Popen[bytes]:
+        """Start a streaming process without a shell for bounded PCM/progress I/O."""
+        command = [str(self.executable(tool)), *arguments]
+        environment = os.environ.copy()
+        environment["PATH"] = str(self._root)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            return subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+                shell=False,
+                creationflags=flags,
+            )
+        except OSError as error:
+            raise FfmpegRuntimeError(f"Could not start bundled {tool}: {error}") from error
+
     def version(self, tool: str = "ffmpeg") -> str:
         """Return the version banner from the selected executable."""
         result = self.run(tool, ["-version"])

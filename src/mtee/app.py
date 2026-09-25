@@ -20,6 +20,7 @@ from mtee.assets import main_qml, qml_dir
 from mtee.cli import AppOptions, parse_arguments
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
+from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.file_operation_model import FileOperationModel
@@ -30,6 +31,7 @@ from mtee.models.player_model import PlayerModel
 from mtee.models.shell_controller import ShellController
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.database import Database, DatabaseError
+from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.file_operation_repository import FileOperationRepository
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
@@ -37,6 +39,7 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.windows_frame import WindowFrame
 from mtee.services.app_paths import AppPaths, resolve_app_paths
+from mtee.services.conversion_service import ConversionService
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_operation_service import FileOperationService
 from mtee.services.jobs import JobService
@@ -176,6 +179,15 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             player=player_model,
         )
         workspace.attach_metadata_editor(metadata_editor)
+        conversion_model = ConversionQueueModel(
+            library,
+            jobs,
+            ConversionService(),
+            file_access,
+            DerivationsRepository(database),
+            application,
+        )
+        workspace.attach_conversion_model(conversion_model)
         file_operations = FileOperationModel(
             FileOperationService(
                 library,

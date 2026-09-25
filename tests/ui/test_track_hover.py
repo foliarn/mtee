@@ -50,7 +50,7 @@ def test_hover_stays_active_across_track_actions(qapp, tmp_path) -> None:
     QCoreApplication.processEvents()
 
     try:
-        row = _find(root, "trackRow")
+        row = _find(root, "trackRow_1")
         assert row is not None
         play = _find_within(row, "trackPlayButton")
         info = _find_within(row, "trackInfoButton")

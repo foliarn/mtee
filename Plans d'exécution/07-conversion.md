@@ -1,6 +1,6 @@
 # Étape 07 — Conversion audio et fichiers dérivés
 
-Ce document est un ExecPlan vivant rédigé le 2026-09-10. Son exécution suit `PLANS.md` à la racine et réalise `PLAN.md` §4.5, §3 « Onglet Conversion » et le contrôle commun à chaque livraison. Les fichiers et commandes ci-dessous sont à créer ou à exécuter pendant le développement ; aucun résultat de test ni livraison Git n'est déclaré accompli.
+Ce document est un ExecPlan vivant rédigé le 2026-09-10. Son exécution suit `PLANS.md` à la racine et réalise `PLAN.md` §4.5, §3 « Onglet Conversion » et le contrôle commun à chaque livraison. Les chemins et commandes ci-dessous décrivent le résultat attendu ; l'avancement et les observations effectivement obtenues sont consignés dans les sections vivantes et `docs/validation/07-conversion.md`.
 
 ## Raccord aux retours de recette du 2026-09-25
 
@@ -16,18 +16,20 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 ## Progress
 
 
-État au 2026-09-25 : le runtime, le paquet et les fixtures sont exécutés; B métadonnées est passé sur copies. Le service de conversion, sa matrice et l'interface restent à implémenter.
+État au 2026-09-25 : runtime et fixtures réalisés, B vérifié sur copies, puis service de conversion et interface implémentés. Les preuves automatisées sont consignées dans `docs/validation/07-conversion.md`. La recette manuelle sur corpus, l'installation Windows propre et l'audit des dépendances transitives restent ouverts.
 
 - [x] 2026-09-25 — Vérifier les prérequis, les contrats existants et les binaires distribuables; le runtime, le paquet et les fixtures initiales sont consignés dans `docs/validation/07-conversion.md`.
 - [x] 2026-09-25 — Raccord B 06b : round-trip des neuf champs et Undo sur les huit combinaisons éditables, audio décodé, tags inconnus et pochettes vérifiés sur copies synthétiques; date ID3v2.3 et AAC/ADTS refusés avec raison.
-- [ ] Implémenter l'inspection et la matrice de capacités vérifiées.
-- [ ] Implémenter aperçu, réservation des noms et file limitée à deux conversions.
-- [ ] Implémenter vérification de sortie, publication sans écrasement et filiation.
-- [ ] Relier la file et les options compatibles à l'onglet Convert.
-- [ ] Valider les erreurs, l'annulation, les copies de corpus et le paquet Windows.
+- [x] Implémenter l'inspection et la matrice de capacités vérifiées par codecs réellement présents.
+- [x] Implémenter aperçu, refus des collisions et file limitée à deux conversions.
+- [x] Implémenter vérification de sortie, publication sans écrasement, annulation et filiation persistée.
+- [x] Relier la file, les options et les rapports de transfert à l'onglet Convert.
+- [x] Valider erreurs, annulation, copies synthétiques et paquet Windows; recette interactive encore à réaliser.
 - [ ] Renseigner les preuves, créer le commit détaillé et vérifier le push.
 
-2026-09-25 — Tranche FFmpeg et fixtures du raccord 06b effectuée : runtime Windows x64 épinglé, manifesté et ajouté au paquet; neuf fixtures synthétiques locales produites et identifiées par ffprobe. Voir `docs/validation/07-conversion.md`. L'inspection complète des capacités et les conversions restent à faire.
+2026-09-25 — Tranche FFmpeg et fixtures du raccord 06b effectuée : runtime Windows x64 épinglé, manifesté et ajouté au paquet; neuf fixtures synthétiques locales produites et identifiées par ffprobe. Voir `docs/validation/07-conversion.md`.
+
+2026-09-25 — Service et vue Convert exécutés : sondage des encodeurs/muxeurs présents, aperçu, file à deux workers, options de sortie, transfert contrôlé des champs pris en charge, validation audio, annulation, publication sans remplacement et filiation. Les conversions automatisées couvrent les formats et copies synthétiques indiqués dans le rapport; la recette interactive et sur corpus privé reste non réalisée.
 
 2026-09-25 — B 06b exécuté avant la suite de 07 : les neuf champs MTEE ont été écrits puis annulés dans WAV, MP3, AIFF, FLAC, Vorbis, Opus, M4A/AAC et M4A/ALAC sur copies générées. Les empreintes PCM décodées restent identiques, les valeurs non ciblées et pochettes testées sont vérifiées; 21 tests ciblés passent. AAC/ADTS et Date ID3v2.3 restent explicitement non éditables. La recette UI et les copies manuelles ne sont pas faites.
 
@@ -52,7 +54,7 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 ## Outcomes & Retrospective
 
 
-Runtime/fixtures et B exécutés : runtime FFmpeg/ffprobe épinglé et vérifié; neuf signaux de trois secondes générés et inspectés avec le runtime de développement puis empaqueté. B ajoute des round-trips automatiques et Undo pour neuf champs sur huit formats via copies synthétiques; ADTS refuse l'écriture, ID3v2.3 Date demeure en lecture seule. Le paquet Windows de B et ses DLL doivent encore être reconstruits et contrôlés avant commit. Aucun service de conversion, matrice de sorties, conversion d'un lot, annulation ou recette interactive n'est livré. La copie de runtime précédente a été lancée sur le même poste Windows, pas sur une installation propre; l'audit de redistribution transitive reste ouvert.
+Les conversions utilisent huit profils audio rapportés par le runtime et ont été exercées sur les fixtures synthétiques; l'aperçu bloque une destination existante, une annulation active nettoie le temporaire, et la sortie est sondée avant publication sans remplacement. Le journal persiste les tentatives et les dérivations. Les rapports vérifient les champs écrits par les adaptateurs; pochettes et champs sans adaptateur sont déclarés non transférés/non vérifiés. Les tests ciblés passent; run complet et rebuild final du paquet nécessaires avant clôture. Le crash natif intermittent SEH de libmpv demeure une hypothèse non attribuée. Aucun geste manuel de recette Convert ni essai sur corpus utilisateur n'est revendiqué. Le paquet est lancé depuis une copie hors checkout sur le même Windows; installation propre et audit transitif restent ouverts.
 
 ## Contexte et prérequis
 
