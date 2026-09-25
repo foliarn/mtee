@@ -93,3 +93,44 @@ def test_overlapping_parent_and_child_roots_share_one_path_identity(tmp_path: Pa
     assert library.tracks_in_folder(parent_root["id"], "child")[0]["id"] == identities[0]
     assert library.tracks_in_folder(child_root["id"], "")[0]["id"] == identities[0]
     database.close()
+
+
+def test_unchanged_scan_reuses_the_snapshot_and_changed_revision_is_not_reused(
+    tmp_path: Path,
+) -> None:
+    track = tmp_path / "collection" / "track.wav"
+    _write_wav(track)
+    database = Database(tmp_path / "library.sqlite3")
+    database.migrate()
+    library = LibraryRepository(database)
+    root = library.add_root(track.parent)
+    metadata = MetadataSnapshot(title=("Known title",))
+    revision = SourceRevision.observe(track)
+
+    first = library.begin_scan(root["id"])
+    track_id = library.upsert_location(root["id"], "track.wav", track, revision, metadata, first)
+    library.finish_scan(root["id"], first, complete=True)
+
+    assert library.unchanged_paths(root["id"], [("track.wav", revision)]) == {"track.wav"}
+    second = library.begin_scan(root["id"], show_scanning=False)
+    assert library.roots()[0]["availability"] == "available"
+    reused = library.upsert_locations(root["id"], [("track.wav", track, revision, None)], second)
+    library.finish_scan(root["id"], second, complete=True)
+    assert reused == [track_id]
+    assert library.tracks_in_folder(root["id"], "")[0]["title"] == "Known title"
+
+    with track.open("ab") as handle:
+        handle.write(b"changed")
+    changed_revision = SourceRevision.observe(track)
+    assert library.unchanged_paths(root["id"], [("track.wav", changed_revision)]) == set()
+    third = library.begin_scan(root["id"])
+    assert library.upsert_locations(
+        root["id"], [("track.wav", track, changed_revision, None)], third
+    ) == [""]
+    library.finish_scan(root["id"], third, complete=False)
+    fourth = library.begin_scan(root["id"], show_scanning=False)
+    assert library.roots()[0]["availability"] == "partial"
+    library.finish_scan(root["id"], fourth, complete=False, available=False)
+    assert library.roots()[0]["availability"] == "unavailable"
+    assert library.tracks_in_folder(root["id"], "")[0]["id"] == track_id
+    database.close()

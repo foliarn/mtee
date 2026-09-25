@@ -55,7 +55,7 @@ class LibraryRepository:
                 ).fetchone()
             return _root_dict(row)
 
-    def begin_scan(self, root_id: str) -> int:
+    def begin_scan(self, root_id: str, *, show_scanning: bool = True) -> int:
         with self._database.transaction() as connection:
             row = connection.execute(
                 "SELECT scan_generation FROM library_roots WHERE root_id = ?", (root_id,)
@@ -63,11 +63,10 @@ class LibraryRepository:
             if row is None:
                 raise KeyError(f"Unknown library root: {root_id}")
             generation = int(row[0]) + 1
-            connection.execute(
-                "UPDATE library_roots SET availability='scanning', scan_generation=? "
-                "WHERE root_id=?",
-                (generation, root_id),
-            )
+            update = "UPDATE library_roots SET scan_generation=?"
+            if show_scanning:
+                update += ",availability='scanning'"
+            connection.execute(f"{update} WHERE root_id=?", (generation, root_id))
         return generation
 
     def upsert_location(
@@ -88,7 +87,7 @@ class LibraryRepository:
     def upsert_locations(
         self,
         root_id: str,
-        entries: Sequence[tuple[str, Path | str, SourceRevision, MetadataSnapshot]],
+        entries: Sequence[tuple[str, Path | str, SourceRevision, MetadataSnapshot | None]],
         scan_generation: int,
     ) -> list[str]:
         """Upsert one bounded scan batch in a single SQLite transaction."""
@@ -122,14 +121,17 @@ class LibraryRepository:
                 if key in reserved_destinations:
                     identities.append("")
                     continue
-                encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
                 existing = connection.execute(
                     "SELECT * FROM track_locations WHERE path_key = ?", (key,)
                 ).fetchone()
                 if existing is None:
+                    if metadata is None:
+                        identities.append("")
+                        continue
                     track_id = str(TrackId.new())
                     generation = 0
                     connection.execute("INSERT INTO tracks(track_id) VALUES(?)", (track_id,))
+                    encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
                 else:
                     track_id = str(existing["track_id"])
                     previous = SourceRevision(
@@ -138,10 +140,19 @@ class LibraryRepository:
                         file_id=existing["file_id"],
                         generation=int(existing["generation"]),
                     )
-                    generation = previous.generation + (0 if previous.matches(revision) else 1)
-                    if previous.matches(revision):
+                    unchanged = previous.matches(revision)
+                    generation = previous.generation + (0 if unchanged else 1)
+                    if metadata is None and not unchanged:
+                        identities.append("")
+                        continue
+                    if unchanged:
                         encoded = str(existing["metadata_json"])
                         metadata = MetadataSnapshot.from_dict(json.loads(encoded))
+                    elif metadata is None:
+                        identities.append("")
+                        continue
+                    else:
+                        encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
                 connection.execute(
                     "INSERT INTO track_locations(path_key,track_id,path,size_bytes,mtime_ns,"
                     "file_id,generation,duration_us,status,metadata_json) "
@@ -173,6 +184,41 @@ class LibraryRepository:
                 )
                 identities.append(track_id)
         return identities
+
+    def unchanged_paths(
+        self,
+        root_id: str,
+        entries: Sequence[tuple[str, SourceRevision]],
+    ) -> set[str]:
+        """Return paths whose recorded source revision still matches this scan batch."""
+        if not entries:
+            return set()
+        unchanged: set[str] = set()
+        connection = self._database.connection()
+        for offset in range(0, len(entries), 900):
+            batch = entries[offset : offset + 900]
+            placeholders = ",".join("?" for _ in batch)
+            rows = connection.execute(
+                "SELECT rt.relative_path,loc.size_bytes,loc.mtime_ns,loc.file_id "
+                "FROM root_tracks AS rt JOIN track_locations AS loc "
+                "ON loc.track_id=rt.track_id "
+                f"WHERE rt.root_id=? AND rt.relative_path IN ({placeholders})",
+                (root_id, *(relative for relative, _revision in batch)),
+            ).fetchall()
+            recorded = {
+                str(row["relative_path"]): SourceRevision(
+                    size_bytes=int(row["size_bytes"]),
+                    mtime_ns=int(row["mtime_ns"]),
+                    file_id=row["file_id"],
+                )
+                for row in rows
+            }
+            unchanged.update(
+                relative
+                for relative, revision in batch
+                if (previous := recorded.get(relative)) is not None and previous.matches(revision)
+            )
+        return unchanged
 
     def upsert_folders(self, root_id: str, folders: Sequence[str], scan_generation: int) -> None:
         """Remember discovered folders, including empty ones, in one transaction."""

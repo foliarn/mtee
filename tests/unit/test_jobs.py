@@ -44,6 +44,18 @@ def test_a_finished_task_reports_a_full_progress(service: JobService) -> None:
     assert status.error is None
 
 
+def test_an_internal_background_job_is_not_shown_in_the_tasks_list(
+    service: JobService,
+) -> None:
+    model = JobsListModel(service)
+    job_id = service.submit(lambda _context: None, label="Routine catalog check", visible=False)
+
+    assert _wait_until(lambda: service.status(job_id).is_terminal)
+    assert service.status(job_id).state is JobState.SUCCEEDED
+    assert service.statuses() == []
+    assert model.rowCount() == 0
+
+
 def test_a_failing_task_carries_a_structured_error_and_does_not_stay_running(
     service: JobService,
 ) -> None:

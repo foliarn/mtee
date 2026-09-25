@@ -20,7 +20,7 @@ retour utilisateur a été réfuté. Les traces brutes restent sous
 | ID | Reproduit | Implémenté | Testé | Recetté | Preuve, limite et sous-jalon |
 |---|---|---|---|---|---|
 | R01 | À confirmer | Oui | Provider sur fixture image synthétique, 256 px demandé | Recette Windows multi-DPI non faite | La cover suit désormais la taille physique avec paliers jusqu'à 1024 px; le provider garde une limite et un cache. La source haute résolution du retour utilisateur n'est pas disponible. |
-| R02 | Confirmé dans les sources | Non | Non | Non | Scan au démarrage confirmé par `WorkspaceModel.resumeRoots`; correction incrémentale en A2. |
+| R02 | Confirmé dans les sources | Oui | Fixture UI 140 WAV: 0 relecture inchangée; modification/nouveauté relues, suppression retirée; sans reset | Redémarrage réel d'un même profil et collection volumineuse non recettés | La reprise est prioritaire basse, masquée de l'arbre et des tâches; les références restent lors d'un scan incomplet/hors ligne. Le test appelle `resumeRoots()` sur un catalogue déjà indexé, sans fermer/réouvrir le processus. |
 | R03 | Confirmé dans les sources | Non | Non | Non | Adaptateur actuellement WAV seulement selon `docs/validation/05-metadonnees.md`; B après runtime FFmpeg. |
 | R04 | Confirmé dans les sources | Oui | Formatter testé; donnée brute conservée | Non | Affichage `kbps` arrondi et valeur inconnue lisible. |
 | R05 | Reproduit partiellement | Partiel | 20/20 smoke EXE; suites combinées intermittentes | Recette Windows interactive non faite | Le harnais a observé deux sorties `0xC0000005` sur 20 cycles Python avant A0 (cycles 14 et 19), puis 0/20 après et 0/20 sur l'EXE reconstruit en A1. Cependant, une suite intégration + UI a ensuite produit `Windows fatal exception 0xe24c4a02` dans le thread libmpv puis un accès mémoire fautif en teardown pytest-qt; les tests d'intégration seuls réussissent 25/25. Cela laisse une hypothèse de crash native ouverte, sans lien causal établi avec les événements `qwindows.dll` de l'Event Log. A0 apporte des protections de durée de vie, pas un correctif causal prouvé. |
@@ -32,7 +32,7 @@ retour utilisateur a été réfuté. Les traces brutes restent sous
 | R11 | Confirmé dans les sources | Oui | Binding aux données du morceau joué; provider d'artwork testé séparément | A/B/C avec images distinctes non fait | Les deux lecteurs utilisent `playingTrack.coverUrl`, non la sélection de l'inspecteur. Le scénario rapide avec fichiers et retours périmés reste à recetter. |
 | R12 | Confirmé dans les sources | Non | Non | Non | Motif générique du seul adaptateur WAV; B. |
 | R13 | Confirmé dans les sources | Non | Non | Non | Menu navigue dans MTEE au lieu d'appeler Windows Explorer; A3. |
-| R14 | Cause exacte non confirmée | Non | Non | Non | Navigation vers le parent et resets de modèle identifiés; saut exact à instrumenter en A2. |
+| R14 | Reproduit dans fixture UI | Oui | Double-clic réel QTest sur la ligne 84/140; morceau actif, dossier inchangé, ancre conservée pendant modification/ajout/suppression | Recette interactive à un pixel, 2 panneaux et plein écran non faite | La ligne et l'arbre n'émettent pas de reset complet; les changements structurels utilisent les signaux Qt incrémentaux. |
 
 ## A0 — Diagnostic natif et fermeture
 
@@ -103,6 +103,39 @@ reste une hypothèse ouverte, pas un défaut causal corrigé ni une recette
 utilisateur réalisée. L'inspection interactive Windows, multi-DPI et avec
 lecture réelle n'a pas été faite.
 
+## A2 — Reprise incrémentale et scroll
+
+- `LibraryRepository.unchanged_paths` compare les `SourceRevision` de chaque
+  lot avec les références précédentes. Le worker lit les tags seulement pour
+  les fichiers nouveaux ou modifiés; `upsert_locations` refuse de réutiliser
+  une photographie si la révision a changé entre-temps.
+- `resumeRoots()` marque ses opérations comme silencieuses, non visibles dans
+  les tâches, de priorité QThreadPool basse, et ne montre pas l'état Scanning
+  dans l'arbre. Le scan explicite conserve visibilité, progression et
+  disponibilité Scanning. Un lot incomplet ou une racine absente ne marque pas
+  les références comme supprimées.
+- `TrackListModel` et `FolderTreeModel` émettent insert/move/remove/dataChanged
+  au lieu de `modelReset`, et ne notifient rien quand les lignes n'ont pas
+  changé.
+- Fixture UI temporaire de 140 WAV: `resumeRoots()` sur catalogue déjà indexé
+  appelle le lecteur de métadonnées zéro fois et ne réinitialise ni la liste ni
+  l'arbre. Après modification d'un fichier, ajout d'un nouveau et suppression
+  d'un autre, exactement deux lectures sont effectuées; les lignes reflètent
+  les changements sans reset, la ligne 84 reste en haut du viewport à
+  l'identifiant près, et le double-clic lance le bon UUID sans quitter le
+  dossier. Les sources sont sous `tmp_path`.
+- Tests A2: 19 réussis, 2 ignorés sur scans, modèle, dépôt, reprise et UI;
+  Ruff, formatage (151 fichiers) et Pyright réussis. Une séquence de validation
+  antérieure incluant `test_browser_navigation.py` a émis de nouveau
+  `Windows fatal exception 0xe24c4a02` dans le thread libmpv, tout en terminant
+  avec code 0 et 20 tests réussis/2 ignorés. Cela renforce l'observation d'un
+  incident natif mais n'établit toujours ni module fautif ni cause.
+- Paquet reconstruit: PyInstaller 6.22.2; EXE 2,26 Mo; manifeste/hash libmpv
+  valides; diagnostic paquet isolé 20/20 code 0, 0 délai.
+- Limites: le scénario UI appelle `resumeRoots()` dans le même processus après
+  indexation, pas après un vrai redémarrage; pas de gros catalogue réel, racine
+  partiellement lisible ni recette écran/DPI/2 panneaux. R05 reste ouvert.
+
 ### Limites et prochaine action
 
 Ce résultat est une reproduction intermittente du défaut dans un scénario
@@ -121,7 +154,9 @@ qualifier R05 de résolu avant ces parcours et le diagnostic de l'EXE.
 - [x] 2026-09-25 — A0 : paquet Windows construit et 20 cycles smoke réussis.
 - [x] A1 — Covers, colonnes, îlot, bitrate et survol; contrôles ciblés réussis,
   recette Windows interactive restante.
-- [ ] A2 — Réconciliation incrémentale et conservation du scroll.
+- [x] A2 — Réconciliation silencieuse/incrémentale, lots, mises à jour de
+  modèles sans reset et ancre de liste vérifiés sur fixtures; redémarrage réel
+  et collection réelle restant à recetter.
 - [ ] A3 — Dates, révélation Explorer, destinations, déplacement et copie.
 - [ ] B — Adaptateurs de métadonnées après runtime FFmpeg/fixtures.
 - [ ] 07, 08, 09 ; préparer la revue 10 depuis les analyses réelles.

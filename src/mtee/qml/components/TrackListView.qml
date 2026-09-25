@@ -364,6 +364,7 @@ FocusScope {
 
             ListView {
                 id: list
+                objectName: "trackRowsList"
                 anchors.fill: parent
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
@@ -377,6 +378,7 @@ FocusScope {
 
                 delegate: TrackRow {
                     id: trackRow
+                    objectName: "trackRow_" + (index + 1)
                     required property var modelData
                     required property int index
                     width: ListView.view.width

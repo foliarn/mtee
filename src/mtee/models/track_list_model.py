@@ -60,14 +60,56 @@ class TrackListModel(QAbstractListModel):
         return len(self._rows)
 
     def replace(self, rows: list[dict[str, Any]]) -> None:
-        numbered = []
+        numbered: list[dict[str, Any]] = []
         for index, row in enumerate(rows, start=1):
             item = dict(row)
             item["number"] = index
             numbered.append(item)
         if numbered == self._rows:
             return
-        self.beginResetModel()
-        self._rows = numbered
-        self.endResetModel()
+
+        changed_rows: set[int] = set()
+        for target_row, item in enumerate(numbered):
+            if target_row < len(self._rows) and self._rows[target_row].get("id") == item.get("id"):
+                if self._rows[target_row] != item:
+                    self._rows[target_row] = item
+                    changed_rows.add(target_row)
+                continue
+
+            source_row = next(
+                (
+                    index
+                    for index in range(target_row + 1, len(self._rows))
+                    if self._rows[index].get("id") == item.get("id")
+                ),
+                -1,
+            )
+            if source_row >= 0:
+                destination = target_row if source_row > target_row else target_row + 1
+                if self.beginMoveRows(
+                    _ROOT_INDEX, source_row, source_row, _ROOT_INDEX, destination
+                ):
+                    moved = self._rows.pop(source_row)
+                    self._rows.insert(target_row, moved)
+                    self.endMoveRows()
+                else:
+                    raise RuntimeError("Qt refused to move a row in the track model.")
+                self._rows[target_row] = item
+                changed_rows.add(target_row)
+                continue
+
+            self.beginInsertRows(_ROOT_INDEX, target_row, target_row)
+            self._rows.insert(target_row, item)
+            self.endInsertRows()
+
+        if len(self._rows) > len(numbered):
+            first_removed = len(numbered)
+            last_removed = len(self._rows) - 1
+            self.beginRemoveRows(_ROOT_INDEX, first_removed, last_removed)
+            del self._rows[first_removed:]
+            self.endRemoveRows()
+
+        for row in sorted(changed_rows):
+            index = self.index(row, 0)
+            self.dataChanged.emit(index, index, [_DATA_ROLE])
         self.rowsChanged.emit()
