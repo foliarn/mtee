@@ -107,5 +107,6 @@ def test_native_libmpv_decodes_seeks_and_pauses_wav(tmp_path: Path) -> None:
             time.sleep(0.025)
         assert positions
         assert min(abs(position - 1_000_000) for position in positions) <= 300_000
+
     finally:
         backend.close()

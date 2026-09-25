@@ -57,6 +57,9 @@ class _UiPlayerBackend:
     def seek(self, _position_us: int) -> None:
         return
 
+    def set_ab_loop(self, _start_us: int | None, _end_us: int | None) -> None:
+        return
+
     def set_volume(self, _value: int) -> None:
         return
 
@@ -96,6 +99,7 @@ def test_fullscreen_and_island_keep_one_shared_playback_state(qapp, tmp_path: Pa
             workspace.setFullscreen(True)
             QCoreApplication.processEvents()
             assert _visible(root, "fullscreenPlayer")
+            assert _find(root, "waveformView") is not None
             assert not _visible(root, "playerIsland")
             workspace.selectTrack("dnb04", "single", [])
             assert workspace.selectedIds == ["dnb04"]

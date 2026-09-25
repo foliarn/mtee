@@ -37,6 +37,10 @@ class QueueBackend:
     def seek(self, position_us: int) -> None:
         self.current_position = position_us
 
+    def set_ab_loop(self, start_us: int | None, end_us: int | None) -> None:
+        del start_us, end_us
+        return
+
     def set_volume(self, value: int) -> None:
         del value
         return

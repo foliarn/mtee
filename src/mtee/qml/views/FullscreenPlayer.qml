@@ -11,6 +11,7 @@ Rectangle {
     required property var workspace
     required property var metadataEditor
     readonly property var playback: workspace.playerModel
+    readonly property var waveform: playback.waveformModel
     readonly property var track: playback.playingTrack
     readonly property real duration: playback.duration || track.seconds || 1
     property bool showTags: false
@@ -284,15 +285,42 @@ Rectangle {
         width: Math.min(parent.width - 96, 960)
         spacing: 12
 
-        WaveformPreview {
-            objectName: "waveformPreview"
+        WaveformView {
+            objectName: "waveformView"
+            waveform: player.waveform
+            playback: player.playback
             width: parent.width
-            height: 72
-            seed: player.track.id || ""
-            enabled: player.playback.seekable
-            visible: player.playback.status !== "Error"
-            ratio: player.playback.position / player.duration
-            onSeekRequested: (ratio) => player.playback.seek(ratio * player.duration)
+            height: 116
+            visible: player.waveform.state === "ready"
+            playheadRatio: player.duration > 0 ? player.playback.position / player.duration : 0
+        }
+
+        Row {
+            visible: player.waveform.state === "generating" || player.waveform.state === "unavailable"
+            width: parent.width
+            height: 40
+            spacing: 10
+
+            Text {
+                width: parent.width - retryWaveform.width - parent.spacing
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+                text: player.waveform.state === "generating"
+                    ? "Generating waveform · " + Math.round(player.waveform.progress * 100) + "%"
+                    : player.waveform.error || "Waveform unavailable"
+                color: player.waveform.state === "unavailable" ? Theme.textSecondary : Theme.textMuted
+                elide: Text.ElideRight
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
+            TextButton {
+                id: retryWaveform
+                visible: player.waveform.state === "unavailable"
+                kind: "ghost"
+                text: "Retry"
+                onClicked: player.waveform.retry()
+            }
         }
 
         Row {

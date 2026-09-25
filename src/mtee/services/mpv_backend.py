@@ -174,6 +174,14 @@ class MpvBackend:
         seconds = max(0, int(position_us)) / 1_000_000
         self._command("seek", format(seconds, ".6f"), "absolute+exact")
 
+    def set_ab_loop(self, start_us: int | None, end_us: int | None) -> None:
+        self._command(
+            "set", "ab-loop-a", "no" if start_us is None else format(start_us / 1_000_000, ".6f")
+        )
+        self._command(
+            "set", "ab-loop-b", "no" if end_us is None else format(end_us / 1_000_000, ".6f")
+        )
+
     def set_volume(self, value: int) -> None:
         self._set_property("volume", _MPV_FORMAT_DOUBLE, ctypes.c_double(max(0, min(100, value))))
 

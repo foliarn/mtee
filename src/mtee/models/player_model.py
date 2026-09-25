@@ -7,6 +7,7 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.models.playback_queue_model import PlaybackQueueModel
+from mtee.models.waveform_model import WaveformModel
 from mtee.services.player_service import PlayerService
 
 __all__ = ["PlayerModel"]
@@ -18,9 +19,16 @@ class PlayerModel(QObject):
     playbackChanged = Signal()
     trackAccessReleased = Signal(str)
 
-    def __init__(self, service: PlayerService, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        service: PlayerService,
+        parent: QObject | None = None,
+        *,
+        waveform: WaveformModel | None = None,
+    ) -> None:
         super().__init__(parent)
         self._service = service
+        self._waveform = waveform
         self._queue_model = PlaybackQueueModel(service, self)
         service.stateChanged.connect(self.playbackChanged.emit)
         service.trackAccessReleased.connect(self.trackAccessReleased.emit)
@@ -129,6 +137,77 @@ class PlayerModel(QObject):
     def queueModel(self) -> QObject:
         return self._queue_model
 
+    @Property(QObject, constant=True)
+    def waveformModel(self) -> QObject:
+        return self._waveform if self._waveform is not None else self
+
+    @Property(str, notify=playbackChanged)
+    def state(self) -> str:
+        return "idle"
+
+    @Property(float, notify=playbackChanged)
+    def progress(self) -> float:
+        return 0.0
+
+    @Property(str, notify=playbackChanged)
+    def error(self) -> str:
+        return ""
+
+    @Property(float, notify=playbackChanged)
+    def zoomFactor(self) -> float:
+        return 1.0
+
+    @Property(float, notify=playbackChanged)
+    def viewStart(self) -> float:
+        return 0.0
+
+    @Property(list, notify=playbackChanged)
+    def samples(self) -> list[list[float]]:
+        return []
+
+    @Property(int, notify=playbackChanged)
+    def markerA(self) -> int:
+        return -1
+
+    @Property(int, notify=playbackChanged)
+    def markerB(self) -> int:
+        return -1
+
+    @Slot()
+    def zoomIn(self) -> None:
+        if self._waveform is not None:
+            self._waveform.zoomIn()
+
+    @Slot()
+    def zoomOut(self) -> None:
+        if self._waveform is not None:
+            self._waveform.zoomOut()
+
+    @Slot(float)
+    def pan(self, delta: float) -> None:
+        if self._waveform is not None:
+            self._waveform.pan(delta)
+
+    @Slot(float)
+    def seekRatio(self, ratio: float) -> None:
+        duration = self._service.state.duration_us or 0
+        self._service.seek(round(max(0.0, min(1.0, ratio)) * duration))
+
+    @Slot()
+    def markLoopA(self) -> None:
+        if self._waveform is not None:
+            self._waveform.markLoopA()
+
+    @Slot()
+    def markLoopB(self) -> None:
+        if self._waveform is not None:
+            self._waveform.markLoopB()
+
+    @Slot()
+    def clearLoop(self) -> None:
+        if self._waveform is not None:
+            self._waveform.clearLoop()
+
     def queue_model(self) -> PlaybackQueueModel:
         return self._queue_model
 
@@ -222,7 +301,10 @@ class PlayerModel(QObject):
 
     @Slot()
     def retry(self) -> None:
-        self._service.retry()
+        if self._waveform is not None:
+            self._waveform.retry()
+        else:
+            self._service.retry()
 
     @Slot(str, result=bool)
     def stopAndRelease(self, track_id: str = "") -> bool:

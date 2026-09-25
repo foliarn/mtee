@@ -277,6 +277,87 @@ class DemoWorkspace(QObject):
         """Let shared player views bind to the same in-memory demo bridge."""
         return self
 
+    @Property(QObject, constant=True)
+    def waveformModel(self) -> QObject:
+        return self
+
+    @Property(str, notify=playbackChanged)
+    def state(self) -> str:
+        return "ready" if self._playing else "idle"
+
+    @Property(float, notify=playbackChanged)
+    def progress(self) -> float:
+        return 1.0
+
+    @Property(str, notify=playbackChanged)
+    def error(self) -> str:
+        return ""
+
+    @Property(int, notify=playbackChanged)
+    def durationUs(self) -> int:
+        return (
+            round(float(str(self._tracks[self._playing]["seconds"])) * 1_000_000)
+            if self._playing
+            else 0
+        )
+
+    @Property(float, notify=playbackChanged)
+    def zoomFactor(self) -> float:
+        return 1.0
+
+    @Property(float, notify=playbackChanged)
+    def viewStart(self) -> float:
+        return 0.0
+
+    @Property(list, notify=playbackChanged)
+    def samples(self) -> list[list[float]]:
+        return []
+
+    @Property(int, notify=playbackChanged)
+    def markerA(self) -> int:
+        return -1
+
+    @Property(int, notify=playbackChanged)
+    def markerB(self) -> int:
+        return -1
+
+    @Slot()
+    def retry(self) -> None:
+        return
+
+    @Slot()
+    def zoomIn(self) -> None:
+        return
+
+    @Slot()
+    def zoomOut(self) -> None:
+        return
+
+    @Slot(float)
+    def pan(self, _delta: float) -> None:
+        return
+
+    @Slot(float)
+    def seekRatio(self, ratio: float) -> None:
+        seconds = float(str(self._tracks[self._playing]["seconds"])) if self._playing else 0.0
+        self.seek(max(0.0, min(1.0, ratio)) * seconds)
+
+    @Slot(float)
+    def setLoopMarker(self, _ratio: float) -> None:
+        return
+
+    @Slot()
+    def clearLoop(self) -> None:
+        return
+
+    @Slot()
+    def markLoopA(self) -> None:
+        return
+
+    @Slot()
+    def markLoopB(self) -> None:
+        return
+
     @Property(bool, constant=True)
     def hasQueueModel(self) -> bool:
         return False
