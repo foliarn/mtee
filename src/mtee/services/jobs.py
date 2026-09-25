@@ -122,8 +122,16 @@ class JobService(QObject):
         self._lock = threading.RLock()
         self._statuses: dict[JobId, JobStatus] = {}
         self._contexts: dict[JobId, JobContext] = {}
+        self._hidden: set[JobId] = set()
 
-    def submit(self, task: JobTask, *, label: str = "Background task") -> JobId:
+    def submit(
+        self,
+        task: JobTask,
+        *,
+        label: str = "Background task",
+        visible: bool = True,
+        priority: int = 0,
+    ) -> JobId:
         """Queue ``task`` and return its identifier."""
         job_id = JobId.new()
         context = JobContext(job_id, self)
@@ -131,8 +139,10 @@ class JobService(QObject):
         with self._lock:
             self._statuses[job_id] = status
             self._contexts[job_id] = context
+            if not visible:
+                self._hidden.add(job_id)
         self.jobSubmitted.emit(status)
-        self._pool.start(_JobRunnable(self, context, task))
+        self._pool.start(_JobRunnable(self, context, task), priority)
         return job_id
 
     def cancel(self, job_id: JobId) -> None:
@@ -155,10 +165,17 @@ class JobService(QObject):
             raise UnknownJobError(str(job_id))
         return status
 
-    def statuses(self) -> list[JobStatus]:
-        """Return a snapshot of every known job."""
+    def is_visible(self, job_id: JobId) -> bool:
+        """Return whether the status belongs in the user's task list."""
         with self._lock:
-            return list(self._statuses.values())
+            return job_id not in self._hidden
+
+    def statuses(self) -> list[JobStatus]:
+        """Return a snapshot of user-visible jobs."""
+        with self._lock:
+            return [
+                status for job_id, status in self._statuses.items() if job_id not in self._hidden
+            ]
 
     def active_count(self) -> int:
         """Return how many jobs are neither finished nor cancelled."""

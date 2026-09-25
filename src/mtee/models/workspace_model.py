@@ -136,6 +136,7 @@ class WorkspaceModel(QObject):
         )
         self._revision = 0
         self._requests: dict[str, str] = {}
+        self._quiet_requests: set[str] = set()
         self._jobs_by_root: dict[str, str] = {}
         self._scan_counts: dict[str, int] = {}
         self._track_models: dict[str, TrackListModel] = {}
@@ -575,17 +576,25 @@ class WorkspaceModel(QObject):
 
     @Slot(str, result=str)
     def rescanRoot(self, root_id: str) -> str:
+        return self._start_root_scan(root_id, quiet=False)
+
+    def _start_root_scan(self, root_id: str, *, quiet: bool) -> str:
         root = next((item for item in self._library.roots() if item["id"] == root_id), None)
         if root is None:
             self._set_message("This folder is no longer in the library.")
             return ""
         previous_job = self._jobs_by_root.get(root_id)
         if previous_job:
+            previous_request = self._requests.get(root_id)
+            if previous_request is not None:
+                self._quiet_requests.discard(previous_request)
             with suppress(LookupError, ValueError):
                 self._jobs.cancel(JobId.parse(previous_job))
-        generation = self._library.begin_scan(root_id)
+        generation = self._library.begin_scan(root_id, show_scanning=not quiet)
         request_id = os.urandom(16).hex()
         self._requests[root_id] = request_id
+        if quiet:
+            self._quiet_requests.add(request_id)
         self._scan_counts[root_id] = 0
         self._refresh_library()
 
@@ -601,13 +610,23 @@ class WorkspaceModel(QObject):
                 ):
                     issues.extend(issue.message for issue in batch.issues)
                     self._library.upsert_folders(root_id, batch.folders, generation)
-                    records = []
+                    unchanged = self._library.unchanged_paths(
+                        root_id,
+                        [(entry.relative_path, entry.revision) for entry in batch.entries],
+                    )
+                    records: list[tuple[str, Path, Any, Any]] = []
                     for entry in batch.entries:
-                        snapshot = self._reader.read(entry.path)
+                        snapshot = (
+                            None
+                            if entry.relative_path in unchanged
+                            else self._reader.read(entry.path)
+                        )
                         records.append((entry.relative_path, entry.path, entry.revision, snapshot))
                     identities = self._library.upsert_locations(root_id, records, generation)
                     if identities or batch.folders:
-                        self.batchReady.emit(root_id, request_id, len(identities))
+                        self.batchReady.emit(
+                            root_id, request_id, sum(bool(identity) for identity in identities)
+                        )
                     if batch.complete:
                         complete = True
                     if batch.cancelled:
@@ -639,7 +658,12 @@ class WorkspaceModel(QObject):
             if cancelled:
                 raise JobCancelledError(request_id)
 
-        job_id = self._jobs.submit(task, label=f"Indexing {root['name']}")
+        job_id = self._jobs.submit(
+            task,
+            label=f"Indexing {root['name']}",
+            visible=not quiet,
+            priority=-1 if quiet else 0,
+        )
         self._jobs_by_root[root_id] = str(job_id)
         self._persist()
         return request_id
@@ -647,7 +671,7 @@ class WorkspaceModel(QObject):
     @Slot()
     def resumeRoots(self) -> None:
         for root in self._library.roots():
-            self.rescanRoot(str(root["id"]))
+            self._start_root_scan(str(root["id"]), quiet=True)
 
     @Slot(str)
     def toggleFolder(self, folder_id: str) -> None:
@@ -1235,7 +1259,8 @@ class WorkspaceModel(QObject):
         if self._requests.get(root_id) != request_id:
             return
         self._scan_counts[root_id] = self._scan_counts.get(root_id, 0) + count
-        self._set_message(f"Indexed {self._scan_counts[root_id]:,} audio files…")
+        if request_id not in self._quiet_requests:
+            self._set_message(f"Indexed {self._scan_counts[root_id]:,} audio files…")
         self._revision += 1
         self.libraryChanged.emit()
         self._refresh_timer.start()
@@ -1244,6 +1269,8 @@ class WorkspaceModel(QObject):
         if self._requests.get(root_id) != request_id:
             return
         self._requests.pop(root_id, None)
+        quiet = request_id in self._quiet_requests
+        self._quiet_requests.discard(request_id)
         self._jobs_by_root.pop(root_id, None)
         self._refresh_timer.stop()
         self._refresh_models()
@@ -1259,7 +1286,7 @@ class WorkspaceModel(QObject):
             self._set_message(
                 "Indexing did not complete. Existing references were kept; rescan to retry."
             )
-        else:
+        elif not quiet:
             self._set_message(
                 f"Folder indexing complete: {self._scan_counts.get(root_id, 0):,} audio files."
             )

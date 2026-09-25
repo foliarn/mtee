@@ -114,12 +114,16 @@ class JobsListModel(QAbstractListModel):
         return self._statuses[row]
 
     def _on_job_submitted(self, status: JobStatus) -> None:
+        if not self._service.is_visible(status.job_id):
+            return
         self.beginInsertRows(QModelIndex(), 0, 0)
         self._statuses.insert(0, status)
         self._reindex()
         self.endInsertRows()
 
     def _on_job_updated(self, status: JobStatus) -> None:
+        if not self._service.is_visible(status.job_id):
+            return
         row = self._rows_by_id.get(status.job_id)
         if row is None:
             self._on_job_submitted(status)
