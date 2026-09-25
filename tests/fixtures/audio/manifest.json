@@ -1,5 +1,26 @@
 {
   "fixture_policy": "No personal recordings or samples with unverified redistribution rights are stored in the repository. Native test fixtures are synthesized in temporary directories unless an authorized sample is recorded below.",
+  "generated_local_fixtures": {
+    "script": "scripts/create_audio_fixtures.py",
+    "runtime_manifest": "resources/native/ffmpeg/manifest.json",
+    "output_example": ".local/fixtures/07-metadata/audio",
+    "duration_seconds": 3,
+    "signal": "440 Hz sine wave, stereo, generated locally",
+    "cover_art": "cover.png is a locally generated 16x16 PNG used by metadata round-trip tests.",
+    "storage": "Audio files are local validation artifacts and are not committed.",
+    "formats": [
+      {"format": "MP3", "file": "mp3.mp3", "codec": "mp3", "rights": "Project-generated"},
+      {"format": "FLAC", "file": "flac.flac", "codec": "flac", "rights": "Project-generated"},
+      {"format": "WAV PCM", "file": "wav.wav", "codec": "pcm_s16le", "rights": "Project-generated"},
+      {"format": "AIFF PCM", "file": "aiff.aiff", "codec": "pcm_s16be", "rights": "Project-generated"},
+      {"format": "Ogg/Vorbis", "file": "vorbis.ogg", "codec": "vorbis", "rights": "Project-generated"},
+      {"format": "Opus", "file": "opus.ogg", "codec": "opus", "rights": "Project-generated"},
+      {"format": "AAC raw", "file": "aac-adts.adts", "codec": "aac", "rights": "Project-generated"},
+      {"format": "M4A/AAC", "file": "m4a-aac.m4a", "codec": "aac", "rights": "Project-generated"},
+      {"format": "M4A/ALAC", "file": "m4a-alac.m4a", "codec": "alac", "rights": "Project-generated"}
+    ],
+    "status": "Generation and ffprobe identification observed locally on 2026-09-25; metadata edit round-trip tests are part of B."
+  },
   "available_fixtures": [
     {
       "format": "WAV PCM",

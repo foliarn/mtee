@@ -20,6 +20,7 @@ Ce complément accompagne les jalons clés 07 à 10. Les étapes 11 et suivantes
 - [ ] A3 — Ajouter dates de fichiers, révélation Windows, destinations et interactions de fichiers.
 - [ ] Valider et livrer A avant le développement fonctionnel de 07.
 - [ ] B — Au début de 07, après disponibilité du runtime FFmpeg et des fixtures, étendre les adaptateurs de métadonnées et leurs capacités vérifiées.
+- [x] 2026-09-25 — Prérequis de B/07 : runtime FFmpeg x64 verrouillé dans `resources/native/ffmpeg/manifest.json`, distribution vérifiée et 9 fixtures synthétiques disponibles localement; résultats dans `docs/validation/07-conversion.md`.
 - [ ] Achever 07, puis 08 et 09 avec les contrôles de non-régression de ce document.
 - [ ] Préparer la revue 10 sur les analyses réelles et consigner la décision utilisateur.
 - [ ] C — Après cette revue, intégrer les dates aux critères typés de 10 et achever 10.
@@ -47,6 +48,8 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 2026-09-25 — A3 partiel (R08) — migration 008 crée un journal isolé des copies; les copies vérifient taille/SHA-256, gardent la source, enregistrent un nouvel UUID et n'ont pas d'Undo. Les dossiers catalogués alimentent Move to/Copy to; le presse-papiers MTEE conserve un snapshot d'UUID et le collage ouvre un aperçu, y compris avec un dossier vide actif. Les tests automatiques vérifient copie, collision et récupération temporaire. QtTest n'a pas déclenché le parcours natif Drag/Drop : le test existant valide seulement le routage direct du dépôt. A3 reste ouvert.
 
+2026-09-25 — 07/runtime et fixtures — BtbN `lgpl-shared` FFmpeg `n9.0.2-3-ga5923073bf-20260924`, archive 76 974 101 octets et SHA-256 verrouillé; ffmpeg/ffprobe et sept DLL vérifiés. Les encodeurs annoncés incluent AAC, ALAC, FLAC, MP3, Vorbis et Opus. Neuf fichiers 3 s générés sous `.local/fixtures/07/audio`, chacun identifié par ffprobe; AAC ADTS et M4A AAC sont `aac`, M4A ALAC est `alac`. Une deuxième génération destinée aux tests de métadonnées ajoute une PNG synthétique dans `.local/fixtures/07-metadata/audio`. Un build PyInstaller de test a d'abord dupliqué les DLL à la racine via son analyse PE; la copie explicite après build règle le doublonnage, conservant un seul ensemble runtime dans le répertoire interne. Paquet Windows total : 412 961 278 octets. Une copie sous `%TEMP%`, hors checkout et lancée depuis son propre dossier, a passé `MTEE.exe --smoke-test` (code 0) et régénéré les neuf fixtures avec le runtime copié. Ce n'est pas une machine Windows propre ni une recette interactive.
+
 ## Decision Log
 
 2026-09-25 — Codex — Répartir ce complément en A avant 07, B dans le début de 07 et C dans 10. B réutilise FFmpeg pour générer et vérifier des fixtures audio ; le runtime n'est pas ajouté rétroactivement aux livraisons A/B historiques. Les interfaces d'adaptateurs peuvent être préparées en A, mais les formats ne deviennent éditables qu'après leurs preuves.
@@ -63,7 +66,7 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 ## Outcomes & Retrospective
 
-Exécution en cours. A0 garde des protections de durée de vie mesurées, mais les suites intégration/UI ont de nouveau imprimé le SEH libmpv; le lien avec le crash utilisateur n'est pas prouvé et R05 reste ouvert. A1 et A2 sont testés sur fixtures; le paquet A2 a réussi 20/20 démarrages isolés. A3 est partiel : dates et Explorer (sans recette manuelle), copie hashée sur fixtures, destinations catalogue et presse-papiers sont implémentés; le paquet A3 a réussi 20/20 smoke isolés. Le drag natif, le vrai collage/clavier, l'ouverture Explorer, conversion et tests multi-panneaux restent à prouver ou raccorder. Le travail ultérieur reste B, 07, 08, 09 et revue 10 selon l'ordre demandé. Aucune collection personnelle n'a été utilisée ou modifiée.
+Exécution en cours. A0 garde des protections de durée de vie mesurées, mais les suites intégration/UI ont de nouveau imprimé le SEH libmpv; le lien avec le crash utilisateur n'est pas prouvé et R05 reste ouvert. A1 et A2 sont testés sur fixtures; le paquet A2 a réussi 20/20 démarrages isolés. A3 est partiel : dates et Explorer (sans recette manuelle), copie hashée sur fixtures, destinations catalogue et presse-papiers sont implémentés; le paquet A3 a réussi 20/20 smoke isolés. Le drag natif, le vrai collage/clavier, l'ouverture Explorer, conversion et tests multi-panneaux restent à prouver ou raccorder. Le prérequis runtime et fixtures pour B est maintenant disponible; B n'a pas encore été exécuté. Aucune collection personnelle n'a été utilisée ou modifiée.
 
 ## Ordre de travail pour la session nocturne
 

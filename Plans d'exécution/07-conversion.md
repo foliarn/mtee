@@ -18,7 +18,7 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 
 État au 2026-09-10 : plan préparé, aucun jalon de développement exécuté.
 
-- [ ] Vérifier les prérequis, les contrats existants et les binaires distribuables.
+- [x] 2026-09-25 — Vérifier les prérequis, les contrats existants et les binaires distribuables; le runtime, le paquet et les fixtures initiales sont consignés dans `docs/validation/07-conversion.md`.
 - [ ] Implémenter l'inspection et la matrice de capacités vérifiées.
 - [ ] Implémenter aperçu, réservation des noms et file limitée à deux conversions.
 - [ ] Implémenter vérification de sortie, publication sans écrasement et filiation.
@@ -26,10 +26,14 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 - [ ] Valider les erreurs, l'annulation, les copies de corpus et le paquet Windows.
 - [ ] Renseigner les preuves, créer le commit détaillé et vérifier le push.
 
+2026-09-25 — Tranche FFmpeg et fixtures du raccord 06b effectuée : runtime Windows x64 épinglé, manifesté et ajouté au paquet; neuf fixtures synthétiques locales produites et identifiées par ffprobe. Voir `docs/validation/07-conversion.md`. L'inspection complète des capacités et les conversions restent à faire.
+
 ## Surprises & Discoveries
 
 
-Aucune observation d'exécution à ce stade. Noter ici les différences entre capacités annoncées et conversions effectivement réalisables, les effets de délai d'encodage et les limites de transfert des tags. Chaque observation devra inclure une commande ou un fichier de preuve et son effet sur le plan.
+2026-09-25 — L'archive `lgpl-shared` de BtbN identifie les mêmes AAC/ALAC `.m4a` par leurs codecs réels (`aac` et `alac`); les neuf fixtures audio et l'artwork PNG synthétique sont consignés dans `.local/fixtures/07-metadata/audio/manifest.json`. Cette génération et l'inspection ffprobe ne certifient pas encore les conversions de sortie.
+
+2026-09-25 — PyInstaller copiait aussi les dépendances FFmpeg à la racine lorsqu'on déclarait les PE comme binaires ou données. Le build copie désormais les neuf fichiers runtime hashés après PyInstaller, dans un unique dossier adjacent sous `_internal/mtee/native/ffmpeg/bin`. Le paquet testé fait 412 961 278 octets au total; ce coût est visible avant toute conversion.
 
 ## Decision Log
 
@@ -40,10 +44,12 @@ Aucune observation d'exécution à ce stade. Noter ici les différences entre ca
 
 2026-09-10 — Codex — Un dérivé devient un morceau distinct identifié par son propre UUID. La filiation et la correspondance temporelle sont persistées séparément, car une sortie encodée n'a pas nécessairement la même origine temporelle que son entrée.
 
+2026-09-25 — Codex — Épingler le build BtbN Windows x64 `lgpl-shared` du 2026-09-24, FFmpeg `n9.0.2-3-ga5923073bf-20260924`. Motif : artefact daté/hashé, version de FFmpeg issue d'une branche stable, codecs audio des formats attendus, et variante annoncée sans dépendances GPL-only. La provenance et les empreintes sont dans `resources/native/ffmpeg/manifest.json`; l'audit de redistribution transitive reste ouvert.
+
 ## Outcomes & Retrospective
 
 
-Non exécuté. À compléter avec sorties produites, matrice de formats réellement validée, mesures, limites et référence du commit après son obtention. Distinguer la conversion logicielle testée de la compatibilité matérielle éventuellement non testée.
+Tranche runtime/fixtures uniquement : runtime FFmpeg/ffprobe épinglé et vérifié; 9 signaux de trois secondes générés et inspectés avec le runtime de développement puis le runtime empaqueté; paquet Windows en répertoire reconstruit et hashé, copie isolée MTEE smoke-test code 0. Aucun service de conversion, adaptateur métadonnées de B, matrice de sorties, conversion d'un lot, annulation ou recette interactive n'est encore livré. La copie du paquet (412 961 278 octets) a été lancée sur le même poste Windows, pas sur une installation propre. Les obligations de redistribution n'ont pas fait l'objet d'un audit complet.
 
 ## Contexte et prérequis
 

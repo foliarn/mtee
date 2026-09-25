@@ -6,12 +6,37 @@ stay visible, which makes a loading failure diagnosable. Set MTEE_BUILD_CONSOLE
 to 1 to obtain a build that keeps its console output for such a diagnosis.
 """
 
+import hashlib
+import json
 import os
 from pathlib import Path
 
 project_root = Path(SPECPATH).resolve().parent
 package_dir = project_root / "src" / "mtee"
 mpv_library = project_root / "vendor" / "mpv" / "libmpv-2.dll"
+ffmpeg_manifest_path = project_root / "resources" / "native" / "ffmpeg" / "manifest.json"
+if not ffmpeg_manifest_path.is_file():
+    raise SystemExit(f"The FFmpeg manifest is missing: {ffmpeg_manifest_path}")
+ffmpeg_manifest = json.loads(ffmpeg_manifest_path.read_text(encoding="utf-8"))
+ffmpeg_bin = project_root / "vendor" / "ffmpeg" / "bin"
+for entry in ffmpeg_manifest["binaries"]:
+    source = ffmpeg_bin / entry["name"]
+    if not source.is_file():
+        raise SystemExit(
+            f"The verified FFmpeg runtime is missing: {source}. "
+            "Run scripts/fetch_ffmpeg.ps1 before building the Windows distribution."
+        )
+    if source.stat().st_size != entry["size_bytes"]:
+        raise SystemExit(f"The FFmpeg runtime size does not match its manifest: {source}")
+    if hashlib.sha256(source.read_bytes()).hexdigest() != entry["sha256"]:
+        raise SystemExit(f"The FFmpeg runtime SHA-256 does not match its manifest: {source}")
+ffmpeg_license = project_root / "vendor" / "ffmpeg" / "LICENSE.txt"
+if not ffmpeg_license.is_file():
+    raise SystemExit(f"The FFmpeg license text is missing: {ffmpeg_license}")
+if ffmpeg_license.stat().st_size != ffmpeg_manifest["license"]["size_bytes"]:
+    raise SystemExit(f"The FFmpeg license size does not match its manifest: {ffmpeg_license}")
+if hashlib.sha256(ffmpeg_license.read_bytes()).hexdigest() != ffmpeg_manifest["license"]["sha256"]:
+    raise SystemExit(f"The FFmpeg license SHA-256 does not match its manifest: {ffmpeg_license}")
 if not mpv_library.is_file():
     raise SystemExit(
         f"The verified libmpv runtime is missing: {mpv_library}. "
@@ -22,6 +47,7 @@ datas = [
     (str(package_dir / "qml"), "mtee/qml"),
     (str(package_dir / "resources"), "mtee/resources"),
     (str(package_dir / "persistence" / "migrations"), "mtee/persistence/migrations"),
+    (str(ffmpeg_license), "mtee/resources"),
 ]
 
 # Modules that MTEE does not use at this step. QtMultimedia is deliberately

@@ -83,9 +83,47 @@ remplacement d'un runtime existant.
 
 ## FFmpeg et ffprobe exécutables
 
-Aucun exécutable `ffmpeg` ou `ffprobe` n'est ajouté à MTEE ou au paquet
-Windows. Le décodeur statiquement lié à libmpv fait partie du runtime du
-lecteur décrit ci-dessus et ne constitue pas un processus externe.
+Le runtime de conversion est séparé de `libmpv` : MTEE lance les outils
+épinglés par `FfmpegRuntime` depuis un chemin explicite, sans shell ni recherche
+dans `PATH`. En développement, les binaires se trouvent dans
+`vendor/ffmpeg/bin`; le paquet Windows les place sous
+`mtee/native/ffmpeg/bin`. Seuls `ffmpeg.exe`, `ffprobe.exe` et les DLL FFmpeg
+partagées sont installés. L'archive, le manifeste, les tailles et empreintes
+SHA-256 sont contrôlés par `scripts/fetch_ffmpeg.ps1` et le build Windows.
+
+| Élément | Valeur vérifiée |
+| --- | --- |
+| Fournisseur / variante | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), `win64-lgpl-shared` |
+| Release | `autobuild-2026-09-24-14-14` |
+| FFmpeg | `n9.0.2-3-ga5923073bf-20260924` |
+| Commit FFmpeg rapporté | `a5923073bf` |
+| Archive | `ffmpeg-n9.0.2-3-ga5923073bf-win64-lgpl-shared-9.0.zip` |
+| SHA-256 archive | `735bae484ba2c3342bfb34df477b9c6b0f43f9819f4d2fde011be293ee1b6517` |
+| Taille archive | 76 974 101 octets |
+| Licence indiquée par l'archive | LGPL-3.0, texte inclus dans la distribution |
+| Cible | Windows x86-64 |
+
+Le manifeste local comprend les empreintes des deux exécutables et des sept
+DLL livrées. Le binaire annonce les encodeurs natifs AAC, ALAC, FLAC et les
+encodeurs MP3, Vorbis et Opus ; cette annonce ne constitue pas encore la
+matrice complète des conversions livrées. La configuration inspectée active
+`--enable-libmp3lame`, `--enable-libvorbis`, `--enable-libopus` et
+`--enable-version3`, sans `--enable-gpl`, et désactive `libx264`/`libx265`.
+Cette lecture du binaire ne remplace pas l'audit des dépendances transitives,
+des sources correspondantes et des conditions de redistribution du build.
+
+`scripts/create_audio_fixtures.py` génère des signaux locaux de trois secondes
+pour MP3, FLAC, WAV PCM, AIFF PCM, Ogg/Vorbis, Opus, AAC/ADTS, M4A/AAC et
+M4A/ALAC, avec une petite PNG de test générée localement pour les vérifications
+de pochettes. Le manifeste de sortie est local, inclut les codecs réellement
+retournés par ffprobe et une empreinte par fichier; aucun binaire de fixture
+n'est versionné. L'AAC brut demeure non éditable si Mutagen ne peut garantir un
+aller-retour sûr.
+
+Pour ce sous-jalon, versions et probes du runtime ont été obtenus depuis les
+binaires épinglés. La recette d'édition/conversion, le démarrage d'un paquet
+Windows depuis une machine propre et l'audit complet des licences restent
+distincts et non réalisés tant qu'ils ne sont pas consignés ci-dessous.
 
 ## Renommage et déplacement Windows
 
