@@ -43,6 +43,8 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 2026-09-25 — A2 — Fixture UI de 140 WAV: deuxième passage silencieux n'a fait aucune lecture Mutagen; changement + ajout ont fait deux lectures, retrait disparu après scan complet. Un `QTest.mouseDClick` sur la ligne 84 a lancé son UUID sans fermer le dossier; la ligne d'ancrage est restée en tête après mutations, sans `modelReset` liste/arbre. Les modèles Qt sont diffés par identifiant. Une validation groupée avec `test_browser_navigation.py` a écrit `Windows fatal exception 0xe24c4a02` du thread libmpv, mais pytest a terminé 20 réussis/2 ignorés; aucune attribution causale. Le paquet A2 a aussi passé 20/20 démarrages isolés.
 
+2026-09-25 — A3 partiel (R06/R13) — migration 007, collecte UTC en ns, colonnes masquées Date created/Date modified, Info et demande d'ouverture Explorer via argument structuré implémentés. Suite ciblée 22/22, Ruff/formateur/pyright propres; paquet 2,27 Mo, hash libmpv vérifié, 20/20 smoke isolés. Copy, mise à jour après conversion, choix de destination et geste de déplacement restent à implémenter; Explorer jamais vérifié manuellement. A3 non clos.
+
 ## Decision Log
 
 2026-09-25 — Codex — Répartir ce complément en A avant 07, B dans le début de 07 et C dans 10. B réutilise FFmpeg pour générer et vérifier des fixtures audio ; le runtime n'est pas ajouté rétroactivement aux livraisons A/B historiques. Les interfaces d'adaptateurs peuvent être préparées en A, mais les formats ne deviennent éditables qu'après leurs preuves.

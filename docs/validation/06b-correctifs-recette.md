@@ -12,6 +12,9 @@ retour utilisateur a été réfuté. Les traces brutes restent sous
 - `uv sync --locked` : réussi.
 - Distribution A0 : build réussi avec PyInstaller 6.22.2 ; EXE de 2,26 Mo ;
   le manifeste de libmpv et le hash DLL ont été validés par le script de build.
+- A3 dates/Explorer: build PyInstaller réussi (2,27 Mo), empreinte libmpv
+  vérifiée, puis 20/20 smoke isolés de l'EXE réussis. La recette UI Explorer
+  reste à faire.
 - Les modifications préexistantes à `.gitignore`, `AGENTS.md` et `.codex/`
   sont étrangères à ce rapport et ne sont pas indexées.
 
@@ -24,14 +27,14 @@ retour utilisateur a été réfuté. Les traces brutes restent sous
 | R03 | Confirmé dans les sources | Non | Non | Non | Adaptateur actuellement WAV seulement selon `docs/validation/05-metadonnees.md`; B après runtime FFmpeg. |
 | R04 | Confirmé dans les sources | Oui | Formatter testé; donnée brute conservée | Non | Affichage `kbps` arrondi et valeur inconnue lisible. |
 | R05 | Reproduit partiellement | Partiel | 20/20 smoke EXE; suites combinées intermittentes | Recette Windows interactive non faite | Le harnais a observé deux sorties `0xC0000005` sur 20 cycles Python avant A0 (cycles 14 et 19), puis 0/20 après et 0/20 sur l'EXE reconstruit en A1. Cependant, une suite intégration + UI a ensuite produit `Windows fatal exception 0xe24c4a02` dans le thread libmpv puis un accès mémoire fautif en teardown pytest-qt; les tests d'intégration seuls réussissent 25/25. Cela laisse une hypothèse de crash native ouverte, sans lien causal établi avec les événements `qwindows.dll` de l'Event Log. A0 apporte des protections de durée de vie, pas un correctif causal prouvé. |
-| R06 | Confirmé dans les sources | Non | Non | Non | mtime existe, date de création et colonnes absentes; A3 puis C. |
+| R06 | Confirmé dans les sources | Partiel | Dates unitaires, migration et lecture catalogue testées | Recette Windows UI non faite | Migration 007 stocke les dates en ns UTC, sans ctime de repli; colonnes Date created/Date modified et Info sont raccordés. Copy et conversion restent à raccorder; filtres dates réservés à C. |
 | R07 | Reproduit le 2026-09-25 dans un moteur QML offscreen | Oui | Menu d'Album réel, en-tête affiché; tests ciblés | Recette interactive non faite | `Array.from` normalise les séquences Qt et le choix met à jour les colonnes. Le test ne couvre pas encore toutes les colonnes, leur réordre, largeur et redémarrage. |
 | R08 | Confirmé dans les sources, geste réel non reproduit | Non | Non | Non | Les opérations existantes couvrent seulement une partie des parcours; A3. |
 | R09 | Confirmé dans les sources | Oui | Tests d'initialisation et persistance du workspace | Recette audio Windows non faite | L'îlot apparaît par défaut; le choix false est conservé après réouverture. |
 | R10 | Hypothèse statique | Partiel | Test UI franchit Play ↔ Info, clic Play unique | Recette DPI Windows non faite | Le `HoverHandler` de ligne garde les actions visibles pendant les passages simulés. Le scintillement de la recette n'a pas été observé manuellement sur Windows. |
 | R11 | Confirmé dans les sources | Oui | Binding aux données du morceau joué; provider d'artwork testé séparément | A/B/C avec images distinctes non fait | Les deux lecteurs utilisent `playingTrack.coverUrl`, non la sélection de l'inspecteur. Le scénario rapide avec fichiers et retours périmés reste à recetter. |
 | R12 | Confirmé dans les sources | Non | Non | Non | Motif générique du seul adaptateur WAV; B. |
-| R13 | Confirmé dans les sources | Non | Non | Non | Menu navigue dans MTEE au lieu d'appeler Windows Explorer; A3. |
+| R13 | Confirmé dans les sources | Partiel | Adaptateur vérifié avec chemin accentué, espace, virgule et apostrophe; fixture manquante refusée | Ouverture Explorer réelle non recettée | Le menu transmet maintenant l'UUID au modèle; Windows reçoit un vecteur d'arguments sans shell. Succès indique la demande envoyée, pas la sélection confirmée par Explorer. |
 | R14 | Reproduit dans fixture UI | Oui | Double-clic réel QTest sur la ligne 84/140; morceau actif, dossier inchangé, ancre conservée pendant modification/ajout/suppression | Recette interactive à un pixel, 2 panneaux et plein écran non faite | La ligne et l'arbre n'émettent pas de reset complet; les changements structurels utilisent les signaux Qt incrémentaux. |
 
 ## A0 — Diagnostic natif et fermeture

@@ -112,6 +112,7 @@ class MetadataHistoryRepository:
         with self._database.transaction() as connection:
             cursor = connection.execute(
                 "UPDATE track_locations SET size_bytes=?,mtime_ns=?,file_id=?,generation=?,"
+                "file_modified_at_ns=?,"
                 "duration_us=?,status=?,metadata_json=? WHERE track_id=? AND path_key=? "
                 "AND size_bytes=? AND mtime_ns=? AND file_id IS ? AND generation=?",
                 (
@@ -119,6 +120,7 @@ class MetadataHistoryRepository:
                     new_revision.mtime_ns,
                     new_revision.file_id,
                     new_revision.generation,
+                    new_revision.mtime_ns,
                     snapshot.technical.duration_us,
                     snapshot.status,
                     encoded,

@@ -40,10 +40,7 @@ AppMenu {
 
     AppMenuItem {
         text: "Show in Explorer"
-        onTriggered: {
-            menu.workspace.setActivity("explorer")
-            menu.workspace.openFolder(menu.folderId)
-        }
+        onTriggered: menu.workspace.showInExplorer(menu.trackId)
     }
 
     AppMenuSeparator {}

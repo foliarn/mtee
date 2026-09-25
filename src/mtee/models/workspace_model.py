@@ -23,6 +23,7 @@ from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.services.jobs import JobContext, JobService
 from mtee.services.library_scanner import LibraryScanner
 from mtee.services.metadata_reader import MetadataReader
+from mtee.services.platform.shell_reveal import WindowsShellReveal
 
 __all__ = ["WorkspaceModel"]
 
@@ -38,6 +39,8 @@ _SORT_KEYS = {
     "format",
     "bitrate",
     "filename",
+    "fileCreatedAt",
+    "fileModifiedAt",
 }
 _COLUMN_KEYS = set(_SORT_KEYS) - {"index"}
 _DEFAULT_COLUMN_ORDER = [
@@ -51,8 +54,18 @@ _DEFAULT_COLUMN_ORDER = [
     "format",
     "filename",
     "bitrate",
+    "fileCreatedAt",
+    "fileModifiedAt",
 ]
-_DEFAULT_HIDDEN_COLUMNS = ["album", "duration", "format", "filename", "bitrate"]
+_DEFAULT_HIDDEN_COLUMNS = [
+    "album",
+    "duration",
+    "format",
+    "filename",
+    "bitrate",
+    "fileCreatedAt",
+    "fileModifiedAt",
+]
 _DEFAULT_COLUMN_WIDTHS = {
     "title": 0,
     "artist": 150,
@@ -64,6 +77,8 @@ _DEFAULT_COLUMN_WIDTHS = {
     "format": 72,
     "filename": 180,
     "bitrate": 78,
+    "fileCreatedAt": 155,
+    "fileModifiedAt": 155,
 }
 _ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins", "profile"}
 
@@ -101,6 +116,7 @@ class WorkspaceModel(QObject):
         self._file_operations: FileOperationModel | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
+        self._shell_reveal = WindowsShellReveal()
         self._state = session.load()
         self._expanded = set(self._state.get("expanded", []))
         self._groups = self._restore_groups(self._state.get("groups", []))
@@ -403,6 +419,8 @@ class WorkspaceModel(QObject):
             ("Bitrate", "bitrateText"),
             ("Sample rate", "sampleRate"),
             ("Size", "size"),
+            ("Date created", "fileCreatedAtText"),
+            ("Date modified", "fileModifiedAtText"),
             ("Filename", "filename"),
             ("Path", "path"),
             ("Status", "status"),
@@ -422,6 +440,20 @@ class WorkspaceModel(QObject):
     @Slot(str, result=dict)
     def track(self, track_id: str) -> dict[str, Any]:
         return self._library.track(track_id)
+
+    @Slot(str)
+    def showInExplorer(self, track_id: str) -> None:
+        """Ask Windows Explorer to select the track's current source file."""
+        source = self._library.source_record(track_id)
+        if source is None:
+            self._set_message("This file is no longer in the library.")
+            return
+        try:
+            self._shell_reveal.reveal(source.path)
+        except (OSError, RuntimeError, ValueError) as error:
+            self._set_message(f"Could not open this file in Windows Explorer: {error}")
+            return
+        self._set_message("Asked Windows Explorer to show this file.")
 
     @Slot(int, int, list, str, result=bool)
     def previewMoveBetweenGroups(
@@ -1377,7 +1409,11 @@ def _local_path(value: str) -> str:
 def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[dict[str, Any]]:
     if key not in _SORT_KEYS or key == "index":
         return list(rows)
-    field = "seconds" if key == "duration" else key
+    field = {
+        "duration": "seconds",
+        "fileCreatedAt": "fileCreatedAtNs",
+        "fileModifiedAt": "fileModifiedAtNs",
+    }.get(key, key)
     present = []
     missing = []
     for row in rows:
@@ -1387,7 +1423,9 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
             continue
         try:
             sort_value: object = (
-                float(value) if field in {"bpm", "seconds", "bitrate"} else str(value).casefold()
+                float(value)
+                if field in {"bpm", "seconds", "bitrate", "fileCreatedAtNs", "fileModifiedAtNs"}
+                else str(value).casefold()
             )
         except (TypeError, ValueError):
             sort_value = str(value).casefold()

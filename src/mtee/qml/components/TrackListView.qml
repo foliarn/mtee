@@ -27,17 +27,17 @@ FocusScope {
         const gap = width < 600 ? 10 : 16
         const number = 28
         const actions = width < 600 ? 36 : 64
-        const liveDefaults = ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename", "bitrate"]
+        const liveDefaults = ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename", "bitrate", "fileCreatedAt", "fileModifiedAt"]
         const demoDefaults = ["title", "album", "genre", "bpm", "key", "duration"]
         const defaults = view.modelBacked ? liveDefaults : demoDefaults
-        const labels = ({ title: "Title", artist: "Artist", album: "Album", genre: "Genre", bpm: "BPM", key: "Key", duration: "Duration", format: "Format", filename: "Filename", bitrate: "Bitrate" })
-        const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180, bitrate: 78 })
+        const labels = ({ title: "Title", artist: "Artist", album: "Album", genre: "Genre", bpm: "BPM", key: "Key", duration: "Duration", format: "Format", filename: "Filename", bitrate: "Bitrate", fileCreatedAt: "Date created", fileModifiedAt: "Date modified" })
+        const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180, bitrate: 78, fileCreatedAt: 155, fileModifiedAt: 155 })
         const configuredOrder = tab.columnOrder !== undefined && tab.columnOrder !== null
             ? Array.from(tab.columnOrder) : defaults
         const order = configuredOrder.filter((key, index) => defaults.indexOf(key) >= 0 && configuredOrder.indexOf(key) === index)
         const hidden = view.modelBacked
             ? (tab.hiddenColumns !== undefined && tab.hiddenColumns !== null
-                ? Array.from(tab.hiddenColumns) : ["album", "duration", "format", "filename", "bitrate"])
+                ? Array.from(tab.hiddenColumns) : ["album", "duration", "format", "filename", "bitrate", "fileCreatedAt", "fileModifiedAt"])
             : []
         let keys = order.filter((key) => key === "title" || hidden.indexOf(key) < 0)
         if (keys.indexOf("title") < 0)
