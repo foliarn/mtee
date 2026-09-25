@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.Basic
 import Mtee
 
 AppMenu {
@@ -27,6 +28,47 @@ AppMenu {
     AppMenuItem {
         text: "Move…"
         onTriggered: menu.workspace.fileOperations.openOperation("move", "", menu.trackIds)
+    }
+
+    Menu {
+        id: moveToMenu
+        title: "Move to"
+        Instantiator {
+            model: menu.workspace.destinationFolders
+            delegate: AppMenuItem {
+                required property var modelData
+                text: modelData.label
+                enabled: modelData.available
+                onTriggered: menu.workspace.fileOperations.openOperation(
+                    "move", modelData.path, menu.trackIds
+                )
+            }
+            onObjectAdded: (index, object) => moveToMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => moveToMenu.removeItem(object)
+        }
+    }
+
+    AppMenuItem {
+        text: "Copy to…"
+        onTriggered: menu.workspace.fileOperations.openOperation("copy", "", menu.trackIds)
+    }
+
+    Menu {
+        id: copyToMenu
+        title: "Copy to"
+        Instantiator {
+            model: menu.workspace.destinationFolders
+            delegate: AppMenuItem {
+                required property var modelData
+                text: modelData.label
+                enabled: modelData.available
+                onTriggered: menu.workspace.fileOperations.openOperation(
+                    "copy", modelData.path, menu.trackIds
+                )
+            }
+            onObjectAdded: (index, object) => copyToMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => copyToMenu.removeItem(object)
+        }
     }
 
     AppMenuSeparator {}

@@ -316,6 +316,7 @@ class FileOperationModel(QObject):
                     "error": str(operation.get("error", "")),
                     "canCompleteDestination": (
                         operation.get("recovery_situation") == "destination_present"
+                        and operation.get("kind") != "copy"
                         and operation.get("undo_of") is None
                     ),
                 }
@@ -435,7 +436,8 @@ class FileOperationModel(QObject):
             if completed and original_id in self._undo_ids:
                 self._undo_ids.remove(original_id)
         else:
-            self._undo_ids.extend(completed)
+            if self._kind != "copy":
+                self._undo_ids.extend(completed)
         has_recovery = any(
             isinstance(result, FileOperationResult) and result.status == "recovery"
             for result in results

@@ -15,6 +15,7 @@ Dialog {
     anchors.centerIn: parent
     title: operations.kind === "rename" ? "Rename audio file"
         : operations.kind === "move" ? "Move audio files"
+        : operations.kind === "copy" ? "Copy audio files"
         : "Move to trash"
     standardButtons: Dialog.NoButton
 
@@ -41,6 +42,8 @@ Dialog {
                 ? "The audio extension is kept. MTEE checks the destination again before moving the file."
                 : dialog.operations.kind === "move"
                     ? "Moves stay inside a registered library root. Cross-volume copies are verified before the source is removed; existing files are never replaced."
+                    : dialog.operations.kind === "copy"
+                        ? "Copies stay inside a registered library root. MTEE verifies every byte and creates a separate library track; the source is kept and existing files are never replaced."
                     : "Move to trash is disabled until Windows recycle and restore behavior passes native validation."
             wrapMode: Text.Wrap
             color: dialog.operations.kind === "trash" ? Theme.danger : Theme.textSecondary
@@ -51,7 +54,7 @@ Dialog {
         Row {
             width: parent.width
             spacing: 8
-            visible: dialog.operations.kind === "rename" || dialog.operations.kind === "move"
+            visible: dialog.operations.kind === "rename" || dialog.operations.kind === "move" || dialog.operations.kind === "copy"
 
             TextField {
                 id: targetField
@@ -72,7 +75,7 @@ Dialog {
 
             TextButton {
                 id: chooseFolder
-                visible: dialog.operations.kind === "move"
+                visible: dialog.operations.kind === "move" || dialog.operations.kind === "copy"
                 kind: "neutral"
                 text: "Choose…"
                 enabledAction: dialog.operations.state !== "running"
@@ -297,7 +300,8 @@ Dialog {
                 visible: dialog.operations.state === "preview"
                 kind: "primary"
                 text: dialog.operations.kind === "rename" ? "Rename"
-                    : dialog.operations.kind === "move" ? "Move" : "Unavailable"
+                    : dialog.operations.kind === "move" ? "Move"
+                    : dialog.operations.kind === "copy" ? "Copy" : "Unavailable"
                 enabledAction: dialog.operations.canExecute
                 onClicked: dialog.operations.execute()
             }

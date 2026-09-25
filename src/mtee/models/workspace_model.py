@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
+from mtee.models.file_clipboard_model import FileClipboardModel
 from mtee.models.file_operation_model import FileOperationModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
@@ -114,6 +115,8 @@ class WorkspaceModel(QObject):
         self._player = player
         self._metadata_editor: MetadataEditorModel | None = None
         self._file_operations: FileOperationModel | None = None
+        self._file_clipboard = FileClipboardModel(self)
+        self._clipboard_paste_pending: list[str] = []
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._shell_reveal = WindowsShellReveal()
@@ -383,6 +386,30 @@ class WorkspaceModel(QObject):
     def fileOperations(self) -> QObject:
         return self._file_operations if self._file_operations is not None else self
 
+    @Property(QObject, constant=True)
+    def fileClipboard(self) -> QObject:
+        return self._file_clipboard
+
+    @Property(list, notify=libraryChanged)
+    def destinationFolders(self) -> list[dict[str, str]]:
+        options: list[dict[str, Any]] = []
+        for root in self._library.roots():
+            root_path = Path(str(root["path"]))
+            for relative in self._library.folders(str(root["id"])):
+                target = (
+                    root_path.joinpath(*PurePosixPath(relative).parts) if relative else root_path
+                )
+                suffix = relative.replace("/", " > ") or "Root folder"
+                options.append(
+                    {
+                        "rootId": str(root["id"]),
+                        "path": str(target),
+                        "available": str(root["availability"]) == "available",
+                        "label": f"{root['name']} ({root_path}) > {suffix}",
+                    }
+                )
+        return options
+
     @Property(list, notify=selectionChanged)
     def infoFieldsReadOnly(self) -> list[dict[str, str]]:
         ids = self.selected_ids_snapshot()
@@ -511,8 +538,50 @@ class WorkspaceModel(QObject):
         if recovered:
             self._on_file_recovery_checked(recovered)
 
+    @Slot(str, result=bool)
+    def pasteFilesIntoFolder(self, folder_id: str) -> bool:
+        """Open the preview for a clipboard snapshot in an active catalog folder."""
+        if self._file_operations is None or not self._file_clipboard.trackIds:
+            self._set_message(
+                "The clipboard has no MTEE track references. Copy or cut tracks in MTEE first."
+            )
+            return False
+        folder = _parse_folder_id(folder_id)
+        if folder is None:
+            self._set_message("Paste files into a library folder.")
+            return False
+        root_id, relative = folder
+        root = next((item for item in self._library.roots() if item["id"] == root_id), None)
+        if root is None:
+            self._set_message("The destination library folder is no longer available.")
+            return False
+        destination = Path(str(root["path"])).joinpath(*PurePosixPath(relative).parts)
+        if not destination.is_dir():
+            self._set_message("The destination folder is unavailable; choose another folder.")
+            return False
+        mode = self._file_clipboard.mode
+        track_ids = cast(list[str], self._file_clipboard.trackIds)
+        if self._file_operations.openOperation(mode, str(destination), track_ids):
+            self._clipboard_paste_pending = track_ids if mode == "move" else []
+            return True
+        return False
+
     @Slot()
     def _on_file_operation_finished(self) -> None:
+        if (
+            self._file_operations is not None
+            and self._file_operations.kind == "move"
+            and self._clipboard_paste_pending
+        ):
+            completed = [
+                str(result.get("trackId", ""))
+                for result in cast(list[dict[str, Any]], self._file_operations.results)
+                if result.get("status") == "completed"
+                and str(result.get("trackId", "")) in self._clipboard_paste_pending
+            ]
+            if completed:
+                self._file_clipboard.removeCompleted(completed)
+            self._clipboard_paste_pending = []
         self._refresh_library()
         if self._metadata_editor is not None:
             self._metadata_editor.refresh_selection()
@@ -1423,8 +1492,10 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
             continue
         try:
             sort_value: object = (
-                float(value)
-                if field in {"bpm", "seconds", "bitrate", "fileCreatedAtNs", "fileModifiedAtNs"}
+                int(value)
+                if field in {"fileCreatedAtNs", "fileModifiedAtNs"}
+                else float(value)
+                if field in {"bpm", "seconds", "bitrate"}
                 else str(value).casefold()
             )
         except (TypeError, ValueError):

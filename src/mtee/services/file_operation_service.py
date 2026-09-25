@@ -1,4 +1,4 @@
-"""Previewed, no-overwrite renames and verified file moves."""
+"""Previewed, no-overwrite renames, moves, and verified copies."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ class FileOperationService:
         self, kind: str, track_ids: list[str] | tuple[str, ...], destination_or_name: str
     ) -> FileOperationPreview:
         preview_id = str(uuid.uuid4())
-        if kind not in {"rename", "move", "trash"}:
+        if kind not in {"rename", "move", "copy", "trash"}:
             return FileOperationPreview(
                 preview_id,
                 kind,
@@ -105,10 +105,22 @@ class FileOperationService:
                 target.source,
                 target.destination,
             )
+        action = {
+            "copy": "copying",
+            "move": "moving",
+            "undo_move": "moving",
+            "rename": "renaming",
+        }.get(kind, "changing")
         try:
             with self._file_access.acquire(
-                _track_id(target.track_id), "file move", timeout_seconds=0
+                _track_id(target.track_id), f"file {kind}", timeout_seconds=0
             ):
+                if kind == "copy":
+                    return self._execute_copy_locked(
+                        target,
+                        is_cancelled=is_cancelled or (lambda: False),
+                        report_progress=report_progress or (lambda _copied, _total: None),
+                    )
                 return self._execute_locked(
                     kind,
                     target,
@@ -121,7 +133,7 @@ class FileOperationService:
                 target.track_id,
                 "",
                 "busy",
-                "The file is in use. Stop playback or wait before moving it.",
+                f"The file is in use. Stop playback or wait before {action} it.",
                 target.source,
                 target.destination,
             )
@@ -255,6 +267,36 @@ class FileOperationService:
                     "source_state": source_state,
                     "destination_state": destination_state,
                     "recovery_state": recovery_state,
+                    "recovery_situation": situation,
+                }
+            )
+        for operation in self._history.incomplete_copies():
+            source = Path(str(operation["source_path"]))
+            destination = Path(str(operation["destination_path"]))
+            temporary = Path(str(operation["temporary_path"]))
+            expected_size = int(operation["expected_size_bytes"])
+            expected_hash = str(operation["source_sha256"])
+            source_state = _hash_path_state(source, expected_hash, expected_size)
+            destination_state = _hash_path_state(destination, expected_hash, expected_size)
+            temporary_state = _hash_path_state(temporary, expected_hash, expected_size)
+            situation = (
+                "verified_copy_published"
+                if destination_state == "matches"
+                else "verified_temporary_copy"
+                if temporary_state == "matches"
+                else "source_present"
+                if source_state == "matches"
+                else "inspect_paths"
+            )
+            results.append(
+                {
+                    **operation,
+                    "kind": "copy",
+                    "track_id": str(operation["source_track_id"]),
+                    "recovery_path": str(temporary),
+                    "source_state": source_state,
+                    "destination_state": destination_state,
+                    "recovery_state": temporary_state,
                     "recovery_situation": situation,
                 }
             )
@@ -408,8 +450,9 @@ class FileOperationService:
                 "Move to trash is disabled until strict Windows recycling is verified.",
             )
         if source.status != "readable" or source.path.is_symlink() or not source.path.is_file():
+            action = {"copy": "copied", "move": "moved", "rename": "renamed"}.get(kind, "changed")
             return _blocked(
-                track_id, source.path, source.path, "Only readable regular files can be moved."
+                track_id, source.path, source.path, f"Only readable regular files can be {action}."
             )
         if kind == "rename":
             destination, name_error = _renamed_path(source.path, destination_or_name)
@@ -491,6 +534,130 @@ class FileOperationService:
                 "This path is too long for the verified Windows move adapter.",
             )
         return FileOperationTarget(track_id, source, final, revision)
+
+    def _execute_copy_locked(
+        self,
+        target: FileOperationTarget,
+        *,
+        is_cancelled: Callable[[], bool],
+        report_progress: Callable[[int, int], None],
+    ) -> FileOperationResult:
+        if is_cancelled():
+            return _result(target, "cancelled", "The copy was cancelled before it started.")
+        source_record = self._library.source_record(target.track_id)
+        if source_record is None:
+            return _result(target, "conflict", "The track is no longer in the library.")
+        if source_record.path.resolve(strict=False) != target.source.resolve(
+            strict=False
+        ) or not source_record.revision.matches(target.revision):
+            return _result(target, "conflict", "The track moved or changed after the preview.")
+        refreshed = self._preflight_destination(
+            target.track_id, source_record.path, target.destination, source_record.revision
+        )
+        if refreshed.status != "ready":
+            return _result(target, refreshed.status, refreshed.message)
+        try:
+            source_hash = sha256_of_file(source_record.path)
+            if not source_record.revision.matches(
+                SourceRevision.observe(
+                    source_record.path, generation=source_record.revision.generation
+                )
+            ):
+                return _result(target, "conflict", "The source changed during verification.")
+        except OSError as error:
+            return _result(target, "conflict", f"Could not verify the source: {error}")
+
+        operation_id = str(uuid.uuid4())
+        temporary = refreshed.destination.with_name(f".mtee-copy-{operation_id}.tmp")
+        journal_created = False
+        try:
+            self._history.create_copy(
+                operation_id=operation_id,
+                target=refreshed,
+                temporary=temporary,
+                source_sha256=source_hash,
+            )
+            journal_created = True
+            copy_method = getattr(self._platform, "copy_no_replace", None)
+            if copy_method is None:
+                raise FileOperationNativeError(
+                    "This platform adapter does not support verified copy."
+                )
+            copy_method(
+                refreshed.source,
+                temporary,
+                refreshed.destination,
+                expected_revision=source_record.revision,
+                expected_sha256=source_hash,
+                is_cancelled=is_cancelled,
+                report_progress=report_progress,
+            )
+            if sha256_of_file(refreshed.destination) != source_hash:
+                raise FileOperationRecoveryError(
+                    "The destination bytes differ from the source.", None, phase="published"
+                )
+            metadata = self._reader.read(refreshed.destination)
+            if metadata.status != "readable":
+                raise ValueError("The copied file cannot be read at its new path.")
+            result_revision = SourceRevision.observe(refreshed.destination)
+            copied_track_id = self._history.complete_copy(
+                operation_id=operation_id,
+                destination=refreshed.destination,
+                result_revision=result_revision,
+                metadata=metadata,
+            )
+            return FileOperationResult(
+                target.track_id,
+                operation_id,
+                "completed",
+                f"Created a separate library track ({copied_track_id}).",
+                refreshed.source,
+                refreshed.destination,
+                result_revision,
+            )
+        except FileOperationCancelledError as error:
+            if journal_created:
+                self._history.set_copy_status(operation_id, "failed", error=str(error))
+            return FileOperationResult(
+                target.track_id,
+                operation_id,
+                "cancelled",
+                str(error),
+                target.source,
+                target.destination,
+            )
+        except (FileOperationRecoveryError, FileOperationNativeError) as error:
+            needs_recovery = temporary.exists() or refreshed.destination.exists()
+            if journal_created:
+                self._history.set_copy_status(
+                    operation_id,
+                    "needs_recovery" if needs_recovery else "failed",
+                    error=str(error),
+                )
+            return FileOperationResult(
+                target.track_id,
+                operation_id,
+                "recovery" if journal_created and needs_recovery else "failed",
+                f"The source was retained; inspect the copy paths: {error}",
+                refreshed.source,
+                refreshed.destination,
+            )
+        except Exception as error:
+            needs_recovery = temporary.exists() or refreshed.destination.exists()
+            if journal_created:
+                self._history.set_copy_status(
+                    operation_id,
+                    "needs_recovery" if needs_recovery else "failed",
+                    error=str(error),
+                )
+            return FileOperationResult(
+                target.track_id,
+                operation_id,
+                "recovery" if journal_created and needs_recovery else "failed",
+                f"The source was retained; inspect the copy paths: {error}",
+                refreshed.source,
+                refreshed.destination,
+            )
 
     def _execute_locked(
         self,
@@ -784,6 +951,17 @@ def _hash_or_empty(path: Path) -> str:
         return sha256_of_file(path) if path.is_file() and not path.is_symlink() else ""
     except OSError:
         return ""
+
+
+def _hash_path_state(path: Path, expected_sha256: str, expected_size: int) -> str:
+    if path.is_symlink() or not path.is_file():
+        return "missing"
+    try:
+        if path.stat().st_size != expected_size or sha256_of_file(path) != expected_sha256:
+            return "changed"
+    except OSError:
+        return "unreadable"
+    return "matches"
 
 
 def _journal_path_state(

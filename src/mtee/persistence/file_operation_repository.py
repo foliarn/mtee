@@ -60,6 +60,72 @@ class FileOperationRepository:
                 ),
             )
 
+    def create_copy(
+        self,
+        *,
+        operation_id: str,
+        target: FileOperationTarget,
+        temporary: Path,
+        source_sha256: str,
+    ) -> None:
+        revision = target.revision
+        now = now_utc()
+        with self._database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO file_copy_operations(operation_id,source_track_id,source_path,"
+                "destination_path,temporary_path,source_sha256,expected_size_bytes,"
+                "expected_mtime_ns,expected_file_id,expected_generation,status,created_at_utc,"
+                "updated_at_utc) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared',?,?)",
+                (
+                    operation_id,
+                    target.track_id,
+                    str(target.source),
+                    str(target.destination),
+                    str(temporary),
+                    source_sha256,
+                    revision.size_bytes,
+                    revision.mtime_ns,
+                    revision.file_id,
+                    revision.generation,
+                    now,
+                    now,
+                ),
+            )
+
+    def complete_copy(
+        self,
+        *,
+        operation_id: str,
+        destination: Path,
+        result_revision: SourceRevision,
+        metadata: MetadataSnapshot,
+    ) -> str:
+        with self._database.transaction() as connection:
+            copied_track_id = self._library.copy_location_in_transaction(
+                connection,
+                destination=destination,
+                revision=result_revision,
+                metadata=metadata,
+            )
+            changed = connection.execute(
+                "UPDATE file_copy_operations SET copied_track_id=?,status='completed',"
+                "updated_at_utc=? WHERE operation_id=? AND status='prepared'",
+                (copied_track_id, now_utc(), operation_id),
+            ).rowcount
+            if changed != 1:
+                raise FileOperationJournalConflictError("The copy journal is no longer prepared.")
+        return copied_track_id
+
+    def set_copy_status(self, operation_id: str, status: str, *, error: str = "") -> None:
+        with self._database.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE file_copy_operations SET status=?,error=?,updated_at_utc=? "
+                "WHERE operation_id=?",
+                (status, error, now_utc(), operation_id),
+            ).rowcount
+            if changed != 1:
+                raise KeyError(f"Unknown file copy: {operation_id}")
+
     def set_status(
         self,
         operation_id: str,
@@ -209,6 +275,13 @@ class FileOperationRepository:
     def incomplete(self) -> list[dict[str, Any]]:
         rows = self._database.connection().execute(
             "SELECT * FROM file_operations WHERE status IN ('prepared','needs_recovery') "
+            "ORDER BY created_at_utc"
+        )
+        return [dict(row) for row in rows]
+
+    def incomplete_copies(self) -> list[dict[str, Any]]:
+        rows = self._database.connection().execute(
+            "SELECT * FROM file_copy_operations WHERE status IN ('prepared','needs_recovery') "
             "ORDER BY created_at_utc"
         )
         return [dict(row) for row in rows]
