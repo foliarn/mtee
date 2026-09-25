@@ -24,7 +24,7 @@ La représentation est un aperçu amplitude/temps, avec enveloppes minimales et 
 - [x] Ajouter zoom, navigation, repères A/B et commandes accessibles au clavier.
 - [x] Vérifier cache/révision, annulation par changement de piste, et restauration de la vue par les tests.
 - [x] Tester le paquet Windows et consigner les contrôles automatisés.
-- [x] Terminer le relevé long; le commit détaillé et sa présence sur origin/main restent à faire.
+- [x] Terminer le relevé long; commit `611877d` poussé sur `origin/main` le 2026-09-25.
 
 ## Surprises & Discoveries
 

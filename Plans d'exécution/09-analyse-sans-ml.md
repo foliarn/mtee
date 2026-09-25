@@ -25,7 +25,7 @@ La première livraison présente des mesures techniques, silences, loudness int�
 - [x] Livrer estimation de tonalité et confirmation manuelle séparée.
 - [x] Vérifier persistance, annulation, obsolescence, réanalyse et migration.
 - [x] Produire les preuves et tester le paquet Windows copié.
-- [ ] Committer le jalon et confirmer son push sur `origin/main`.
+- [x] Commits `625dc0b` (analyse) et `8cc8f25` (notices Windows) poussés sur `origin/main` le 2026-09-25.
 
 ## Surprises & Discoveries
 
