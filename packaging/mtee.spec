@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller specification of the Windows distribution.
+"""PyInstaller specification of the single-file Windows distribution.
 
-The build is a directory: the QML resources, the migrations and the Qt plugins
-stay visible, which makes a loading failure diagnosable. Set MTEE_BUILD_CONSOLE
-to 1 to obtain a build that keeps its console output for such a diagnosis.
+The QML resources and native runtimes are embedded in MTEE.exe and extracted
+into PyInstaller's temporary bundle directory while the application runs. Set
+MTEE_BUILD_CONSOLE to 1 for a diagnostic build that keeps its console.
 """
 
 import hashlib
@@ -49,6 +49,10 @@ datas = [
     (str(package_dir / "persistence" / "migrations"), "mtee/persistence/migrations"),
     (str(ffmpeg_license), "mtee/resources"),
 ]
+ffmpeg_binaries = [
+    (str(ffmpeg_bin / entry["name"]), "mtee/native/ffmpeg/bin")
+    for entry in ffmpeg_manifest["binaries"]
+]
 
 # Modules that MTEE does not use at this step. QtMultimedia is deliberately
 # absent: the playback of the next step uses libmpv, not the Qt player.
@@ -78,7 +82,7 @@ keep_console = os.environ.get("MTEE_BUILD_CONSOLE", "0") == "1"
 analysis = Analysis(
     [str(package_dir / "__main__.py")],
     pathex=[str(project_root / "src")],
-    binaries=[(str(mpv_library), "mtee/native/mpv")],
+    binaries=[(str(mpv_library), "mtee/native/mpv"), *ffmpeg_binaries],
     datas=datas,
     hiddenimports=["mtee.app"],
     hookspath=[],
@@ -94,8 +98,10 @@ pyz = PYZ(analysis.pure)
 exe = EXE(
     pyz,
     analysis.scripts,
+    analysis.binaries,
+    analysis.datas,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,
     name="MTEE",
     debug=False,
     bootloader_ignore_signals=False,
@@ -107,14 +113,4 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-)
-
-collect = COLLECT(
-    exe,
-    analysis.binaries,
-    analysis.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="MTEE",
 )
