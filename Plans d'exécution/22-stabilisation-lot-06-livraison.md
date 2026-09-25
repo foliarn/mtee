@@ -24,6 +24,8 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 - [x] Inspection du contenu et empreinte de l'exécutable consignées dans `docs/validation/stabilisation-fix-6098748.md`.
 - [x] `fix` intégré à `main` par fast-forward au commit source `4655a5a`, puis poussé sur `origin/main`.
 - [x] Distribution GUI recompilée depuis `main` au commit `4655a5a`; smoke-test paqueté réussi avec un profil de données isolé.
+- [x] À la demande de l'utilisateur, livraison remplacée par un exécutable PyInstaller monofichier; build et smoke-test réussis depuis `main` au commit source `fe8f41a`, empreinte et limites consignées.
+- [x] Branche `fix` supprimée localement et sur `origin`; anciens paquets/dossiers de compilation et profils de démonstration créés pour la recette supprimés. `dist` ne garde que `MTEE.exe`.
 - [ ] Parcours natifs avec bibliothèque audio réelle et opérations d'écriture non exécutés; ils restent à faire sur une copie de recette.
 
 ## Surprises & Discoveries
@@ -32,6 +34,7 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 
 - 2026-09-25 — Le build standard a produit l'exécutable, puis PyInstaller a échoué en nettoyant `dist/MTEE` car `libmpv-2.dll` était verrouillée. Le script accepte maintenant des répertoires de sortie et de travail alternatifs pour compiler sans toucher à cet artefact.
 - 2026-09-25 — Le build Windows GUI de `main` produit un EXE de 2,83 Mio dans une distribution en dossier de 1 982 fichiers. Le smoke-test avec le profil local existant refuse la migration retirée `010_audio_analysis` et laisse la base intacte; le même paquet démarre avec un répertoire de données isolé.
+- 2026-09-25 — La livraison finale monofichier est un EXE de 231 568 186 octets (220,84 Mio), avec Qt/QML et les runtimes intégrés. Le smoke-test passe avec un profil séparé; les anciens répertoires d'essai ont été retirés après fermeture de la branche `fix`.
 
 ## Decision Log
 
@@ -42,3 +45,5 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 ## Outcomes & Retrospective
 
 Compilation syntaxique, imports critiques et lint QML passent. Le build de `main` au commit source `4655a5a` a produit `dist/main-prod-4655a5a/MTEE/MTEE.exe`; le script a vérifié les runtimes FFmpeg/libmpv et la licence FFmpeg. Le paquet complet et l'empreinte sont consignés dans `docs/validation/stabilisation-main-4655a5a.md`. Le smoke-test isolé passe et l'application GUI a été lancée. Le profil de données historique est refusé sans modification à cause de `010_audio_analysis`; le lanceur de test fournit un profil distinct. La recette audio/natale et la suite automatisée ne sont pas réalisées dans cette validation.
+
+Livraison monofichier réalisée depuis `main` au commit source `fe8f41a`; `dist/MTEE.exe` fait 231 568 186 octets, SHA-256 `B8D82B2AD64D7DC694E7A206F86A572C5A8D16F2FD73A8DEC059AEF60E4B1B30`. Les vérifications de contenu embarqué et le smoke-test du paquet passent; détails dans `docs/validation/main-singlefile-fe8f41a.md`. La branche locale et distante `fix` est supprimée et `dist` ne contient que cet exécutable. L'ancien profil de données échoue toujours sur la migration retirée `010_audio_analysis`; aucun audio réel ni écriture sur copie n'a été testé.
