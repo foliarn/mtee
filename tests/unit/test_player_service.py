@@ -21,7 +21,6 @@ class FakeBackend:
         self.paused = False
         self.position = 0
         self.seeks: list[int] = []
-        self.ab_loops: list[tuple[int | None, int | None]] = []
         self.stops = 0
         self.active_session_id = 0
         self.emit_stopped_events = True
@@ -50,9 +49,6 @@ class FakeBackend:
     def seek(self, position_us: int) -> None:
         self.seeks.append(position_us)
         self.position = position_us
-
-    def set_ab_loop(self, start_us: int | None, end_us: int | None) -> None:
-        self.ab_loops.append((start_us, end_us))
 
     def set_volume(self, value: int) -> None:
         self.volume = value
@@ -151,22 +147,6 @@ def test_previous_at_first_seeks_to_start_and_last_next_ends(qapp, qtbot, tmp_pa
     assert service.state.status is PlaybackStatus.ENDED
     assert service.state.current_id == ids[0]
     qtbot.waitUntil(lambda: not access.is_busy(TrackId.parse(ids[0])))
-    service.close()
-
-
-def test_ab_loop_bounds_are_validated_and_cleared_on_track_change(
-    qapp, qtbot, tmp_path: Path
-) -> None:
-    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=2)
-    service.play_queue(ids)
-    _wait_playing(qtbot, service)
-    service.set_ab_loop(500_000, 1_500_000)
-    assert backend.ab_loops[-1] == (500_000, 1_500_000)
-    with pytest.raises(ValueError):
-        service.set_ab_loop(2_000_000, 1_000_000)
-    service.next()
-    _wait_playing(qtbot, service)
-    assert backend.ab_loops[-1] == (None, None)
     service.close()
 
 

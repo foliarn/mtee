@@ -131,6 +131,8 @@ class ConversionItemPreview:
     status: str
     message: str = ""
     estimated_size_bytes: int | None = None
+    effective_settings: ConversionSettings | None = None
+    derived_track_id: str = ""
 
     def __post_init__(self) -> None:
         if self.status not in {"ready", "unsupported", "conflict", "collision", "unreadable"}:
@@ -147,7 +149,7 @@ class ConversionPreview:
 
     @property
     def executable(self) -> bool:
-        return bool(self.items) and all(item.status == "ready" for item in self.items)
+        return any(item.status == "ready" for item in self.items)
 
 
 @dataclass(frozen=True, slots=True)

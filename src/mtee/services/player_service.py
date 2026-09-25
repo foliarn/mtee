@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import logging
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
@@ -19,6 +20,7 @@ from mtee.services.player_backend import BackendEvent, PlayerBackend
 __all__ = ["PlayerService"]
 
 TrackResolver = Callable[[str], dict[str, Any]]
+_LOGGER = logging.getLogger(__name__)
 
 
 class _BackendEventBridge(QObject):
@@ -29,6 +31,7 @@ class PlayerService(QObject):
     """Own the immutable queue, file read lease and state transitions."""
 
     stateChanged = Signal()
+    positionChanged = Signal()
     queueChanged = Signal()
     trackAccessReleased = Signal(str)
 
@@ -118,12 +121,18 @@ class PlayerService(QObject):
         *,
         source: str = "",
         source_title: str = "",
+        tracks: list[dict[str, Any]] | None = None,
     ) -> None:
         """Copy the visible order now; later view changes cannot mutate this queue."""
         ids = tuple(str(track_id) for track_id in track_ids)
         if not ids or not 0 <= start_index < len(ids):
             return
         self._base_ids = ids
+        if tracks is not None:
+            for track in tracks:
+                track_id = str(track.get("id", ""))
+                if track_id in ids:
+                    self._track_rows[track_id] = dict(track)
         for track_id in ids:
             if track_id not in self._track_rows:
                 with suppress(Exception):
@@ -136,6 +145,7 @@ class PlayerService(QObject):
             source=source,
             source_title=source_title,
         )
+        self._trim_track_rows()
 
     @Slot()
     def toggle_play(self) -> None:
@@ -207,18 +217,6 @@ class PlayerService(QObject):
             self._publish(seeking=True)
         except Exception as error:
             self._fail(str(error))
-
-    def set_ab_loop(self, start_us: int | None, end_us: int | None) -> None:
-        """Set or clear the native player's A/B loop bounds for this track."""
-        if self._backend is None:
-            return
-        if (start_us is None) != (end_us is None):
-            raise ValueError("A/B loop requires both bounds or neither.")
-        if start_us is not None and end_us is not None:
-            duration = self._state.duration_us
-            if start_us < 0 or end_us <= start_us or (duration and end_us > duration):
-                raise ValueError("A/B loop bounds are outside the playing track.")
-        self._backend.set_ab_loop(start_us, end_us)
 
     @Slot(int)
     def set_volume(self, volume: int) -> None:
@@ -305,14 +303,12 @@ class PlayerService(QObject):
         self._closed = True
         self._position_timer.stop()
         self.stop_and_release()
-        try:
-            if self._backend is not None:
-                self._backend.set_event_handler(None)
-                self._backend.close()
-        finally:
-            # close() joins libmpv's event thread, so no native file handle can
-            # outlive this final cleanup even if its queued Qt event was dropped.
-            self._release_read_lease()
+        if self._backend is not None:
+            self._backend.set_event_handler(None)
+            self._backend.close()
+        # A successful backend close is the confirmation that native file handles
+        # are gone. On failure, retain every lease rather than report a false release.
+        self._release_read_lease()
 
     def _open_index(
         self,
@@ -329,7 +325,9 @@ class PlayerService(QObject):
         previous_id = self._state.current_id
         if previous_id and previous_id != track_id:
             self._history_ids.append(previous_id)
+            del self._history_ids[:-20]
         session_id = self._state.session_id + 1
+        _LOGGER.debug("Playback request session=%s track=%s", session_id, track_id)
         current_source = self._state.source if source is None else source
         current_title = self._state.source_title if source_title is None else source_title
         self._publish(
@@ -378,7 +376,7 @@ class PlayerService(QObject):
             self._read_track_ids[session_id] = track_id
             self._backend.set_volume(0 if self._state.muted else self._state.volume)
             self._backend.load(path, session_id)
-            self._backend.set_ab_loop(None, None)
+            _LOGGER.debug("Playback load command sent session=%s track=%s", session_id, track_id)
         except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
             self._release_read_lease(session_id)
             self._fail(str(error))
@@ -389,7 +387,14 @@ class PlayerService(QObject):
     def _handle_backend_event(self, event: object) -> None:
         if not isinstance(event, BackendEvent):
             return
+        _LOGGER.debug(
+            "Playback native event session=%s current_session=%s event=%s",
+            event.session_id,
+            self._state.session_id,
+            event.name,
+        )
         if event.name == "stopped":
+            _LOGGER.debug("Playback stop confirmed session=%s", event.session_id)
             self._release_read_lease(event.session_id)
             if event.session_id == self._state.session_id:
                 self._position_timer.stop()
@@ -478,6 +483,7 @@ class PlayerService(QObject):
         else:
             self._release_read_lease(self._state.session_id)
         self.queueChanged.emit()
+        self._trim_track_rows()
 
     def _fail(self, message: str, *, source_closed: bool = False) -> None:
         self._position_timer.stop()
@@ -497,31 +503,49 @@ class PlayerService(QObject):
             self._release_read_lease(self._state.session_id)
 
     def _publish(self, **changes: Any) -> None:
-        self._state = replace(self._state, **changes)
-        self.stateChanged.emit()
+        previous = self._state
+        self._state = replace(previous, **changes)
+        if previous.position_us != self._state.position_us or previous.seeking != self._state.seeking:
+            self.positionChanged.emit()
+        if any(key not in {"position_us", "seeking"} for key in changes):
+            self.stateChanged.emit()
+
+    def _trim_track_rows(self) -> None:
+        retained = set(self._state.track_ids) | set(self._history_ids[-20:])
+        if self._state.current_id:
+            retained.add(self._state.current_id)
+        self._track_rows = {
+            track_id: row for track_id, row in self._track_rows.items() if track_id in retained
+        }
 
     def _release_read_lease(self, session_id: int | None = None) -> None:
         if session_id is None:
             sessions = tuple(self._read_contexts)
             contexts = tuple(self._read_contexts.values())
             self._read_contexts.clear()
-            track_ids = tuple(self._read_track_ids.pop(key, "") for key in sessions)
+            released = tuple(
+                (key, self._read_track_ids.pop(key, "")) for key in sessions
+            )
         else:
             context = self._read_contexts.pop(session_id, None)
             contexts = (context,) if context is not None else ()
             track_id = self._read_track_ids.pop(session_id, "")
-            track_ids = (track_id,) if context is not None else ()
+            released = ((session_id, track_id),) if context is not None else ()
         for context in contexts:
             if context is not None:
                 context.__exit__(None, None, None)
-        for track_id in track_ids:
+        for released_session, track_id in released:
             if track_id:
+                _LOGGER.debug(
+                    "Playback read lease released session=%s track=%s",
+                    released_session,
+                    track_id,
+                )
                 self.trackAccessReleased.emit(track_id)
 
 
 def _available(track: dict[str, Any]) -> bool:
-    path = str(track.get("path", ""))
-    return bool(path) and Path(path).is_file()
+    return str(track.get("status", "")) == "readable"
 
 
 def _duration_us(track: dict[str, Any]) -> int | None:

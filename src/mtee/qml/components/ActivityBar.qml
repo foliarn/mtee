@@ -15,11 +15,7 @@ Rectangle {
         return active.split(":")[0]
     }
     readonly property int runningTasks: {
-        let count = 0
-        for (const task of workspace.tasks)
-            if (task.state === "running")
-                count += 1
-        return count
+        return jobsModel.runningCount
     }
 
     width: Theme.activityBarWidth

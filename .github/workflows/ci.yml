@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -29,6 +29,11 @@ jobs:
 
       - name: Install the locked environment
         run: uv sync --locked
+
+      - name: Install verified audio runtimes
+        run: |
+          pwsh -NoProfile -File scripts/fetch_ffmpeg.ps1
+          pwsh -NoProfile -File scripts/fetch_mpv.ps1
 
       - name: Lint
         run: uv run ruff check .

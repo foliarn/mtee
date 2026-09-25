@@ -15,7 +15,7 @@ from typing import Any
 
 from mtee.domain.file_dates import FileDates, format_file_timestamp
 from mtee.domain.metadata import MetadataSnapshot, format_bitrate
-from mtee.domain.tracks import SourceRevision, TrackId
+from mtee.domain.tracks import SourceRevision, TrackId, sha256_of_file
 from mtee.persistence.database import Database
 
 __all__ = ["LibraryRepository"]
@@ -92,6 +92,56 @@ class LibraryRepository:
         scan_generation: int,
     ) -> list[str]:
         """Upsert one bounded scan batch in a single SQLite transaction."""
+        observed_entries: list[
+            tuple[str, Path, SourceRevision, MetadataSnapshot | None, FileDates] | None
+        ] = []
+        for relative_path, path, revision, metadata in entries:
+            source = Path(path).resolve(strict=False)
+            try:
+                observed = SourceRevision.observe(source, generation=revision.generation)
+                if (
+                    source.is_symlink()
+                    or not source.is_file()
+                    or not revision.matches(observed)
+                ):
+                    observed_entries.append(None)
+                    continue
+                file_dates = FileDates.observe(source)
+            except OSError:
+                observed_entries.append(None)
+                continue
+            observed_entries.append((relative_path, source, observed, metadata, file_dates))
+
+        source_by_key = {
+            normalize_path(entry[1]): entry[1]
+            for entry in observed_entries
+            if entry is not None
+        }
+        derived_ids: dict[str, str] = {}
+        if source_by_key:
+            connection = self._database.connection()
+            keys = list(source_by_key)
+            for offset in range(0, len(keys), 900):
+                batch = keys[offset : offset + 900]
+                placeholders = ",".join("?" for _ in batch)
+                rows = connection.execute(
+                    "SELECT destination_path_key,derived_track_id,output_sha256 "
+                    "FROM conversion_attempts WHERE status='completed' "
+                    "AND destination_path_key IN (" + placeholders + ") "
+                    "AND derived_track_id<>'' AND output_sha256<>''",
+                    batch,
+                ).fetchall()
+                for row in rows:
+                    key = str(row["destination_path_key"])
+                    source = source_by_key.get(key)
+                    if source is None:
+                        continue
+                    try:
+                        if sha256_of_file(source) == str(row["output_sha256"]):
+                            derived_ids[key] = str(row["derived_track_id"])
+                    except OSError:
+                        continue
+
         with self._database.transaction() as connection:
             root = connection.execute(
                 "SELECT scan_generation FROM library_roots WHERE root_id = ?", (root_id,)
@@ -107,19 +157,20 @@ class LibraryRepository:
                     "WHERE status IN ('prepared','needs_recovery')"
                 )
             }
+            reserved_destinations.update(
+                normalize_path(Path(str(row[0])))
+                for row in connection.execute(
+                    "SELECT destination_path FROM conversion_attempts "
+                    "WHERE status IN ('prepared','running')"
+                )
+            )
             identities: list[str] = []
-            for relative_path, path, revision, metadata in entries:
-                source = Path(path).resolve(strict=False)
-                try:
-                    observed = SourceRevision.observe(source, generation=revision.generation)
-                except OSError:
+            for observed_entry in observed_entries:
+                if observed_entry is None:
                     identities.append("")
                     continue
-                if source.is_symlink() or not source.is_file() or not revision.matches(observed):
-                    identities.append("")
-                    continue
+                relative_path, source, revision, metadata, file_dates = observed_entry
                 key = normalize_path(source)
-                file_dates = FileDates.observe(source)
                 if key in reserved_destinations:
                     identities.append("")
                     continue
@@ -130,7 +181,7 @@ class LibraryRepository:
                     if metadata is None:
                         identities.append("")
                         continue
-                    track_id = str(TrackId.new())
+                    track_id = derived_ids.get(key) or str(TrackId.new())
                     generation = 0
                     connection.execute("INSERT INTO tracks(track_id) VALUES(?)", (track_id,))
                     encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
@@ -181,16 +232,51 @@ class LibraryRepository:
                     ),
                 )
                 connection.execute(
-                    "INSERT INTO root_tracks(root_id,track_id,relative_path,seen_generation,"
-                    "present) "
-                    "VALUES(?,?,?,?,1) "
+                    "INSERT INTO root_tracks(root_id,track_id,relative_path,parent_relative_path,"
+                    "seen_generation,present) "
+                    "VALUES(?,?,?,?,?,1) "
                     "ON CONFLICT(root_id,track_id) DO UPDATE SET "
                     "relative_path=excluded.relative_path, "
+                    "parent_relative_path=excluded.parent_relative_path, "
                     "seen_generation=excluded.seen_generation,present=1",
-                    (root_id, track_id, relative_path, scan_generation),
+                    (
+                        root_id,
+                        track_id,
+                        relative_path,
+                        relative_path.rpartition("/")[0],
+                        scan_generation,
+                    ),
                 )
                 identities.append(track_id)
         return identities
+
+    def register_derived_output(
+        self, path: Path | str, metadata: MetadataSnapshot
+    ) -> tuple[str, str] | None:
+        """Catalog a verified conversion only when it is inside a selected root."""
+        source = Path(path).resolve(strict=True)
+        revision = SourceRevision.observe(source)
+        for root in self.roots():
+            root_path = Path(str(root["path"])).resolve(strict=False)
+            try:
+                relative = source.relative_to(root_path).as_posix()
+            except ValueError:
+                continue
+            scan = self._database.connection().execute(
+                "SELECT scan_generation FROM library_roots WHERE root_id=?",
+                (str(root["id"]),),
+            ).fetchone()
+            if scan is None:
+                continue
+            identities = self.upsert_locations(
+                str(root["id"]),
+                [(relative, source, revision, metadata)],
+                int(scan["scan_generation"]),
+            )
+            if identities and identities[0]:
+                return str(root["id"]), relative.rpartition("/")[0]
+            return None
+        return None
 
     def unchanged_paths(
         self,
@@ -227,10 +313,21 @@ class LibraryRepository:
             )
         return unchanged
 
-    def upsert_folders(self, root_id: str, folders: Sequence[str], scan_generation: int) -> None:
-        """Remember discovered folders, including empty ones, in one transaction."""
+    def upsert_folders(self, root_id: str, folders: Sequence[str], scan_generation: int) -> list[str]:
+        """Remember folders and return paths that became newly present."""
         if not folders:
-            return
+            return []
+        connection = self._database.connection()
+        newly_present: set[str] = set(folders)
+        for offset in range(0, len(folders), 900):
+            batch = folders[offset : offset + 900]
+            placeholders = ",".join("?" for _ in batch)
+            rows = connection.execute(
+                "SELECT relative_path FROM library_folders WHERE root_id=? AND present=1 "
+                f"AND relative_path IN ({placeholders})",
+                (root_id, *batch),
+            ).fetchall()
+            newly_present.difference_update(str(row[0]) for row in rows)
         with self._database.transaction() as connection:
             root = connection.execute(
                 "SELECT scan_generation FROM library_roots WHERE root_id=?", (root_id,)
@@ -240,16 +337,22 @@ class LibraryRepository:
             if int(root[0]) != scan_generation:
                 return
             connection.executemany(
-                "INSERT INTO library_folders(root_id,relative_path,seen_generation,present) "
-                "VALUES(?,?,?,1) "
+                "INSERT INTO library_folders(root_id,relative_path,parent_relative_path,"
+                "seen_generation,present) "
+                "VALUES(?,?,?,?,1) "
                 "ON CONFLICT(root_id,relative_path) DO UPDATE SET "
+                "parent_relative_path=excluded.parent_relative_path,"
                 "seen_generation=excluded.seen_generation,present=1",
-                [(root_id, folder, scan_generation) for folder in folders],
+                [
+                    (root_id, folder, folder.rpartition("/")[0], scan_generation)
+                    for folder in folders
+                ],
             )
+        return sorted(newly_present)
 
     def finish_scan(
         self, root_id: str, generation: int, *, complete: bool, available: bool = True
-    ) -> None:
+    ) -> list[str]:
         now = datetime.now(UTC).isoformat(timespec="seconds")
         status = (
             "available" if complete and available else "partial" if available else "unavailable"
@@ -259,8 +362,17 @@ class LibraryRepository:
                 "SELECT scan_generation FROM library_roots WHERE root_id=?", (root_id,)
             ).fetchone()
             if current is None or int(current[0]) != generation:
-                return
+                return []
+            changed_parents: set[str] = set()
             if complete:
+                removed = connection.execute(
+                    "SELECT parent_relative_path FROM root_tracks WHERE root_id=? "
+                    "AND seen_generation<>? AND present=1 UNION "
+                    "SELECT parent_relative_path FROM library_folders WHERE root_id=? "
+                    "AND seen_generation<>? AND present=1",
+                    (root_id, generation, root_id, generation),
+                ).fetchall()
+                changed_parents.update(str(row[0]) for row in removed)
                 connection.execute(
                     "UPDATE root_tracks SET present=0 WHERE root_id=? AND seen_generation<>?",
                     (root_id, generation),
@@ -273,6 +385,7 @@ class LibraryRepository:
                 "UPDATE library_roots SET availability=?,last_scan_utc=? WHERE root_id=?",
                 (status, now, root_id),
             )
+        return sorted(changed_parents)
 
     def mark_root_unavailable(self, root_id: str) -> None:
         with self._database.transaction() as connection:
@@ -313,6 +426,61 @@ class LibraryRepository:
             for index in range(1, len(parts) + 1):
                 folders.add("/".join(parts[:index]))
         return sorted(folders, key=lambda item: (item.casefold(), item))
+
+    def folder_children(self, root_id: str, relative_parent: str) -> list[dict[str, Any]]:
+        """Return indexed direct children with only the fields needed by Explorer."""
+        connection = self._database.connection()
+        root = connection.execute(
+            "SELECT path,availability FROM library_roots WHERE root_id=?", (root_id,)
+        ).fetchone()
+        if root is None:
+            return []
+        parent = relative_parent.strip("/")
+        child_folders = connection.execute(
+            "SELECT f.relative_path,"
+            "EXISTS(SELECT 1 FROM library_folders child "
+            "WHERE child.root_id=f.root_id AND child.parent_relative_path=f.relative_path "
+            "AND child.present=1) OR EXISTS(SELECT 1 FROM root_tracks child "
+            "WHERE child.root_id=f.root_id AND child.parent_relative_path=f.relative_path "
+            "AND child.present=1) AS has_children "
+            "FROM library_folders f WHERE f.root_id=? AND f.parent_relative_path=? "
+            "AND f.present=1 ORDER BY f.relative_path COLLATE NOCASE,f.relative_path",
+            (root_id, parent),
+        ).fetchall()
+        child_tracks = connection.execute(
+            "SELECT rt.track_id,rt.relative_path,rt.parent_relative_path,l.status,"
+            "COALESCE(NULLIF(json_extract(l.metadata_json,'$.title[0]'),''),'') AS title "
+            "FROM root_tracks rt JOIN track_locations l ON l.track_id=rt.track_id "
+            "WHERE rt.root_id=? AND rt.parent_relative_path=? AND rt.present=1 "
+            "ORDER BY rt.relative_path COLLATE NOCASE,rt.relative_path",
+            (root_id, parent),
+        ).fetchall()
+        parent_id = f"folder:{root_id}/{parent}"
+        rows = [
+            {
+                "kind": "folder",
+                "id": f"folder:{root_id}/{row['relative_path']}",
+                "name": str(row["relative_path"]).rsplit("/", 1)[-1],
+                "path": str(root["path"]),
+                "hasChildren": bool(row["has_children"]),
+                "availability": str(root["availability"]),
+            }
+            for row in child_folders
+        ]
+        rows.extend(
+            {
+                "kind": "track",
+                "id": str(row["track_id"]),
+                "name": str(row["title"] or row["relative_path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]),
+                "depth": 0,
+                "expanded": False,
+                "hasChildren": False,
+                "folder": parent_id,
+                "status": str(row["status"]),
+            }
+            for row in child_tracks
+        )
+        return rows
 
     def tracks_in_folder(self, root_id: str, relative_folder: str) -> list[dict[str, Any]]:
         where, parameters = _folder_filter(root_id, relative_folder)
@@ -391,6 +559,26 @@ class LibraryRepository:
             snapshot=MetadataSnapshot.from_dict(json.loads(str(row["metadata_json"]))),
             status=str(row["status"]),
         )
+
+    def mark_recycled(self, track_id: str, expected_revision: SourceRevision) -> bool:
+        """Hide confirmed recycled memberships only when the source snapshot still matches."""
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT size_bytes,mtime_ns,file_id,generation FROM track_locations WHERE track_id=?",
+                (track_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            current = SourceRevision(
+                int(row["size_bytes"]),
+                int(row["mtime_ns"]),
+                row["file_id"],
+                int(row["generation"]),
+            )
+            if not expected_revision.matches(current):
+                return False
+            connection.execute("UPDATE root_tracks SET present=0 WHERE track_id=?", (track_id,))
+            return True
 
     def path_owner(self, path: Path | str) -> str | None:
         row = (

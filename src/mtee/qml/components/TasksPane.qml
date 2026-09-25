@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Mtee
 
-// Background tasks: invented examples plus the real jobs of the session.
+// Background jobs submitted during this session.
 Item {
     id: pane
 
@@ -15,14 +15,6 @@ Item {
         width: parent.width
         title: "Tasks"
 
-        IconButton {
-            icon: "plus"
-            iconSize: 16
-            width: 26
-            height: 26
-            tip: "Run sample task"
-            onClicked: shell.startSampleJob()
-        }
     }
 
     Flickable {
@@ -41,19 +33,19 @@ Item {
             width: parent.width - 32
             spacing: 14
 
-            Repeater {
-                model: pane.workspace.tasks
-                delegate: TaskRow {
-                    label: modelData.label
-                    detail: modelData.detail
-                    status: modelData.state
-                    progress: modelData.progress
-                }
-            }
-
             SectionLabel {
                 visible: jobsRepeater.count > 0
                 text: "This session"
+            }
+
+            Text {
+                visible: jobsRepeater.count === 0
+                width: parent.width
+                text: "No background tasks in this session."
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+                wrapMode: Text.WordWrap
             }
 
             Repeater {

@@ -12,11 +12,10 @@ Rectangle {
     required property var metadataEditor
     readonly property var playback: workspace.playerModel
     readonly property var waveform: playback.waveformModel
-    readonly property var analysisModel: workspace.analysisModel
     readonly property var track: playback.playingTrack
     readonly property real duration: playback.duration || track.seconds || 1
     property bool showTags: false
-    property bool showAnalysis: false
+    onShowTagsChanged: refreshTagFields()
 
     objectName: "fullscreenPlayer"
     color: Theme.editor
@@ -35,6 +34,18 @@ Rectangle {
             return operation.situation === "inspection_failed"
                 || operation.trackId === player.playback.playingId
         })
+    }
+
+    function refreshTagFields() {
+        if (player.metadataEditor === null)
+            return
+        if (player.showTags && player.playback.playingId.length > 0) {
+            player.metadataEditor.prepareTrackInspection(player.playback.playingId)
+            tagEditor.refreshFields()
+        } else {
+            player.metadataEditor.cancelPendingInspection()
+            tagEditor.refreshFields()
+        }
     }
 
     Timer {
@@ -78,17 +89,6 @@ Rectangle {
                 tip: player.showTags ? "Hide editable tags" : "Edit track tags"
                 visible: player.metadataEditor !== null
                 onClicked: player.showTags = !player.showTags
-            }
-
-            TextButton {
-                objectName: "showAudioAnalysis"
-                kind: "ghost"
-                text: player.showAnalysis ? "Hide analysis" : "Analysis"
-                visible: player.analysisModel !== null
-                onClicked: {
-                    player.showAnalysis = !player.showAnalysis
-                    player.showTags = false
-                }
             }
 
             IconButton {
@@ -222,7 +222,7 @@ Rectangle {
         }
 
         function refreshFields() {
-            if (player.metadataEditor !== null && player.playback.playingId.length > 0)
+            if (player.showTags && player.metadataEditor !== null && player.playback.playingId.length > 0)
                 tagFields.model = player.metadataEditor.fieldsForTrack(player.playback.playingId)
             else
                 tagFields.model = []
@@ -235,23 +235,10 @@ Rectangle {
 
         Connections {
             target: player.playback
-            function onPlaybackChanged() { tagEditor.refreshFields() }
+            function onPlaybackChanged() { player.refreshTagFields() }
         }
 
         Component.onCompleted: refreshFields()
-    }
-
-    Loader {
-        anchors.top: top.bottom
-        anchors.bottom: bottom.top
-        anchors.right: parent.right
-        width: Math.min(360, parent.width * 0.45)
-        active: player.showAnalysis && player.analysisModel !== null
-        sourceComponent: AnalysisPanel {
-            analysisModel: player.analysisModel
-            trackId: player.playback.playingId
-            analyzeOnlyTrack: true
-        }
     }
 
     Column {

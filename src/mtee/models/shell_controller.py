@@ -12,13 +12,12 @@ from mtee import __version__
 from mtee.domain.jobs import JobId, JobStatus
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.services.app_paths import AppPaths
-from mtee.services.jobs import JobContext, JobService, UnknownJobError
+from mtee.services.jobs import JobService, UnknownJobError
 
 __all__ = ["SETTING_DETAILS_VISIBLE", "SETTING_LAST_STATUS", "ShellController"]
 
 SETTING_LAST_STATUS = "shell/last_status"
 SETTING_DETAILS_VISIBLE = "shell/details_visible"
-_DEMO_JOB_SECONDS = 2.0
 
 
 class ShellController(QObject):
@@ -45,6 +44,7 @@ class ShellController(QObject):
         self._font_family = font_family
         self._status_message = "Ready"
         self._details_visible = bool(settings.get_json(SETTING_DETAILS_VISIBLE, False))
+        self._last_job_states: dict[JobId, tuple[object, ...]] = {}
         jobs.jobUpdated.connect(self._on_job_updated)
 
     @Property(str, constant=True)
@@ -85,12 +85,6 @@ class ShellController(QObject):
         self._settings.set_json(SETTING_DETAILS_VISIBLE, self._details_visible)
         self.detailsVisibleChanged.emit()
 
-    @Slot(result=str)
-    def startSampleJob(self) -> str:
-        """Submit the artificial two second task and return its identifier."""
-        job_id = self._jobs.submit(_sample_task, label="Sample background task")
-        return str(job_id)
-
     @Slot(str)
     def cancelJob(self, job_id: str) -> None:
         """Ask the service to cancel ``job_id``; an unknown job is only reported."""
@@ -100,6 +94,17 @@ class ShellController(QObject):
             self._set_status_message("This task is no longer running.")
 
     def _on_job_updated(self, status: JobStatus) -> None:
+        if not self._jobs.is_visible(status.job_id):
+            return
+        signature = (
+            status.state,
+            status.error.code if status.error else "",
+            status.error.message if status.error else "",
+            status.is_interrupted,
+        )
+        if self._last_job_states.get(status.job_id) == signature:
+            return
+        self._last_job_states[status.job_id] = signature
         self._set_status_message(f"{status.label}: {_describe(status)}")
 
     def _set_status_message(self, message: str) -> None:
@@ -117,11 +122,3 @@ def _describe(status: JobStatus) -> str:
     if status.error is not None:
         return f"failed ({status.error.code})"
     return status.state.value
-
-
-def _sample_task(context: JobContext) -> None:
-    """Artificial task of two seconds, cancellable and reporting its progress."""
-    steps = 20
-    for step in range(steps):
-        context.sleep(_DEMO_JOB_SECONDS / steps)
-        context.report_progress((step + 1) / steps)

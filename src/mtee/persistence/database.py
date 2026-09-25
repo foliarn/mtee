@@ -22,6 +22,7 @@ __all__ = [
     "DatabaseError",
     "Migration",
     "MigrationFailedError",
+    "UnsupportedMigrationHistoryError",
     "SchemaTooRecentError",
 ]
 
@@ -43,6 +44,10 @@ class SchemaTooRecentError(DatabaseError):
         )
         self.found_version = found_version
         self.supported_version = supported_version
+
+
+class UnsupportedMigrationHistoryError(DatabaseError):
+    """Raised when recorded migrations are missing or unknown to this build."""
 
 
 class MigrationFailedError(DatabaseError):
@@ -167,8 +172,16 @@ class Database:
         migrations = self.migrations
         supported = migrations[-1].version if migrations else 0
         current = self.schema_version()
+        if current == 10 and all(migration.version != 10 for migration in migrations):
+            raise UnsupportedMigrationHistoryError(
+                "This database records retired migration 010_audio_analysis. "
+                "This build will not roll back or erase that schema; restore a compatible "
+                "backup or use the build that created it."
+            )
         if current > supported:
             raise SchemaTooRecentError(current, supported)
+        if current > 0:
+            self._validate_migration_history(current, migrations)
         pending = [migration for migration in migrations if migration.version > current]
         if not pending:
             return []
@@ -179,6 +192,43 @@ class Database:
             self._apply(migration)
             applied.append(migration)
         return applied
+
+    def _validate_migration_history(self, current: int, migrations: Sequence[Migration]) -> None:
+        """Refuse a schema whose applied versions/names do not match this build."""
+        connection = self.connection()
+        tables = {
+            str(row["name"])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "schema_migrations" not in tables:
+            raise UnsupportedMigrationHistoryError(
+                "The database has a schema version but no migration history. "
+                "It was left unchanged."
+            )
+        recorded = [
+            (int(row["version"]), str(row["name"]))
+            for row in connection.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version"
+            )
+        ]
+        known = {migration.version: migration.name for migration in migrations}
+        retired = [version for version, _name in recorded if version not in known]
+        if 10 in retired:
+            raise UnsupportedMigrationHistoryError(
+                "This database records retired migration 010_audio_analysis. "
+                "This build will not roll back or erase that schema; restore a compatible "
+                "backup or use the build that created it."
+            )
+        expected = [
+            (migration.version, migration.name)
+            for migration in migrations
+            if migration.version <= current
+        ]
+        if recorded != expected:
+            raise UnsupportedMigrationHistoryError(
+                "The database migration history does not match the migrations shipped with "
+                "this build. The database was left unchanged."
+            )
 
     def backup_path_for(self, version: int) -> Path:
         """Return where the safety copy of schema ``version`` is written."""

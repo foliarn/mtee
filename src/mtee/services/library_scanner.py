@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,10 @@ AUDIO_SUFFIXES = frozenset(
         ".wav",
         ".wv",
     }
+)
+_MTEE_CONVERSION_TEMP = re.compile(
+    r"^.+\.mtee-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp\.[^.]+$",
+    re.IGNORECASE,
 )
 
 
@@ -129,6 +134,7 @@ class LibraryScanner:
                         continue
                     if (
                         not child.is_file(follow_symlinks=False)
+                        or _MTEE_CONVERSION_TEMP.fullmatch(child.name) is not None
                         or Path(child.name).suffix.casefold() not in AUDIO_SUFFIXES
                     ):
                         continue

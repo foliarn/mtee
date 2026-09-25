@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -233,6 +234,18 @@ class MediaProbeService:
                 continue
             try:
                 probe = self.inspect(source.path)
+                effective_settings = _effective_settings(request.settings, capability, probe)
+                if effective_settings is None:
+                    items.append(
+                        ConversionItemPreview(
+                            source,
+                            probe,
+                            destination,
+                            "unsupported",
+                            "Source depth is unknown or unsupported. Choose an explicit output depth.",
+                        )
+                    )
+                    continue
                 observed = SourceRevision.observe(
                     source.path, generation=source.revision.generation
                 )
@@ -285,6 +298,7 @@ class MediaProbeService:
                             destination,
                             "ready",
                             estimated_size_bytes=_estimate_size(probe, request.settings),
+                            effective_settings=effective_settings,
                         )
                     )
             except MediaProbeError as error:
@@ -360,6 +374,25 @@ def _settings_supported(request: ConversionRequest, capability: OutputCapability
     if settings.channels is not None and settings.channels not in capability.channels:
         return False
     return settings.bit_depth is None or settings.bit_depth in capability.bit_depths
+
+
+def _effective_settings(settings, capability: OutputCapability, probe: MediaProbe):
+    effective_depth = settings.bit_depth
+    if capability.bit_depths and effective_depth is None:
+        source_depth = probe.bits_per_sample
+        if source_depth not in capability.bit_depths:
+            return None
+        effective_depth = source_depth
+    if effective_depth is not None and effective_depth not in capability.bit_depths:
+        return None
+    dither_applies = (
+        settings.dither
+        and settings.format_id in {"wav", "aiff"}
+        and probe.bits_per_sample is not None
+        and effective_depth is not None
+        and effective_depth < probe.bits_per_sample
+    )
+    return replace(settings, bit_depth=effective_depth, dither=dither_applies)
 
 
 def _extension(capability: OutputCapability | None) -> str:

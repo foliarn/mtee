@@ -52,6 +52,7 @@ Item {
 
             required property var modelData
             readonly property bool isFolder: modelData.kind === "folder"
+            readonly property bool isLoading: modelData.kind === "loading"
             readonly property bool activeFolder: isFolder && pane.workspace.activeFolder === modelData.id
             readonly property bool selected: !isFolder && pane.workspace.selectedIds.indexOf(modelData.id) >= 0
             readonly property bool playing: !isFolder && pane.workspace.playingId === modelData.id
@@ -81,6 +82,7 @@ Item {
                 text: row.modelData.name
                 elide: Text.ElideRight
                 color: row.activeFolder || row.playing ? Theme.primary
+                    : row.isLoading ? Theme.textMuted
                     : row.isFolder ? Theme.textPrimary : Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
@@ -106,6 +108,8 @@ Item {
                 hoverEnabled: true
                 acceptedButtons: Qt.LeftButton
                 onClicked: (event) => {
+                    if (row.isLoading)
+                        return
                     if (row.isFolder) {
                         const onChevron = event.x < chevron.x + chevron.width + 2
                         if (onChevron) {
@@ -121,11 +125,10 @@ Item {
                     }
                 }
                 onDoubleClicked: {
-                    if (!row.isFolder) {
-                        pane.workspace.playTrack(row.modelData.id, row.modelData.folder)
-                    } else {
+                    if (row.isLoading)
+                        return
+                    if (row.isFolder)
                         pane.workspace.openFolder(row.modelData.id)
-                    }
                 }
             }
         }

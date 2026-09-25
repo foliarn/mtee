@@ -17,6 +17,7 @@ class PlayerModel(QObject):
     """One model shared by the island, queue and fullscreen player."""
 
     playbackChanged = Signal()
+    positionChanged = Signal()
     trackAccessReleased = Signal(str)
 
     def __init__(
@@ -31,6 +32,7 @@ class PlayerModel(QObject):
         self._waveform = waveform
         self._queue_model = PlaybackQueueModel(service, self)
         service.stateChanged.connect(self.playbackChanged.emit)
+        service.positionChanged.connect(self.positionChanged.emit)
         service.trackAccessReleased.connect(self.trackAccessReleased.emit)
 
     @Property(str, notify=playbackChanged)
@@ -79,14 +81,14 @@ class PlayerModel(QObject):
     def isPlaying(self) -> bool:
         return self._service.state.is_playing
 
-    @Property(float, notify=playbackChanged)
+    @Property(float, notify=positionChanged)
     def position(self) -> float:
         return self.position_value()
 
     def position_value(self) -> float:
         return self._service.state.position_us / 1_000_000
 
-    @Property(int, notify=playbackChanged)
+    @Property(int, notify=positionChanged)
     def positionUs(self) -> int:
         return self._service.state.position_us
 
@@ -105,7 +107,7 @@ class PlayerModel(QObject):
     def seekable(self) -> bool:
         return self._service.state.seekable
 
-    @Property(bool, notify=playbackChanged)
+    @Property(bool, notify=positionChanged)
     def seeking(self) -> bool:
         return self._service.state.seeking
 
@@ -153,60 +155,14 @@ class PlayerModel(QObject):
     def error(self) -> str:
         return ""
 
-    @Property(float, notify=playbackChanged)
-    def zoomFactor(self) -> float:
-        return 1.0
-
-    @Property(float, notify=playbackChanged)
-    def viewStart(self) -> float:
-        return 0.0
-
     @Property(list, notify=playbackChanged)
     def samples(self) -> list[list[float]]:
         return []
-
-    @Property(int, notify=playbackChanged)
-    def markerA(self) -> int:
-        return -1
-
-    @Property(int, notify=playbackChanged)
-    def markerB(self) -> int:
-        return -1
-
-    @Slot()
-    def zoomIn(self) -> None:
-        if self._waveform is not None:
-            self._waveform.zoomIn()
-
-    @Slot()
-    def zoomOut(self) -> None:
-        if self._waveform is not None:
-            self._waveform.zoomOut()
-
-    @Slot(float)
-    def pan(self, delta: float) -> None:
-        if self._waveform is not None:
-            self._waveform.pan(delta)
 
     @Slot(float)
     def seekRatio(self, ratio: float) -> None:
         duration = self._service.state.duration_us or 0
         self._service.seek(round(max(0.0, min(1.0, ratio)) * duration))
-
-    @Slot()
-    def markLoopA(self) -> None:
-        if self._waveform is not None:
-            self._waveform.markLoopA()
-
-    @Slot()
-    def markLoopB(self) -> None:
-        if self._waveform is not None:
-            self._waveform.markLoopB()
-
-    @Slot()
-    def clearLoop(self) -> None:
-        if self._waveform is not None:
-            self._waveform.clearLoop()
 
     def queue_model(self) -> PlaybackQueueModel:
         return self._queue_model
@@ -257,6 +213,23 @@ class PlayerModel(QObject):
             int(start_index),
             source=source,
             source_title=source_title,
+        )
+
+    @Slot(list, int, str, str, list)
+    def playQueueWithRows(
+        self,
+        track_ids: list,
+        start_index: int,
+        source: str,
+        source_title: str,
+        tracks: list,
+    ) -> None:
+        self._service.play_queue(
+            [str(track_id) for track_id in track_ids],
+            int(start_index),
+            source=source,
+            source_title=source_title,
+            tracks=[dict(track) for track in tracks if isinstance(track, dict)],
         )
 
     @Slot(int)

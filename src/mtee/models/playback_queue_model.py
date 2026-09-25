@@ -31,7 +31,6 @@ class PlaybackQueueModel(QAbstractListModel):
         super().__init__(parent)
         self._service = service
         self._rows: list[dict[str, Any]] = []
-        service.stateChanged.connect(self.refresh)
         service.queueChanged.connect(self.refresh)
         self.refresh()
 

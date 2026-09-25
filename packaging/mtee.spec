@@ -9,7 +9,6 @@ to 1 to obtain a build that keeps its console output for such a diagnosis.
 import hashlib
 import json
 import os
-from importlib.metadata import distribution
 from pathlib import Path
 
 project_root = Path(SPECPATH).resolve().parent
@@ -50,31 +49,6 @@ datas = [
     (str(package_dir / "persistence" / "migrations"), "mtee/persistence/migrations"),
     (str(ffmpeg_license), "mtee/resources"),
 ]
-
-# Keep the primary licenses for the numerical/audio-analysis dependencies
-# visible in the distributable alongside FFmpeg's separately verified notice.
-analysis_licenses = {
-    "librosa": "LICENSE.md",
-    "numpy": "licenses/LICENSE.txt",
-    "scipy": "LICENSE.txt",
-}
-for distribution_name, license_suffix in analysis_licenses.items():
-    installed = distribution(distribution_name)
-    license_relative = next(
-        (
-            entry
-            for entry in installed.files or ()
-            if str(entry).replace("\\", "/").endswith(license_suffix)
-            and (distribution_name != "librosa" or ".dist-info/" in str(entry))
-        ),
-        None,
-    )
-    if license_relative is None:
-        raise SystemExit(f"The {distribution_name} license file is missing from its distribution.")
-    license_path = Path(installed.locate_file(license_relative)).resolve()
-    if not license_path.is_file():
-        raise SystemExit(f"The {distribution_name} license file is unavailable: {license_path}")
-    datas.append((str(license_path), f"mtee/resources/licenses/{distribution_name}"))
 
 # Modules that MTEE does not use at this step. QtMultimedia is deliberately
 # absent: the playback of the next step uses libmpv, not the Qt player.

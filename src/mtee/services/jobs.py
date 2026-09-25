@@ -11,7 +11,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import replace
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, QTimer, Signal, Slot
 
 from mtee.domain.jobs import (
     ERROR_CANCELLED,
@@ -97,10 +97,13 @@ class _JobRunnable(QRunnable):
         except JobCancelledError:
             service.finish(job_id, JobState.CANCELLED, None)
         except Exception as error:
+            code = getattr(error, "code", ERROR_UNHANDLED)
+            if not isinstance(code, str) or not code:
+                code = ERROR_UNHANDLED
             service.finish(
                 job_id,
                 JobState.FAILED,
-                JobError(code=ERROR_UNHANDLED, message=f"{type(error).__name__}: {error}"),
+                JobError(code=code, message=f"{type(error).__name__}: {error}"),
             )
         else:
             service.finish(job_id, JobState.SUCCEEDED, None)
@@ -111,6 +114,7 @@ class JobService(QObject):
 
     jobSubmitted = Signal(object)
     jobUpdated = Signal(object)
+    _progressFlushRequested = Signal()
 
     def __init__(
         self, parent: QObject | None = None, *, max_thread_count: int | None = None
@@ -123,6 +127,16 @@ class JobService(QObject):
         self._statuses: dict[JobId, JobStatus] = {}
         self._contexts: dict[JobId, JobContext] = {}
         self._hidden: set[JobId] = set()
+        self._pending_progress: set[JobId] = set()
+        self._progress_flush_enqueued = False
+        self._accepting = True
+        self._progressFlushRequested.connect(
+            self._schedule_progress_flush, Qt.ConnectionType.QueuedConnection
+        )
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setSingleShot(True)
+        self._progress_timer.setInterval(100)
+        self._progress_timer.timeout.connect(self._flush_progress)
 
     def submit(
         self,
@@ -131,12 +145,17 @@ class JobService(QObject):
         label: str = "Background task",
         visible: bool = True,
         priority: int = 0,
+        job_id: JobId | None = None,
     ) -> JobId:
         """Queue ``task`` and return its identifier."""
-        job_id = JobId.new()
+        job_id = job_id or JobId.new()
         context = JobContext(job_id, self)
         status = JobStatus(job_id=job_id, label=label, state=JobState.QUEUED)
         with self._lock:
+            if not self._accepting:
+                raise RuntimeError("The application is shutting down; no new jobs are accepted.")
+            if job_id in self._statuses:
+                raise ValueError(f"Job identifier is already registered: {job_id}")
             self._statuses[job_id] = status
             self._contexts[job_id] = context
             if not visible:
@@ -193,10 +212,7 @@ class JobService(QObject):
         with the code ``interrupted``; no incomplete work is left invisible and
         no success is invented.
         """
-        with self._lock:
-            contexts = list(self._contexts.values())
-        for context in contexts:
-            context.request_cancel()
+        self.begin_shutdown()
         self._pool.waitForDone(timeout_ms)
         interrupted: list[JobStatus] = []
         with self._lock:
@@ -217,6 +233,14 @@ class JobService(QObject):
             self.jobUpdated.emit(status)
         return interrupted
 
+    def begin_shutdown(self) -> None:
+        """Reject new jobs and request cancellation before native services close."""
+        with self._lock:
+            self._accepting = False
+            contexts = list(self._contexts.values())
+        for context in contexts:
+            context.request_cancel()
+
     def start(self, job_id: JobId) -> bool:
         """Move a queued job to ``running``; return whether it may run.
 
@@ -232,14 +256,20 @@ class JobService(QObject):
         return True
 
     def publish_progress(self, job_id: JobId, progress: float) -> None:
-        """Record the progress reported by the worker of ``job_id``."""
+        """Keep the latest progress and coalesce UI notifications to 100 ms."""
+        request_flush = False
         with self._lock:
             status = self._statuses.get(job_id)
             if status is None or status.is_terminal:
                 return
             updated = replace(status, progress=progress)
             self._statuses[job_id] = updated
-        self.jobUpdated.emit(updated)
+            self._pending_progress.add(job_id)
+            if not self._progress_flush_enqueued:
+                self._progress_flush_enqueued = True
+                request_flush = True
+        if request_flush:
+            self._progressFlushRequested.emit()
 
     def finish(self, job_id: JobId, state: JobState, error: JobError | None) -> None:
         """Record the terminal state reported by the worker of ``job_id``."""
@@ -251,7 +281,27 @@ class JobService(QObject):
             finished = replace(status, state=state, progress=progress, error=error)
             self._statuses[job_id] = finished
             self._contexts.pop(job_id, None)
+            self._pending_progress.discard(job_id)
         self.jobUpdated.emit(finished)
+
+    @Slot()
+    def _schedule_progress_flush(self) -> None:
+        if not self._progress_timer.isActive():
+            self._progress_timer.start()
+
+    @Slot()
+    def _flush_progress(self) -> None:
+        with self._lock:
+            pending = tuple(self._pending_progress)
+            self._pending_progress.clear()
+            self._progress_flush_enqueued = False
+            statuses = [
+                self._statuses[job_id]
+                for job_id in pending
+                if job_id in self._statuses and not self._statuses[job_id].is_terminal
+            ]
+        for status in statuses:
+            self.jobUpdated.emit(status)
 
 
 def cancelled_error() -> JobError:

@@ -14,7 +14,6 @@ __all__ = [
     "FOLDERS",
     "PLAYLISTS",
     "ROOT_FOLDER",
-    "TASKS",
     "TRACKS",
     "DemoFolder",
     "DemoPlaylist",
@@ -519,28 +518,6 @@ PLAYLISTS = (
     DemoPlaylist("peak", "Peak time", ("dnb05", "dnb06", "dnb07", "dnb10", "dub04", "tec03")),
     DemoPlaylist("rollers", "Sunday rollers", ("dnb03", "dnb11", "dnb12", "ukg02")),
     DemoPlaylist("check", "To check", ("dnb09", "dub05", "smp01")),
-)
-
-TASKS = (
-    {
-        "label": "Reading folder dnb",
-        "detail": "12 of 18 files",
-        "state": "running",
-        "progress": 0.64,
-    },
-    {
-        "label": "Converting 2 files to MP3",
-        "detail": "Night Drive · 41%",
-        "state": "running",
-        "progress": 0.41,
-    },
-    {"label": "Reading folder ukg", "detail": "6 files", "state": "done", "progress": 1.0},
-    {
-        "label": "Reading folder Échantillons d'été",
-        "detail": "One file could not be read. Retry after checking the disk.",
-        "state": "error",
-        "progress": 0.75,
-    },
 )
 
 CONVERT_BATCHES = (

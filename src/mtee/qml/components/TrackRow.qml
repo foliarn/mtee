@@ -17,8 +17,6 @@ Rectangle {
     property bool current: false
     property bool inPlaylist: false
     property bool separateArtist: true
-    property var dragTrackIds: []
-    property bool dragReady: false
     readonly property bool hovered: mouse.containsMouse || rowHover.hovered
         || playButton.hovered || infoButton.hovered || addButton.hovered
     signal pressed(var event)
@@ -30,29 +28,6 @@ Rectangle {
 
     height: Theme.rowHeight
     color: selected ? Theme.selection : hovered ? Theme.surface : "transparent"
-
-    Drag.active: dragReady
-    Drag.source: row
-    Drag.supportedActions: Qt.MoveAction
-    Drag.mimeData: ({ "application/x-mtee-track-ids": JSON.stringify(dragTrackIds) })
-
-    DragHandler {
-        id: dragHandler
-        target: null
-        acceptedButtons: Qt.LeftButton
-
-        onActiveChanged: {
-            if (!active) {
-                row.dragReady = false
-                return
-            }
-            row.workspace.setActiveGroup(row.groupIndex)
-            if (row.workspace.selectedIds.indexOf(row.track.id) < 0)
-                row.workspace.selectTrack(row.track.id, "single", [])
-            row.dragTrackIds = row.workspace.selectedIds.slice()
-            row.dragReady = row.dragTrackIds.length > 0
-        }
-    }
 
     Rectangle {
         anchors.fill: parent
