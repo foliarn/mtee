@@ -24,7 +24,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$executable = Join-Path $projectRoot 'dist/MTEE/MTEE.exe'
+$executable = Join-Path $projectRoot 'dist/MTEE.exe'
 
 if (-not (Test-Path -LiteralPath $executable)) {
     Write-Error "Distribution not found: $executable. Build it with scripts/build_windows.ps1."

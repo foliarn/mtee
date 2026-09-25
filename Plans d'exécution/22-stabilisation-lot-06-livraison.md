@@ -37,6 +37,7 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 
 - 2026-09-25 — La demande explicite de compilation autorise le build; les parcours natifs et le recyclage restent des vérifications séparées.
 - 2026-09-25 — `fix` est fusionné à `main` par fast-forward après vérification que les modifications locales non commitées ne recouvrent pas les chemins de la branche. Pour la recette utilisateur, le lanceur de distribution passe un profil séparé afin de ne pas réutiliser une base issue de l'ancienne migration.
+- 2026-09-25 — À la demande de l'utilisateur, la sortie Windows passe à un EXE monofichier; les DLL et ressources QML sont intégrées et leur présence dans l'archive PyInstaller est vérifiée.
 
 ## Outcomes & Retrospective
 
