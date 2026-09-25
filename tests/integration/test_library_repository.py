@@ -60,6 +60,9 @@ def test_roots_are_deduplicated_and_tracks_keep_ids_across_rescans(tmp_path: Pat
     assert duplicate["id"] == root["id"]
     assert rescanned == track_id
     assert library.tracks_in_folder(root["id"], "sub")[0]["id"] == track_id
+    listed = library.tracks_in_folder(root["id"], "sub")[0]
+    assert listed["fileModifiedAtNs"] == track_path.stat().st_mtime_ns
+    assert listed["fileCreatedAtNs"] == getattr(track_path.stat(), "st_birthtime_ns", None)
     assert library.tracks_in_folder(root["id"], "sub")[0]["folder"] == f"folder:{root['id']}/sub"
     assert library.folders(root["id"]) == ["", "empty", "sub"]
     assert library.folder_stats(root["id"], "sub") == (1, track_path.stat().st_size, 1_000_000)

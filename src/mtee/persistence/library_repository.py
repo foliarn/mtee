@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from mtee.domain.file_dates import FileDates, format_file_timestamp
 from mtee.domain.metadata import MetadataSnapshot, format_bitrate
 from mtee.domain.tracks import SourceRevision, TrackId
 from mtee.persistence.database import Database
@@ -118,6 +119,7 @@ class LibraryRepository:
                     identities.append("")
                     continue
                 key = normalize_path(source)
+                file_dates = FileDates.observe(source)
                 if key in reserved_destinations:
                     identities.append("")
                     continue
@@ -155,11 +157,14 @@ class LibraryRepository:
                         encoded = json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True)
                 connection.execute(
                     "INSERT INTO track_locations(path_key,track_id,path,size_bytes,mtime_ns,"
-                    "file_id,generation,duration_us,status,metadata_json) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path_key) DO UPDATE SET "
+                    "file_id,generation,duration_us,status,metadata_json,file_created_at_ns,"
+                    "file_modified_at_ns) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(path_key) DO UPDATE SET "
                     "path=excluded.path,size_bytes=excluded.size_bytes,mtime_ns=excluded.mtime_ns,"
                     "file_id=excluded.file_id,generation=excluded.generation,duration_us=excluded.duration_us,"
-                    "status=excluded.status,metadata_json=excluded.metadata_json",
+                    "status=excluded.status,metadata_json=excluded.metadata_json,"
+                    "file_created_at_ns=COALESCE(track_locations.file_created_at_ns,"
+                    "excluded.file_created_at_ns),file_modified_at_ns=excluded.file_modified_at_ns",
                     (
                         key,
                         track_id,
@@ -171,6 +176,8 @@ class LibraryRepository:
                         metadata.technical.duration_us,
                         metadata.status,
                         encoded,
+                        file_dates.created_at_ns,
+                        file_dates.modified_at_ns,
                     ),
                 )
                 connection.execute(
@@ -313,6 +320,7 @@ class LibraryRepository:
             self._database.connection()
             .execute(
                 "SELECT t.track_id,l.path,l.size_bytes,l.mtime_ns,l.file_id,l.generation,"
+                "l.file_created_at_ns,l.file_modified_at_ns,"
                 "l.status,l.metadata_json,rt.relative_path "
                 "FROM root_tracks rt JOIN tracks t ON t.track_id=rt.track_id "
                 "JOIN track_locations l ON l.track_id=t.track_id "
@@ -344,6 +352,7 @@ class LibraryRepository:
             self._database.connection()
             .execute(
                 "SELECT l.path,l.size_bytes,l.mtime_ns,l.file_id,l.generation,l.status,"
+                "l.file_created_at_ns,l.file_modified_at_ns,"
                 "l.metadata_json,"
                 "rt.root_id,COALESCE(rt.relative_path,'') AS relative_path "
                 "FROM track_locations l LEFT JOIN root_tracks rt ON rt.track_id=l.track_id "
@@ -425,6 +434,7 @@ class LibraryRepository:
     ) -> None:
         """Move one UUID and all of its registered-root memberships atomically."""
         final_path = destination.resolve(strict=True)
+        file_dates = FileDates.observe(final_path)
         destination_key = normalize_path(final_path)
         conflict = connection.execute(
             "SELECT track_id FROM track_locations WHERE path_key=? AND track_id<>?",
@@ -445,6 +455,7 @@ class LibraryRepository:
             raise ValueError("The destination is outside every registered library root.")
         updated = connection.execute(
             "UPDATE track_locations SET path_key=?,path=?,size_bytes=?,mtime_ns=?,file_id=?,"
+            "file_created_at_ns=?,file_modified_at_ns=?,"
             "generation=?,duration_us=?,status=?,metadata_json=? WHERE track_id=? "
             "AND size_bytes=? AND mtime_ns=? AND file_id IS ? AND generation=?",
             (
@@ -453,6 +464,8 @@ class LibraryRepository:
                 new_revision.size_bytes,
                 new_revision.mtime_ns,
                 new_revision.file_id,
+                file_dates.created_at_ns,
+                file_dates.modified_at_ns,
                 new_revision.generation,
                 metadata.technical.duration_us,
                 metadata.status,
@@ -562,6 +575,10 @@ def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) 
         "size": _size(int(row["size_bytes"])),
         "filename": path.name,
         "path": str(path),
+        "fileCreatedAtNs": row["file_created_at_ns"],
+        "fileModifiedAtNs": row["file_modified_at_ns"],
+        "fileCreatedAtText": format_file_timestamp(row["file_created_at_ns"]),
+        "fileModifiedAtText": format_file_timestamp(row["file_modified_at_ns"]),
         "dateAdded": "",
         "cover": -1,
         "coverUrl": f"image://artwork/{identity}/{int(row['generation'])}",
