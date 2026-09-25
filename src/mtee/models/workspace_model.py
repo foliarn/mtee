@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
+from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.file_clipboard_model import FileClipboardModel
 from mtee.models.file_operation_model import FileOperationModel
 from mtee.models.folder_tree_model import FolderTreeModel
@@ -114,6 +115,7 @@ class WorkspaceModel(QObject):
         self._jobs = jobs
         self._player = player
         self._metadata_editor: MetadataEditorModel | None = None
+        self._conversion_model: ConversionQueueModel | None = None
         self._file_operations: FileOperationModel | None = None
         self._file_clipboard = FileClipboardModel(self)
         self._clipboard_paste_pending: list[str] = []
@@ -341,11 +343,25 @@ class WorkspaceModel(QObject):
 
     @Property(bool, constant=True)
     def conversionError(self) -> bool:
-        return False
+        if self._conversion_model is None:
+            return False
+        return cast(bool, self._conversion_model.error)
 
     @Property(list, notify=libraryChanged)
     def convertInputs(self) -> list[dict[str, Any]]:
-        return []
+        return (
+            cast(list[dict[str, Any]], self._conversion_model.inputs)
+            if self._conversion_model is not None
+            else []
+        )
+
+    @Property(QObject, constant=True)
+    def conversionModel(self) -> QObject:
+        return self._conversion_model if self._conversion_model is not None else self
+
+    def attach_conversion_model(self, model: ConversionQueueModel) -> None:
+        self._conversion_model = model
+        model.changed.connect(self.libraryChanged.emit)
 
     @Property(list, notify=libraryChanged)
     def convertBatches(self) -> list[dict[str, Any]]:
@@ -1218,11 +1234,14 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def addSelectionToConvert(self) -> None:
+        if self._conversion_model is not None:
+            self._conversion_model.add_tracks(self.selected_ids_snapshot())
         self.openConvert()
 
     @Slot()
     def retryConversion(self) -> None:
-        self._set_message("Conversion becomes available in a later step.")
+        if self._conversion_model is not None:
+            self._conversion_model.retry_failed()
 
     @Slot()
     def clearMessage(self) -> None:

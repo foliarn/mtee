@@ -424,7 +424,82 @@ class DemoWorkspace(QObject):
 
     @Property(list, notify=conversionChanged)
     def convertInputs(self) -> list[dict[str, object]]:
-        return [dict(self._tracks[tid]) for tid in self._convert_inputs]
+        return [
+            {
+                **self._tracks[tid],
+                "status": "failed" if self._conversion_error and index == 1 else "ready",
+                "destination": "",
+                "summary": "The demo does not write audio files.",
+            }
+            for index, tid in enumerate(self._convert_inputs)
+        ]
+
+    @Property(QObject, constant=True)
+    def conversionModel(self) -> QObject:
+        return self
+
+    @Property(list, constant=True)
+    def formats(self) -> list[dict[str, str]]:
+        return [
+            {"id": "mp3", "name": "MP3", "quality": "320 kbps · CBR"},
+            {"id": "aiff", "name": "AIFF", "quality": "16-bit PCM"},
+            {"id": "flac", "name": "FLAC", "quality": "Level 5 · lossless"},
+            {"id": "wav", "name": "WAV", "quality": "16-bit PCM"},
+        ]
+
+    @Property(int, notify=conversionChanged)
+    def formatIndex(self) -> int:
+        return 0
+
+    @Property(str, constant=True)
+    def outputFolder(self) -> str:
+        return "Music/Converted"
+
+    @Property(list, constant=True)
+    def sampleRateOptions(self) -> list[str]:
+        return ["Keep source", "44.1 kHz", "48 kHz"]
+
+    @Property(str, constant=True)
+    def sampleRate(self) -> str:
+        return "Keep source"
+
+    @Property(list, constant=True)
+    def channelOptions(self) -> list[str]:
+        return ["Keep source", "Mono", "Stereo"]
+
+    @Property(str, constant=True)
+    def channels(self) -> str:
+        return "Keep source"
+
+    @Property(list, constant=True)
+    def bitDepthOptions(self) -> list[str]:
+        return ["Keep source", "16-bit", "24-bit"]
+
+    @Property(str, constant=True)
+    def bitDepth(self) -> str:
+        return "Keep source"
+
+    @Property(bool, constant=True)
+    def dither(self) -> bool:
+        return False
+
+    @Property(bool, constant=True)
+    def copyMetadata(self) -> bool:
+        return True
+
+    @Property(bool, constant=True)
+    def hasPreview(self) -> bool:
+        return False
+
+    @Property(bool, constant=True)
+    def previewExecutable(self) -> bool:
+        return False
+
+    @Property(str, notify=conversionChanged)
+    def previewSummary(self) -> str:
+        return (
+            "This review scenario uses invented files; real conversion runs in the local library."
+        )
 
     @Property(list, constant=True)
     def tasks(self) -> list[dict[str, object]]:
@@ -951,6 +1026,62 @@ class DemoWorkspace(QObject):
         if added:
             self._convert_inputs.extend(added)
             self.conversionChanged.emit()
+
+    @Slot()
+    def next_format(self) -> None:
+        return
+
+    @Slot(list)
+    def add_files(self, _files: list) -> None:
+        return
+
+    @Slot()
+    def next_quality(self) -> None:
+        return
+
+    @Slot()
+    def next_sample_rate(self) -> None:
+        return
+
+    @Slot()
+    def next_channels(self) -> None:
+        return
+
+    @Slot()
+    def next_bit_depth(self) -> None:
+        return
+
+    @Slot()
+    def toggle_dither(self) -> None:
+        return
+
+    @Slot()
+    def toggle_metadata(self) -> None:
+        return
+
+    @Slot()
+    def set_output_folder(self, _folder: str) -> None:
+        return
+
+    @Slot()
+    def open_output_folder(self) -> None:
+        return
+
+    @Slot()
+    def cancel_all(self) -> None:
+        return
+
+    @Property(bool, constant=True)
+    def canCancel(self) -> bool:
+        return False
+
+    @Slot()
+    def retry_failed(self) -> None:
+        return
+
+    @Slot()
+    def preview_or_start(self) -> None:
+        return
 
     @Slot()
     def retryConversion(self) -> None:
