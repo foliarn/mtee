@@ -1,6 +1,6 @@
 # Complément 06b — Correctifs de recette et raccord aux étapes 07 à 10
 
-ExecPlan préparé le 2026-09-25 pour une exécution future par GPT-6 Luna. Suivre `PLANS.md` et `AGENTS.md`. La présente tâche prépare le travail : aucun correctif applicatif décrit ci-dessous n'est déjà implémenté. Les chemins sont relatifs à la racine du dépôt. Les numéros de ligne désignent le commit de référence `b180b120d7f63104a7d9cc3218fb0af2aceeb5b1` et servent de repères ; relire les symboles si le code a évolué.
+ExecPlan préparé le 2026-09-25 et maintenu pendant l'exécution. Suivre `PLANS.md` et `AGENTS.md`. Les chemins sont relatifs à la racine du dépôt. Les numéros de ligne désignent le commit de référence `b180b120d7f63104a7d9cc3218fb0af2aceeb5b1` et servent de repères ; relire les symboles si le code a évolué. Les résultats implémentés et les limites vérifiées sont consignés dans `docs/validation/06b-correctifs-recette.md`.
 
 ## Objectif et résultat observable
 
@@ -45,6 +45,8 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 2026-09-25 — A3 partiel (R06/R13) — migration 007, collecte UTC en ns, colonnes masquées Date created/Date modified, Info et demande d'ouverture Explorer via argument structuré implémentés. Suite ciblée 22/22, Ruff/formateur/pyright propres; paquet 2,27 Mo, hash libmpv vérifié, 20/20 smoke isolés. Copy, mise à jour après conversion, choix de destination et geste de déplacement restent à implémenter; Explorer jamais vérifié manuellement. A3 non clos.
 
+2026-09-25 — A3 partiel (R08) — migration 008 crée un journal isolé des copies; les copies vérifient taille/SHA-256, gardent la source, enregistrent un nouvel UUID et n'ont pas d'Undo. Les dossiers catalogués alimentent Move to/Copy to; le presse-papiers MTEE conserve un snapshot d'UUID et le collage ouvre un aperçu, y compris avec un dossier vide actif. Les tests automatiques vérifient copie, collision et récupération temporaire. QtTest n'a pas déclenché le parcours natif Drag/Drop : le test existant valide seulement le routage direct du dépôt. A3 reste ouvert.
+
 ## Decision Log
 
 2026-09-25 — Codex — Répartir ce complément en A avant 07, B dans le début de 07 et C dans 10. B réutilise FFmpeg pour générer et vérifier des fixtures audio ; le runtime n'est pas ajouté rétroactivement aux livraisons A/B historiques. Les interfaces d'adaptateurs peuvent être préparées en A, mais les formats ne deviennent éditables qu'après leurs preuves.
@@ -57,9 +59,11 @@ Les causes du scintillement, du saut de scroll et du crash restent à reproduire
 
 2026-09-25 — Codex — Contrat proposé pour le presse-papiers : Ctrl+A sélectionne, Ctrl+C copie, Ctrl+X coupe, Ctrl+V présente l'aperçu correspondant. Une copie conserve la source et reçoit un nouvel UUID ; un déplacement conserve l'UUID. Ne jamais faire supprimer une source par un raccourci présenté comme Copy. Mettre cette décision à jour si l'utilisateur précise explicitement un autre comportement avant l'exécution.
 
+2026-09-25 — Codex — Le journal de Copy utilise une table `file_copy_operations` dédiée (migration 008), afin de ne pas élargir le journal transactionnel Move/Undo sans récupération compatible. Les copies n'offrent pas Undo tant que la corbeille stricte n'est pas vérifiée.
+
 ## Outcomes & Retrospective
 
-Exécution en cours. A0 a ajouté des protections mesurées, mais la cause du crash demeure inconnue et les suites combinées signalent une exception native intermittente; ne pas annoncer R05 corrigé. A1 est implémenté et testé sur fixtures, contrôles statiques réussis, paquet Windows vérifié à 20/20 démarrages isolés. A2 est testé sur 140 WAV temporaires: scans silencieux, zero relecture inchangée, deux seules lectures pour une modification et un nouveau fichier, disparition après scan complet, double-clic et ancre stable; paquet à 20/20 démarrages. Les redémarrages réels, grandes bibliothèques et recette multi-DPI restent à faire. A3, B, 07–09 et le dossier de revue 10 restent à réaliser. Aucune collection personnelle n'a été utilisée ou modifiée.
+Exécution en cours. A0 garde des protections de durée de vie mesurées, mais les suites intégration/UI ont de nouveau imprimé le SEH libmpv; le lien avec le crash utilisateur n'est pas prouvé et R05 reste ouvert. A1 et A2 sont testés sur fixtures; le paquet A2 a réussi 20/20 démarrages isolés. A3 est partiel : dates et Explorer (sans recette manuelle), copie hashée sur fixtures, destinations catalogue et presse-papiers sont implémentés; le paquet A3 a réussi 20/20 smoke isolés. Le drag natif, le vrai collage/clavier, l'ouverture Explorer, conversion et tests multi-panneaux restent à prouver ou raccorder. Le travail ultérieur reste B, 07, 08, 09 et revue 10 selon l'ordre demandé. Aucune collection personnelle n'a été utilisée ou modifiée.
 
 ## Ordre de travail pour la session nocturne
 

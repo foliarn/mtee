@@ -9,6 +9,8 @@ FocusScope {
 
     required property var workspace
     required property var tab
+    focus: groupIndex === workspace.activeGroup
+    activeFocusOnTab: true
     property int groupIndex: 0
     property int bottomInset: 0
     property var localColumnWidths: ({})
@@ -132,6 +134,23 @@ FocusScope {
 
     Keys.onPressed: (event) => {
         const count = orderedIds.length
+        if (event.modifiers & Qt.ControlModifier) {
+            if (event.key === Qt.Key_C) {
+                workspace.fileClipboard.copySelection(workspace.selectedIds)
+                event.accepted = true
+                return
+            }
+            if (event.key === Qt.Key_X) {
+                workspace.fileClipboard.cutSelection(workspace.selectedIds)
+                event.accepted = true
+                return
+            }
+            if (event.key === Qt.Key_V) {
+                workspace.pasteFilesIntoFolder(tab.ref)
+                event.accepted = true
+                return
+            }
+        }
         if (count === 0)
             return
         if (event.key === Qt.Key_Down || event.key === Qt.Key_Up) {

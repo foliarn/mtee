@@ -8,6 +8,7 @@ import os
 import stat
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from ctypes import wintypes
 from pathlib import Path
 from typing import Protocol
@@ -280,6 +281,67 @@ class WindowsFileOps:
         except OSError as error:
             raise FileOperationNativeError(str(error)) from error
 
+    def copy_no_replace(
+        self,
+        source: Path,
+        temporary: Path,
+        destination: Path,
+        *,
+        expected_revision: SourceRevision,
+        expected_sha256: str,
+        is_cancelled: Callable[[], bool],
+        report_progress: Callable[[int, int], None],
+    ) -> None:
+        """Copy to an exclusive neighbor, verify it, and publish by no-overwrite link."""
+        if source.is_symlink() or not source.is_file():
+            raise FileOperationNativeError("Only regular files can be copied.")
+        if temporary.parent != destination.parent:
+            raise FileOperationNativeError("The temporary copy must be beside its destination.")
+        if temporary.exists() or destination.exists() or destination.is_symlink():
+            raise FileOperationNativeError("The temporary path or destination is already occupied.")
+        before = SourceRevision.observe(source, generation=expected_revision.generation)
+        if not expected_revision.matches(before):
+            raise FileOperationNativeError("The source changed before the copy began.")
+        digest = hashlib.sha256()
+        copied = 0
+        try:
+            with source.open("rb") as source_stream, temporary.open("xb") as target_stream:
+                while chunk := source_stream.read(1024 * 1024):
+                    if is_cancelled():
+                        raise FileOperationCancelledError("The copy was cancelled.")
+                    target_stream.write(chunk)
+                    digest.update(chunk)
+                    copied += len(chunk)
+                    report_progress(copied, expected_revision.size_bytes)
+                target_stream.flush()
+                os.fsync(target_stream.fileno())
+            after = SourceRevision.observe(source, generation=expected_revision.generation)
+            if (
+                copied != expected_revision.size_bytes
+                or digest.hexdigest() != expected_sha256
+                or not expected_revision.matches(after)
+            ):
+                raise FileOperationRecoveryError(
+                    "The source changed or the temporary copy failed verification.", temporary
+                )
+            self.move_no_replace(temporary, destination)
+        except FileOperationCancelledError:
+            with suppress(OSError):
+                temporary.unlink()
+            raise
+        except FileOperationRecoveryError:
+            raise
+        except OSError as error:
+            recovery_path = temporary if temporary.exists() else None
+            raise FileOperationRecoveryError(
+                f"The verified copy could not be published without replacement: {error}",
+                recovery_path,
+            ) from error
+        if _sha256_path(destination) != expected_sha256:
+            raise FileOperationRecoveryError(
+                "The published copy failed SHA-256 verification.", None, phase="published"
+            )
+
 
 def _case_only_rename(source: Path, destination: Path) -> bool:
     return os.path.normcase(os.path.abspath(source)) == os.path.normcase(
@@ -384,6 +446,14 @@ def _revision_from_stat(status: os.stat_result, generation: int) -> SourceRevisi
 def _sha256_fd(file_descriptor: int) -> str:
     digest = hashlib.sha256()
     with os.fdopen(os.dup(file_descriptor), "rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()

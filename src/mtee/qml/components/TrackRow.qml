@@ -128,6 +128,8 @@ Rectangle {
                         bpm: row.track.bpm,
                         duration: row.track.duration,
                         bitrate: row.track.bitrateText || row.track.bitrate,
+                        fileCreatedAt: row.track.fileCreatedAtText,
+                        fileModifiedAt: row.track.fileModifiedAtText,
                         format: row.track.format,
                         filename: row.track.filename
                     }
