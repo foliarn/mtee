@@ -32,18 +32,24 @@ temporaires, l'annulation, les résultats indépendants et le hash source.
 ## Dépendances et paquet Windows
 
 Versions mesurées dans l'environnement verrouillé : Python 3.12.14,
-librosa 0.11.0, NumPy 2.5.3, SciPy 1.18.1, PyInstaller 6.22.2. Le manifeste
+librosa 0.11.0 (ISC), NumPy 2.5.3 (BSD-3-Clause), SciPy 1.18.1
+(BSD-3-Clause), PyInstaller 6.22.2. Les fichiers de licence principaux des
+trois dépendances d'analyse sont ajoutés à
+`mtee/resources/licenses/` depuis leurs métadonnées installées. Le manifeste
 FFmpeg épingle le build Windows ci-dessus et sa licence LGPL-3.0-or-later est
 copiée et vérifiée par le script de build.
 
-`pwsh -NoProfile -File scripts/build_windows.ps1` a réussi deux fois sous
-Windows 11 10.0.26200. Le dossier final contient 2 550 fichiers pour
-667 609 388 octets; `MTEE.exe` fait 20 381 481 octets. Le build note l'absence
+`pwsh -NoProfile -File scripts/build_windows.ps1` a réussi après l'ajout des
+notices sous Windows 11 10.0.26200. Le dossier final contient 2 553 fichiers
+pour 667 701 866 octets; `MTEE.exe` fait 20 381 481 octets. Le build note l'absence
 de `tbb12.dll` utilisé par le backend TBB facultatif de Numba. PyInstaller
 produit aussi des avertissements pour certaines imports optionnelles de
 SciPy/pycparser. Le contrôle d'analyse dans une copie temporaire du paquet
 reste réussi, donc ces avertissements ne correspondent pas à une méthode
-manquante dans ce scénario; ils ne sont pas déclarés corrigés.
+manquante dans ce scénario; ils ne sont pas déclarés corrigés. Les contrôles
+après ajout des notices confirment les fichiers
+`licenses/librosa/LICENSE.md`, `licenses/numpy/LICENSE.txt` et
+`licenses/scipy/LICENSE.txt` dans la copie finale.
 
 Sur une copie externe de `dist/MTEE`, la commande `--smoke-test` renvoie le
 code 0. La commande `--analysis-smoke-test <copie-de-fixture> --data-dir
