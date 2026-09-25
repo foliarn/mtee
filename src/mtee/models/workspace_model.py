@@ -5,21 +5,20 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
-from mtee.models.analysis_model import AnalysisModel
 from mtee.models.conversion_queue_model import ConversionQueueModel
-from mtee.models.file_clipboard_model import FileClipboardModel
-from mtee.models.file_operation_model import FileOperationModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
+from mtee.models.trash_model import TrashModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
@@ -100,6 +99,10 @@ class WorkspaceModel(QObject):
     activationRequested = Signal(str, list)
     playbackChanged = Signal()
     positionChanged = Signal()
+    folderRootsReady = Signal(int, object, object)
+    folderBranchReady = Signal(str, int, object, object)
+    trackRowsReady = Signal(str, int, object)
+    sessionWriteFinished = Signal(object, object)
 
     def __init__(
         self,
@@ -116,14 +119,13 @@ class WorkspaceModel(QObject):
         self._jobs = jobs
         self._player = player
         self._metadata_editor: MetadataEditorModel | None = None
-        self._analysis_model: AnalysisModel | None = None
         self._conversion_model: ConversionQueueModel | None = None
-        self._file_operations: FileOperationModel | None = None
-        self._file_clipboard = FileClipboardModel(self)
-        self._clipboard_paste_pending: list[str] = []
+        self._trash_model: TrashModel | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._shell_reveal = WindowsShellReveal()
+        self._roots_by_id: dict[str, dict[str, Any]] = {}
+        self._resume_roots_requested = False
         self._state = session.load()
         self._expanded = set(self._state.get("expanded", []))
         self._groups = self._restore_groups(self._state.get("groups", []))
@@ -148,9 +150,7 @@ class WorkspaceModel(QObject):
         self._sidebar_visible = bool(self._state.get("sidebarVisible", True))
         self._right_visible = bool(self._state.get("rightPanelVisible", False))
         saved_right_tab = str(self._state.get("rightPanelTab", "info"))
-        self._right_tab = (
-            saved_right_tab if saved_right_tab in {"info", "queue", "analysis"} else "info"
-        )
+        self._right_tab = saved_right_tab if saved_right_tab in {"info", "queue"} else "info"
         self._sidebar_width = int(self._state.get("sidebarWidth", 240))
         self._right_panel_width = int(self._state.get("rightPanelWidth", 360))
         self._fullscreen = False
@@ -166,19 +166,44 @@ class WorkspaceModel(QObject):
         self._jobs_by_root: dict[str, str] = {}
         self._scan_counts: dict[str, int] = {}
         self._track_models: dict[str, TrackListModel] = {}
-        self._folder_model = FolderTreeModel(library, self)
-        self._folder_model.refresh(self._expanded)
+        self._track_request_generation: dict[str, int] = {}
+        self._track_request_keys: dict[str, tuple[Any, ...]] = {}
+        self._track_job_ids: dict[str, str] = {}
+        self._folder_request_generation: dict[str, int] = {}
+        self._folder_job_ids: dict[str, str] = {}
+        self._folder_root_generation = 0
+        self._folder_root_job_id = ""
+        self._dirty_all_branches = False
+        self._dirty_root_ids: set[str] = set()
+        self._dirty_folder_branches: set[tuple[str, str]] = set()
+        self._dirty_tabs: set[str] = set()
+        self._dirty_all_tabs = False
+        self._folder_model = FolderTreeModel(self)
+        self._session_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="mtee-session"
+        )
+        self._session_future: Future[None] | None = None
+        self._session_pending: dict[str, Any] | None = None
+        self._session_closed = False
+        self._session_timer = QTimer(self)
+        self._session_timer.setSingleShot(True)
+        self._session_timer.setInterval(300)
+        self._session_timer.timeout.connect(self._write_pending_session)
+        self.sessionWriteFinished.connect(self._on_session_write_finished)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(90)
         self._refresh_timer.timeout.connect(self._refresh_models)
         self.batchReady.connect(self._on_scan_batch)
         self.scanFinished.connect(self._on_scan_finished)
-        jobs.jobUpdated.connect(self._on_job_updated)
+        self.folderRootsReady.connect(self._on_folder_roots_ready)
+        self.folderBranchReady.connect(self._on_folder_branch_ready)
+        self.trackRowsReady.connect(self._on_track_rows_ready)
         if player is not None:
             player.playbackChanged.connect(self.playbackChanged.emit)
-            player.playbackChanged.connect(self.positionChanged.emit)
+            player.positionChanged.connect(self.positionChanged.emit)
         self._persist()
+        self._request_folder_roots()
 
     # ---------------------------------------------------------------- properties
 
@@ -364,38 +389,19 @@ class WorkspaceModel(QObject):
     def conversionModel(self) -> QObject:
         return self._conversion_model if self._conversion_model is not None else self
 
-    @Property(QObject, constant=True)
-    def analysisModel(self) -> QObject | None:
-        return self._analysis_model
-
-    def attach_analysis_model(self, model: AnalysisModel) -> None:
-        if self._analysis_model is not None:
-            raise RuntimeError("An analysis model is already attached to this workspace.")
-        self._analysis_model = model
-        model.setParent(self)
-
     def attach_conversion_model(self, model: ConversionQueueModel) -> None:
         self._conversion_model = model
         model.changed.connect(self.libraryChanged.emit)
+        model.recoveryNotice.connect(self._set_message)
+        model.outputCatalogued.connect(self._on_conversion_output_catalogued)
+
+    @Slot(str, str)
+    def _on_conversion_output_catalogued(self, root_id: str, relative_path: str) -> None:
+        self._refresh_library(root_id, {relative_path.rpartition("/")[0]})
 
     @Property(list, notify=libraryChanged)
     def convertBatches(self) -> list[dict[str, Any]]:
         return []
-
-    @Property(list, notify=libraryChanged)
-    def tasks(self) -> list[dict[str, Any]]:
-        result = []
-        for status in self._jobs.statuses():
-            result.append(
-                {
-                    "id": str(status.job_id),
-                    "title": status.label,
-                    "status": status.state.value,
-                    "summary": status.error.message if status.error else "",
-                    "progress": round(status.progress * 100),
-                }
-            )
-        return result
 
     @Property(list, constant=True)
     def playlists(self) -> list[dict[str, Any]]:
@@ -414,32 +420,8 @@ class WorkspaceModel(QObject):
         return self._metadata_editor if self._metadata_editor is not None else self
 
     @Property(QObject, constant=True)
-    def fileOperations(self) -> QObject:
-        return self._file_operations if self._file_operations is not None else self
-
-    @Property(QObject, constant=True)
-    def fileClipboard(self) -> QObject:
-        return self._file_clipboard
-
-    @Property(list, notify=libraryChanged)
-    def destinationFolders(self) -> list[dict[str, str]]:
-        options: list[dict[str, Any]] = []
-        for root in self._library.roots():
-            root_path = Path(str(root["path"]))
-            for relative in self._library.folders(str(root["id"])):
-                target = (
-                    root_path.joinpath(*PurePosixPath(relative).parts) if relative else root_path
-                )
-                suffix = relative.replace("/", " > ") or "Root folder"
-                options.append(
-                    {
-                        "rootId": str(root["id"]),
-                        "path": str(target),
-                        "available": str(root["availability"]) == "available",
-                        "label": f"{root['name']} ({root_path}) > {suffix}",
-                    }
-                )
-        return options
+    def trashModel(self) -> QObject:
+        return self._trash_model if self._trash_model is not None else self
 
     @Property(list, notify=selectionChanged)
     def infoFieldsReadOnly(self) -> list[dict[str, str]]:
@@ -513,118 +495,47 @@ class WorkspaceModel(QObject):
             return
         self._set_message("Asked Windows Explorer to show this file.")
 
-    @Slot(int, int, list, str, result=bool)
-    def previewMoveBetweenGroups(
-        self,
-        source_group_index: int,
-        destination_group_index: int,
-        track_ids: list,
-        destination_ref: str,
-    ) -> bool:
-        """Open a confirmed move preview for selected tracks dropped onto another folder tab."""
-        if (
-            self._file_operations is None
-            or source_group_index == destination_group_index
-            or not 0 <= source_group_index < len(self._groups)
-            or not 0 <= destination_group_index < len(self._groups)
-        ):
-            return False
-        source_tab = str(self._groups[source_group_index]["active"])
-        destination_tab = str(self._groups[destination_group_index]["active"])
-        if not source_tab.startswith("folder:") or destination_tab != f"folder:{destination_ref}":
-            return False
-        selected = self._selection_by_tab.get((source_group_index, source_tab), [])
-        captured = list(dict.fromkeys(str(track_id) for track_id in track_ids if str(track_id)))
-        if not captured or any(track_id not in selected for track_id in captured):
-            return False
-        try:
-            root_id, relative = _parse_folder_ref(destination_ref)
-        except ValueError:
-            return False
-        root = next((item for item in self._library.roots() if item["id"] == root_id), None)
-        if root is None:
-            return False
-        destination = str(Path(str(root["path"])).joinpath(*PurePosixPath(relative).parts))
-        return self._file_operations.openOperation("move", destination, captured)
-
     def attach_metadata_editor(self, editor: MetadataEditorModel) -> None:
         """Attach the single editor shared by the inspector and Fullscreen player."""
         if self._metadata_editor is not None:
             raise RuntimeError("A metadata editor is already attached to this workspace.")
         self._metadata_editor = editor
         editor.setParent(self)
-        editor.changed.connect(self._on_metadata_changed)
+        editor.changed.connect(self.metadataChanged.emit)
+        editor.sourceChanged.connect(self._on_metadata_changed)
         self.selectionChanged.connect(editor.refresh_selection)
+        self.selectionChanged.connect(self._prepare_visible_metadata)
         editor.refresh_selection()
+        self._prepare_visible_metadata()
 
-    def attach_file_operations(self, model: FileOperationModel) -> None:
-        """Attach the shared file operation model and refresh UUID-backed views."""
-        if self._file_operations is not None:
-            raise RuntimeError("A file operation model is already attached to this workspace.")
-        self._file_operations = model
+    def attach_trash_model(self, model: TrashModel) -> None:
+        """Attach the dedicated Windows recycle model."""
+        if self._trash_model is not None:
+            raise RuntimeError("A trash model is already attached to this workspace.")
+        self._trash_model = model
         model.setParent(self)
-        model.operationFinished.connect(self._on_file_operation_finished)
-        model.recoveryChecked.connect(self._on_file_recovery_checked)
-        recovered = cast(list[dict[str, Any]], model.recoveryOperations)
-        if recovered:
-            self._on_file_recovery_checked(recovered)
-
-    @Slot(str, result=bool)
-    def pasteFilesIntoFolder(self, folder_id: str) -> bool:
-        """Open the preview for a clipboard snapshot in an active catalog folder."""
-        if self._file_operations is None or not self._file_clipboard.trackIds:
-            self._set_message(
-                "The clipboard has no MTEE track references. Copy or cut tracks in MTEE first."
-            )
-            return False
-        folder = _parse_folder_id(folder_id)
-        if folder is None:
-            self._set_message("Paste files into a library folder.")
-            return False
-        root_id, relative = folder
-        root = next((item for item in self._library.roots() if item["id"] == root_id), None)
-        if root is None:
-            self._set_message("The destination library folder is no longer available.")
-            return False
-        destination = Path(str(root["path"])).joinpath(*PurePosixPath(relative).parts)
-        if not destination.is_dir():
-            self._set_message("The destination folder is unavailable; choose another folder.")
-            return False
-        mode = self._file_clipboard.mode
-        track_ids = cast(list[str], self._file_clipboard.trackIds)
-        if self._file_operations.openOperation(mode, str(destination), track_ids):
-            self._clipboard_paste_pending = track_ids if mode == "move" else []
-            return True
-        return False
-
-    @Slot()
-    def _on_file_operation_finished(self) -> None:
-        if (
-            self._file_operations is not None
-            and self._file_operations.kind == "move"
-            and self._clipboard_paste_pending
-        ):
-            completed = [
-                str(result.get("trackId", ""))
-                for result in cast(list[dict[str, Any]], self._file_operations.results)
-                if result.get("status") == "completed"
-                and str(result.get("trackId", "")) in self._clipboard_paste_pending
-            ]
-            if completed:
-                self._file_clipboard.removeCompleted(completed)
-            self._clipboard_paste_pending = []
-        self._refresh_library()
-        if self._metadata_editor is not None:
-            self._metadata_editor.refresh_selection()
-        if self._file_operations is not None:
-            self._set_message(cast(str, self._file_operations.message))
+        model.tracksRecycled.connect(self._on_tracks_recycled)
 
     @Slot(object)
-    def _on_file_recovery_checked(self, operations: object) -> None:
-        if isinstance(operations, list) and operations:
-            self._set_message(
-                f"{len(operations)} file operation(s) need inspection before more file changes."
-            )
+    def _on_tracks_recycled(self, recycled: object) -> None:
+        if not isinstance(recycled, list):
+            return
+        affected: dict[str, set[str]] = {}
+        for item in recycled:
+            if not isinstance(item, dict) or item.get("status") != "recycled":
+                continue
+            root_id = str(item.get("rootId", ""))
+            if root_id:
+                affected.setdefault(root_id, set()).add(str(item.get("parentRelative", "")))
+        for root_id, folders in affected.items():
+            self._dirty_root_ids.add(root_id)
+            for relative in folders:
+                self._dirty_folder_branches.add((root_id, relative))
+                self._dirty_tabs.add(f"folder:{root_id}/{relative}")
+        if affected:
+            self._revision += 1
+            self.libraryChanged.emit()
+            self._refresh_timer.start()
 
     @Slot(str, str, str, str, bool, result=QObject)
     def trackModelForTab(
@@ -635,24 +546,151 @@ class WorkspaceModel(QObject):
             model = TrackListModel(self)
             self._track_models[tab_id] = model
         if kind == "folder":
+            self._request_track_rows(tab_id, kind, ref, sort_key, ascending)
+        else:
+            model.replace([])
+        return model
+
+    def _request_track_rows(
+        self, tab_id: str, kind: str, ref: str, sort_key: str, ascending: bool
+    ) -> None:
+        tab = self._tab_state(tab_id)
+        query = str(tab.get("searchQuery", "")).casefold().strip()
+        key = (kind, ref, sort_key, bool(ascending), query)
+        if self._track_request_keys.get(tab_id) == key:
+            return
+        generation = self._track_request_generation.get(tab_id, 0) + 1
+        self._track_request_generation[tab_id] = generation
+        previous_job = self._track_job_ids.get(tab_id)
+        if previous_job:
+            with suppress(LookupError, ValueError):
+                self._jobs.cancel(JobId.parse(previous_job))
+        self._track_request_keys[tab_id] = key
+
+        def read_rows(context: JobContext) -> None:
+            context.raise_if_cancelled()
             root_id, relative = _parse_folder_ref(ref)
             rows = self._library.tracks_in_folder(root_id, relative)
-            tab = self._tab_state(tab_id)
-            query = str(tab.get("searchQuery", "")).casefold().strip()
             if query:
                 rows = [
                     row
                     for row in rows
                     if query
                     in " ".join(
-                        str(row.get(key, ""))
-                        for key in ("title", "artist", "album", "genre", "filename")
+                        str(row.get(field, ""))
+                        for field in ("title", "artist", "album", "genre", "filename")
                     ).casefold()
                 ]
-            model.replace(_sort_rows(rows, sort_key, ascending))
-        else:
-            model.replace([])
-        return model
+            ordered = _sort_rows(rows, sort_key, ascending)
+            context.raise_if_cancelled()
+            self.trackRowsReady.emit(tab_id, generation, ordered)
+
+        job_id = self._jobs.submit(read_rows, label="Load folder contents", visible=False)
+        self._track_job_ids[tab_id] = str(job_id)
+
+    @Slot(str, int, object)
+    def _on_track_rows_ready(self, tab_id: str, generation: int, rows: object) -> None:
+        if generation != self._track_request_generation.get(tab_id):
+            return
+        model = self._track_models.get(tab_id)
+        if model is None or not isinstance(rows, list):
+            return
+        self._track_job_ids.pop(tab_id, None)
+        model.replace(rows)
+
+    def _request_folder_roots(self) -> None:
+        self._folder_root_generation += 1
+        generation = self._folder_root_generation
+        if self._folder_root_job_id:
+            with suppress(LookupError, ValueError):
+                self._jobs.cancel(JobId.parse(self._folder_root_job_id))
+
+        def read_roots(context: JobContext) -> None:
+            try:
+                context.raise_if_cancelled()
+                roots = self._library.roots()
+                context.raise_if_cancelled()
+                self.folderRootsReady.emit(generation, roots, None)
+            except JobCancelledError:
+                raise
+            except Exception as error:
+                self.folderRootsReady.emit(generation, None, str(error))
+                raise
+
+        job_id = self._jobs.submit(read_roots, label="Load library folders", visible=False)
+        self._folder_root_job_id = str(job_id)
+
+    @Slot(int, object, object)
+    def _on_folder_roots_ready(
+        self, generation: int, roots: object, error: object
+    ) -> None:
+        if generation != self._folder_root_generation:
+            return
+        self._folder_root_job_id = ""
+        if not isinstance(roots, list):
+            self._set_message(f"Could not load library folders: {error or 'unknown error'}")
+            return
+        self._roots_by_id = {
+            str(root.get("id", "")): dict(root) for root in roots if isinstance(root, dict)
+        }
+        self._folder_model.set_roots(roots)
+        for folder_id in self._expanded:
+            self._folder_model.set_expanded(folder_id, True)
+        self.explorerChanged.emit()
+        for folder_id in tuple(self._expanded):
+            if self._folder_model.is_expanded(folder_id) and not self._folder_model.branch_loaded(
+                folder_id
+            ):
+                self._request_folder_branch(folder_id)
+        if self._resume_roots_requested:
+            self._resume_roots_requested = False
+            for root_id in tuple(self._roots_by_id):
+                self._start_root_scan(root_id, quiet=True)
+
+    def _request_folder_branch(self, folder_id: str) -> None:
+        if not self._folder_model.is_expanded(folder_id):
+            return
+        if self._folder_model.branch_loaded(folder_id):
+            return
+        if folder_id in self._folder_job_ids:
+            return
+        parsed = _parse_folder_id(folder_id)
+        if parsed is None:
+            return
+        root_id, relative = parsed
+        generation = self._folder_request_generation.get(folder_id, 0) + 1
+        self._folder_request_generation[folder_id] = generation
+        self._folder_model.set_loading(folder_id, True)
+
+        def read_branch(context: JobContext) -> None:
+            try:
+                context.raise_if_cancelled()
+                rows = self._library.folder_children(root_id, relative)
+                context.raise_if_cancelled()
+                self.folderBranchReady.emit(folder_id, generation, rows, None)
+            except JobCancelledError:
+                raise
+            except Exception as error:
+                self.folderBranchReady.emit(folder_id, generation, None, str(error))
+                raise
+
+        job_id = self._jobs.submit(read_branch, label="Load folder contents", visible=False)
+        self._folder_job_ids[folder_id] = str(job_id)
+
+    @Slot(str, int, object, object)
+    def _on_folder_branch_ready(
+        self, folder_id: str, generation: int, rows: object, error: object
+    ) -> None:
+        if generation != self._folder_request_generation.get(folder_id):
+            return
+        self._folder_job_ids.pop(folder_id, None)
+        if not self._folder_model.is_expanded(folder_id) or not isinstance(rows, list):
+            self._folder_model.set_loading(folder_id, False)
+            if error is not None:
+                self._set_message(f"Could not load this folder: {error}")
+            return
+        self._folder_model.set_branch(folder_id, rows)
+        self.explorerChanged.emit()
 
     @Slot(str, str, str, bool, int, result=list)
     def tabTracks(
@@ -660,8 +698,12 @@ class WorkspaceModel(QObject):
     ) -> list[dict[str, Any]]:
         if kind != "folder":
             return []
-        root_id, relative = _parse_folder_ref(ref)
-        return _sort_rows(self._library.tracks_in_folder(root_id, relative), sort_key, ascending)
+        tab_id = f"folder:{ref}"
+        model = self._track_models.get(tab_id)
+        if model is None:
+            self._request_track_rows(tab_id, kind, ref, sort_key, ascending)
+            return []
+        return model.rows_snapshot()
 
     @Slot(str, str, int, result=str)
     def tabSummary(self, kind: str, ref: str, _revision: int = 0) -> str:
@@ -697,9 +739,10 @@ class WorkspaceModel(QObject):
             return ""
         root = self._library.add_root(source)
         root_id = str(root["id"])
+        self._roots_by_id[root_id] = dict(root)
         self._expanded.add(f"root:{root_id}")
         self._open_folder(root_id, "")
-        self._refresh_library()
+        self._refresh_library(root_id, {""})
         self.layoutChanged.emit()
         self.selectionChanged.emit()
         self.rescanRoot(root_id)
@@ -711,7 +754,7 @@ class WorkspaceModel(QObject):
         return self._start_root_scan(root_id, quiet=False)
 
     def _start_root_scan(self, root_id: str, *, quiet: bool) -> str:
-        root = next((item for item in self._library.roots() if item["id"] == root_id), None)
+        root = self._roots_by_id.get(root_id)
         if root is None:
             self._set_message("This folder is no longer in the library.")
             return ""
@@ -728,7 +771,7 @@ class WorkspaceModel(QObject):
         if quiet:
             self._quiet_requests.add(request_id)
         self._scan_counts[root_id] = 0
-        self._refresh_library()
+        self._refresh_library(root_id, {""})
 
         def task(context: JobContext) -> None:
             complete = False
@@ -741,7 +784,9 @@ class WorkspaceModel(QObject):
                     root["path"], is_cancelled=lambda: context.is_cancelled
                 ):
                     issues.extend(issue.message for issue in batch.issues)
-                    self._library.upsert_folders(root_id, batch.folders, generation)
+                    changed_folders = self._library.upsert_folders(
+                        root_id, batch.folders, generation
+                    )
                     unchanged = self._library.unchanged_paths(
                         root_id,
                         [(entry.relative_path, entry.revision) for entry in batch.entries],
@@ -755,9 +800,22 @@ class WorkspaceModel(QObject):
                         )
                         records.append((entry.relative_path, entry.path, entry.revision, snapshot))
                     identities = self._library.upsert_locations(root_id, records, generation)
-                    if identities or batch.folders:
+                    changed_parents = {
+                        entry.relative_path.rpartition("/")[0]
+                        for entry in batch.entries
+                        if entry.relative_path not in unchanged
+                    }
+                    changed_parents.update(
+                        folder.rpartition("/")[0] for folder in changed_folders
+                    )
+                    if changed_parents:
                         self.batchReady.emit(
-                            root_id, request_id, sum(bool(identity) for identity in identities)
+                            root_id,
+                            request_id,
+                            {
+                                "count": sum(bool(identity) for identity in identities),
+                                "folders": sorted(changed_parents),
+                            },
                         )
                     if batch.complete:
                         complete = True
@@ -773,7 +831,7 @@ class WorkspaceModel(QObject):
                 issues.append(failure)
                 raise
             finally:
-                self._library.finish_scan(
+                changed_folders = self._library.finish_scan(
                     root_id, generation, complete=complete, available=available
                 )
                 self.scanFinished.emit(
@@ -785,6 +843,7 @@ class WorkspaceModel(QObject):
                         "available": available,
                         "issues": issues,
                         "error": failure,
+                        "changedFolders": changed_folders,
                     },
                 )
             if cancelled:
@@ -802,16 +861,32 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def resumeRoots(self) -> None:
-        for root in self._library.roots():
-            self._start_root_scan(str(root["id"]), quiet=True)
+        self._resume_roots_requested = True
+        if not self._roots_by_id:
+            self._request_folder_roots()
+            return
+        self._resume_roots_requested = False
+        for root_id in tuple(self._roots_by_id):
+            self._start_root_scan(root_id, quiet=True)
 
     @Slot(str)
     def toggleFolder(self, folder_id: str) -> None:
         if folder_id in self._expanded:
             self._expanded.remove(folder_id)
+            self._folder_model.set_expanded(folder_id, False)
+            self._folder_request_generation[folder_id] = (
+                self._folder_request_generation.get(folder_id, 0) + 1
+            )
+            job_id = self._folder_job_ids.pop(folder_id, "")
+            if job_id:
+                with suppress(LookupError, ValueError):
+                    self._jobs.cancel(JobId.parse(job_id))
         else:
             self._expanded.add(folder_id)
-        self._refresh_library()
+            self._folder_model.set_expanded(folder_id, True)
+            self._request_folder_branch(folder_id)
+        self.explorerChanged.emit()
+        self.layoutChanged.emit()
         self._persist()
 
     @Slot(str)
@@ -819,22 +894,27 @@ class WorkspaceModel(QObject):
         parsed = _parse_folder_id(folder_id)
         if parsed is None:
             return
-        self._open_folder(*parsed)
+        if not self._open_folder(*parsed):
+            return
         self.layoutChanged.emit()
         self.selectionChanged.emit()
         self._persist()
 
-    def _open_folder(self, root_id: str, relative: str) -> None:
+    def _open_folder(self, root_id: str, relative: str) -> bool:
         ref = f"{root_id}/{relative}"
         tab_id = f"folder:{ref}"
-        self._ensure_tab(tab_id)
         group = self._groups[self._active_group]
+        changed = group["active"] != tab_id or tab_id not in group["tabs"]
+        if not changed:
+            return False
+        self._ensure_tab(tab_id)
         if tab_id not in group["tabs"]:
             group["tabs"].append(tab_id)
         group["active"] = tab_id
         key = (self._active_group, tab_id)
         self._selection_by_tab.setdefault(key, [])
         self._anchor_by_tab.setdefault(key, "")
+        return True
 
     # -------------------------------------------------------------- layout actions
 
@@ -867,6 +947,8 @@ class WorkspaceModel(QObject):
         self._activity = "convert"
         self._sidebar_visible = True
         self._open_special_tab("convert:", "Convert")
+        if self._conversion_model is not None:
+            self._conversion_model.ensure_capabilities()
         self.layoutChanged.emit()
         self._persist()
 
@@ -921,7 +1003,17 @@ class WorkspaceModel(QObject):
             group["active"] = tabs[min(old_index, len(tabs) - 1)] if tabs else ""
         if not any(tab_id in item["tabs"] for item in self._groups):
             self._tab_states.pop(tab_id, None)
-            self._track_models.pop(tab_id, None)
+            model = self._track_models.pop(tab_id, None)
+            if model is not None:
+                model.deleteLater()
+            self._track_request_generation[tab_id] = (
+                self._track_request_generation.get(tab_id, 0) + 1
+            )
+            job_id = self._track_job_ids.pop(tab_id, "")
+            if job_id:
+                with suppress(LookupError, ValueError):
+                    self._jobs.cancel(JobId.parse(job_id))
+            self._track_request_keys.pop(tab_id, None)
             self._selection_by_tab = {
                 key: value for key, value in self._selection_by_tab.items() if key[1] != tab_id
             }
@@ -968,8 +1060,10 @@ class WorkspaceModel(QObject):
         )
         state["sortKey"] = key
         self._revision += 1
+        self._dirty_tabs.add(tab_id)
         self.layoutChanged.emit()
         self.libraryChanged.emit()
+        self._refresh_timer.start()
         self._persist()
 
     @Slot(str, str)
@@ -1026,6 +1120,7 @@ class WorkspaceModel(QObject):
     def setSearch(self, tab_id: str, query: str) -> None:
         self._tab_state(tab_id)["searchQuery"] = query[:256]
         self._revision += 1
+        self._dirty_tabs.add(tab_id)
         self.libraryChanged.emit()
         self._refresh_timer.start()
         self._persist()
@@ -1033,13 +1128,15 @@ class WorkspaceModel(QObject):
     @Slot(bool)
     def setRightPanelVisible(self, visible: bool) -> None:
         self._right_visible = bool(visible)
+        self._prepare_visible_metadata()
         self.layoutChanged.emit()
         self._persist()
 
     @Slot(str)
     def showRightPanel(self, tab: str) -> None:
-        self._right_tab = tab if tab in {"info", "queue", "analysis"} else "info"
+        self._right_tab = tab if tab in {"info", "queue"} else "info"
         self._right_visible = True
+        self._prepare_visible_metadata()
         self.layoutChanged.emit()
         self._persist()
 
@@ -1049,13 +1146,15 @@ class WorkspaceModel(QObject):
             self._right_visible = False
         else:
             self._right_visible = True
-            self._right_tab = tab if tab in {"info", "queue", "analysis"} else "info"
+            self._right_tab = tab if tab in {"info", "queue"} else "info"
+        self._prepare_visible_metadata()
         self.layoutChanged.emit()
         self._persist()
 
     @Slot(bool)
     def setFullscreen(self, enabled: bool) -> None:
         self._fullscreen = bool(enabled)
+        self._prepare_visible_metadata()
         self.layoutChanged.emit()
 
     @Slot(bool)
@@ -1111,8 +1210,17 @@ class WorkspaceModel(QObject):
         self._persist()
 
     @Slot(str, str)
-    def playTrack(self, track_id: str, source: str) -> None:
-        track = self.track(track_id)
+    @Slot(str, str, list)
+    def playTrack(self, track_id: str, source: str, rows: list | None = None) -> None:
+        supplied_rows = (
+            [dict(row) for row in rows if isinstance(row, dict)] if rows is not None else None
+        )
+        track = next(
+            (row for row in supplied_rows or () if str(row.get("id", "")) == track_id),
+            None,
+        )
+        if track is None:
+            track = self.track(track_id) if supplied_rows is None else {}
         folder = _parse_folder_id(source)
         if folder is not None:
             root_id, relative = folder
@@ -1121,8 +1229,12 @@ class WorkspaceModel(QObject):
         else:
             root_id, relative = "", ""
         model = self._track_models.get(f"folder:{root_id}/{relative}")
-        if model:
-            order = model.track_ids_snapshot()
+        if supplied_rows is not None:
+            folder_rows = supplied_rows
+            order = [str(row.get("id", "")) for row in folder_rows if row.get("id")]
+        elif model:
+            folder_rows = model.rows_snapshot()
+            order = [str(row["id"]) for row in folder_rows]
         elif root_id:
             tab_id = f"folder:{root_id}/{relative}"
             state = self._tab_state(tab_id)
@@ -1138,24 +1250,29 @@ class WorkspaceModel(QObject):
                         for key in ("title", "artist", "album", "genre", "filename")
                     ).casefold()
                 ]
-            order = [
-                str(row["id"])
-                for row in _sort_rows(
-                    folder_rows,
-                    str(state.get("sortKey", "index")),
-                    bool(state.get("sortAscending", True)),
-                )
-            ]
+            folder_rows = _sort_rows(
+                folder_rows,
+                str(state.get("sortKey", "index")),
+                bool(state.get("sortAscending", True)),
+            )
+            order = [str(row["id"]) for row in folder_rows]
         else:
             order = [track_id]
+            folder_rows = [track] if track else []
         self.activationRequested.emit(track_id, order)
         if self._player is not None:
             if track_id not in order:
                 order.append(track_id)
             title = self._playback_source_title(source, track)
-            self._player.playQueue(order, order.index(track_id), source, title)
+            self._player.playQueueWithRows(
+                order, order.index(track_id), source, title, folder_rows
+            )
         else:
             self._set_message("The audio runtime is unavailable.")
+
+    @Slot(str, str, list)
+    def playTrackFromRows(self, track_id: str, source: str, rows: list) -> None:
+        self.playTrack(track_id, source, rows)
 
     def _playback_source_title(self, source: str, track: dict[str, Any]) -> str:
         folder = _parse_folder_id(source)
@@ -1163,7 +1280,7 @@ class WorkspaceModel(QObject):
             root_id, relative = folder
             if relative:
                 return Path(relative).name
-            root = next((row for row in self._library.roots() if row["id"] == root_id), {})
+            root = self._roots_by_id.get(root_id, {})
             return str(root.get("name") or track.get("title") or "Folder")
         return str(track.get("album") or track.get("title") or "Library")
 
@@ -1272,8 +1389,8 @@ class WorkspaceModel(QObject):
             if kind == "folder":
                 try:
                     root_id, relative = _parse_folder_ref(ref)
-                    root = next(item for item in self._library.roots() if item["id"] == root_id)
-                    title = relative.rsplit("/", 1)[-1] if relative else str(root["name"])
+                    root = self._roots_by_id.get(root_id, {})
+                    title = relative.rsplit("/", 1)[-1] if relative else str(root.get("name", "Folder"))
                 except (ValueError, StopIteration):
                     pass
             state.update(
@@ -1350,54 +1467,93 @@ class WorkspaceModel(QObject):
         active = str(self._groups[self._active_group]["active"])
         return self._track_models.get(active)
 
-    def _refresh_library(self) -> None:
-        self._folder_model.refresh(self._expanded)
-        self.explorerChanged.emit()
+    def _refresh_library(
+        self, root_id: str | None = None, changed_folders: set[str] | None = None
+    ) -> None:
         self._revision += 1
         self.libraryChanged.emit()
+        if root_id is None:
+            self._dirty_all_branches = True
+            self._dirty_all_tabs = True
+            self._dirty_root_ids.add("*")
+        else:
+            self._dirty_root_ids.add(root_id)
+            for relative in changed_folders or {""}:
+                self._dirty_folder_branches.add((root_id, relative))
+                self._dirty_tabs.add(f"folder:{root_id}/{relative}")
         self._refresh_timer.start()
 
     def _refresh_models(self) -> None:
-        self._folder_model.refresh(self._expanded)
-        for tab_id, model in list(self._track_models.items()):
+        if self._dirty_root_ids:
+            self._dirty_root_ids.clear()
+            self._request_folder_roots()
+        dirty_branches = self._dirty_folder_branches
+        self._dirty_folder_branches = set()
+        if self._dirty_all_branches:
+            for folder_id, job_id in tuple(self._folder_job_ids.items()):
+                self._folder_request_generation[folder_id] = (
+                    self._folder_request_generation.get(folder_id, 0) + 1
+                )
+                with suppress(LookupError, ValueError):
+                    self._jobs.cancel(JobId.parse(job_id))
+            self._folder_job_ids.clear()
+            self._folder_model.invalidate_all_branches()
+            self._dirty_all_branches = False
+        else:
+            for root_id, relative in dirty_branches:
+                folder_id = f"root:{root_id}" if not relative else f"folder:{root_id}/{relative}"
+                job_id = self._folder_job_ids.pop(folder_id, "")
+                if job_id:
+                    self._folder_request_generation[folder_id] = (
+                        self._folder_request_generation.get(folder_id, 0) + 1
+                    )
+                    with suppress(LookupError, ValueError):
+                        self._jobs.cancel(JobId.parse(job_id))
+                self._folder_model.invalidate_branch(folder_id)
+        if self._dirty_all_tabs:
+            dirty_tabs = set(self._track_models)
+            self._dirty_all_tabs = False
+        else:
+            dirty_tabs = self._dirty_tabs
+        self._dirty_tabs = set()
+        for tab_id in dirty_tabs:
+            model = self._track_models.get(tab_id)
+            if model is None:
+                continue
             state = self._tab_state(tab_id)
             if state.get("kind") != "folder":
                 model.replace([])
                 continue
-            try:
-                root_id, relative = _parse_folder_ref(str(state.get("ref", "")))
-                rows = self._library.tracks_in_folder(root_id, relative)
-                query = str(state.get("searchQuery", "")).casefold().strip()
-                if query:
-                    rows = [
-                        row
-                        for row in rows
-                        if query
-                        in " ".join(
-                            str(row.get(key, ""))
-                            for key in ("title", "artist", "album", "genre", "filename")
-                        ).casefold()
-                    ]
-                model.replace(
-                    _sort_rows(
-                        rows,
-                        str(state.get("sortKey", "index")),
-                        bool(state.get("sortAscending", True)),
-                    )
-                )
-            except ValueError:
-                model.replace([])
+            self._track_request_keys.pop(tab_id, None)
+            self._request_track_rows(
+                tab_id,
+                "folder",
+                str(state.get("ref", "")),
+                str(state.get("sortKey", "index")),
+                bool(state.get("sortAscending", True)),
+            )
+        for folder_id in tuple(self._expanded):
+            if self._folder_model.is_expanded(folder_id) and not self._folder_model.branch_loaded(
+                folder_id
+            ):
+                self._request_folder_branch(folder_id)
         self.explorerChanged.emit()
-        self.libraryChanged.emit()
 
-    def _on_scan_batch(self, root_id: str, request_id: str, count: int) -> None:
+    def _on_scan_batch(self, root_id: str, request_id: str, detail: object) -> None:
         if self._requests.get(root_id) != request_id:
             return
+        payload = detail if isinstance(detail, dict) else {}
+        count = int(payload.get("count", 0))
         self._scan_counts[root_id] = self._scan_counts.get(root_id, 0) + count
         if request_id not in self._quiet_requests:
             self._set_message(f"Indexed {self._scan_counts[root_id]:,} audio files…")
         self._revision += 1
         self.libraryChanged.emit()
+        changed_folders = payload.get("folders", [])
+        for relative in changed_folders if isinstance(changed_folders, list) else []:
+            folder = str(relative)
+            self._dirty_folder_branches.add((root_id, folder))
+            self._dirty_tabs.add(f"folder:{root_id}/{folder}")
         self._refresh_timer.start()
 
     def _on_scan_finished(self, root_id: str, request_id: str, result: dict[str, Any]) -> None:
@@ -1407,8 +1563,13 @@ class WorkspaceModel(QObject):
         quiet = request_id in self._quiet_requests
         self._quiet_requests.discard(request_id)
         self._jobs_by_root.pop(root_id, None)
-        self._refresh_timer.stop()
-        self._refresh_models()
+        self._dirty_root_ids.add(root_id)
+        changed_folders = result.get("changedFolders", [])
+        for relative in changed_folders if isinstance(changed_folders, list) else []:
+            folder = str(relative)
+            self._dirty_folder_branches.add((root_id, folder))
+            self._dirty_tabs.add(f"folder:{root_id}/{folder}")
+        self._refresh_timer.start()
         if result["cancelled"]:
             self._set_message("Folder indexing cancelled; existing references were kept.")
         elif not result["available"]:
@@ -1427,16 +1588,20 @@ class WorkspaceModel(QObject):
             )
         self._persist()
 
-    def _on_job_updated(self, _status: object) -> None:
-        self.libraryChanged.emit()
-
     def _on_metadata_changed(self) -> None:
         self._revision += 1
-        self.metadataChanged.emit()
         self.libraryChanged.emit()
         if self._player is not None and self._player.playing_id_value():
             self._player.refreshTrack(self._player.playing_id_value())
         self._refresh_timer.start()
+
+    def _prepare_visible_metadata(self) -> None:
+        if self._metadata_editor is None:
+            return
+        if self._right_visible and not self._fullscreen and self._right_tab == "info":
+            self._metadata_editor.prepareTrackInspection()
+        else:
+            self._metadata_editor.cancelPendingInspection()
 
     def _set_message(self, message: str) -> None:
         if self._message == message:
@@ -1445,7 +1610,12 @@ class WorkspaceModel(QObject):
         self.messageChanged.emit()
 
     def _persist(self) -> None:
-        state = {
+        if self._session_closed:
+            return
+        self._session_timer.start()
+
+    def _session_snapshot(self) -> dict[str, Any]:
+        return {
             "version": 1,
             "expanded": sorted(self._expanded),
             "groups": [
@@ -1471,10 +1641,62 @@ class WorkspaceModel(QObject):
             "rightPanelWidth": self._right_panel_width,
             "islandEnabled": self._island_enabled,
         }
+
+    @Slot()
+    def _write_pending_session(self) -> None:
+        state = self._session_snapshot()
+        if self._session_future is not None:
+            self._session_pending = state
+            return
+        self._submit_session_write(state)
+
+    def _submit_session_write(self, state: dict[str, Any]) -> None:
+        future = self._session_executor.submit(self._session.save, state)
+        self._session_future = future
+
+        def completed(done: Future[None]) -> None:
+            try:
+                error = done.exception()
+            except BaseException as caught:
+                error = caught
+            self.sessionWriteFinished.emit(done, error)
+
+        future.add_done_callback(completed)
+
+    @Slot(object, object)
+    def _on_session_write_finished(self, future: object, error: object) -> None:
+        if future is not self._session_future:
+            return
+        self._session_future = None
         try:
-            self._session.save(state)
+            if error is not None:
+                raise error if isinstance(error, BaseException) else RuntimeError(str(error))
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as caught:
+            self._set_message(f"Could not save this workspace: {caught}")
+        pending = self._session_pending
+        self._session_pending = None
+        if pending is not None and not self._session_closed:
+            self._submit_session_write(pending)
+
+    @Slot()
+    def flush_session(self) -> None:
+        """Persist the latest independent snapshot before SQLite is closed."""
+        if self._session_closed:
+            return
+        self._session_timer.stop()
+        state = self._session_snapshot()
+        self._session_closed = True
+        self._session_pending = None
+        current = self._session_future
+        try:
+            if current is not None:
+                current.result()
+            self._session_future = None
+            self._session_executor.submit(self._session.save, state).result()
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as error:
             self._set_message(f"Could not save this workspace: {error}")
+        finally:
+            self._session_executor.shutdown(wait=True)
 
 
 def _parse_folder_id(folder_id: str) -> tuple[str, str] | None:

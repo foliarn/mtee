@@ -15,7 +15,7 @@ def _find(root: QQuickWindow, name: str) -> QQuickItem | None:
     return cast(QQuickItem | None, root.findChild(QObject, name))
 
 
-def test_fullscreen_renders_waveform_controls_without_replacing_player(
+def test_fullscreen_renders_monochrome_waveform_without_zoom_or_loop_controls(
     qapp, tmp_path: Path
 ) -> None:
     application = create_application(["mtee"])
@@ -38,7 +38,7 @@ def test_fullscreen_renders_waveform_controls_without_replacing_player(
         player = cast(QObject, workspace.property("playerModel"))
         waveform_model = cast(QObject, player.property("waveformModel"))
         assert waveform_model.property("state") == "ready"
-        assert waveform_model.property("zoomFactor") == 1.0
+        assert waveform_model.property("samples") == []
         workspace.setFullscreen(False)
         QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents)
         assert _find(root, "waveformView") is None or not waveform.isVisible()

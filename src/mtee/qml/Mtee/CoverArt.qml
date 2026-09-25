@@ -38,7 +38,7 @@ Rectangle {
         objectName: "coverArtworkImage"
         anchors.fill: parent
         source: cover.source.length > 0
-            ? cover.source.replace(/\/\d+$/, "") + "/" + cover.pixelSize : ""
+            ? cover.source + "/" + cover.pixelSize : ""
         sourceSize: Qt.size(cover.pixelSize, cover.pixelSize)
         visible: cover.source.length > 0
         fillMode: Image.PreserveAspectCrop

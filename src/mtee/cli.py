@@ -28,7 +28,6 @@ class AppOptions:
     smoke_test: bool = False
     scenario: str = DEFAULT_SCENARIO
     diagnostic_no_native_frame: bool = False
-    analysis_smoke_test: Path | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,12 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=argparse.SUPPRESS,
     )
-    parser.add_argument(
-        "--analysis-smoke-test",
-        type=Path,
-        metavar="AUDIO_FILE",
-        help=argparse.SUPPRESS,
-    )
     return parser
 
 
@@ -83,5 +76,4 @@ def parse_arguments(argv: Sequence[str] | None = None) -> AppOptions:
         smoke_test=bool(parsed.smoke_test),
         scenario=str(parsed.scenario),
         diagnostic_no_native_frame=bool(parsed.diagnostic_no_native_frame),
-        analysis_smoke_test=parsed.analysis_smoke_test,
     )

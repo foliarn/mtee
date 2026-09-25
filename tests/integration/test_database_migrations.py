@@ -13,6 +13,7 @@ from mtee.persistence.database import (
     DatabaseError,
     MigrationFailedError,
     SchemaTooRecentError,
+    UnsupportedMigrationHistoryError,
 )
 from mtee.persistence.settings_repository import SettingsRepository
 
@@ -42,8 +43,22 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
 
     applied = database.migrate()
 
-    assert [migration.version for migration in applied] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    assert database.schema_version() == 10
+    assert [migration.version for migration in applied] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        11,
+        12,
+        13,
+        14,
+    ]
+    assert database.schema_version() == 14
     tables = {
         str(row["name"])
         for row in database.connection().execute(
@@ -54,9 +69,6 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         "settings",
         "schema_migrations",
         "file_copy_operations",
-        "analysis_runs",
-        "analysis_results",
-        "analysis_overrides",
     } <= tables
     operation_columns = {
         str(row[1]) for row in database.connection().execute("PRAGMA table_info(file_operations)")
@@ -77,7 +89,7 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
     original.close()
 
     upgraded = Database(path)
-    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 10]
+    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 11, 12, 13, 14]
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     backups = list(tmp_path.glob("mtee.sqlite3.v4.*.backup"))
     assert len(backups) == 1
@@ -176,6 +188,30 @@ def test_a_schema_written_by_a_newer_build_is_refused(tmp_path: Path) -> None:
     assert failure.value.found_version == 99
     assert database.schema_version() == 99
     database.close()
+
+
+def test_a_database_with_the_retired_analysis_migration_is_refused_unchanged(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "mtee.sqlite3"
+    database = Database(path)
+    database.migrate()
+    database.connection().execute("DELETE FROM schema_migrations WHERE version = 14")
+    database.connection().execute(
+        "INSERT INTO schema_migrations(version,name,applied_at_utc) VALUES(10, ?, '2026-09-25T00:00:00Z')",
+        ("audio_analysis",),
+    )
+    database.connection().execute("PRAGMA user_version = 13")
+    database.close()
+
+    existing = Database(path)
+    with pytest.raises(UnsupportedMigrationHistoryError, match="010_audio_analysis"):
+        existing.migrate()
+    assert existing.schema_version() == 13
+    assert existing.connection().execute(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version=10"
+    ).fetchone()[0] == 1
+    existing.close()
 
 
 def test_a_migration_file_with_an_unexpected_name_is_reported(tmp_path: Path) -> None:

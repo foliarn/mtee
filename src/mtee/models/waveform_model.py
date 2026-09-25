@@ -24,11 +24,15 @@ __all__ = ["WaveformModel"]
 
 
 class _WaveformBridge(QObject):
-    completed = Signal(int, object, object)
+    completed = Signal(int, str, object, object, object)
 
 
 class WaveformModel(QObject):
-    changed = Signal()
+    stateChanged = Signal()
+    progressChanged = Signal()
+    errorChanged = Signal()
+    durationChanged = Signal()
+    samplesChanged = Signal()
 
     def __init__(
         self,
@@ -47,93 +51,49 @@ class WaveformModel(QObject):
             MediaDecodeService(file_access),
             WaveformCache(cache_dir),
             MediaProbeService(),
+            file_access,
         )
         self._bridge = _WaveformBridge(self)
         self._bridge.completed.connect(self._on_completed, Qt.ConnectionType.QueuedConnection)
         self._track_id = ""
         self._request_id = 0
+        self._request_key: tuple[str, object, WaveformConfig] | None = None
         self._job_id: JobId | None = None
+        self._job_has_started = False
+        self._pending_start = False
         self._data: WaveformData | None = None
+        self._samples: list[list[float]] = []
         self._state = "idle"
         self._progress = 0.0
         self._error = ""
-        self._zoom = 1.0
-        self._view_start = 0.0
-        self._marker_a: int | None = None
-        self._marker_b: int | None = None
         self._player.stateChanged.connect(self._sync_track)
+        self._jobs.jobUpdated.connect(self._on_job_updated)
         self._sync_track()
 
-    @Property(str, notify=changed)
+    @Property(str, notify=stateChanged)
     def state(self) -> str:
         return self._state
 
-    @Property(float, notify=changed)
+    @Property(float, notify=progressChanged)
     def progress(self) -> float:
         return self._progress
 
-    @Property(str, notify=changed)
+    @Property(str, notify=errorChanged)
     def error(self) -> str:
         return self._error
 
-    @Property(int, notify=changed)
+    @Property(int, notify=durationChanged)
     def durationUs(self) -> int:
         return self._data.duration_us if self._data else 0
 
-    @Property(float, notify=changed)
-    def zoomFactor(self) -> float:
-        return self._zoom
-
-    @Property(float, notify=changed)
-    def viewStart(self) -> float:
-        return self._view_start
-
-    @Property(list, notify=changed)
+    @Property(list, notify=samplesChanged)
     def samples(self) -> list[list[float]]:
-        if self._data is None:
-            return []
-        level = self._data.base
-        window_bins = max(1, round(level.bin_count / self._zoom))
-        first = min(level.bin_count - 1, round(self._view_start * level.bin_count))
-        last = min(level.bin_count, first + window_bins)
-        bins_per_point = max(1, (last - first + 1199) // 1200)
-        result: list[list[float]] = []
-        for begin in range(first, last, bins_per_point):
-            finish = min(last, begin + bins_per_point)
-            low, high = 32767, -32768
-            for index in range(begin, finish):
-                for channel in range(level.channels):
-                    sample_low, sample_high = level.bin(index, channel)
-                    low = min(low, sample_low)
-                    high = max(high, sample_high)
-            result.append([low / 32768.0, high / 32768.0])
-        return result
-
-    @Property(int, notify=changed)
-    def markerA(self) -> int:
-        return self._marker_a if self._marker_a is not None else -1
-
-    @Property(int, notify=changed)
-    def markerB(self) -> int:
-        return self._marker_b if self._marker_b is not None else -1
+        return [list(point) for point in self._samples]
 
     @Slot()
     def retry(self) -> None:
-        self._start_current()
-
-    @Slot()
-    def zoomIn(self) -> None:
-        self._set_zoom(min(32.0, self._zoom * 2.0))
-
-    @Slot()
-    def zoomOut(self) -> None:
-        self._set_zoom(max(1.0, self._zoom / 2.0))
-
-    @Slot(float)
-    def pan(self, delta: float) -> None:
-        maximum = max(0.0, 1.0 - 1.0 / self._zoom)
-        self._view_start = max(0.0, min(maximum, self._view_start + float(delta) / self._zoom))
-        self.changed.emit()
+        self._request_key = None
+        self._sync_track()
 
     @Slot(float)
     def seekRatio(self, ratio: float) -> None:
@@ -143,83 +103,51 @@ class WaveformModel(QObject):
         bounded = max(0.0, min(1.0, float(ratio)))
         self._player.seek(round(bounded * duration))
 
-    @Slot(float)
-    def setLoopMarker(self, ratio: float) -> None:
-        if self._data is None:
-            return
-        position = max(0, min(self._data.duration_us, round(float(ratio) * self._data.duration_us)))
-        if self._marker_a is None or self._marker_b is not None:
-            self._marker_a, self._marker_b = position, None
-        elif position > self._marker_a:
-            self._marker_b = position
-            self._player.set_ab_loop(self._marker_a, self._marker_b)
-        else:
-            self._marker_a, self._marker_b = position, None
-        self.changed.emit()
-
     @Slot()
-    def markLoopA(self) -> None:
-        self._marker_a = self._player.state.position_us
-        self._marker_b = None
-        self.changed.emit()
-
-    @Slot()
-    def markLoopB(self) -> None:
-        position = self._player.state.position_us
-        if self._marker_a is not None and position > self._marker_a:
-            self._marker_b = position
-            self._player.set_ab_loop(self._marker_a, self._marker_b)
-            self.changed.emit()
-
-    @Slot()
-    def clearLoop(self) -> None:
-        if self._marker_a is not None:
-            self._player.set_ab_loop(None, None)
-        self._marker_a = self._marker_b = None
-        self.changed.emit()
-
     def _sync_track(self) -> None:
         track_id = self._player.state.current_id
-        if track_id == self._track_id:
+        source_record = self._library.source_record(track_id) if track_id else None
+        config = WaveformConfig()
+        key = (
+            (track_id, source_record.revision, config)
+            if source_record is not None
+            else (track_id, None, config)
+        )
+        if key == self._request_key:
             return
-        if self._marker_a is not None:
-            self._player.set_ab_loop(None, None)
-        self._track_id = track_id
-        self._request_id += 1
-        if self._job_id is not None:
-            with suppress(LookupError):
-                self._jobs.cancel(self._job_id)
-        self._job_id = None
-        self._data = None
-        self._state = "idle"
-        self._progress = 0.0
-        self._error = ""
-        self._zoom = 1.0
-        self._view_start = 0.0
-        self._marker_a = self._marker_b = None
-        self._start_current()
-        self.changed.emit()
 
-    def _start_current(self) -> None:
+        self._track_id = track_id
+        self._request_key = key
+        self._request_id += 1
+        self._clear_data()
+        self._set_state("idle" if not track_id else "generating")
+        if self._job_id is not None:
+            with suppress(LookupError, ValueError):
+                self._jobs.cancel(self._job_id)
+            self._pending_start = bool(track_id)
+            return
+        self._pending_start = False
+        self._start_current(source_record)
+
+    def _start_current(self, source_record=None) -> None:
         if not self._track_id:
-            self._state = "idle"
+            self._set_state("idle")
             return
-        try:
+        if source_record is None:
             source_record = self._library.source_record(self._track_id)
-            if source_record is None or not source_record.path.is_file():
-                raise FileNotFoundError("The playing audio source is unavailable.")
-        except (OSError, ValueError) as error:
-            self._state, self._error = "unavailable", str(error)
-            self.changed.emit()
+        if source_record is None:
+            self._set_state("unavailable", "The playing audio source is unavailable.")
             return
+
         self._request_id += 1
         request_id = self._request_id
-        self._state = "generating"
-        self._progress = 0.0
-        self._error = ""
         source = ConversionSource(self._track_id, source_record.path, source_record.revision)
         revision = source_record.revision
         config = WaveformConfig()
+        self._request_key = (self._track_id, revision, config)
+        self._set_progress(0.0)
+        self._set_error("")
+        self._set_state("generating")
 
         def task(context: JobContext) -> None:
             try:
@@ -230,29 +158,98 @@ class WaveformModel(QObject):
                     is_cancelled=lambda: context.is_cancelled,
                     report_progress=context.report_progress,
                 )
-                self._bridge.completed.emit(request_id, data, None)
+                context.raise_if_cancelled()
+                self._bridge.completed.emit(
+                    request_id, str(context.job_id), data, _display_samples(data), None
+                )
             except Exception as error:
-                self._bridge.completed.emit(request_id, None, error)
+                self._bridge.completed.emit(
+                    request_id, str(context.job_id), None, None, error
+                )
+                raise
 
         self._job_id = self._jobs.submit(task, label="Generate waveform", visible=False)
-        self.changed.emit()
+        self._job_has_started = False
 
-    @Slot(int, object, object)
-    def _on_completed(self, request_id: int, data: Any, error: Any) -> None:
-        if request_id != self._request_id:
+    @Slot(object)
+    def _on_job_updated(self, status: object) -> None:
+        if self._job_id is None or getattr(status, "job_id", None) != self._job_id:
+            return
+        progress = float(getattr(status, "progress", 0.0))
+        self._set_progress(progress)
+        state = getattr(getattr(status, "state", None), "value", "")
+        if state == "running":
+            self._job_has_started = True
+        elif state in {"succeeded", "failed", "cancelled"} and not self._job_has_started:
+            self._job_id = None
+            if self._pending_start:
+                self._pending_start = False
+                self._start_current()
+
+    @Slot(int, str, object, object, object)
+    def _on_completed(
+        self, request_id: int, job_id: str, data: Any, samples: Any, error: Any
+    ) -> None:
+        if self._job_id is None or str(self._job_id) != job_id:
             return
         self._job_id = None
+        self._job_has_started = False
+        if request_id != self._request_id:
+            if self._pending_start:
+                self._pending_start = False
+                self._start_current()
+            return
         if error is not None:
-            self._state = "unavailable"
-            self._error = str(error)
-        elif isinstance(data, WaveformData):
+            self._set_state("unavailable", str(error))
+        elif isinstance(data, WaveformData) and isinstance(samples, list):
             self._data = data
-            self._state = "ready"
-            self._progress = 1.0
-        self.changed.emit()
+            self._samples = samples
+            self._set_progress(1.0)
+            self.durationChanged.emit()
+            self.samplesChanged.emit()
+            self._set_state("ready")
+        if self._pending_start:
+            self._pending_start = False
+            self._start_current()
 
-    def _set_zoom(self, zoom: float) -> None:
-        anchor = self._view_start + 0.5 / self._zoom
-        self._zoom = zoom
-        self._view_start = max(0.0, min(1.0 - 1.0 / zoom, anchor - 0.5 / zoom))
-        self.changed.emit()
+    def _clear_data(self) -> None:
+        had_data = self._data is not None
+        had_samples = bool(self._samples)
+        self._data = None
+        self._samples = []
+        self._set_progress(0.0)
+        self._set_error("")
+        if had_data:
+            self.durationChanged.emit()
+        if had_samples:
+            self.samplesChanged.emit()
+
+    def _set_state(self, state: str, error: str = "") -> None:
+        changed = state != self._state
+        self._state = state
+        self._set_error(error)
+        if changed:
+            self.stateChanged.emit()
+
+    def _set_error(self, error: str) -> None:
+        if error != self._error:
+            self._error = error
+            self.errorChanged.emit()
+
+    def _set_progress(self, progress: float) -> None:
+        bounded = max(0.0, min(1.0, float(progress)))
+        if bounded != self._progress:
+            self._progress = bounded
+            self.progressChanged.emit()
+
+
+def _display_samples(data: WaveformData) -> list[list[float]]:
+    """Prepare no more than 1,200 display points from a reduced pyramid level."""
+    level = next((item for item in data.levels if item.bin_count <= 1200), data.levels[-1])
+    points: list[list[float]] = []
+    for index in range(level.bin_count):
+        lows, highs = zip(
+            *(level.bin(index, channel) for channel in range(level.channels)), strict=True
+        )
+        points.append([min(lows) / 32768.0, max(highs) / 32768.0])
+    return points

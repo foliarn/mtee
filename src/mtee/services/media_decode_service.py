@@ -79,6 +79,7 @@ class MediaDecodeService:
         channels: int = 2,
         duration_us: int | None = None,
         block_bytes: int = 64 * 1024,
+        read_lease_held: bool = False,
         is_cancelled: Callable[[], bool] = lambda: False,
     ) -> PCMStream:
         if not 8_000 <= sample_rate <= 192_000:
@@ -97,7 +98,9 @@ class MediaDecodeService:
         return PCMStream(
             pcm_format,
             duration_us,
-            self._decode(path, track_id, pcm_format, block_bytes, is_cancelled),
+            self._decode(
+                path, track_id, pcm_format, block_bytes, is_cancelled, read_lease_held
+            ),
         )
 
     def _decode(
@@ -107,13 +110,14 @@ class MediaDecodeService:
         pcm_format: PCMFormat,
         block_bytes: int,
         is_cancelled: Callable[[], bool],
+        read_lease_held: bool,
     ) -> Iterator[bytes]:
         lease = None
         process: _Process | None = None
         stderr_tail = bytearray()
         drain: threading.Thread | None = None
         try:
-            if track_id is not None:
+            if track_id is not None and not read_lease_held:
                 lease = self._file_access.acquire_read(
                     TrackId.parse(track_id), "audio decode", timeout_seconds=0
                 )

@@ -57,9 +57,11 @@ class FfmpegRuntime:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                stdin=subprocess.DEVNULL,
                 env=environment,
                 shell=False,
                 timeout=timeout_seconds,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError as error:
             raise FfmpegRuntimeError(f"Could not start bundled {tool}: {error}") from error

@@ -61,8 +61,11 @@ Rectangle {
 
                 Text {
                     anchors.baseline: title.baseline
-                    text: convert.inputs.length + " files · " + convert.formats[convert.formatIndex].name
-                        + " " + convert.formats[convert.formatIndex].quality
+                    text: convert.formats.length > 0
+                        ? convert.inputs.length + " files · " + convert.formats[convert.formatIndex].name
+                            + " " + convert.formats[convert.formatIndex].quality
+                        : convert.workspace.conversionModel.capabilitiesState === "loading"
+                            ? "Checking bundled formats…" : "Conversion formats unavailable"
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSecondary
@@ -334,7 +337,7 @@ Rectangle {
                         Setting {
                             visible: convert.formats.length > 0
                                 && ["wav", "aiff"].indexOf(convert.formats[convert.formatIndex].id) >= 0
-                                && convert.workspace.conversionModel.bitDepth !== "Keep source"
+                            enabledAction: convert.workspace.conversionModel.ditherEnabled
                             label: "Dither"
                             value: convert.workspace.conversionModel.dither ? "On" : "Off"
                             chooser: true
@@ -356,15 +359,24 @@ Rectangle {
                         text: convert.workspace.conversionModel.hasPreview
                             ? (convert.workspace.conversionModel.previewExecutable ? "Start conversion" : "Review blocked preview")
                             : "Review conversion"
-                        enabledAction: convert.inputs.length > 0 && convert.formats.length > 0
+                        enabledAction: convert.inputs.length > 0
+                            && convert.workspace.conversionModel.previewState !== "preparing"
+                            && convert.workspace.conversionModel.previewState !== "starting"
+                            && convert.workspace.conversionModel.capabilitiesState !== "loading"
                         onClicked: convert.workspace.conversionModel.preview_or_start()
                     }
 
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
-                        text: convert.workspace.conversionModel.previewSummary
-                        color: Theme.textMuted
+                        text: convert.workspace.conversionModel.previewState === "preparing"
+                            ? "Preparing preview…"
+                            : convert.workspace.conversionModel.previewError
+                                || convert.workspace.conversionModel.capabilitiesError
+                                || convert.workspace.conversionModel.previewSummary
+                        color: convert.workspace.conversionModel.previewState === "failed"
+                            || convert.workspace.conversionModel.capabilitiesState === "failed"
+                            ? Theme.danger : Theme.textMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSmall
                     }
@@ -439,6 +451,7 @@ Rectangle {
         property string label: ""
         property string value: ""
         property bool chooser: false
+        property bool enabledAction: true
         property string action: ""
         signal activated()
 
@@ -457,7 +470,8 @@ Rectangle {
             height: 32
             color: Theme.chrome
             border.width: 1
-            border.color: settingMouse.containsMouse ? Theme.textMuted : Theme.separator
+            border.color: setting.enabledAction && settingMouse.containsMouse
+                ? Theme.textMuted : Theme.separator
 
             Text {
                 anchors.left: parent.left
@@ -502,6 +516,7 @@ Rectangle {
                 id: settingMouse
                 anchors.fill: parent
                 hoverEnabled: true
+                enabled: setting.enabledAction
                 cursorShape: Qt.PointingHandCursor
                 onClicked: setting.activated()
             }

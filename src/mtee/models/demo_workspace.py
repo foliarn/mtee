@@ -15,7 +15,6 @@ from mtee.demo.library import (
     CONVERT_BATCHES,
     FOLDERS,
     PLAYLISTS,
-    TASKS,
     TRACKS,
     DemoTrack,
 )
@@ -209,10 +208,6 @@ class DemoWorkspace(QObject):
 
     # ------------------------------------------------------------ properties
 
-    @Property(QObject, constant=True)
-    def analysisModel(self) -> QObject | None:
-        return None
-
     @Property(str, notify=scenarioChanged)
     def scenarioName(self) -> str:
         return self._scenario.name
@@ -305,62 +300,18 @@ class DemoWorkspace(QObject):
             else 0
         )
 
-    @Property(float, notify=playbackChanged)
-    def zoomFactor(self) -> float:
-        return 1.0
-
-    @Property(float, notify=playbackChanged)
-    def viewStart(self) -> float:
-        return 0.0
-
     @Property(list, notify=playbackChanged)
     def samples(self) -> list[list[float]]:
         return []
 
-    @Property(int, notify=playbackChanged)
-    def markerA(self) -> int:
-        return -1
-
-    @Property(int, notify=playbackChanged)
-    def markerB(self) -> int:
-        return -1
-
     @Slot()
     def retry(self) -> None:
-        return
-
-    @Slot()
-    def zoomIn(self) -> None:
-        return
-
-    @Slot()
-    def zoomOut(self) -> None:
-        return
-
-    @Slot(float)
-    def pan(self, _delta: float) -> None:
         return
 
     @Slot(float)
     def seekRatio(self, ratio: float) -> None:
         seconds = float(str(self._tracks[self._playing]["seconds"])) if self._playing else 0.0
         self.seek(max(0.0, min(1.0, ratio)) * seconds)
-
-    @Slot(float)
-    def setLoopMarker(self, _ratio: float) -> None:
-        return
-
-    @Slot()
-    def clearLoop(self) -> None:
-        return
-
-    @Slot()
-    def markLoopA(self) -> None:
-        return
-
-    @Slot()
-    def markLoopB(self) -> None:
-        return
 
     @Property(bool, constant=True)
     def hasQueueModel(self) -> bool:
@@ -585,10 +536,6 @@ class DemoWorkspace(QObject):
         return (
             "This review scenario uses invented files; real conversion runs in the local library."
         )
-
-    @Property(list, constant=True)
-    def tasks(self) -> list[dict[str, object]]:
-        return [dict(task) for task in TASKS]
 
     @Property(list, constant=True)
     def convertBatches(self) -> list[dict[str, object]]:

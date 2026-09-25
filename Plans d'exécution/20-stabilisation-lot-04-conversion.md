@@ -22,12 +22,14 @@ Tester sur copies annulation d’un processus silencieux, deux conversions simul
 
 ## Progress
 
-- [ ] Convertir les getters vers snapshots et états explicites.
-- [ ] Processus, annulation et publication reprenable à vérifier.
+- [x] Capacités et aperçu asynchrones avec états explicites, snapshots immuables et maximum de deux conversions simultanées.
+- [x] Publication sans remplacement, transfert/vérification de métadonnées et pochettes, journal de preuve avant publication et reprise limitée aux empreintes concordantes.
+- [x] Compilation Python et imports critiques passent.
+- [ ] FFmpeg, annulation réelle, collision, interruption/récupération et filiation n'ont pas été exercés.
 
 ## Surprises & Discoveries
 
-À renseigner depuis la chaîne actuelle et les cas d’échec observés.
+2026-09-25 — La preuve de publication requiert désormais source/output SHA-256, identifiant réservé du dérivé et chemin temporaire; une simple présence du chemin ne suffit pas à la reprise. Le graphe signale les nouveaux chemins de conversion comme non couverts.
 
 ## Decision Log
 
@@ -35,4 +37,4 @@ Tester sur copies annulation d’un processus silencieux, deux conversions simul
 
 ## Outcomes & Retrospective
 
-À compléter après les exercices sur copies et le contrôle du runtime Windows distribué.
+La chaîne a été compilée et importée, sans exécuter de conversion ni de test sur copies. Les comportements FFmpeg, la reprise après crash et le contrôle du runtime distribué restent à valider par les parcours prévus.

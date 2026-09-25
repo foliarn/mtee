@@ -63,11 +63,13 @@ class ArtworkProvider(QQuickImageProvider):
             size.setHeight(image.height())
             return image
         key = (track_id, generation, target_size)
+        self._invalidate_old_revisions(track_id, generation)
         source = self._library.artwork_source(track_id)
         try:
             observed = SourceRevision.observe(source[0]) if source is not None else None
         except OSError:
             observed = None
+        cacheable = False
         if (
             source is None
             or source[1].generation != generation
@@ -88,12 +90,24 @@ class ArtworkProvider(QQuickImageProvider):
                 final_revision = SourceRevision.observe(source[0])
                 if not source[1].matches(final_revision):
                     image = placeholder_image(track_id, target_size)
+                else:
+                    cacheable = True
             except Exception:
                 image = placeholder_image(track_id, target_size)
         size.setWidth(image.width())
         size.setHeight(image.height())
-        self._store(key, image)
+        if source is not None and cacheable:
+            self._store(key, image)
         return image
+
+    def _invalidate_old_revisions(self, track_id: str, generation: int) -> None:
+        with self._lock:
+            stale = [
+                key for key in self._cache if key[0] == track_id and key[1] != generation
+            ]
+            for key in stale:
+                removed = self._cache.pop(key)
+                self._cache_bytes -= removed.sizeInBytes()
 
     def _store(self, key: tuple[str, int, int], image: QImage) -> None:
         cost = image.sizeInBytes()

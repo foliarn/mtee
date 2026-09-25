@@ -22,12 +22,13 @@ Après interruption, conserver l’état du job et les verrous; redémarrer seul
 
 ## Progress
 
-- [ ] Corriger les notifications et les sources de rafraîchissement identifiées.
-- [ ] Consigner instrumentation et observations réelles du lecteur.
+- [x] Progression coalescée à 100 ms avec transitions terminales immédiates; queue, chargement asynchrone, cache de tags et fermeture ont été ajustés.
+- [x] Compilation Python et imports critiques passent.
+- [ ] Lecteur natif, annulation, verrous audio et fermeture pendant lecture n'ont pas été exercés.
 
 ## Surprises & Discoveries
 
-À renseigner avec traces de demande, commande native, événements, arrêt et libération du verrou.
+2026-09-25 — L'indexation statique signale que les chemins de fermeture et de lecteur n'ont pas de couverture ciblée restante après le retrait des tests obsolètes. Les parcours libmpv n'ont pas été lancés dans cette session.
 
 ## Decision Log
 
@@ -35,4 +36,4 @@ Après interruption, conserver l’état du job et les verrous; redémarrer seul
 
 ## Outcomes & Retrospective
 
-À compléter. Les seuls démarrages UI ou tests de démonstration ne valident pas la fermeture native.
+Les modèles et services ont été compilés et leurs imports vérifiés. Aucun test automatisé, démarrage natif libmpv ni observation de libération de verrou n'a été exécuté; la fermeture native reste à valider sur Windows.

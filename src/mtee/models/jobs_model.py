@@ -14,7 +14,9 @@ from PySide6.QtCore import (
     QByteArray,
     QModelIndex,
     QObject,
+    Property,
     QPersistentModelIndex,
+    Signal,
     Qt,
 )
 
@@ -58,6 +60,8 @@ def label_for_status(status: JobStatus) -> str:
 
 class JobsListModel(QAbstractListModel):
     """Shows the jobs of a ``JobService``, newest first."""
+
+    runningCountChanged = Signal()
 
     def __init__(self, service: JobService, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -113,6 +117,10 @@ class JobsListModel(QAbstractListModel):
         """Return the snapshot shown at ``row``."""
         return self._statuses[row]
 
+    @Property(int, notify=runningCountChanged)
+    def runningCount(self) -> int:
+        return sum(status.state is JobState.RUNNING for status in self._statuses)
+
     def _on_job_submitted(self, status: JobStatus) -> None:
         if not self._service.is_visible(status.job_id):
             return
@@ -128,9 +136,12 @@ class JobsListModel(QAbstractListModel):
         if row is None:
             self._on_job_submitted(status)
             return
+        was_running = self._statuses[row].state is JobState.RUNNING
         self._statuses[row] = status
         index = self.index(row, 0)
         self.dataChanged.emit(index, index, list(self.roleNames().keys()))
+        if was_running != (status.state is JobState.RUNNING):
+            self.runningCountChanged.emit()
 
     def _reindex(self) -> None:
         self._rows_by_id = {status.job_id: row for row, status in enumerate(self._statuses)}

@@ -17,6 +17,8 @@ __all__ = ["WaveformCache"]
 
 _MAGIC = b"MTEEWFM1"
 _MAX_CACHE_BYTES = 256 * 1024 * 1024
+_MAX_HEADER_BYTES = 64 * 1024
+_MAX_LEVELS = 32
 
 
 class WaveformCache:
@@ -31,13 +33,21 @@ class WaveformCache:
     ) -> WaveformData | None:
         path = self._path(track_id, revision, config)
         try:
+            if path.stat().st_size > min(self._quota, _MAX_CACHE_BYTES):
+                return None
             raw = path.read_bytes()
-            if len(raw) > self._quota or raw[: len(_MAGIC)] != _MAGIC:
+            if len(raw) > min(self._quota, _MAX_CACHE_BYTES) or raw[: len(_MAGIC)] != _MAGIC:
                 return None
             header_length = struct.unpack_from("<I", raw, len(_MAGIC))[0]
             header_start = len(_MAGIC) + 4
+            payload_start = header_start + header_length
+            if (
+                header_length < 2
+                or header_length > _MAX_HEADER_BYTES
+                or payload_start >= len(raw)
+            ):
+                return None
             header = json.loads(raw[header_start : header_start + header_length])
-            payload = zlib.decompress(raw[header_start + header_length :])
             if header.get("track_id") != track_id:
                 return None
             if header.get("revision") != _revision_data(revision):
@@ -45,10 +55,35 @@ class WaveformCache:
             if header.get("config") != _config_data(config):
                 return None
             channels = config.channels
+            raw_levels = header.get("levels")
+            if not isinstance(raw_levels, list) or not 1 <= len(raw_levels) <= _MAX_LEVELS:
+                return None
+            bin_counts = []
+            expected_bytes = 0
+            previous = 0
+            for value in raw_levels:
+                if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                    return None
+                if previous and value > previous:
+                    return None
+                previous = value
+                bin_counts.append(value)
+                expected_bytes += value * channels * 4
+                if expected_bytes > self._quota:
+                    return None
+            decompressor = zlib.decompressobj()
+            payload = decompressor.decompress(raw[payload_start:], expected_bytes + 1)
+            if (
+                len(payload) != expected_bytes
+                or not decompressor.eof
+                or decompressor.unused_data
+                or decompressor.unconsumed_tail
+            ):
+                return None
             offset = 0
             levels = []
-            for bin_count in header["levels"]:
-                count = int(bin_count) * channels * 2
+            for bin_count in bin_counts:
+                count = bin_count * channels * 2
                 size = count * 2
                 if bin_count < 1 or offset + size > len(payload):
                     return None
@@ -57,11 +92,18 @@ class WaveformCache:
                 offset += size
             if offset != len(payload):
                 return None
-            path.touch()
             return WaveformData(
                 track_id, revision, config, int(header["duration_us"]), tuple(levels)
             )
-        except (OSError, ValueError, KeyError, TypeError, struct.error, zlib.error):
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            struct.error,
+            zlib.error,
+            OverflowError,
+        ):
             return None
 
     def store(self, data: WaveformData) -> Path:

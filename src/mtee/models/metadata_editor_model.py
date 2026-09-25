@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,10 +12,11 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.domain.metadata_edit import EDITABLE_METADATA_FIELDS, MetadataEditResult, MetadataPatch
+from mtee.domain.metadata import MetadataSnapshot
 from mtee.domain.tracks import SourceRevision
 from mtee.models.player_model import PlayerModel
 from mtee.persistence.library_repository import LibraryRepository, TrackSource
-from mtee.services.jobs import JobContext, JobService
+from mtee.services.jobs import JobCancelledError, JobContext, JobId, JobService, UnknownJobError
 from mtee.services.metadata_writer import MetadataEditService
 
 __all__ = ["MetadataEditorModel"]
@@ -63,8 +65,10 @@ class MetadataEditorModel(QObject):
     """Capture selected UUIDs on focus and persist edits in background jobs."""
 
     changed = Signal()
+    sourceChanged = Signal()
     batchFinished = Signal(str, object)
     recoveryChecked = Signal(object)
+    inspectionFinished = Signal(int, object)
 
     def __init__(
         self,
@@ -93,8 +97,15 @@ class MetadataEditorModel(QObject):
         self._successful_revisions: dict[str, SourceRevision] = {}
         self._waiting_for_release = ""
         self._recovery_operations: list[dict[str, Any]] = []
+        self._inspection_cache: dict[
+            tuple[str, int], tuple[MetadataSnapshot, dict[str, tuple[bool, str]]]
+        ] = {}
+        self._inspection_request = 0
+        self._inspection_job_id: JobId | None = None
+        self._inspection_targets: tuple[tuple[str, int], ...] = ()
         self.batchFinished.connect(self._on_batch_finished)
         self.recoveryChecked.connect(self._on_recovery_checked)
+        self.inspectionFinished.connect(self._on_inspection_finished)
         self._jobs.submit(self._inspect_recovery, label="Inspect metadata recovery")
         if player is not None:
             player.trackAccessReleased.connect(self._on_track_access_released)
@@ -136,14 +147,111 @@ class MetadataEditorModel(QObject):
             return []
         return self._fields_for_sources([source], (track_id,))
 
+    @Slot()
+    @Slot(str)
+    def prepareTrackInspection(self, track_id: str = "") -> None:
+        """Prepare the selected tags and edit capabilities away from the UI thread."""
+        track_ids = [track_id] if track_id else list(self._selected_ids())
+        self._inspection_request += 1
+        request_id = self._inspection_request
+        self._cancel_inspection_job()
+        sources = [
+            source
+            for identity in dict.fromkeys(str(value) for value in track_ids)
+            if (source := self._library.source_record(identity)) is not None
+        ]
+        targets = tuple((source.track_id, source.revision.generation) for source in sources)
+        self._inspection_targets = targets
+        missing = [
+            source
+            for source in sources
+            if (source.track_id, source.revision.generation) not in self._inspection_cache
+        ]
+        if not missing:
+            self.changed.emit()
+            return
+
+        def inspect(context: JobContext) -> None:
+            results = []
+            for source in missing:
+                context.raise_if_cancelled()
+                try:
+                    revision, snapshot, capabilities = self._writer.inspect(source.track_id)
+                    results.append((source.track_id, revision, snapshot, capabilities, ""))
+                except JobCancelledError:
+                    raise
+                except Exception as error:
+                    results.append((source.track_id, None, None, None, str(error)))
+            self.inspectionFinished.emit(request_id, results)
+
+        self._inspection_job_id = self._jobs.submit(
+            inspect, label="Prepare metadata view", visible=False
+        )
+        self.changed.emit()
+
+    @Slot()
+    def cancelPendingInspection(self) -> None:
+        """Discard and cancel a tag inspection when its panel is closed."""
+        self._inspection_request += 1
+        self._inspection_targets = ()
+        self._cancel_inspection_job()
+
+    def _cancel_inspection_job(self) -> None:
+        if self._inspection_job_id is None:
+            return
+        with suppress(UnknownJobError, ValueError):
+            self._jobs.cancel(self._inspection_job_id)
+        self._inspection_job_id = None
+
+    @Slot(int, object)
+    def _on_inspection_finished(self, request_id: int, values: object) -> None:
+        if request_id != self._inspection_request or not isinstance(values, list):
+            return
+        self._inspection_job_id = None
+        self._inspection_targets = ()
+        for track_id, revision, snapshot, capabilities, error in values:
+            current = self._library.source_record(track_id)
+            if current is None:
+                continue
+            if revision is not None and current.revision != revision:
+                continue
+            resolved_snapshot = snapshot if isinstance(snapshot, MetadataSnapshot) else current.snapshot
+            resolved_capabilities = (
+                capabilities
+                if isinstance(capabilities, dict)
+                else {
+                    field: (False, f"Could not inspect tags: {error}")
+                    for field in EDITABLE_METADATA_FIELDS
+                }
+            )
+            self._inspection_cache[(track_id, current.revision.generation)] = (
+                resolved_snapshot,
+                resolved_capabilities,
+            )
+        self.changed.emit()
+
     def _fields_for_sources(
         self, sources: list[TrackSource], selected: tuple[str, ...]
     ) -> list[dict[str, Any]]:
         fields: list[dict[str, Any]] = []
-        capabilities_by_source = [self._writer.capabilities(source.track_id) for source in sources]
+        inspected = [
+            self._inspection_cache.get((source.track_id, source.revision.generation))
+            for source in sources
+        ]
+        capabilities_by_source = [
+            result[1]
+            if result is not None
+            else {
+                field: (False, "Tags are being prepared before editing is enabled.")
+                for field in EDITABLE_METADATA_FIELDS
+            }
+            for result in inspected
+        ]
+        snapshots = [result[0] if result is not None else source.snapshot
+                     for source, result in zip(sources, inspected, strict=True)]
         for field in EDITABLE_METADATA_FIELDS:
             values = [
-                tuple(getattr(source.snapshot, _FIELD_ATTRIBUTES[field])) for source in sources
+                tuple(getattr(snapshot, _FIELD_ATTRIBUTES[field])) for snapshot in snapshots
             ]
             normalized = [" / ".join(value) for value in values]
             unique = set(normalized)
@@ -444,6 +552,8 @@ class MetadataEditorModel(QObject):
             self._save_message = (
                 "Undo completed." if not failed else "; ".join(item.message for item in failed)
             )
+            if successful:
+                self.sourceChanged.emit()
             self.changed.emit()
             if self._pending:
                 self._start_next()
@@ -487,6 +597,8 @@ class MetadataEditorModel(QObject):
                 f"Saved changes to {len(successful)} track(s)." if len(successful) > 1 else "Saved."
             )
             self._retry_batch = None
+        if successful:
+            self.sourceChanged.emit()
         self.changed.emit()
         if self._pending:
             self._start_next()

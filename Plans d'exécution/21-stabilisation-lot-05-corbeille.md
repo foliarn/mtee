@@ -20,12 +20,14 @@ Reconsulter la corbeille et le journal d’opération avant toute relance. Ne pa
 
 ## Progress
 
-- [ ] Service/model dédié et confirmation.
-- [ ] Recyclage et restauration réellement observés sur copie Windows.
+- [x] Service, modèle, confirmation, résultats individuels et journal de reprise ajoutés; le lecteur attend la libération du fichier avant une nouvelle tentative.
+- [x] `IFileOperation` passe `FOF_ALLOWUNDO`; son callback `PostDeleteItem` fournit l'identité de l'élément placé dans la Corbeille, persistée par la migration 014.
+- [x] Compilation Python et imports critiques passent.
+- [ ] Recyclage, restauration, fichiers verrouillés et erreurs COM ne sont pas observés sur une copie Windows.
 
 ## Surprises & Discoveries
 
-À compléter d’après les résultats Shell et les cas de fichiers verrouillés.
+2026-09-25 — `SHFileOperation` ne donne pas le nouvel élément Shell. Le service utilise maintenant `IFileOperationProgressSink::PostDeleteItem` et enregistre le nom d'analyse retourné par l'élément créé dans la Corbeille. L'appel natif n'a pas été exécuté ici.
 
 ## Decision Log
 
@@ -33,4 +35,4 @@ Reconsulter la corbeille et le journal d’opération avant toute relance. Ne pa
 
 ## Outcomes & Retrospective
 
-À compléter; une simulation d’API ne vaut pas une observation dans la corbeille réelle.
+Le chemin applicatif utilise uniquement le recyclage Shell avec `FOF_ALLOWUNDO`; aucune API de suppression définitive n'est utilisée. L'identité Shell du nouvel élément est journalisée dans la migration 014. Aucun essai natif de suppression/restauration n'a été exécuté; la garantie opérationnelle reste à confirmer sur Windows avec un fichier synthétique.

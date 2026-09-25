@@ -107,17 +107,17 @@ def test_playback_read_leases_can_overlap_and_block_exclusive_changes() -> None:
 
     with (
         coordinator.acquire_read(track, "playback"),
-        coordinator.acquire_read(track, "analysis"),
+        coordinator.acquire_read(track, "waveform"),
     ):
         assert coordinator.is_busy(track)
-        assert coordinator.holder_of(track) == "analysis, playback"
+        assert coordinator.holder_of(track) == "playback, waveform"
         with (
             pytest.raises(FileAccessTimeoutError) as failure,
             coordinator.acquire(track, "write tags", timeout_seconds=0),
         ):
             pass
 
-    assert failure.value.holder == "analysis, playback"
+    assert failure.value.holder == "playback, waveform"
     assert not coordinator.is_busy(track)
     assert coordinator.tracked_count() == 0
 

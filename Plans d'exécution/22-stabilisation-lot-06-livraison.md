@@ -18,9 +18,9 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 
 ## Progress
 
-- [ ] Nettoyage des tests obsolètes et fixtures reproductibles.
-- [ ] CI et build final réellement exécutés.
-- [ ] Notes de validation et publication à confirmer.
+- [x] Tests dédiés aux fonctions retirées supprimés et attentes de migration ajustées; aucun test n'a été exécuté.
+- [x] Déclenchement CI étendu à `fix` et runtimes FFmpeg verrouillés déjà présents sur l'environnement; compilation Python, imports critiques et lint QML passent.
+- [ ] Build Windows, contenu du paquet, note de validation, commit final et push restent à effectuer.
 
 ## Surprises & Discoveries
 
@@ -32,4 +32,4 @@ Examiner l’état Git, diffs non indexé/indexé et chaque chemin ajouté. Gard
 
 ## Outcomes & Retrospective
 
-À compléter avec hash du commit final, preuve de build, push éventuel et limites non validées.
+La compilation syntaxique et la résolution des imports critiques passent. Le build Windows, la note de validation, le commit final et le push restent en attente. Les tests automatisés, le smoke-test paqueté et les parcours natifs ne sont pas exécutés.

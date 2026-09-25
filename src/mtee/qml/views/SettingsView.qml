@@ -11,7 +11,6 @@ Rectangle {
     required property var workspace
     property int bottomInset: 0
     property bool rememberQueue: false
-    property bool confirmMoves: true
 
     color: Theme.editor
 
@@ -62,13 +61,6 @@ Rectangle {
             Group { title: "Library" }
 
             ValueRow { label: "Folders"; value: "Music"; action: "Add folder" }
-
-            ToggleRow {
-                label: "Confirm before moving files"
-                description: "Show the destination and ask before a move between folders."
-                checked: settings.confirmMoves
-                onToggled: (checked) => settings.confirmMoves = checked
-            }
 
             Group { title: "Appearance" }
 

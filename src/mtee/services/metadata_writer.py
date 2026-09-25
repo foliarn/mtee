@@ -78,6 +78,27 @@ class MetadataEditService:
             return self._unsupported(reason)
         return adapter.capabilities(source.path)
 
+    def inspect(self, track_id: str):
+        """Read tags and edit capabilities for the current catalog revision."""
+        source = self._library.source_record(track_id)
+        if source is None:
+            raise FileNotFoundError("This track is no longer in the library.")
+        before = SourceRevision.observe(source.path, generation=source.revision.generation)
+        if not source.revision.matches(before):
+            raise ValueError("The source changed. Rescan it before editing its tags.")
+        snapshot = self._reader.read(source.path)
+        adapter = self._adapter_for(source.path)
+        if snapshot.status != "readable":
+            capabilities = self._unsupported("This audio file could not be inspected safely.")
+        elif adapter is None:
+            capabilities = self._unsupported(self._unsupported_format_reason(source.path))
+        else:
+            capabilities = adapter.capabilities(source.path)
+        after = SourceRevision.observe(source.path, generation=source.revision.generation)
+        if not before.matches(after):
+            raise ValueError("The source changed while its tags were being inspected.")
+        return source.revision, snapshot, capabilities
+
     def save(
         self,
         track_id: str,

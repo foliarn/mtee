@@ -32,9 +32,6 @@ class _Backend:
     def seek(self, _position_us: int) -> None:
         pass
 
-    def set_ab_loop(self, _start_us: int | None, _end_us: int | None) -> None:
-        pass
-
     def set_volume(self, _value: int) -> None:
         pass
 

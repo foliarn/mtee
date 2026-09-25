@@ -24,12 +24,14 @@ Une migration en échec restaure la sauvegarde cohérente; ne pas reconstruire l
 
 ## Progress
 
-- [ ] Requête d’arbre et génération de demande.
-- [ ] Révisions de cover et waveform, bornes et vérifications à consigner.
+- [x] Requête d'arbre indexée par parent direct et chargement asynchrone avec générations périmées ignorées.
+- [x] Mises à jour ciblées de modèles, révisions de pochettes, waveform bornée et écritures de session regroupées à 300 ms.
+- [x] Compilation Python et imports critiques passent.
+- [ ] Parcours visuels, catalogue volumineux et vérifications de cache/waveform ne sont pas exécutés.
 
 ## Surprises & Discoveries
 
-À renseigner après lecture complète des repositories, modèles et signaux réellement impliqués.
+2026-09-25 — L'arbre et les écritures de session sont désormais asynchrones; le graphe de dépendances ne détecte pas de flux utilisateur indexé pour ces nouveaux chemins. Les observations de navigation et de waveform restent à faire dans l'application Windows.
 
 ## Decision Log
 
@@ -38,4 +40,4 @@ Une migration en échec restaure la sauvegarde cohérente; ne pas reconstruire l
 
 ## Outcomes & Retrospective
 
-À compléter avec les parcours observés et les limites de recette Windows.
+Les index SQLite, les modèles incrémentaux, la gestion des révisions d'artwork et les limites de calcul/cache de waveform ont été ajoutés. Compilation et imports passent. Aucun parcours UI, mesure sur grosse bibliothèque ou essai de récupération de cache n'a été exécuté; ces points restent à valider.

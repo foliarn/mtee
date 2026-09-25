@@ -1,7 +1,7 @@
 """Immutable source metadata read from an audio file.
 
 Tag values remain tuples so repeated values in source files are not discarded.
-Calculated analysis and future manual corrections belong to separate records.
+Technical properties describe the source and are kept separate from its tags.
 """
 
 from __future__ import annotations

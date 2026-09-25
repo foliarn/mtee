@@ -85,7 +85,9 @@ FocusScope {
         const selected = workspace.selectedIds
         if (selected.length === 0)
             return -1
-        return orderedIds.indexOf(selected[selected.length - 1])
+        return modelBacked
+            ? trackModel.rowForId(selected[selected.length - 1])
+            : orderedIds.indexOf(selected[selected.length - 1])
     }
 
     function press(index, event) {
@@ -108,22 +110,13 @@ FocusScope {
         workspace.selectTrack(trackId, mode, orderedIds)
     }
 
-    function acceptTrackDrop(sourceGroupIndex, trackIds) {
-        if (
-            !view.modelBacked || view.tab.kind !== "folder"
-            || view.workspace.groups.length < 2 || sourceGroupIndex === view.groupIndex
-            || !trackIds || typeof trackIds.length !== "number"
-        )
-            return false
-        const ids = Array.from(trackIds, String).filter(id => id.length > 0)
-        return ids.length > 0 && view.workspace.previewMoveBetweenGroups(
-            sourceGroupIndex, view.groupIndex, ids, view.tab.ref
-        )
-    }
-
     function play(index) {
-        if (index >= 0 && index < orderedIds.length)
-            workspace.playTrack(orderedIds[index], source)
+        if (index >= 0 && index < orderedIds.length) {
+            if (modelBacked)
+                workspace.playTrackFromRows(orderedIds[index], source, trackModel.rows)
+            else
+                workspace.playTrack(orderedIds[index], source)
+        }
     }
 
     function openPlaylistMenu(anchor, trackId) {
@@ -134,23 +127,6 @@ FocusScope {
 
     Keys.onPressed: (event) => {
         const count = orderedIds.length
-        if (event.modifiers & Qt.ControlModifier) {
-            if (event.key === Qt.Key_C) {
-                workspace.fileClipboard.copySelection(workspace.selectedIds)
-                event.accepted = true
-                return
-            }
-            if (event.key === Qt.Key_X) {
-                workspace.fileClipboard.cutSelection(workspace.selectedIds)
-                event.accepted = true
-                return
-            }
-            if (event.key === Qt.Key_V) {
-                workspace.pasteFilesIntoFolder(tab.ref)
-                event.accepted = true
-                return
-            }
-        }
         if (count === 0)
             return
         if (event.key === Qt.Key_Down || event.key === Qt.Key_Up) {
@@ -510,70 +486,6 @@ FocusScope {
                         contextMenu.trackIds = view.workspace.selectedIds
                         contextMenu.popup(tile, event.x, event.y)
                     }
-                }
-            }
-        }
-    }
-
-    DropArea {
-        id: moveDropArea
-        objectName: "fileMoveDropArea"
-        anchors.fill: parent
-        z: 20
-        enabled: view.modelBacked && view.tab.kind === "folder" && view.workspace.groups.length > 1
-        keys: ["application/x-mtee-track-ids"]
-        property bool validDrag: false
-
-        onEntered: (drag) => {
-            const source = drag.source
-            validDrag = source !== null && typeof source.groupIndex !== "undefined"
-                && source.workspace === view.workspace && source.groupIndex !== view.groupIndex
-                && source.dragTrackIds.length > 0
-        }
-        onExited: validDrag = false
-        onDropped: (drop) => {
-            const source = drop.source
-            let ids = []
-            try {
-                ids = JSON.parse(drop.getDataAsString("application/x-mtee-track-ids"))
-            } catch (_error) {
-                ids = []
-            }
-            if (
-                validDrag && source !== null
-                && view.acceptTrackDrop(Number(source.groupIndex), ids)
-            )
-                drop.acceptProposedAction()
-            validDrag = false
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: 18
-            visible: moveDropArea.validDrag
-            color: Theme.surface
-            opacity: 0.96
-            border.width: 2
-            border.color: Theme.primary
-
-            Column {
-                anchors.centerIn: parent
-                spacing: 8
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Drop to preview the move"
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeHeading
-                    font.weight: Font.DemiBold
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "MTEE will show the destination and ask you to confirm."
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSecondary
                 }
             }
         }

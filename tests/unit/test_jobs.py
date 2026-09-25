@@ -80,7 +80,7 @@ def test_a_running_task_observes_its_cancellation(service: JobService) -> None:
         started.set()
         context.sleep(30.0)
 
-    job_id = service.submit(task, label="Long analysis")
+    job_id = service.submit(task, label="Long waveform")
     assert started.wait(_DEADLINE_SECONDS)
 
     service.cancel(job_id)
