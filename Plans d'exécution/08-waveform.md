@@ -1,6 +1,6 @@
 # Étape 08 — Waveform et Fullscreen player complet
 
-ExecPlan vivant rédigé le 2026-09-10, à exécuter selon `PLANS.md` à la racine. Il réalise `PLAN.md` §4.6 et Fullscreen player du §3 après la conversion. Les chemins désignent les fichiers attendus de l'implémentation ; les tests et le push restent à effectuer.
+ExecPlan vivant rédigé le 2026-09-10, à exécuter selon `PLANS.md` à la racine. Il réalise `PLAN.md` §4.6 et Fullscreen player du §3 après la conversion. Les chemins désignent les fichiers attendus ; les jalons et les contrôles effectivement réalisés sont consignés ci-dessous et dans `docs/validation/08-waveform.md`.
 
 ## Raccord aux retours de recette du 2026-09-25
 
@@ -16,20 +16,20 @@ La représentation est un aperçu amplitude/temps, avec enveloppes minimales et 
 ## Progress
 
 
-État au 2026-09-10 : plan préparé, aucun jalon de développement exécuté.
+État au 2026-09-25 : calcul min/max, cache versionné, modèle Qt, rendu interactif, commandes A/B et contrôles ciblés implémentés. Sur une fixture MP3 mono synthétique de deux heures (32 kbit/s, 28 800 435 octets), le paquet a généré 360 000 bins de 20 ms en 93,57 s à 22,05 kHz stéréo; le cache compressé fait 24 885 octets et le SHA-256 source est resté identique (`01d9f1a1e8c9a912f4b5ccc722cb1b593290db4c276b78d701c73289b9b46fc3`). Le processus Python a été observé à environ 66 MiB de mémoire résidente pendant le décodage; ce n'est pas un pic instrumenté. Le paquet Windows a réussi smoke-test et décodage depuis sa copie. Le parcours souris/clavier visible et la précision audio réelle de A/B restent à la recette manuelle.
 
-- [ ] Vérifier le service de lecture et le décodage commun de l'étape 07.
-- [ ] Créer le calcul borné, les niveaux de détail et le cache versionné.
-- [ ] Relier les coordonnées temporelles et la tête de lecture à PlayerService.
-- [ ] Ajouter zoom, navigation, sélection et boucle A/B accessibles au clavier.
-- [ ] Vérifier invalidation, annulation, fichiers longs et restauration de la vue.
-- [ ] Tester le paquet Windows et consigner les preuves.
-- [ ] Créer le commit détaillé et vérifier sa présence sur origin/main.
+- [x] Vérifier le service de lecture et réutiliser le décodage commun de l'étape 07.
+- [x] Créer le calcul min/max borné par blocs, la pyramide et le cache atomique versionné.
+- [x] Relier position et seek à l'unique PlayerService.
+- [x] Ajouter zoom, navigation, repères A/B et commandes accessibles au clavier.
+- [x] Vérifier cache/révision, annulation par changement de piste, et restauration de la vue par les tests.
+- [x] Tester le paquet Windows et consigner les contrôles automatisés.
+- [x] Terminer le relevé long; le commit détaillé et sa présence sur origin/main restent à faire.
 
 ## Surprises & Discoveries
 
 
-Aucune observation mesurée au stade du plan. Inscrire ici les codecs dont la timeline décodée diffère de la durée déclarée, les écarts de position mpv et les limites de rendu Qt rencontrées, avec fixture, versions et mesure.
+Sur l'essai long, MP3 deux heures, la durée décodée égale 7 200 000 000 µs et la source n'a pas changé. La trace de mémoire est une observation ponctuelle du working set (~66 MiB), sans mesure du pic. Les tests ne démontrent pas la précision temporelle de la boucle A/B dans le moteur mpv : une tentative d'observation réelle a été interrompue par le comportement natif libmpv constaté en 06b. La boucle est vérifiée au niveau des commandes et du service simulé. Le parcours souris/clavier, le DPI et la recette sur installation propre restent à faire.
 
 ## Decision Log
 
@@ -149,7 +149,7 @@ Renseigner les sections vivantes, les mesures et les limitations avant le commit
 
     git status --short
     git diff --check
-    git add -- src/mtee/domain/time.py src/mtee/domain/waveform.py src/mtee/services/waveform_service.py src/mtee/persistence/waveform_cache.py src/mtee/models/waveform_model.py src/mtee/qml/views/FullscreenPlayer.qml src/mtee/qml/components/WaveformView.qml tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py tests/integration/test_waveform_cache.py tests/ui/test_fullscreen_waveform.py docs/validation/08-waveform.md "Plans d'exécution/08-waveform.md"
+    git add -- src/mtee/app.py src/mtee/domain/waveform.py src/mtee/models/demo_workspace.py src/mtee/models/player_model.py src/mtee/models/waveform_model.py src/mtee/qml/components/WaveformView.qml src/mtee/qml/views/FullscreenPlayer.qml src/mtee/services/mpv_backend.py src/mtee/services/player_backend.py src/mtee/services/player_service.py src/mtee/services/waveform_cache.py src/mtee/services/waveform_service.py tests/integration/test_mpv_playback.py tests/integration/test_waveform_cache.py tests/ui/test_column_selection.py tests/ui/test_fullscreen_waveform.py tests/ui/test_incremental_scan_and_scroll.py tests/ui/test_player_views.py tests/unit/test_mpv_ab_loop.py tests/unit/test_playback_queue.py tests/unit/test_player_service.py tests/unit/test_waveform_reduction.py tests/unit/test_waveform_timing.py docs/validation/08-waveform.md "Plans d'exécution/07-conversion.md" "Plans d'exécution/08-waveform.md"
     git diff --cached --check
     git diff --cached
 
@@ -162,8 +162,11 @@ Le message suivant doit être complété avec les observations exactes ; ne pas 
 
     Changes: add bounded waveform generation, versioned cache, zoom,
     playhead seeking and A/B looping through the shared player.
-    Validation: replace with exact timeline, long-file and Windows package results.
-    Limits: replace with measured codec precision and rendering constraints.
+    Validation: 20 focused waveform/player tests; full pytest passed (2 skipped);
+    Pyright and Ruff passed. Windows package smoke passed; bundled FFmpeg
+    decoded a two-hour synthetic MP3 in 93.57 s into 360000 20 ms bins.
+    Limits: manual UI and A/B timing accuracy remain unverified; ~66 MiB
+    process working set was a spot observation, not a measured peak.
     '@
     $mteeCommitFile = Join-Path $env:TEMP 'mtee-08-commit.txt'
     Set-Content -LiteralPath $mteeCommitFile -Value $mteeCommitMessage -Encoding utf8

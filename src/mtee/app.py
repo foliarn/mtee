@@ -29,6 +29,7 @@ from mtee.models.jobs_model import JobsListModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.shell_controller import ShellController
+from mtee.models.waveform_model import WaveformModel
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
@@ -159,7 +160,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             backend_error=backend_error,
             parent=application,
         )
-        player_model = PlayerModel(player_service, application)
+        waveform_model = WaveformModel(
+            player_service, library, jobs, file_access, paths.cache_dir, application
+        )
+        player_model = PlayerModel(player_service, application, waveform=waveform_model)
         workspace = WorkspaceModel(
             library=library,
             session=workspace_repository,

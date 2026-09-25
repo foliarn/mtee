@@ -208,6 +208,18 @@ class PlayerService(QObject):
         except Exception as error:
             self._fail(str(error))
 
+    def set_ab_loop(self, start_us: int | None, end_us: int | None) -> None:
+        """Set or clear the native player's A/B loop bounds for this track."""
+        if self._backend is None:
+            return
+        if (start_us is None) != (end_us is None):
+            raise ValueError("A/B loop requires both bounds or neither.")
+        if start_us is not None and end_us is not None:
+            duration = self._state.duration_us
+            if start_us < 0 or end_us <= start_us or (duration and end_us > duration):
+                raise ValueError("A/B loop bounds are outside the playing track.")
+        self._backend.set_ab_loop(start_us, end_us)
+
     @Slot(int)
     def set_volume(self, volume: int) -> None:
         value = max(0, min(100, int(volume)))
@@ -366,6 +378,7 @@ class PlayerService(QObject):
             self._read_track_ids[session_id] = track_id
             self._backend.set_volume(0 if self._state.muted else self._state.volume)
             self._backend.load(path, session_id)
+            self._backend.set_ab_loop(None, None)
         except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
             self._release_read_lease(session_id)
             self._fail(str(error))

@@ -25,7 +25,9 @@ La livraison couvre les sorties audio accessibles dans la distribution FFmpeg re
 - [x] Implémenter vérification de sortie, publication sans écrasement, annulation et filiation persistée.
 - [x] Relier la file, les options et les rapports de transfert à l'onglet Convert.
 - [x] Valider erreurs, annulation, copies synthétiques et paquet Windows; recette interactive encore à réaliser.
-- [ ] Renseigner les preuves, créer le commit détaillé et vérifier le push.
+- [x] Renseigner les preuves, créer le commit détaillé et vérifier le push.
+
+2026-09-25 — Étape 07 committée et publiée : `b8aab1fc9c90eeacacaa27594261be39b7b0a668`; après `git fetch origin`, `HEAD` et `origin/main` sont identiques.
 
 2026-09-25 — Tranche FFmpeg et fixtures du raccord 06b effectuée : runtime Windows x64 épinglé, manifesté et ajouté au paquet; neuf fixtures synthétiques locales produites et identifiées par ffprobe. Voir `docs/validation/07-conversion.md`.
 
