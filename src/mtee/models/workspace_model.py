@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
+from mtee.models.analysis_model import AnalysisModel
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.file_clipboard_model import FileClipboardModel
 from mtee.models.file_operation_model import FileOperationModel
@@ -115,6 +116,7 @@ class WorkspaceModel(QObject):
         self._jobs = jobs
         self._player = player
         self._metadata_editor: MetadataEditorModel | None = None
+        self._analysis_model: AnalysisModel | None = None
         self._conversion_model: ConversionQueueModel | None = None
         self._file_operations: FileOperationModel | None = None
         self._file_clipboard = FileClipboardModel(self)
@@ -145,7 +147,10 @@ class WorkspaceModel(QObject):
         self._activity = str(self._state.get("activity", "explorer"))
         self._sidebar_visible = bool(self._state.get("sidebarVisible", True))
         self._right_visible = bool(self._state.get("rightPanelVisible", False))
-        self._right_tab = str(self._state.get("rightPanelTab", "info"))
+        saved_right_tab = str(self._state.get("rightPanelTab", "info"))
+        self._right_tab = (
+            saved_right_tab if saved_right_tab in {"info", "queue", "analysis"} else "info"
+        )
         self._sidebar_width = int(self._state.get("sidebarWidth", 240))
         self._right_panel_width = int(self._state.get("rightPanelWidth", 360))
         self._fullscreen = False
@@ -358,6 +363,16 @@ class WorkspaceModel(QObject):
     @Property(QObject, constant=True)
     def conversionModel(self) -> QObject:
         return self._conversion_model if self._conversion_model is not None else self
+
+    @Property(QObject, constant=True)
+    def analysisModel(self) -> QObject | None:
+        return self._analysis_model
+
+    def attach_analysis_model(self, model: AnalysisModel) -> None:
+        if self._analysis_model is not None:
+            raise RuntimeError("An analysis model is already attached to this workspace.")
+        self._analysis_model = model
+        model.setParent(self)
 
     def attach_conversion_model(self, model: ConversionQueueModel) -> None:
         self._conversion_model = model
@@ -1023,7 +1038,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str)
     def showRightPanel(self, tab: str) -> None:
-        self._right_tab = "queue" if tab == "queue" else "info"
+        self._right_tab = tab if tab in {"info", "queue", "analysis"} else "info"
         self._right_visible = True
         self.layoutChanged.emit()
         self._persist()
@@ -1034,7 +1049,7 @@ class WorkspaceModel(QObject):
             self._right_visible = False
         else:
             self._right_visible = True
-            self._right_tab = "queue" if tab == "queue" else "info"
+            self._right_tab = tab if tab in {"info", "queue", "analysis"} else "info"
         self.layoutChanged.emit()
         self._persist()
 

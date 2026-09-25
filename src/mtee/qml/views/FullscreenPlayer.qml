@@ -12,9 +12,11 @@ Rectangle {
     required property var metadataEditor
     readonly property var playback: workspace.playerModel
     readonly property var waveform: playback.waveformModel
+    readonly property var analysisModel: workspace.analysisModel
     readonly property var track: playback.playingTrack
     readonly property real duration: playback.duration || track.seconds || 1
     property bool showTags: false
+    property bool showAnalysis: false
 
     objectName: "fullscreenPlayer"
     color: Theme.editor
@@ -76,6 +78,17 @@ Rectangle {
                 tip: player.showTags ? "Hide editable tags" : "Edit track tags"
                 visible: player.metadataEditor !== null
                 onClicked: player.showTags = !player.showTags
+            }
+
+            TextButton {
+                objectName: "showAudioAnalysis"
+                kind: "ghost"
+                text: player.showAnalysis ? "Hide analysis" : "Analysis"
+                visible: player.analysisModel !== null
+                onClicked: {
+                    player.showAnalysis = !player.showAnalysis
+                    player.showTags = false
+                }
             }
 
             IconButton {
@@ -226,6 +239,19 @@ Rectangle {
         }
 
         Component.onCompleted: refreshFields()
+    }
+
+    Loader {
+        anchors.top: top.bottom
+        anchors.bottom: bottom.top
+        anchors.right: parent.right
+        width: Math.min(360, parent.width * 0.45)
+        active: player.showAnalysis && player.analysisModel !== null
+        sourceComponent: AnalysisPanel {
+            analysisModel: player.analysisModel
+            trackId: player.playback.playingId
+            analyzeOnlyTrack: true
+        }
     }
 
     Column {

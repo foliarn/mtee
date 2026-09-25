@@ -9,7 +9,10 @@ dependencies = [
     # Essentials only: the add-ons of the full PySide6 wheel bring Qt WebEngine
     # and Quick3D, which MTEE does not use and which weigh on the distribution.
     "PySide6-Essentials>=6.8,<6.10",
+    "librosa==0.11.0",
     "mutagen>=1.47",
+    "numpy>=2.0,<3",
+    "scipy>=1.13,<2",
 ]
 
 [project.scripts]

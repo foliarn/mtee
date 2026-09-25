@@ -209,6 +209,10 @@ class DemoWorkspace(QObject):
 
     # ------------------------------------------------------------ properties
 
+    @Property(QObject, constant=True)
+    def analysisModel(self) -> QObject | None:
+        return None
+
     @Property(str, notify=scenarioChanged)
     def scenarioName(self) -> str:
         return self._scenario.name
