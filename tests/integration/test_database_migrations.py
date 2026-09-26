@@ -190,28 +190,67 @@ def test_a_schema_written_by_a_newer_build_is_refused(tmp_path: Path) -> None:
     database.close()
 
 
-def test_a_database_with_the_retired_analysis_migration_is_refused_unchanged(
+def test_a_database_with_the_retired_analysis_migration_is_upgraded_and_preserved(
     tmp_path: Path,
 ) -> None:
+    legacy_migrations = tmp_path / "schema-v10"
+    legacy_migrations.mkdir()
+    current_migrations = Database(tmp_path / "unused.sqlite3").migrations
+    for migration in current_migrations:
+        if migration.version <= 9:
+            shutil.copyfile(migration.path, legacy_migrations / migration.file_name)
+    (legacy_migrations / "010_audio_analysis.sql").write_text(
+        "CREATE TABLE analysis_results (result_id TEXT PRIMARY KEY, payload TEXT NOT NULL);",
+        encoding="utf-8",
+    )
+    path = tmp_path / "mtee.sqlite3"
+    legacy = Database(path, migrations_dir=legacy_migrations)
+    legacy.migrate()
+    SettingsRepository(legacy).set("workspace/name", "preserved")
+    legacy.connection().execute(
+        "INSERT INTO analysis_results(result_id, payload) VALUES('result-1', 'kept')"
+    )
+    legacy.close()
+
+    upgraded = Database(path)
+    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14]
+    assert upgraded.schema_version() == 14
+    assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
+    assert (
+        upgraded.connection()
+        .execute("SELECT payload FROM analysis_results WHERE result_id='result-1'")
+        .fetchone()[0]
+        == "kept"
+    )
+    assert (
+        upgraded.connection()
+        .execute("SELECT name FROM schema_migrations WHERE version=10")
+        .fetchone()[0]
+        == "audio_analysis"
+    )
+    backups = list(tmp_path.glob("mtee.sqlite3.v10.*.backup"))
+    assert len(backups) == 1
+    with sqlite3.connect(backups[0]) as backup:
+        assert backup.execute("PRAGMA user_version").fetchone() == (10,)
+        assert backup.execute("SELECT payload FROM analysis_results").fetchone() == ("kept",)
+    assert upgraded.migrate() == []
+    upgraded.close()
+
+
+def test_an_unknown_retired_migration_remains_refused(tmp_path: Path) -> None:
     path = tmp_path / "mtee.sqlite3"
     database = Database(path)
     database.migrate()
-    database.connection().execute("DELETE FROM schema_migrations WHERE version = 14")
     database.connection().execute(
-        "INSERT INTO schema_migrations(version,name,applied_at_utc) VALUES(10, ?, '2026-09-25T00:00:00Z')",
-        ("audio_analysis",),
+        "INSERT INTO schema_migrations(version,name,applied_at_utc) "
+        "VALUES(10, ?, '2026-09-25T00:00:00Z')",
+        ("unknown_feature",),
     )
-    database.connection().execute("PRAGMA user_version = 13")
-    database.close()
 
-    existing = Database(path)
-    with pytest.raises(UnsupportedMigrationHistoryError, match="010_audio_analysis"):
-        existing.migrate()
-    assert existing.schema_version() == 13
-    assert existing.connection().execute(
-        "SELECT COUNT(*) FROM schema_migrations WHERE version=10"
-    ).fetchone()[0] == 1
-    existing.close()
+    with pytest.raises(UnsupportedMigrationHistoryError, match="unknown or unsupported"):
+        database.migrate()
+    assert database.schema_version() == 14
+    database.close()
 
 
 def test_a_migration_file_with_an_unexpected_name_is_reported(tmp_path: Path) -> None:

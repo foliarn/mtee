@@ -22,12 +22,13 @@ __all__ = [
     "DatabaseError",
     "Migration",
     "MigrationFailedError",
-    "UnsupportedMigrationHistoryError",
     "SchemaTooRecentError",
+    "UnsupportedMigrationHistoryError",
 ]
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{3})_([A-Za-z0-9_\-]+)\.sql$")
+_RETIRED_MIGRATIONS = {10: "audio_analysis"}
 
 
 class DatabaseError(RuntimeError):
@@ -172,12 +173,6 @@ class Database:
         migrations = self.migrations
         supported = migrations[-1].version if migrations else 0
         current = self.schema_version()
-        if current == 10 and all(migration.version != 10 for migration in migrations):
-            raise UnsupportedMigrationHistoryError(
-                "This database records retired migration 010_audio_analysis. "
-                "This build will not roll back or erase that schema; restore a compatible "
-                "backup or use the build that created it."
-            )
         if current > supported:
             raise SchemaTooRecentError(current, supported)
         if current > 0:
@@ -202,8 +197,7 @@ class Database:
         }
         if "schema_migrations" not in tables:
             raise UnsupportedMigrationHistoryError(
-                "The database has a schema version but no migration history. "
-                "It was left unchanged."
+                "The database has a schema version but no migration history. It was left unchanged."
             )
         recorded = [
             (int(row["version"]), str(row["name"]))
@@ -212,19 +206,32 @@ class Database:
             )
         ]
         known = {migration.version: migration.name for migration in migrations}
-        retired = [version for version, _name in recorded if version not in known]
-        if 10 in retired:
+        retired = [(version, name) for version, name in recorded if version not in known]
+        if any(_RETIRED_MIGRATIONS.get(version) != name for version, name in retired):
             raise UnsupportedMigrationHistoryError(
-                "This database records retired migration 010_audio_analysis. "
-                "This build will not roll back or erase that schema; restore a compatible "
-                "backup or use the build that created it."
+                "The database records an unknown or unsupported migration. "
+                "The database was left unchanged."
             )
+        if current < 10 and retired:
+            raise UnsupportedMigrationHistoryError(
+                "The database migration history is ahead of its recorded schema version. "
+                "The database was left unchanged."
+            )
+        if current == 10 and (10, _RETIRED_MIGRATIONS[10]) not in retired:
+            raise UnsupportedMigrationHistoryError(
+                "Schema version 10 is missing its audio_analysis migration record. "
+                "The database was left unchanged."
+            )
+        # Migration 010 only added analysis tables. Keep its history and data in
+        # place while later migrations advance the active application schema.
+        # Filtering only this exact retired record keeps unknown histories strict.
+        active_recorded = [item for item in recorded if item[0] in known]
         expected = [
             (migration.version, migration.name)
             for migration in migrations
             if migration.version <= current
         ]
-        if recorded != expected:
+        if active_recorded != expected:
             raise UnsupportedMigrationHistoryError(
                 "The database migration history does not match the migrations shipped with "
                 "this build. The database was left unchanged."
