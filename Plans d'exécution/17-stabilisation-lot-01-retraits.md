@@ -26,7 +26,7 @@ Restaurer uniquement les éléments manquants depuis le commit précédent, sans
 - [x] La migration 010 reste absente et les migrations ultérieures gardent leurs numéros; imports Python critiques, compilation syntaxique et lint QML passent (avertissements existants de bindings non qualifiés).
 - [x] Compatibilité de la migration retirée 010 ajoutée : les données et la ligne `audio_analysis` sont gardées, les migrations 011–014 sont appliquées et une sauvegarde v10 précède leur application; l'historique inconnu reste refusé.
 - [x] Test d'intégration sur une base synthétique v10 : données applicatives et d'analyse conservées, sauvegarde cohérente, et seconde ouverture sans nouvelle migration.
-- [ ] L'ouverture de la base utilisateur et le build monofichier mis à jour restent à vérifier au lot 22.
+- [x] Le nouvel EXE ouvre la base utilisateur par défaut; le schéma 10 est passé à 14 après sauvegarde v10, et la fenêtre MTEE est visible.
 
 ## Surprises & Discoveries
 
@@ -43,4 +43,4 @@ Restaurer uniquement les éléments manquants depuis le commit précédent, sans
 
 L'analyse produit, ses services/dépôts/modèles/vues et tests dédiés ont été retirés, ainsi que zoom, déplacement horizontal, boucle A/B, presse-papiers et anciennes opérations Move/Copy/Rename. Les dépendances directes devenues inutiles ont été retirées. `uv run --no-sync python -m compileall -q src` et les imports des modèles/services critiques passent. Aucun démarrage applicatif, test automatisé ou migration sur copie de base n'a été exécuté. Le build Windows est consigné au lot 22; le refus de migration 010 reste validé statiquement uniquement.
 
-Révision du 2026-09-26 : le refus absolu de la migration 010 empêchait le démarrage d'une base réelle pourtant compatible avec les migrations suivantes. Le correctif conserve les trois tables d'analyse et leurs enregistrements comme données historiques inutilisées, conserve la ligne de migration 010, et applique 011–014 après sauvegarde cohérente. Le test d'intégration sur une copie synthétique v10 passe; le build et l'ouverture de la base utilisateur sont suivis au lot 22.
+Révision du 2026-09-26 : le refus absolu de la migration 010 empêchait le démarrage d'une base réelle pourtant compatible avec les migrations suivantes. Le correctif conserve les trois tables d'analyse et leurs enregistrements comme données historiques inutilisées, conserve la ligne de migration 010, et applique 011–014 après sauvegarde cohérente. Le test d'intégration sur une copie synthétique v10 passe; le build et l'ouverture de la base utilisateur sont documentés au lot 22.
