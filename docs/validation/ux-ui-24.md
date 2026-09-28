@@ -20,10 +20,11 @@ Environnement : Windows, Python 3.12.14, uv 0.12.17.
 - `uv run ruff check src/mtee/services/player_service.py src/mtee/models/player_model.py tests/unit/test_player_service.py tests/integration/test_mpv_playback.py` — réussi.
 - `uv run ruff format --check src/mtee/services/player_service.py src/mtee/models/player_model.py tests/unit/test_player_service.py tests/integration/test_mpv_playback.py` — réussi.
 - `git diff --check` — réussi.
+- `pwsh -File scripts/build_windows.ps1` — réussi; `dist/MTEE.exe` reconstruit à 220,85 MiB. Le vérificateur monofichier a validé les ressources QML, les manifestes et empreintes libmpv/FFmpeg, puis les versions FFmpeg/ffprobe embarquées.
 
 ## Contrôles restant à faire
 
-Les tests pytest unitaires et natifs n'ont pas été exécutés, à la demande de l'utilisateur. Aucun parcours sonore manuel ni essai du paquet Windows n'a été réalisé. Le scénario libmpv avec deux fichiers valides est ajouté, mais son exécution et l'écoute audible restent à confirmer sur l'environnement de recette.
+Les tests pytest unitaires et natifs n'ont pas été exécutés, à la demande de l'utilisateur. Aucun parcours sonore manuel n'a été réalisé et l'EXE n'a pas été lancé en recette interactive. Le scénario libmpv avec deux fichiers valides est ajouté, mais son exécution et l'écoute audible restent à confirmer sur l'environnement de recette.
 
 ## Reprise
 

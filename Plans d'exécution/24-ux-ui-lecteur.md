@@ -51,8 +51,9 @@ Sujet de commit proposé : `fix(player): resume explicitly activated tracks afte
 - [x] 2026-09-28 — La lecture des sources confirme que le service publiait `PLAYING` sans retirer la pause native. Régression et cas de session ajoutés, mais les tests ne sont pas exécutés dans cette passe.
 - [x] 2026-09-28 — Correction centralisée dans `PlayerService`; compilation Python, chargement QML de démonstration et contrôles Ruff réussis.
 - [ ] Tests automatisés et scénario natif non exécutés, conformément à la demande de laisser la recette fonctionnelle à l'utilisateur.
-- [ ] Recette audio manuelle et vérification du paquet Windows non réalisées.
-- [x] Rapport de validation rédigé et diff ciblé relu.
+- [x] 2026-09-28 — Build monofichier Windows et vérification des ressources embarquées réussis; l'EXE n'a pas été lancé en recette interactive.
+- [ ] Recette audio manuelle non réalisée.
+- [x] Rapport de validation mis à jour et diff ciblé relu; le commit et le push complémentaires consignent le build demandé.
 
 ## Surprises & Discoveries
 
@@ -66,6 +67,6 @@ Sujet de commit proposé : `fix(player): resume explicitly activated tracks afte
 
 ## Outcomes & Retrospective
 
-La correction et les scénarios de régression sont implémentés. `uv run python -m compileall -q src/mtee`, le smoke-test de démonstration (chargement Python/QML) et les contrôles Ruff ciblés ont réussi sous Python 3.12.14 et uv 0.12.17. Les tests automatisés, l'audio libmpv, la recette interactive et le paquet Windows n'ont pas été exécutés; ils restent à la recette utilisateur. Voir `docs/validation/ux-ui-24.md`.
+La correction et les scénarios de régression sont implémentés. `uv run python -m compileall -q src/mtee`, le smoke-test de démonstration (chargement Python/QML), les contrôles Ruff ciblés et `pwsh -File scripts/build_windows.ps1` ont réussi sous Python 3.12.14 et uv 0.12.17. Le build a produit `dist/MTEE.exe` (220,85 MiB) et validé son contenu monofichier. Les tests automatisés, l'audio libmpv et la recette interactive restent à la recette utilisateur. Voir `docs/validation/ux-ui-24.md`.
 
 Révision du 28 septembre 2026 : activation explicite dépausée, pause en attente par session, état de contrôle Qt/QML et scénarios automatisés ajoutés.
