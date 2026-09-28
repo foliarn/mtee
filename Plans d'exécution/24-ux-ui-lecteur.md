@@ -48,18 +48,24 @@ Sujet de commit proposé : `fix(player): resume explicitly activated tracks afte
 ## Progress
 
 - [x] 2026-09-28 — Contrat et points de code inspectés pour la préparation.
-- [ ] Reproduction automatisée et cause native confirmées.
-- [ ] Correction et scénarios de changement de session vérifiés.
-- [ ] Recette Windows, distribution, rapport, commit et push terminés.
+- [x] 2026-09-28 — La lecture des sources confirme que le service publiait `PLAYING` sans retirer la pause native. Régression et cas de session ajoutés, mais les tests ne sont pas exécutés dans cette passe.
+- [x] 2026-09-28 — Correction centralisée dans `PlayerService`; compilation Python, chargement QML de démonstration et contrôles Ruff réussis.
+- [ ] Tests automatisés et scénario natif non exécutés, conformément à la demande de laisser la recette fonctionnelle à l'utilisateur.
+- [ ] Recette audio manuelle et vérification du paquet Windows non réalisées.
+- [x] Rapport de validation rédigé et diff ciblé relu.
 
 ## Surprises & Discoveries
 
 2026-09-28 — Le chargement et la propriété native de pause sont deux commandes distinctes. Vérifier seulement `PlaybackStatus.PLAYING` peut masquer une lecture native encore pausée.
 
+2026-09-28 — Les événements de propriété `pause` peuvent arriver après le changement de piste. Le service ignore une notification contraire à l'intention courante, même si elle porte l'identifiant de la session actuellement chargée.
+
 ## Decision Log
 
-2026-09-28 — Codex : corriger le contrat commun de lancement avant de brancher la nouvelle activation dans l’arbre. La correction exacte reste à choisir après reproduction.
+2026-09-28 — Codex : `PlayerService` est l'unique autorité de l'intention de lecture. Toute activation explicite retire l'ancienne pause juste avant `load`; une demande reçue pendant `LOADING` est envoyée immédiatement, puis conservée par session jusqu'au signal `loaded`. Les événements de pause en retard qui contredisent cette intention ne remplacent pas l'état partagé. Le bouton expose « Pause when ready » et « Play when ready » durant ce chargement.
 
 ## Outcomes & Retrospective
 
-Plan prêt ; aucune correction ni recette réalisée pendant la planification. Révision du 28 septembre 2026 : création du lot lecteur.
+La correction et les scénarios de régression sont implémentés. `uv run python -m compileall -q src/mtee`, le smoke-test de démonstration (chargement Python/QML) et les contrôles Ruff ciblés ont réussi sous Python 3.12.14 et uv 0.12.17. Les tests automatisés, l'audio libmpv, la recette interactive et le paquet Windows n'ont pas été exécutés; ils restent à la recette utilisateur. Voir `docs/validation/ux-ui-24.md`.
+
+Révision du 28 septembre 2026 : activation explicite dépausée, pause en attente par session, état de contrôle Qt/QML et scénarios automatisés ajoutés.
