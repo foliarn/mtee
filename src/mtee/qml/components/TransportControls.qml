@@ -10,6 +10,8 @@ Row {
     property int buttonSize: 32
     property int iconSize: 18
     property int playSize: 32
+    readonly property bool willPlay: controls.player.isPlaying
+        || (controls.player.status === "Loading" && !controls.player.pausePending)
 
     spacing: 8
 
@@ -48,7 +50,7 @@ Row {
 
         Icon {
             anchors.centerIn: parent
-            name: controls.player.isPlaying ? "pause" : "play"
+            name: controls.willPlay ? "pause" : "play"
             size: Math.round(controls.playSize * 0.5)
             color: Theme.textOnColor
         }
@@ -63,7 +65,9 @@ Row {
 
         HoverTip {
             visible: playMouse.containsMouse
-            text: controls.player.isPlaying ? "Pause (Space)" : "Play (Space)"
+            text: controls.player.status === "Loading"
+                ? (controls.player.pausePending ? "Play when ready" : "Pause when ready")
+                : controls.player.isPlaying ? "Pause (Space)" : "Play (Space)"
         }
     }
 

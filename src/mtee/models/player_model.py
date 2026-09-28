@@ -81,6 +81,10 @@ class PlayerModel(QObject):
     def isPlaying(self) -> bool:
         return self._service.state.is_playing
 
+    @Property(bool, notify=playbackChanged)
+    def pausePending(self) -> bool:
+        return self._service.pause_pending
+
     @Property(float, notify=positionChanged)
     def position(self) -> float:
         return self.position_value()

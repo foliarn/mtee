@@ -12,17 +12,21 @@ from pathlib import Path
 
 import pytest
 
+from mtee.domain.playback import PlaybackStatus
+from mtee.domain.tracks import TrackId
+from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.mpv_backend import MpvBackend
 from mtee.services.player_backend import BackendEvent
+from mtee.services.player_service import PlayerService
 
 
-def _write_tone(path: Path, duration_seconds: float = 3.0) -> None:
+def _write_tone(path: Path, duration_seconds: float = 3.0, frequency_hz: int = 440) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     sample_rate = 44_100
     sample_count = int(sample_rate * duration_seconds)
     pcm = bytearray()
     for index in range(sample_count):
-        value = round(12_000 * math.sin(2 * math.pi * 440 * index / sample_rate))
+        value = round(12_000 * math.sin(2 * math.pi * frequency_hz * index / sample_rate))
         pcm.extend(struct.pack("<h", value))
     with wave.open(str(path), "wb") as handle:
         handle.setnchannels(1)
@@ -110,3 +114,62 @@ def test_native_libmpv_decodes_seeks_and_pauses_wav(tmp_path: Path) -> None:
 
     finally:
         backend.close()
+
+
+@pytest.mark.native_audio
+def test_player_service_starts_next_track_after_a_native_pause(qapp, qtbot, tmp_path: Path) -> None:
+    first_path = tmp_path / "native A.wav"
+    second_path = tmp_path / "native B.wav"
+    _write_tone(first_path, duration_seconds=5.0, frequency_hz=440)
+    _write_tone(second_path, duration_seconds=5.0, frequency_hz=660)
+    ids = [str(TrackId.new()), str(TrackId.new())]
+    tracks = {
+        track_id: {
+            "id": track_id,
+            "title": path.stem,
+            "path": str(path),
+            "seconds": 5,
+            "durationUs": 5_000_000,
+            "status": "readable",
+        }
+        for track_id, path in zip(ids, (first_path, second_path), strict=True)
+    }
+    packaged_runtime = os.environ.get("MTEE_TEST_MPV_LIBRARY")
+    backend = MpvBackend(
+        Path(packaged_runtime) if packaged_runtime else None,
+        audio_output="null",
+    )
+    service = PlayerService(
+        lambda track_id: dict(tracks[track_id]),
+        FileAccessCoordinator(),
+        backend,
+        parent=qapp,
+    )
+
+    try:
+        service.play_queue(ids)
+        qtbot.waitUntil(
+            lambda: service.state.status is PlaybackStatus.PLAYING,
+            timeout=10_000,
+        )
+        service.pause()
+        qtbot.waitUntil(
+            lambda: service.state.status is PlaybackStatus.PAUSED,
+            timeout=2_000,
+        )
+
+        service.next()
+        qtbot.waitUntil(
+            lambda: (
+                service.state.current_id == ids[1]
+                and service.state.status is PlaybackStatus.PLAYING
+            ),
+            timeout=10_000,
+        )
+        start_position = service.state.position_us
+        qtbot.waitUntil(
+            lambda: service.state.position_us > start_position + 100_000,
+            timeout=3_000,
+        )
+    finally:
+        service.close()

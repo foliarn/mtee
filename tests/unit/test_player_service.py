@@ -44,7 +44,8 @@ class FakeBackend:
 
     def set_paused(self, paused: bool) -> None:
         self.paused = paused
-        self.emit("pause", self.loads[-1][1], paused)
+        if self.active_session_id:
+            self.emit("pause", self.active_session_id, paused)
 
     def seek(self, position_us: int) -> None:
         self.seeks.append(position_us)
@@ -165,6 +166,95 @@ def test_stale_backend_errors_do_not_replace_a_new_session(qapp, qtbot, tmp_path
     assert current_session != stale_session
     assert service.state.status is PlaybackStatus.PLAYING
     assert service.state.error_message == ""
+    service.close()
+
+
+@pytest.mark.parametrize("play_index", [0, 1], ids=["reactivate-same-track", "next-track"])
+def test_explicit_play_after_pause_clears_the_native_pause_state(
+    qapp, qtbot, tmp_path: Path, play_index: int
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=2)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+
+    service.pause()
+    assert backend.paused
+    service.play_index(play_index)
+    _wait_playing(qtbot, service)
+
+    assert service.state.current_id == ids[play_index]
+    assert backend.paused is False
+    assert service.state.status is PlaybackStatus.PLAYING
+    service.close()
+
+
+def test_pause_requested_while_loading_is_applied_when_track_loads(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=2)
+    backend.emit_loaded_events = False
+
+    service.play_queue(ids)
+    assert service.state.status is PlaybackStatus.LOADING
+    service.toggle_play()
+    assert service.pause_pending
+    service.toggle_play()
+    assert not service.pause_pending
+    service.toggle_play()
+    assert service.pause_pending
+
+    session_id = service.state.session_id
+    backend.emit("loaded", session_id)
+    qtbot.waitUntil(lambda: service.state.status is PlaybackStatus.PAUSED)
+
+    assert backend.paused
+    assert not service.pause_pending
+    service.toggle_play()
+    assert service.state.status is PlaybackStatus.PLAYING
+    assert backend.paused is False
+    service.close()
+
+
+def test_fast_track_changes_ignore_late_pause_and_load_events(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=3)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    old_session = service.state.session_id
+    backend.emit_loaded_events = False
+
+    service.next()
+    stale_session = service.state.session_id
+    service.next()
+    current_session = service.state.session_id
+    backend.emit("loaded", stale_session)
+    backend.emit("pause", old_session, True)
+    backend.emit("loaded", current_session)
+    qtbot.waitUntil(lambda: service.state.status is PlaybackStatus.PLAYING)
+    backend.emit("pause", current_session, True)
+    qtbot.wait(20)
+
+    assert service.state.current_id == ids[2]
+    assert service.state.session_id == current_session
+    assert service.state.status is PlaybackStatus.PLAYING
+    assert backend.paused is False
+    service.close()
+
+
+def test_failed_new_track_does_not_report_playing_after_a_paused_track(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=2)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.pause()
+    backend.fail_load = True
+
+    service.next()
+
+    assert service.state.current_id == ids[1]
+    assert service.state.status is PlaybackStatus.ERROR
+    assert service.state.error_message == "fake decoder error"
+    assert backend.paused is False
     service.close()
 
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import random
 import logging
+import random
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
@@ -57,6 +57,8 @@ class PlayerService(QObject):
         self._history_ids: list[str] = []
         self._unmuted_volume = self._state.volume
         self._pending_seek_us: int | None = None
+        self._pause_requested_session_id: int | None = None
+        self._expected_pause_state: bool | None = None
         self._closed = False
         self._bridge = _BackendEventBridge(self)
         self._bridge.eventReceived.connect(
@@ -75,6 +77,11 @@ class PlayerService(QObject):
     @property
     def current_track(self) -> dict[str, Any]:
         return dict(self._track_rows.get(self._state.current_id, {}))
+
+    @property
+    def pause_pending(self) -> bool:
+        """Whether the current loading session should start in a paused state."""
+        return self._pause_requested_session_id == self._state.session_id
 
     def refresh_track(self, track_id: str) -> None:
         """Refresh queue labels after a verified source metadata edit."""
@@ -153,14 +160,32 @@ class PlayerService(QObject):
             self.pause()
         elif self._state.status is PlaybackStatus.PAUSED:
             self.resume()
+        elif self._state.status is PlaybackStatus.LOADING:
+            if self.pause_pending:
+                self.resume()
+            else:
+                self.pause()
         elif self._state.status in (PlaybackStatus.ERROR, PlaybackStatus.ENDED):
             self.retry()
 
     @Slot()
     def pause(self) -> None:
+        if self._state.status is PlaybackStatus.LOADING and self._state.current_id:
+            if not self.pause_pending:
+                self._pause_requested_session_id = self._state.session_id
+                self._expected_pause_state = True
+                try:
+                    if self._backend is not None:
+                        self._backend.set_paused(True)
+                except Exception as error:
+                    self._fail(str(error))
+                    return
+                self.stateChanged.emit()
+            return
         if self._backend is None or self._state.status is not PlaybackStatus.PLAYING:
             return
         try:
+            self._expected_pause_state = True
             self._backend.set_paused(True)
             self._publish(status=PlaybackStatus.PAUSED)
         except Exception as error:
@@ -168,9 +193,16 @@ class PlayerService(QObject):
 
     @Slot()
     def resume(self) -> None:
+        if self._state.status is PlaybackStatus.LOADING:
+            if self.pause_pending:
+                self._pause_requested_session_id = None
+                self._expected_pause_state = False
+                self.stateChanged.emit()
+            return
         if self._backend is None or self._state.status is not PlaybackStatus.PAUSED:
             return
         try:
+            self._expected_pause_state = False
             self._backend.set_paused(False)
             self._publish(status=PlaybackStatus.PLAYING)
         except Exception as error:
@@ -276,6 +308,8 @@ class PlayerService(QObject):
         if not self._state.current_id or (track_id and track_id != self._state.current_id):
             return False
         next_session = self._state.session_id + 1
+        self._pause_requested_session_id = None
+        self._expected_pause_state = None
         self._publish(
             status=PlaybackStatus.IDLE,
             session_id=next_session,
@@ -321,6 +355,8 @@ class PlayerService(QObject):
         ids = track_ids or self._state.track_ids or self._base_ids
         if not 0 <= index < len(ids):
             return
+        self._pause_requested_session_id = None
+        self._expected_pause_state = False
         track_id = ids[index]
         previous_id = self._state.current_id
         if previous_id and previous_id != track_id:
@@ -375,6 +411,10 @@ class PlayerService(QObject):
             self._read_contexts[session_id] = context
             self._read_track_ids[session_id] = track_id
             self._backend.set_volume(0 if self._state.muted else self._state.volume)
+            # An explicit activation means "play this track". Reset the native
+            # pause property here, once, before load so a previous track's pause
+            # cannot leak into the new session.
+            self._backend.set_paused(False)
             self._backend.load(path, session_id)
             _LOGGER.debug("Playback load command sent session=%s track=%s", session_id, track_id)
         except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
@@ -415,14 +455,28 @@ class PlayerService(QObject):
             for previous_session in tuple(self._read_contexts):
                 if previous_session != event.session_id:
                     self._release_read_lease(previous_session)
-            self._publish(status=PlaybackStatus.PLAYING, error_message="")
+            pause_when_loaded = self.pause_pending
+            self._pause_requested_session_id = None
+            self._publish(
+                status=(PlaybackStatus.PAUSED if pause_when_loaded else PlaybackStatus.PLAYING),
+                error_message="",
+            )
             self._position_timer.start()
         elif event.name == "eof":
             self._release_read_lease(event.session_id)
             self._on_eof()
         elif event.name == "pause":
             if self._state.status in (PlaybackStatus.PLAYING, PlaybackStatus.PAUSED):
-                status = PlaybackStatus.PAUSED if bool(event.value) else PlaybackStatus.PLAYING
+                paused = bool(event.value)
+                if self._expected_pause_state is not None and paused != self._expected_pause_state:
+                    _LOGGER.debug(
+                        "Ignoring stale pause notification session=%s paused=%s expected=%s",
+                        event.session_id,
+                        paused,
+                        self._expected_pause_state,
+                    )
+                    return
+                status = PlaybackStatus.PAUSED if paused else PlaybackStatus.PLAYING
                 self._publish(status=status)
         elif event.name == "duration":
             value = event.value if isinstance(event.value, int) else None
@@ -488,6 +542,8 @@ class PlayerService(QObject):
     def _fail(self, message: str, *, source_closed: bool = False) -> None:
         self._position_timer.stop()
         self._pending_seek_us = None
+        self._pause_requested_session_id = None
+        self._expected_pause_state = None
         self._publish(
             status=PlaybackStatus.ERROR,
             error_message=message,
@@ -505,7 +561,10 @@ class PlayerService(QObject):
     def _publish(self, **changes: Any) -> None:
         previous = self._state
         self._state = replace(previous, **changes)
-        if previous.position_us != self._state.position_us or previous.seeking != self._state.seeking:
+        if (
+            previous.position_us != self._state.position_us
+            or previous.seeking != self._state.seeking
+        ):
             self.positionChanged.emit()
         if any(key not in {"position_us", "seeking"} for key in changes):
             self.stateChanged.emit()
@@ -523,9 +582,7 @@ class PlayerService(QObject):
             sessions = tuple(self._read_contexts)
             contexts = tuple(self._read_contexts.values())
             self._read_contexts.clear()
-            released = tuple(
-                (key, self._read_track_ids.pop(key, "")) for key in sessions
-            )
+            released = tuple((key, self._read_track_ids.pop(key, "")) for key in sessions)
         else:
             context = self._read_contexts.pop(session_id, None)
             contexts = (context,) if context is not None else ()
