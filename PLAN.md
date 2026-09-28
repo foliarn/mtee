@@ -1,6 +1,14 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum UX/UI — 2026-09-28
+
+La demande du 28 septembre prépare cinq catégories de correctifs pour la version existante, détaillées dans les plans 23–28 de [l’index d’exécution](Plans%20d'ex%C3%A9cution/README.md). Cette préparation ne constitue pas leur implémentation ni la clôture de la recette de stabilisation.
+
+Les décisions utilisateur précisent : ordre de référence par date de création décroissante et sans flèche de tri manuel ; colonnes déplaçables/masquables avec configuration globale mémorisée ; conservation du texte et des résultats de recherche lorsqu’elle perd le focus ; double-clic dans l’arbre sélectionnant, révélant et jouant le morceau, sauf cible masquée par la recherche qui joue sans être révélée. Les cinq colonnes de base sont Title, Artist, Date created, BPM et Key. L’affichage des pochettes est configurable et le numéro ordinal # est retiré du tableau.
+
+La lisibilité des waveforms, leur repère temporel et l’assombrissement de la portion lue sont à améliorer. Trois variantes monochrome, 3 bandes et RGB seront comparées dans des maquettes avant le choix utilisateur. Jusqu’à ce choix et à son implémentation validée, la version fonctionnelle reste celle de la stabilisation. Cette étude ne réactive ni zoom temporel, ni boucle A/B, ni analyse musicale. Les autres fonctionnalités différées restent hors périmètre.
+
 ## Addendum de trajectoire — 2026-09-25
 
 La trajectoire fonctionnelle décrite ci-dessous est suspendue pendant la remise en état de la version Windows. La série [16–22 — Stabilisation](Plans%20d'ex%C3%A9cution/README.md) devient prioritaire et ses critères remplacent temporairement les livraisons C–K ci-dessous.

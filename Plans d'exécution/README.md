@@ -2,9 +2,24 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
-## Stabilisation prioritaire — 2026-09-25
+## Correctifs UX/UI — préparation du 2026-09-28
 
-La trajectoire fonctionnelle historique est suspendue jusqu’à la clôture de cette série. Les sept documents ci-dessous décrivent d’abord le cadrage et la validation, puis les six lots à exécuter dans l’ordre. Leur état distingue préparation, développement et recette; une compilation réussie ne vaut pas validation manuelle.
+Cette série traduit la page Notion « MTEE — UX/UI » et les réponses utilisateur du 28 septembre. Elle poursuit les correctifs de l’existant sans déclarer la stabilisation entièrement validée ni réactiver les anciennes fonctionnalités différées. La demande actuelle porte sur les plans ; leur présence n’autorise pas à implémenter toute la série.
+
+| Plan | Catégorie et dépendances |
+|---|---|
+| [23 — Cadrage et guide Luna](23-ux-ui-cadrage.md) | Décisions, couverture Notion, ordre, commandes communes et consignes prêtes à copier |
+| [24 — Lecteur](24-ux-ui-lecteur.md) | Lancement effectif après pause ; premier correctif |
+| [25 — Explorer](25-ux-ui-explorer.md) | Double-clic, sélection/révélation et conservation de l’ancre ; après 24 |
+| [26 — Défilement et recherche](26-ux-ui-defilement-recherche.md) | Molette, scrollbars, focus et alignement ; après 25, maquette d’en-tête avant code concerné |
+| [27 — Colonnes et tri](27-ux-ui-colonnes-tri.md) | Profil global, dates, covers, retrait de # et tri à trois états ; après 26, maquette avant code concerné |
+| [28 — Waveforms](28-ux-ui-waveforms.md) | Comparaison monochrome/3 bandes/RGB, choix utilisateur, repère et portion lue ; après 27 |
+
+Le défaut de tri retenu est la date de création décroissante, sans flèche. Quitter la recherche conserve texte et résultats. Une cible masquée par cette recherche peut être jouée depuis l’arbre sans être révélée. Les colonnes sont configurées globalement. Le rendu waveform reste à choisir sur maquettes concrètes.
+
+## Stabilisation — trajectoire du 2026-09-25
+
+La trajectoire fonctionnelle historique est suspendue jusqu’à la clôture de cette stabilisation. Les sept documents ci-dessous décrivent d’abord le cadrage et la validation, puis les six lots. Leur état distingue préparation, développement et recette ; une compilation réussie ne vaut pas validation manuelle. La série 23–28 ci-dessus prépare les nouveaux retours UX/UI sur la version issue de ces travaux.
 
 | Plan | Livrable et prérequis |
 |---|---|
