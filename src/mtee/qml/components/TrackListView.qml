@@ -119,6 +119,27 @@ FocusScope {
         }
     }
 
+    function revealTrack(trackId) {
+        if (!modelBacked)
+            return
+        const index = trackModel.rowForId(trackId)
+        if (index < 0)
+            return
+        if (artwork)
+            grid.positionViewAtIndex(index, GridView.Contain)
+        else
+            list.positionViewAtIndex(index, ListView.Contain)
+    }
+
+    Connections {
+        target: view.workspace
+        ignoreUnknownSignals: true
+        function onTrackRevealRequested(targetGroup, tabId, trackId) {
+            if (targetGroup === view.groupIndex && view.tab && view.tab.id === tabId)
+                view.revealTrack(trackId)
+        }
+    }
+
     function openPlaylistMenu(anchor, trackId) {
         const ids = workspace.selectedIds.indexOf(trackId) >= 0 ? workspace.selectedIds : [trackId]
         playlistMenu.trackIds = ids

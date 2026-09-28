@@ -18,8 +18,8 @@ from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
-from mtee.models.trash_model import TrashModel
 from mtee.models.track_list_model import TrackListModel
+from mtee.models.trash_model import TrashModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.services.jobs import JobContext, JobService
@@ -94,6 +94,7 @@ class WorkspaceModel(QObject):
     selectionChanged = Signal()
     metadataChanged = Signal()
     messageChanged = Signal()
+    trackRevealRequested = Signal(int, str, str)
     batchReady = Signal(str, str, object)
     scanFinished = Signal(str, str, object)
     activationRequested = Signal(str, list)
@@ -102,6 +103,7 @@ class WorkspaceModel(QObject):
     folderRootsReady = Signal(int, object, object)
     folderBranchReady = Signal(str, int, object, object)
     trackRowsReady = Signal(str, int, object)
+    explorerTrackReady = Signal(int, object, object)
     sessionWriteFinished = Signal(object, object)
 
     def __init__(
@@ -169,6 +171,9 @@ class WorkspaceModel(QObject):
         self._track_request_generation: dict[str, int] = {}
         self._track_request_keys: dict[str, tuple[Any, ...]] = {}
         self._track_job_ids: dict[str, str] = {}
+        self._explorer_activation_generation = 0
+        self._pending_explorer_track: dict[str, Any] | None = None
+        self._explorer_track_job_id = ""
         self._folder_request_generation: dict[str, int] = {}
         self._folder_job_ids: dict[str, str] = {}
         self._folder_root_generation = 0
@@ -199,6 +204,7 @@ class WorkspaceModel(QObject):
         self.folderRootsReady.connect(self._on_folder_roots_ready)
         self.folderBranchReady.connect(self._on_folder_branch_ready)
         self.trackRowsReady.connect(self._on_track_rows_ready)
+        self.explorerTrackReady.connect(self._on_explorer_track_ready)
         if player is not None:
             player.playbackChanged.connect(self.playbackChanged.emit)
             player.positionChanged.connect(self.positionChanged.emit)
@@ -559,6 +565,9 @@ class WorkspaceModel(QObject):
         key = (kind, ref, sort_key, bool(ascending), query)
         if self._track_request_keys.get(tab_id) == key:
             return
+        pending = self._pending_explorer_track
+        if pending is not None and pending["tab_id"] == tab_id:
+            self._cancel_explorer_track_action()
         generation = self._track_request_generation.get(tab_id, 0) + 1
         self._track_request_generation[tab_id] = generation
         previous_job = self._track_job_ids.get(tab_id)
@@ -597,6 +606,14 @@ class WorkspaceModel(QObject):
             return
         self._track_job_ids.pop(tab_id, None)
         model.replace(rows)
+        pending = self._pending_explorer_track
+        if (
+            pending is not None
+            and pending["stage"] == "rows"
+            and pending["tab_id"] == tab_id
+            and pending["rows_generation"] == generation
+        ):
+            self._complete_explorer_track_action(pending, model)
 
     def _request_folder_roots(self) -> None:
         self._folder_root_generation += 1
@@ -621,9 +638,7 @@ class WorkspaceModel(QObject):
         self._folder_root_job_id = str(job_id)
 
     @Slot(int, object, object)
-    def _on_folder_roots_ready(
-        self, generation: int, roots: object, error: object
-    ) -> None:
+    def _on_folder_roots_ready(self, generation: int, roots: object, error: object) -> None:
         if generation != self._folder_root_generation:
             return
         self._folder_root_job_id = ""
@@ -805,9 +820,7 @@ class WorkspaceModel(QObject):
                         for entry in batch.entries
                         if entry.relative_path not in unchanged
                     }
-                    changed_parents.update(
-                        folder.rpartition("/")[0] for folder in changed_folders
-                    )
+                    changed_parents.update(folder.rpartition("/")[0] for folder in changed_folders)
                     if changed_parents:
                         self.batchReady.emit(
                             root_id,
@@ -871,6 +884,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str)
     def toggleFolder(self, folder_id: str) -> None:
+        self._cancel_explorer_track_action()
         if folder_id in self._expanded:
             self._expanded.remove(folder_id)
             self._folder_model.set_expanded(folder_id, False)
@@ -894,11 +908,197 @@ class WorkspaceModel(QObject):
         parsed = _parse_folder_id(folder_id)
         if parsed is None:
             return
+        self._cancel_explorer_track_action()
         if not self._open_folder(*parsed):
             return
         self.layoutChanged.emit()
         self.selectionChanged.emit()
         self._persist()
+
+    @Slot(str, str)
+    def selectExplorerTrack(self, track_id: str, folder_id: str) -> None:
+        """Open a tree track's folder and select it only when it is in the listing."""
+        self._request_explorer_track_action(track_id, folder_id, play=False)
+
+    @Slot(str, str)
+    def activateExplorerTrack(self, track_id: str, folder_id: str) -> None:
+        """Reveal and play a tree track, or play it alone when the listing filters it out."""
+        self._request_explorer_track_action(track_id, folder_id, play=True)
+
+    def _request_explorer_track_action(self, track_id: str, folder_id: str, *, play: bool) -> None:
+        parsed = _parse_folder_id(folder_id)
+        if parsed is None or not track_id:
+            return
+
+        root_id, relative = parsed
+        source = f"folder:{root_id}/{relative}"
+        pending = self._pending_explorer_track
+        if (
+            not play
+            and pending is not None
+            and pending["mode"] == "activate"
+            and pending["group"] == self._active_group
+            and pending["track_id"] == track_id
+            and pending["source"] == source
+        ):
+            return
+
+        self._cancel_explorer_track_action()
+        generation = self._explorer_activation_generation
+        if self._open_folder(root_id, relative):
+            self.layoutChanged.emit()
+            self.selectionChanged.emit()
+            self._persist()
+
+        ref = f"{root_id}/{relative}"
+        tab_id = f"folder:{ref}"
+        state = self._ensure_tab(tab_id)
+        sort_key = str(state.get("sortKey", "index"))
+        ascending = bool(state.get("sortAscending", True))
+        model = cast(
+            TrackListModel,
+            self.trackModelForTab(tab_id, "folder", ref, sort_key, ascending),
+        )
+        query = str(state.get("searchQuery", "")).casefold().strip()
+        request_key = ("folder", ref, sort_key, ascending, query)
+        request_generation = self._track_request_generation.get(tab_id, 0)
+        pending = {
+            "generation": generation,
+            "group": self._active_group,
+            "tab_id": tab_id,
+            "track_id": str(track_id),
+            "source": source,
+            "root_id": root_id,
+            "relative": relative,
+            "mode": "activate" if play else "select",
+            "stage": "rows",
+            "rows_generation": request_generation,
+        }
+        if (
+            self._track_request_keys.get(tab_id) == request_key
+            and tab_id not in self._track_job_ids
+        ):
+            self._complete_explorer_track_action(pending, model)
+        else:
+            self._pending_explorer_track = pending
+
+    def _complete_explorer_track_action(
+        self, pending: dict[str, Any], model: TrackListModel
+    ) -> None:
+        active = self._pending_explorer_track
+        if active is not None and active["generation"] != pending["generation"]:
+            return
+        if active is None:
+            self._pending_explorer_track = pending
+        if not self._explorer_track_context_is_current(pending):
+            self._pending_explorer_track = None
+            return
+
+        track_id = str(pending["track_id"])
+        row_index = model.row_for_id(track_id)
+        if row_index >= 0:
+            if pending["mode"] == "select":
+                self._pending_explorer_track = None
+                self.selectTrack(track_id, "single", [])
+                return
+            pending["queue_rows"] = model.rows_snapshot()
+            self._request_explorer_track_snapshot(pending)
+            return
+
+        if pending["mode"] == "select":
+            self._pending_explorer_track = None
+            return
+        self._request_explorer_track_snapshot(pending)
+
+    def _explorer_track_context_is_current(self, pending: dict[str, Any]) -> bool:
+        group_index = int(pending["group"])
+        return (
+            0 <= group_index < len(self._groups)
+            and self._active_group == group_index
+            and self._groups[group_index]["active"] == pending["tab_id"]
+        )
+
+    def _request_explorer_track_snapshot(self, pending: dict[str, Any]) -> None:
+        pending["stage"] = "source_check"
+        generation = int(pending["generation"])
+        track_id = str(pending["track_id"])
+
+        def read_track(context: JobContext) -> None:
+            try:
+                context.raise_if_cancelled()
+                track = self._library.track(track_id)
+                context.raise_if_cancelled()
+                if not track or not Path(str(track.get("path", ""))).is_file():
+                    track = {}
+                self.explorerTrackReady.emit(generation, track, None)
+            except JobCancelledError:
+                raise
+            except Exception as error:
+                self.explorerTrackReady.emit(generation, None, str(error))
+                raise
+
+        job_id = self._jobs.submit(read_track, label="Load selected track", visible=False)
+        self._explorer_track_job_id = str(job_id)
+
+    @Slot(int, object, object)
+    def _on_explorer_track_ready(self, generation: int, track: object, error: object) -> None:
+        pending = self._pending_explorer_track
+        if (
+            pending is None
+            or pending["generation"] != generation
+            or pending["stage"] != "source_check"
+        ):
+            return
+        self._explorer_track_job_id = ""
+        if not self._explorer_track_context_is_current(pending):
+            self._pending_explorer_track = None
+            return
+        if error is not None:
+            self._pending_explorer_track = None
+            self._set_message(f"Could not load this track: {error}")
+            return
+        if not isinstance(track, dict) or not track:
+            self._pending_explorer_track = None
+            self._set_message("This file is no longer in the library.")
+            return
+        if str(track.get("rootId", "")) != str(pending["root_id"]) or _folder_from_track(
+            track
+        ) != str(pending["relative"]):
+            self._pending_explorer_track = None
+            self._set_message("This file is no longer in this folder.")
+            return
+
+        track_id = str(pending["track_id"])
+        queue_rows = pending.get("queue_rows")
+        if isinstance(queue_rows, list):
+            captured_rows = [dict(row) for row in queue_rows if isinstance(row, dict)]
+            for index, row in enumerate(captured_rows):
+                if str(row.get("id", "")) == track_id:
+                    captured_rows[index] = track
+                    self._pending_explorer_track = None
+                    self.selectTrack(track_id, "single", [])
+                    self.trackRevealRequested.emit(
+                        int(pending["group"]), str(pending["tab_id"]), track_id
+                    )
+                    self.playTrack(track_id, str(pending["source"]), captured_rows)
+                    return
+
+        self._pending_explorer_track = None
+        self.playTrack(track_id, str(pending["source"]), [track])
+
+    def _cancel_explorer_track_action(self) -> None:
+        self._explorer_activation_generation += 1
+        self._pending_explorer_track = None
+        job_id = self._explorer_track_job_id
+        self._explorer_track_job_id = ""
+        if job_id:
+            with suppress(LookupError, ValueError):
+                self._jobs.cancel(JobId.parse(job_id))
+
+    def _cancel_explorer_track_action_for_tab(self, tab_id: str) -> None:
+        pending = self._pending_explorer_track
+        if pending is not None and pending["tab_id"] == tab_id:
+            self._cancel_explorer_track_action()
 
     def _open_folder(self, root_id: str, relative: str) -> bool:
         ref = f"{root_id}/{relative}"
@@ -922,6 +1122,7 @@ class WorkspaceModel(QObject):
     def setActivity(self, activity: str) -> None:
         if activity not in _ACTIVITIES:
             return
+        self._cancel_explorer_track_action()
         self._activity = activity
         self._sidebar_visible = True
         self._fullscreen = False
@@ -944,6 +1145,7 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def openConvert(self) -> None:
+        self._cancel_explorer_track_action()
         self._activity = "convert"
         self._sidebar_visible = True
         self._open_special_tab("convert:", "Convert")
@@ -954,6 +1156,7 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def openSettings(self) -> None:
+        self._cancel_explorer_track_action()
         self._open_special_tab("settings:", "Settings")
         self.layoutChanged.emit()
         self._persist()
@@ -974,6 +1177,7 @@ class WorkspaceModel(QObject):
             or tab_id not in self._groups[group_index]["tabs"]
         ):
             return
+        self._cancel_explorer_track_action()
         self._active_group = group_index
         self._groups[group_index]["active"] = tab_id
         self.layoutChanged.emit()
@@ -984,6 +1188,7 @@ class WorkspaceModel(QObject):
     def setActiveGroup(self, group_index: int) -> None:
         if not 0 <= group_index < len(self._groups) or group_index == self._active_group:
             return
+        self._cancel_explorer_track_action()
         self._active_group = group_index
         self.layoutChanged.emit()
         self.selectionChanged.emit()
@@ -997,6 +1202,7 @@ class WorkspaceModel(QObject):
         tabs = group["tabs"]
         if tab_id not in tabs:
             return
+        self._cancel_explorer_track_action()
         old_index = tabs.index(tab_id)
         tabs.remove(tab_id)
         if group["active"] == tab_id:
@@ -1026,6 +1232,7 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def toggleSplit(self) -> None:
+        self._cancel_explorer_track_action()
         if len(self._groups) == 1:
             active = str(self._groups[0]["active"])
             self._groups.append(
@@ -1054,6 +1261,7 @@ class WorkspaceModel(QObject):
     def setSort(self, tab_id: str, key: str) -> None:
         if key not in _SORT_KEYS:
             return
+        self._cancel_explorer_track_action_for_tab(tab_id)
         state = self._tab_state(tab_id)
         state["sortAscending"] = (
             not bool(state.get("sortAscending", True)) if state.get("sortKey") == key else True
@@ -1118,6 +1326,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str)
     def setSearch(self, tab_id: str, query: str) -> None:
+        self._cancel_explorer_track_action_for_tab(tab_id)
         self._tab_state(tab_id)["searchQuery"] = query[:256]
         self._revision += 1
         self._dirty_tabs.add(tab_id)
@@ -1179,6 +1388,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, list)
     def selectTrack(self, track_id: str, mode: str = "single", ordered: list | None = None) -> None:
+        self._cancel_explorer_track_action()
         tab_id = str(self._groups[self._active_group]["active"])
         key = (self._active_group, tab_id)
         selected = self._selection_by_tab.setdefault(key, [])
@@ -1212,6 +1422,7 @@ class WorkspaceModel(QObject):
     @Slot(str, str)
     @Slot(str, str, list)
     def playTrack(self, track_id: str, source: str, rows: list | None = None) -> None:
+        self._cancel_explorer_track_action()
         supplied_rows = (
             [dict(row) for row in rows if isinstance(row, dict)] if rows is not None else None
         )
@@ -1264,9 +1475,7 @@ class WorkspaceModel(QObject):
             if track_id not in order:
                 order.append(track_id)
             title = self._playback_source_title(source, track)
-            self._player.playQueueWithRows(
-                order, order.index(track_id), source, title, folder_rows
-            )
+            self._player.playQueueWithRows(order, order.index(track_id), source, title, folder_rows)
         else:
             self._set_message("The audio runtime is unavailable.")
 
@@ -1390,7 +1599,9 @@ class WorkspaceModel(QObject):
                 try:
                     root_id, relative = _parse_folder_ref(ref)
                     root = self._roots_by_id.get(root_id, {})
-                    title = relative.rsplit("/", 1)[-1] if relative else str(root.get("name", "Folder"))
+                    title = (
+                        relative.rsplit("/", 1)[-1] if relative else str(root.get("name", "Folder"))
+                    )
                 except (ValueError, StopIteration):
                     pass
             state.update(

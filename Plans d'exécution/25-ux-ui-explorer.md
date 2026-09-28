@@ -56,19 +56,24 @@ Deux commits intermédiaires possibles : stabilité de l’arbre, puis révélat
 ## Progress
 
 - [x] 2026-09-28 — Parcours et modèle d’arbre inspectés pour planification.
-- [ ] Origine du saut reproduite et ancre conservée.
-- [ ] Révélation et activation unifiées, réponses périmées ignorées.
+- [x] 2026-09-28 — Le modèle insère/déplace les lignes à leur position effective et conserve les index persistants ; l’Explorateur restaure l’ancre par identité et décalage.
+- [x] 2026-09-28 — Clic et activation de piste passent par l’état asynchrone du modèle de l’onglet ; génération et navigation invalident les réponses périmées.
 - [x] 2026-09-28 — Exception de recherche masquant la cible précisée par l’utilisateur et intégrée.
-- [ ] Tests, recette Windows, distribution, rapport, commit et push terminés.
+- [x] 2026-09-28 — Compilation Python/QML et distribution Windows vérifiées ; rapport créé.
+- [ ] Tests pytest et recette interactive Explorer laissés à l’utilisateur ; commit et push à clôturer.
 
 ## Surprises & Discoveries
 
 2026-09-28 — Le commentaire du composant annonce déjà « double click plays it », mais le gestionnaire ne le fait pas pour les fichiers. L’état de sélection existe déjà ; il faut relier l’intention de navigation à la vue, pas créer une seconde sélection.
 
+2026-09-28 — La séquence d’insertion en fin de modèle suivie de `layoutChanged` était présente dans `_replace()`. Elle a été remplacée par des insertions et déplacements d’index réels. Le saut n’a pas été reproduit manuellement pendant ce jalon.
+
 ## Decision Log
 
 2026-09-28 — Codex : séparer l’ancre stable de l’arbre et le défilement intentionnel du listing. Conserver l’identité par UUID à travers les mises à jour asynchrones. Utilisateur : jouer une cible filtrée sans la révéler ni effacer la recherche. Codex : dans cette exception, préserver la sélection visible et capturer une file d’un seul morceau.
 
+2026-09-28 — Codex : la sélection d’un clic simple n’est appliquée qu’après confirmation de la présence dans les lignes filtrées. Une activation masquée récupère le snapshot en worker, vérifie le dossier et le fichier source, puis joue une file d’un morceau.
+
 ## Outcomes & Retrospective
 
-Plan préparé ; bugs non reproduits en GUI pendant cette préparation. Révision du 28 septembre 2026 : création du lot Explorer.
+Le correctif et le build Windows sont réalisés. Compilation Python, chargement QML en mode démo, lint/formatage et vérification de l’EXE ont réussi. Les tests pytest et la recette Explorer interactive n’ont pas été exécutés à la demande de l’utilisateur ; voir `docs/validation/ux-ui-25.md`. Révision du 28 septembre 2026 : exécution du lot Explorer.
