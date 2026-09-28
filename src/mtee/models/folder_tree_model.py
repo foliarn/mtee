@@ -24,6 +24,7 @@ class FolderTreeModel(QAbstractListModel):
     """Flatten only expanded cached branches; repository access stays in workers."""
 
     rowsChanged = Signal()
+    rowsAboutToChange = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -67,18 +68,14 @@ class FolderTreeModel(QAbstractListModel):
         self._roots = [dict(root) for root in roots]
         known = {f"root:{root.get('id', '')}" for root in self._roots}
         self._expanded = {
-            folder_id
-            for folder_id in self._expanded
-            if _root_key(folder_id) in known
+            folder_id for folder_id in self._expanded if _root_key(folder_id) in known
         }
         self._branches = {
             folder_id: rows
             for folder_id, rows in self._branches.items()
             if _root_key(folder_id) in known
         }
-        self._loading = {
-            folder_id for folder_id in self._loading if _root_key(folder_id) in known
-        }
+        self._loading = {folder_id for folder_id in self._loading if _root_key(folder_id) in known}
         self._rebuild()
 
     def set_expanded(self, folder_id: str, expanded: bool) -> None:
@@ -170,7 +167,12 @@ class FolderTreeModel(QAbstractListModel):
                 self._append_branch(rows, child_id, depth + 1)
 
     def _replace(self, rows: list[dict[str, Any]]) -> None:
-        new_ids = [str(row["id"]) for row in rows]
+        target_rows = [dict(row) for row in rows]
+        if target_rows == self._rows:
+            return
+
+        self.rowsAboutToChange.emit()
+        new_ids = [str(row["id"]) for row in target_rows]
         new_set = set(new_ids)
         removed_ranges = []
         cursor = len(self._rows) - 1
@@ -187,30 +189,38 @@ class FolderTreeModel(QAbstractListModel):
             del self._rows[first : last + 1]
             self.endRemoveRows()
 
-        present = {str(row["id"]) for row in self._rows}
-        additions = [row for row in rows if str(row["id"]) not in present]
-        if additions:
-            start = len(self._rows)
-            self.beginInsertRows(_ROOT_INDEX, start, start + len(additions) - 1)
-            self._rows.extend(dict(row) for row in additions)
-            self.endInsertRows()
+        inserted = False
+        moved = False
+        for target_index, target in enumerate(target_rows):
+            identity = str(target["id"])
+            if target_index < len(self._rows) and str(self._rows[target_index]["id"]) == identity:
+                continue
 
-        current_ids = [str(row["id"]) for row in self._rows]
-        reordered = current_ids != new_ids
-        if reordered:
-            persistent = self.persistentIndexList()
-            old_ids = [str(self._rows[index.row()]["id"]) for index in persistent]
-            self.layoutAboutToBeChanged.emit()
-            by_id = {str(row["id"]): row for row in self._rows}
-            self._rows = [by_id[identity] for identity in new_ids]
-            new_rows = {identity: row for row, identity in enumerate(new_ids)}
-            self.changePersistentIndexList(
-                persistent, [self.index(new_rows[identity], 0) for identity in old_ids]
+            source_index = next(
+                (
+                    index
+                    for index in range(target_index + 1, len(self._rows))
+                    if str(self._rows[index]["id"]) == identity
+                ),
+                -1,
             )
-            self.layoutChanged.emit()
+            if source_index < 0:
+                self.beginInsertRows(_ROOT_INDEX, target_index, target_index)
+                self._rows.insert(target_index, dict(target))
+                self.endInsertRows()
+                inserted = True
+                continue
+
+            if not self.beginMoveRows(
+                _ROOT_INDEX, source_index, source_index, _ROOT_INDEX, target_index
+            ):
+                raise RuntimeError("Could not move a folder tree row to its target position.")
+            self._rows.insert(target_index, self._rows.pop(source_index))
+            self.endMoveRows()
+            moved = True
 
         changed = []
-        target_by_id = {str(row["id"]): row for row in rows}
+        target_by_id = {str(row["id"]): row for row in target_rows}
         for row_index, current in enumerate(self._rows):
             target = target_by_id[str(current["id"])]
             if current != target:
@@ -220,11 +230,13 @@ class FolderTreeModel(QAbstractListModel):
             start = previous = changed[0]
             for row_index in changed[1:]:
                 if row_index != previous + 1:
-                    self.dataChanged.emit(self.index(start, 0), self.index(previous, 0), [_DATA_ROLE])
+                    self.dataChanged.emit(
+                        self.index(start, 0), self.index(previous, 0), [_DATA_ROLE]
+                    )
                     start = row_index
                 previous = row_index
             self.dataChanged.emit(self.index(start, 0), self.index(previous, 0), [_DATA_ROLE])
-        if removed_ranges or additions or changed or reordered:
+        if removed_ranges or inserted or changed or moved:
             self._row_by_id = {identity: index for index, identity in enumerate(new_ids)}
             self.rowsChanged.emit()
 

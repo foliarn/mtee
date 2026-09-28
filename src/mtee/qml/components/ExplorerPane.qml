@@ -11,6 +11,58 @@ Item {
     required property var workspace
 
     objectName: "explorerPane"
+    readonly property var treeModel: typeof workspace.folderTreeModel === "object"
+        ? workspace.folderTreeModel : null
+    property string scrollAnchorId: ""
+    property string scrollAnchorFallbackId: ""
+    property real scrollAnchorViewportY: 0
+    property bool clickedAnchorPending: false
+
+    function parentFolderId(rowData) {
+        if (rowData.kind !== "folder")
+            return String(rowData.folder || "")
+        const id = String(rowData.id || "")
+        if (id.startsWith("root:"))
+            return ""
+        if (!id.startsWith("folder:"))
+            return ""
+        const ref = id.substring(7)
+        const rootSeparator = ref.indexOf("/")
+        const parentSeparator = ref.lastIndexOf("/")
+        if (rootSeparator < 0)
+            return ""
+        if (parentSeparator <= rootSeparator)
+            return "root:" + ref.substring(0, rootSeparator)
+        return "folder:" + ref.substring(0, parentSeparator)
+    }
+
+    function rememberAnchor(rowData, rowY) {
+        scrollAnchorId = String(rowData.id || "")
+        scrollAnchorFallbackId = parentFolderId(rowData)
+        scrollAnchorViewportY = rowY - tree.contentY
+        clickedAnchorPending = true
+        Qt.callLater(() => clickedAnchorPending = false)
+    }
+
+    function captureTopAnchor() {
+        const index = tree.indexAt(1, 1)
+        const item = index >= 0 ? tree.itemAtIndex(index) : null
+        if (item)
+            rememberAnchor(item.modelData, item.y)
+    }
+
+    function restoreAnchor() {
+        if (!treeModel || typeof treeModel.rowForId !== "function")
+            return
+        let index = scrollAnchorId ? treeModel.rowForId(scrollAnchorId) : -1
+        if (index < 0 && scrollAnchorFallbackId)
+            index = treeModel.rowForId(scrollAnchorFallbackId)
+        if (index >= 0)
+            tree.contentY = index * Theme.treeRowHeight - scrollAnchorViewportY
+        scrollAnchorId = ""
+        scrollAnchorFallbackId = ""
+        clickedAnchorPending = false
+    }
 
     PaneHeader {
         id: header
@@ -34,6 +86,17 @@ Item {
         onAccepted: pane.workspace.addRoot(selectedFolder.toString())
     }
 
+    Connections {
+        target: pane.treeModel
+        function onRowsAboutToChange() {
+            if (!pane.clickedAnchorPending)
+                pane.captureTopAnchor()
+        }
+        function onRowsChanged() {
+            Qt.callLater(pane.restoreAnchor)
+        }
+    }
+
     ListView {
         id: tree
         anchors.top: header.bottom
@@ -43,8 +106,7 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         reuseItems: true
-        model: typeof pane.workspace.folderTreeModel === "object"
-            ? pane.workspace.folderTreeModel : pane.workspace.explorerRows
+        model: pane.treeModel || pane.workspace.explorerRows
         ScrollBar.vertical: ThinScrollBar {}
 
         delegate: Rectangle {
@@ -107,6 +169,7 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 acceptedButtons: Qt.LeftButton
+                onPressed: pane.rememberAnchor(row.modelData, row.y)
                 onClicked: (event) => {
                     if (row.isLoading)
                         return
@@ -120,8 +183,12 @@ Item {
                             pane.workspace.openFolder(row.modelData.id)
                         }
                     } else {
-                        pane.workspace.openFolder(row.modelData.folder)
-                        pane.workspace.selectTrack(row.modelData.id, "single", [])
+                        if (typeof pane.workspace.selectExplorerTrack === "function")
+                            pane.workspace.selectExplorerTrack(row.modelData.id, row.modelData.folder)
+                        else {
+                            pane.workspace.openFolder(row.modelData.folder)
+                            pane.workspace.selectTrack(row.modelData.id, "single", [])
+                        }
                     }
                 }
                 onDoubleClicked: {
@@ -129,6 +196,10 @@ Item {
                         return
                     if (row.isFolder)
                         pane.workspace.openFolder(row.modelData.id)
+                    else if (typeof pane.workspace.activateExplorerTrack === "function")
+                        pane.workspace.activateExplorerTrack(row.modelData.id, row.modelData.folder)
+                    else if (typeof pane.workspace.playTrack === "function")
+                        pane.workspace.playTrack(row.modelData.id, row.modelData.folder)
                 }
             }
         }
