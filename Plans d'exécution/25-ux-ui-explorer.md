@@ -60,7 +60,8 @@ Deux commits intermédiaires possibles : stabilité de l’arbre, puis révélat
 - [x] 2026-09-28 — Clic et activation de piste passent par l’état asynchrone du modèle de l’onglet ; génération et navigation invalident les réponses périmées.
 - [x] 2026-09-28 — Exception de recherche masquant la cible précisée par l’utilisateur et intégrée.
 - [x] 2026-09-28 — Compilation Python/QML et distribution Windows vérifiées ; rapport créé.
-- [ ] Tests pytest et recette interactive Explorer laissés à l’utilisateur ; commit et push à clôturer.
+- [x] 2026-09-28 — Code et rapport livrés par `e46a258` sur `origin/main`.
+- [ ] Tests pytest et recette interactive Explorer reportés à l’utilisateur ; ils n’ont pas été exécutés pendant ce jalon.
 
 ## Surprises & Discoveries
 

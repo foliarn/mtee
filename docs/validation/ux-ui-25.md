@@ -4,6 +4,8 @@
 
 Source de départ : `da69218` (`main`). Le modèle d’arbre applique maintenant les insertions et déplacements à leurs vrais index au lieu d’ajouter les enfants à la fin puis de réordonner les lignes. Il conserve les index persistants. La vue enregistre l’identité de l’ancre et son décalage vertical ; au repli, elle retombe sur le dossier parent quand la ligne ancrée disparaît.
 
+Livraison : commit `e46a258` sur `main`, push vers `origin/main` vérifié.
+
 Un clic simple sur une piste ouvre son dossier et ne la sélectionne qu’après confirmation de sa présence dans les résultats affichés. Le double-clic demande l’activation au `WorkspaceModel` : il ouvre/réutilise l’onglet, attend les lignes chargées en arrière-plan, sélectionne la piste, la révèle dans la liste ou la grille et la lance une fois. Une génération et le groupe/onglet actif protègent contre les réponses périmées. Quand la recherche masque la piste, le texte, les résultats et la sélection visibles sont préservés ; le worker récupère et vérifie le snapshot source, puis joue une file d’un morceau sans révélation.
 
 ## Contrôles exécutés
