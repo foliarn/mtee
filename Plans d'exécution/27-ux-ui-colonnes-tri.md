@@ -75,6 +75,7 @@ Commits intermédiaires possibles : profil global, colonnes et gestes, puis cycl
 ## Progress
 
 - [x] 2026-09-28 — Décisions utilisateur, modèle existant et tests inspectés.
+- [x] 2026-09-28 — États de colonnes, menu complet et accès dans un groupe partagé de 415 px rendus ; placement de la bande d’actions en revue.
 - [ ] Maquette des colonnes et commandes de ligne validée.
 - [ ] Profil global et reprise des anciennes sessions vérifiés.
 - [ ] Visibilité, dates, covers et déplacement testés.
@@ -89,6 +90,8 @@ Commits intermédiaires possibles : profil global, colonnes et gestes, puis cycl
 
 2026-09-28 — Utilisateur : création décroissante pour le défaut, aucune flèche au retour au défaut, personnalisation globale mémorisée. Codex : autoriser le masquage de Title mais garder une colonne minimale, préserver les commandes de ligne et distinguer mode de tri et ordre effectif. Les règles de compatibilité et de conservation pendant une session sont des choix de conception documentés.
 
+2026-09-28 — Codex : proposer une bande d’actions de 36 px à gauche des pochettes/colonnes pour que lecture et information restent accessibles dans les configurations réduites. Choix en attente ; captures dans `docs/ux/review-ux-ui-2026-09.md`.
+
 ## Outcomes & Retrospective
 
-Plan préparé, aucune migration ni modification fonctionnelle exécutée. Révision du 28 septembre 2026 : création du lot colonnes et tri.
+Maquettes et états demandés rendus pour revue. La bande d’actions doit être validée avant le branchement ; profil global, compatibilité, gestes, dates et tri à trois états restent à implémenter. Révision du 28 septembre 2026 : ajout des états sans Title/couverture, nombreux champs et colonne unique.

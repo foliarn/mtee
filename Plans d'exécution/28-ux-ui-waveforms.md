@@ -91,7 +91,8 @@ Le rollback utilise le commit précédent et l’invalidation contrôlée des se
 ## Progress
 
 - [x] 2026-09-28 — Capture, sources et demande de comparaison des variantes inspectées.
-- [ ] Diagnostic sur données représentatives et trois maquettes préparés.
+- [x] 2026-09-28 — Diagnostic du contrat de données existant documenté ; comparaison et grille d’extrémités synthétiques rendues dans la planche commune.
+- [ ] Corpus représentatif et comparaison effective de la densité du rendu terminés ; aucun signal audio ni mesure de performance observé à cette revue.
 - [ ] Choix visuel explicite enregistré et spécification mise à jour.
 - [ ] Données et rendu de la variante retenue implémentés.
 - [ ] Marqueur et portion lue vérifiés.
@@ -105,6 +106,8 @@ Le rollback utilise le commit précédent et l’invalidation contrôlée des se
 
 2026-09-28 — Utilisateur : comparer monochrome, 3 bandes et RGB dans des maquettes avant de choisir. Codex : commencer par un diagnostic de densité, garder la vue complète et ne développer que la variante choisie. Aucun accord n’est enregistré pour un zoom temporel ou un sélecteur de trois modes.
 
+2026-09-28 — Codex : captures comparatives synthétiques, sans prétendre analyser l’audio. Monochrome recommandé pour réutiliser les extrema et le cache actuels ; 3 bandes et RGB demandent un calcul fréquentiel réel, une configuration versionnée et un coût de cache. Choix utilisateur encore attendu dans `docs/ux/review-ux-ui-2026-09.md`.
+
 ## Outcomes & Retrospective
 
-Plan préparé. Les maquettes, calculs, mesures et choix de rendu restent à réaliser lors de l’exécution autorisée. Révision du 28 septembre 2026 : création du lot waveforms et de sa revue visuelle.
+Le pipeline existant a été lu et la planche des variantes, positions et états d’erreur est prête. Les énergies affichées sont synthétiques. Aucun corpus audio, calcul de bande, mesure ni code de waveform n’a été traité ; le choix visuel et la comparaison effective de la densité restent requis. Révision du 28 septembre 2026 : ajout des captures synthétiques et du diagnostic exact du pipeline.

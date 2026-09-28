@@ -59,6 +59,7 @@ Livrer en trois jalons cohérents : disposition approuvée, focus, défilement. 
 ## Progress
 
 - [x] 2026-09-28 — Sources et décision de conservation du filtre documentées.
+- [x] 2026-09-28 — Maquettes d’en-tête rendues à 1440 × 900, 1280 × 720 et en groupes partagés de 415 px.
 - [ ] En-tête maquetté et validé.
 - [ ] Focus et raccourcis corrigés et testés.
 - [ ] Vitesse et maintien des scrollbars mesurés et vérifiés.
@@ -72,6 +73,8 @@ Livrer en trois jalons cohérents : disposition approuvée, focus, défilement. 
 
 2026-09-28 — Utilisateur : garder le texte et les résultats lorsqu’on quitte la recherche. Codex : proposer 1,25 pour la molette à crans et 1 200 ms pour le maintien, à vérifier sur périphériques réels.
 
+2026-09-28 — Codex : maquettes statiques rendues dans le thème natif, voir `docs/ux/review-ux-ui-2026-09.md`. La validation de disposition attend l’examen utilisateur ; aucun code du focus ou du défilement n’a été branché.
+
 ## Outcomes & Retrospective
 
-Plan préparé, aucun comportement ni mesure validés en application. Révision du 28 septembre 2026 : création du lot défilement et recherche.
+Plan d’en-tête préparé et rendu pour revue. La disposition n’est pas encore validée ; focus, raccourcis, mesures de molette, maintien de scrollbar, comportement applicatif et recette restent à réaliser. Révision du 28 septembre 2026 : ajout des trois tailles de maquette et lien vers le dossier de revue commun.
