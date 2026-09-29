@@ -1,12 +1,12 @@
-# 28 — Waveforms : lisibilité, couleurs et repère temporel
+# 28 — Waveforms monochromes : densité et repère temporel
 
 ## Résultat attendu et décision utilisateur
 
-Rendre les changements de passages plus faciles à discerner, afficher un repère temporel avec la tête de lecture et assombrir la portion déjà lue. L’utilisateur demande de comparer des variantes monochrome, 3 bandes et RGB dans l’interface avant de choisir. La maquette retenue doit être validée avant le développement fonctionnel du nouveau rendu.
+Rendre les changements de passages plus faciles à discerner, afficher un repère temporel avec la tête de lecture et assombrir la portion déjà lue.
 
-Lire les plans 23, 19 et 22, puis `docs/ux/specification.md`. L’addendum du 25 septembre limite la waveform à une vue monochrome cliquable. La présente demande ouvre une étude visuelle de couleur ; elle n’autorise pas automatiquement toutes les anciennes fonctions waveform. La boucle A/B, l’édition, les cues, les beatgrids et l’analyse musicale restent hors périmètre.
+Décision explicite du 29 septembre 2026 : l’utilisateur garde uniquement la variante monochrome montrée dans les captures ; les trois bandes ne répondent pas au besoin. La comparaison et l’implémentation 3 bandes/RGB sont closes. Aucun sélecteur de couleur n’est ajouté.
 
-Le « zoom in » du brouillon est traité d’abord comme une demande de meilleure lisibilité de la vue complète. Aucun zoom temporel interactif ou déplacement horizontal n’est ajouté sans une révision explicite du périmètre. Une vue complète permet toujours de cliquer une position dans tout le morceau.
+Lire les plans 23, 19 et 22, puis `docs/ux/specification.md`. La waveform demeure une vue monochrome complète et cliquable. Le zoom temporel, le déplacement horizontal, la boucle A/B, l’édition, les cues, les beatgrids et l’analyse musicale restent hors périmètre.
 
 ## Sources et constats à vérifier
 
@@ -14,53 +14,33 @@ Lire `src/mtee/qml/components/WaveformView.qml`, `WaveformPreview.qml`, `src/mte
 
 `WaveformView.qml` dessine chaque min/max comme un trait de hauteur presque totale, dans une couleur uniforme. Le curseur repeint actuellement l’ensemble du Canvas. `_display_samples()` sélectionne un niveau de pyramide d’au plus 1 200 points et prend les extrema des canaux. Le cache conserve des extrema d’amplitude ; il ne contient ni énergie par bande ni RMS. La capture Notion montre de longues plages presque pleines. Elle ne permet pas de conclure que le signal audio est réellement écrêté.
 
-Réduire le nombre de points en regroupant encore des extrema peut rendre la silhouette plus pleine. Un zoom vertical peut également accentuer cette impression. La correction ne doit pas être choisie uniquement à partir de l’intuition « moins de traits = plus précis ». Comparer les données avant de fixer le traitement.
+Le code ne fournit aucun corpus utilisateur ni mesure de performance. Le développement reste donc prudent : regrouper les extrema déjà sélectionnés dans un budget de pixels, conserver leur minimum et maximum, et séparer la couche dynamique du curseur. Ne pas annoncer de gain mesuré.
 
-## Jalon 28.1 — Corpus de comparaison et diagnostic borné
+## Jalon 28.1 — Diagnostic borné et densité adaptée
 
-Préparer trois sources synthétiques ou copies de recette : signal avec intro calme et passages denses, signal à impulsions séparées avec silence, signal avec changements entre graves/médiums/aigus à niveau global comparable. Ajouter si possible un morceau long de recette autorisé, sans le versionner. Noter durée, dimensions de la vue, niveau de pyramide retenu et nombre de points.
+Réutiliser la pyramide min/max et le cache existants. Adapter uniquement la réduction de présentation à la largeur du Canvas. Chaque regroupement reprend le minimum et le maximum de tous les points couverts afin de préserver les crêtes courtes déjà conservées par le niveau fourni.
 
-Comparer le rendu actuel à un rendu de densité adaptée à la largeur. Vérifier que le problème vient de la réduction, de la géométrie ou des propriétés réelles du morceau. Conserver les extrema pour ne pas effacer des événements courts. Si une enveloppe RMS est utile, la présenter comme une mesure d’énergie complémentaire : elle ne se reconstruit pas honnêtement depuis le seul min/max.
+Ne pas ajouter de RMS ou de nouveau calcul audio : les extrema seuls ne le permettent pas honnêtement. Ne pas transformer les captures synthétiques de revue en mesure du rendu audio réel. La validation de lisibilité sur une collection appartient à la recette utilisateur.
 
-Produire un diagnostic court dans `docs/ux/review-ux-ui-2026-09.md`. Aucune mesure de performance ni amélioration de lisibilité ne doit être annoncée avant observation.
+Documenter les limites de l’observation dans `docs/validation/ux-ui-28.md` ; aucune mesure de performance ni amélioration constatée ne sera annoncée sans recette.
 
-## Jalon 28.2 — Trois variantes examinables
+## Jalon 28.2 — Choix visuel déjà validé
 
-Présenter les trois variantes avec exactement les mêmes passages, largeur, hauteur et position de lecture. Utiliser le thème réel de MTEE et ajouter une capture intégrée au Fullscreen player. La vue monochrome peut comparer une silhouette plus lisible, une densité de traits adaptée et, si justifié, une enveloppe d’énergie distinguée des pics.
+Les captures comparatives historiques restent dans `docs/ux/review-ux-ui-2026-09.md` pour conserver le contexte de la décision. L’utilisateur a retenu le monochrome ; il n’est pas nécessaire de représenter de nouveau les variantes rejetées dans l’application ni de solliciter une autre approbation.
 
-| Variante | Question à examiner | Données nécessaires en version fonctionnelle |
-|---|---|---|
-| Monochrome | Géométrie et densité suffisent-elles à distinguer les passages ? | Extrema existants ; RMS seulement si retenu et réellement calculé |
-| 3 bandes | La superposition graves/médiums/aigus facilite-t-elle le repérage ? | Amplitudes ou énergies calculées dans trois bandes définies |
-| RGB | Une couleur composite par instant reste-t-elle claire dans le thème Acid ? | Trois valeurs de bande avec une règle de mélange documentée |
-
-« Inspiré de Rekordbox » décrit ici une direction visuelle. Ne pas annoncer la reproduction exacte d’un algorithme propriétaire. Les maquettes peuvent employer des données synthétiques explicitement étiquetées ; elles ne doivent pas colorer arbitrairement des extrema réels en prétendant montrer leur fréquence.
-
-Pour chaque variante, montrer début, milieu et fin, pause et lecture, zone déjà lue assombrie et temps attaché au curseur. Mettre la lisibilité du curseur à l’abri des couleurs de bande. Présenter aussi une largeur réduite et un état Preparing/error sans données. Le marqueur ne doit pas sortir de l’écran aux extrémités.
-
-Le dossier de revue contient les captures, les avantages observés, les coûts techniques et une recommandation motivée. Demander le choix une fois ce dossier prêt. Enregistrer la réponse dans ce plan et la spécification. La réponse de préparation « comparer trois variantes » n’est pas une approbation des trois rendus fonctionnels ni une demande de sélecteur permanent dans Settings.
+La rangée waveform garde une seule couleur de données. Le curseur utilise un neutre de contraste constant ; la partie lue est assombrie par transparence pour que ses variations restent visibles. La capture reste historique, pas une preuve de performance.
 
 ## Jalon 28.3 — Implémenter seulement le rendu retenu
 
-### Branche monochrome
+Implémenter uniquement le rendu monochrome sur le cache actuel. Ne pas modifier `WaveformData`, la version du cache, le décodage local ni les modèles de données ; aucune dépendance audio supplémentaire n’est justifiée pour cette amélioration de présentation.
 
-Si cette variante est retenue, conserver le cache actuel lorsque les données suffisent. Adapter la réduction d’affichage au budget de pixels et rendre les pics courts visibles. Ne pas supprimer des points au hasard, ajouter de faux creux, appliquer un gain par segment ou masquer les vraies crêtes pour rendre le résultat plus joli. Si le diagnostic justifie une enveloppe RMS, effectuer son calcul dans le worker et versionner les nouvelles données comme décrit ci-dessous.
-
-### Branche 3 bandes ou RGB
-
-Si une variante fréquentielle est retenue, calculer les données nécessaires hors du thread graphique, à la demande pour le morceau courant. Les extrema existants ne suffisent pas à retrouver les bandes. Définir précisément fréquences de coupure, traitement des canaux, mesure par fenêtre, normalisation commune au morceau, règle de couleur et résolution temporelle. Les valeurs sont des choix d’implémentation à justifier par le corpus du jalon 28.1 ; elles ne sont pas imposées par le brouillon Notion.
-
-Réutiliser le décodage local existant. Étudier d’abord les capacités du runtime livré avant d’ajouter une dépendance. Si une bibliothèque devient nécessaire, documenter licence, taille, temps de calcul et inclusion Windows. Aucun retour des services d’analyse BPM/Key ou de l’indexation globale. Ces données restent des caches de visualisation, jamais des tags ni des résultats musicaux écrits sur les sources.
-
-Étendre le contrat `WaveformData` ou une structure de rendu dédiée avec une version explicite. La clé de cache comprend source, révision, version d’algorithme et configuration pertinente. Un ancien cache monochrome reste lisible pour le rendu qui sait l’utiliser ou est recalculé proprement pour la nouvelle représentation. Ne pas traiter des octets anciens comme un nouveau format. Limiter taille, mémoire et décompression avant allocation ; ignorer un résultat devenu périmé.
-
-Les modes monochrome/3 bandes/RGB sont des branches de décision, pas trois implémentations à livrer d’office. Si la variante retenue dépasse le budget technique convenu, présenter le résultat de l’étude et une option de réduction concrète avant de changer le choix visuel.
+Le regroupement de présentation utilise seulement les extrema reçus. Ne pas supprimer des points au hasard, ajouter de faux creux, appliquer un gain par segment ou masquer les vraies crêtes. Aucun calcul RMS ni de bandes de fréquence n’est ajouté.
 
 ## Jalon 28.4 — Curseur, temps et portion lue
 
-Utiliser la position et la durée du lecteur comme référence temporelle. Tant qu’une durée valide manque, garder le contrôle de seek simple et l’état de préparation ; ne pas inventer une durée. La conversion en microsecondes reste à la frontière du modèle. La tête est bornée dans la vue complète et se déplace correctement après un seek, un redémarrage et un changement de morceau.
+Utiliser la position et la durée rapportée par le moteur du lecteur comme référence temporelle. Tant qu’une durée valide manque, garder le contrôle de seek simple ; ne pas inventer une durée depuis le tag. La conversion en microsecondes reste à la frontière du modèle. La tête est bornée dans la vue complète et se déplace correctement après un seek, un redémarrage et un changement de morceau. La durée publique historique du lecteur conserve son repli sur les métadonnées ; la waveform lit une propriété distincte sans repli.
 
-Séparer si possible le dessin coûteux des données et la couche légère du curseur/assombrissement. La progression n’a pas à recalculer la réduction ni repeindre inutilement tous les points à chaque tick. Un changement de largeur, de données ou de thème déclenche le dessin nécessaire. Mesurer avant de remplacer le Canvas par une infrastructure plus complexe.
+Séparer le dessin des données de la couche légère du curseur/assombrissement. La progression ne recalcule pas la réduction ni ne repeint les points à chaque tick. Un changement de largeur, de données ou de thème déclenche le dessin nécessaire. Garder les Canvas existants ; aucune infrastructure plus complexe n’est justifiée.
 
 Dessiner le trait de lecture avec un contraste constant, un petit repère si utile et un libellé temporel `m:ss` ou `h:mm:ss`. Conserver le trait au bon x ; déplacer seulement l’étiquette lorsqu’elle approche d’un bord. Une règle temporelle discrète peut utiliser des graduations adaptées à la largeur si la maquette la retient. Ne pas superposer plusieurs indications inutiles au même endroit.
 
@@ -90,13 +70,15 @@ Le rollback utilise le commit précédent et l’invalidation contrôlée des se
 
 ## Progress
 
-- [x] 2026-09-28 — Capture, sources et demande de comparaison des variantes inspectées.
-- [x] 2026-09-28 — Diagnostic du contrat de données existant documenté ; comparaison et grille d’extrémités synthétiques rendues dans la planche commune.
-- [ ] Corpus représentatif et comparaison effective de la densité du rendu terminés ; aucun signal audio ni mesure de performance observé à cette revue.
-- [ ] Choix visuel explicite enregistré et spécification mise à jour.
-- [ ] Données et rendu de la variante retenue implémentés.
-- [ ] Marqueur et portion lue vérifiés.
-- [ ] Tests, mesures, recette Windows, distribution, rapport, commit et push terminés.
+- [x] 2026-09-28 — Capture, sources et comparaison statique préparées ; le signal reste synthétique.
+- [x] 2026-09-29 — L’utilisateur retient explicitement le monochrome et rejette les trois bandes ; décision inscrite ici et dans la spécification.
+- [x] 2026-09-29 — Contrat min/max conservé ; regroupement de présentation adapté à la largeur et couche de curseur séparée implémentés.
+- [x] 2026-09-29 — Repère temporel borné, temps `m:ss`/`h:mm:ss` et assombrissement de la partie lue implémentés.
+- [x] 2026-09-29 — Compilation Python, Ruff, lint QML et contrôle de diff réussis ; aucune erreur QML.
+- [x] 2026-09-29 — Reconstruction Windows réussie ; QML, notice FFmpeg, libmpv et empreintes FFmpeg vérifiés dans le paquet autonome.
+- [x] 2026-09-29 — Tests automatisés et lancement manuel non effectués selon la demande ; recette audio laissée à l’utilisateur, aucune mesure de performance revendiquée.
+- [x] 2026-09-29 — Rapport `docs/validation/ux-ui-28.md` rédigé avec les résultats observés et les limites de validation.
+- [x] 2026-09-29 — Code du jalon livré par `e907053` (`feat(waveform): improve monochrome density and playback cues`) et poussé sur `origin/main`.
 
 ## Surprises & Discoveries
 
@@ -106,8 +88,14 @@ Le rollback utilise le commit précédent et l’invalidation contrôlée des se
 
 2026-09-28 — Utilisateur : comparer monochrome, 3 bandes et RGB dans des maquettes avant de choisir. Codex : commencer par un diagnostic de densité, garder la vue complète et ne développer que la variante choisie. Aucun accord n’est enregistré pour un zoom temporel ou un sélecteur de trois modes.
 
-2026-09-28 — Codex : captures comparatives synthétiques, sans prétendre analyser l’audio. Monochrome recommandé pour réutiliser les extrema et le cache actuels ; 3 bandes et RGB demandent un calcul fréquentiel réel, une configuration versionnée et un coût de cache. Choix utilisateur encore attendu dans `docs/ux/review-ux-ui-2026-09.md`.
+2026-09-29 — Utilisateur : « garde uniquement le monochrome » ; les trois bandes ne répondent pas au besoin. Pas de comparaison supplémentaire, de calcul fréquentiel ou de sélecteur permanent.
+
+2026-09-29 — Implémentation : conserver les extrema et le cache ; réduire la densité uniquement pour la largeur visible en agrégeant min/max ; isoler le Canvas de position/assombrissement du Canvas des données.
+
+2026-09-29 — Revue d’impact : la durée publique historique du lecteur conserve son repli sur les métadonnées ; `playbackDuration` expose séparément la durée positive rapportée par le moteur pour éviter un curseur temporel fondé sur un tag.
 
 ## Outcomes & Retrospective
 
-Le pipeline existant a été lu et la planche des variantes, positions et états d’erreur est prête. Les énergies affichées sont synthétiques. Aucun corpus audio, calcul de bande, mesure ni code de waveform n’a été traité ; le choix visuel et la comparaison effective de la densité restent requis. Révision du 28 septembre 2026 : ajout des captures synthétiques et du diagnostic exact du pipeline.
+L’implémentation utilise le pipeline min/max et la palette monochrome existants. Aucun corpus utilisateur ni mesure de performance n’a été recueilli ; la compilation et le contenu distribué ont été vérifiés, mais la recette fonctionnelle reste à faire par l’utilisateur. Les captures de variantes restent un historique et ne correspondent pas à des modes livrés. Révision du 29 septembre 2026 : choix monochrome enregistré et périmètre réduit au rendu et au repère de lecture.
+
+Livraison du 29 septembre 2026 : commit fonctionnel `e907053` poussé sur `origin/main`. Le commit local antérieur `b39dbe3` sur les décisions SoundCloud a été conservé comme parent et poussé avec la livraison ; aucune modification locale de `.gitignore`, `AGENTS.md` ou `.codex/` n’a été incluse.
