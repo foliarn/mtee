@@ -13,7 +13,6 @@ Rectangle {
     readonly property var playback: workspace.playerModel
     readonly property var waveform: playback.waveformModel
     readonly property var track: playback.playingTrack
-    readonly property real duration: playback.duration || track.seconds || 1
     property bool showTags: false
     onShowTagsChanged: refreshTagFields()
 
@@ -305,7 +304,6 @@ Rectangle {
             width: parent.width
             height: 116
             visible: player.waveform.state === "ready"
-            playheadRatio: player.duration > 0 ? player.playback.position / player.duration : 0
         }
 
         Row {
