@@ -19,14 +19,26 @@ Date : 29 septembre 2026.
 - `git diff --check` : réussi.
 - `scripts/build_windows.ps1` : terminé ; vérificateur du paquet autonome a confirmé le QML intégré, l’avis FFmpeg et les empreintes du runtime libmpv/FFmpeg.
 - EXE construit : `dist/MTEE.exe`, 220,85 MiB.
-- SHA-256 : `420058FE1AD5FF841105ADE1567B2F0328D0143DBCD6F13AFC65D9B229F87B06`.
+- SHA-256 initial : `420058FE1AD5FF841105ADE1567B2F0328D0143DBCD6F13AFC65D9B229F87B06`.
+
+## Correctif de démarrage après livraison
+
+Le premier lancement de l’EXE a échoué parce que `TrackRow.qml` importait `QtQuick.Accessibility`, module absent du runtime PySide6 Essentials livré. En Qt 6.9, le type attaché `Accessible` est importé depuis `QtQuick` ; les propriétés `Accessible.name` sont donc conservées et seul l’import erroné a été retiré ([documentation Qt 6.9](https://doc.qt.io/qt-6.9/qml-qtquick-accessible.html)).
+
+`app.py` capture maintenant les avertissements du moteur pendant le chargement initial et affiche les détails QML si aucun objet racine ne se crée.
+
+- Build diagnostique console, avec dossier de données isolé : `--smoke-test` terminé avec code 0.
+- EXE principal, avec un autre dossier de données isolé : démarrage `--smoke-test` terminé avec code 0.
+- `uv run python -m compileall -q src/mtee`, `uv run ruff check src/mtee/app.py` et lint QML de `TrackRow.qml` : réussis ; lint sans erreur bloquante.
+- `scripts/build_windows.ps1` : terminé ; vérificateur intégré QML, notice FFmpeg, libmpv et empreintes FFmpeg réussi.
+- EXE principal après correction : 220,85 MiB (231 580 567 octets), SHA-256 `BBAFD8EA24C089BCEB31F3032CBE663A6721BF7FF783E5F02DC1533506817249`.
 
 ## Limites de la validation
 
-Conformément à la demande, aucun test automatisé ni lancement de recette manuelle n’a été effectué. Les gestes de menu, redimensionnement, glisser-déposer, tri et persistance restent à essayer par l’utilisateur dans l’EXE.
+Conformément à la demande, aucun test automatisé ni lancement de recette manuelle n’a été effectué. Uniquement le démarrage isolé de l’EXE a été vérifié pour diagnostiquer puis confirmer le correctif. Les gestes de menu, redimensionnement, glisser-déposer, tri et persistance restent à essayer par l’utilisateur dans l’EXE.
 
 ## Git
 
 Commit : `fbc7d02` (`feat(explorer): customize columns globally and reset sorting to creation date`). Push confirmé sur `origin/main` après fetch ; `HEAD` et `origin/main` correspondent à `fbc7d02d57b687133aed0be754c68ef753db81f6`.
 
-Le push contenait aussi le commit préexistant `bb1d96b` sur les plans SoundCloud, laissé intact. Les modifications locales de `.gitignore`, `AGENTS.md` et le dossier `.codex/` sont restées hors du commit fonctionnel.
+Le push contenait aussi le commit préexistant `bb1d96b` sur les plans SoundCloud, laissé intact. Correctif de démarrage : `40dbe37` (`fix(packaging): use QtQuick accessibility type`), poussé sur `origin/main` après fetch. Les modifications locales de `.gitignore`, `AGENTS.md` et le dossier `.codex/` sont restées hors des commits fonctionnels.

@@ -81,8 +81,11 @@ Commits intermédiaires possibles : profil global, colonnes et gestes, puis cycl
 - [x] 2026-09-29 — Colonnes masquables, dates système, affichage des pochettes, remise à zéro, déplacement par menu et glisser-déposer implémentés.
 - [x] 2026-09-29 — Tri par défaut sur la date de création décroissante et cycle manuel à trois états implémentés.
 - [x] 2026-09-29 — Compilation Python/QML et distribution Windows principale vérifiées ; rapport de validation ajouté.
+- [x] 2026-09-29 — Correctif après échec de démarrage : import QML `QtQuick.Accessibility` retiré, `Accessible.name` conservé via `QtQuick`, et détails des erreurs QML de chargement remontés sur échec.
+- [x] 2026-09-29 — EXE principal reconstruit ; lancement de démarrage isolé code 0 après le correctif.
 - [ ] Recette comportementale manuelle laissée à l’utilisateur ; tests non lancés à sa demande.
 - [x] 2026-09-29 — Commit `fbc7d02` poussé sur `origin/main`, puis confirmé après fetch.
+- [x] 2026-09-29 — Correctif `40dbe37` poussé sur `origin/main` après fetch.
 
 ## Surprises & Discoveries
 
@@ -98,4 +101,4 @@ Commits intermédiaires possibles : profil global, colonnes et gestes, puis cycl
 
 ## Outcomes & Retrospective
 
-Les préférences globales, le menu, la visibilité des colonnes et pochettes, les gestes, les dates et le tri à trois états sont implémentés. La rangée d’en-têtes conserve son style existant. Compilation et distribution Windows vérifiées ; aucune recette comportementale ni test automatisé n’a été exécuté, conformément à la demande de l’utilisateur. Révision du 29 septembre 2026.
+Les préférences globales, le menu, la visibilité des colonnes et pochettes, les gestes, les dates et le tri à trois états sont implémentés. La rangée d’en-têtes conserve son style existant. Après le premier build, le lancement a révélé un import QML d’accessibilité inexistant dans le runtime livré ; le correctif maintient les noms accessibles avec l’import `QtQuick` et permet de rapporter les détails QML si le chargement échoue. Le nouvel EXE compile et démarre lors d’un smoke de lancement isolé ; la recette comportementale reste à l’utilisateur. Révision du 29 septembre 2026.
