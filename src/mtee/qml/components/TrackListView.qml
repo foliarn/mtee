@@ -28,6 +28,13 @@ FocusScope {
     readonly property var orderedIds: modelBacked ? trackModel.trackIds : rows.map((track) => track.id)
     readonly property bool artwork: tab.view === "artwork"
 
+    // Lists handed over by Python reach QML as Qt sequences, for which
+    // Array.isArray is false; a length is what identifies them.
+    function asArray(value) {
+        return value !== undefined && value !== null && typeof value.length === "number"
+            ? Array.from(value) : null
+    }
+
     readonly property var columns: {
         const padding = width < 600 ? 12 : 24
         const gap = width < 600 ? 10 : 16
@@ -61,13 +68,13 @@ FocusScope {
             showArtwork: true
         }
         const preferences = view.workspace.columnPreferences || fallbackPreferences
-        const configuredOrder = Array.isArray(preferences.order) ? Array.from(preferences.order) : defaults
+        const configuredOrder = view.asArray(preferences.order) || defaults
         const order = configuredOrder.filter((key, index) => defaults.indexOf(key) >= 0 && configuredOrder.indexOf(key) === index)
         for (const key of defaults) {
             if (order.indexOf(key) < 0)
                 order.push(key)
         }
-        const hidden = Array.isArray(preferences.hidden) ? Array.from(preferences.hidden) : ["album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"]
+        const hidden = view.asArray(preferences.hidden) || ["album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"]
         let keys = order.filter((key) => hidden.indexOf(key) < 0)
         if (keys.length === 0)
             keys = ["title"]

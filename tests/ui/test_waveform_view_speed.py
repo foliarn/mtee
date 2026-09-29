@@ -10,7 +10,7 @@ import random
 import struct
 import time
 
-from PySide6.QtCore import Property, QByteArray, QObject, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QByteArray, QObject, QUrl, Signal, Slot, qInstallMessageHandler
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickWindow
 
@@ -23,13 +23,13 @@ _BUDGET_SECONDS = 1.0  # the list-based view needed about five seconds on the sa
 class _Waveform(QObject):
     changed = Signal()
 
-    def __init__(self) -> None:
+    def __init__(self, points: int = _POINTS) -> None:
         super().__init__()
         generator = random.Random(3)
         flat = []
-        for _ in range(_POINTS):
+        for _ in range(points):
             flat.extend((-(0.2 + 0.7 * generator.random()), 0.2 + 0.7 * generator.random()))
-        self._packed = QByteArray(struct.pack(f"<{len(flat)}f", *flat))
+        self._packed = QByteArray(struct.pack(f"<{len(flat)}f", *flat)) if flat else QByteArray()
 
     @Property(QByteArray, notify=changed)
     def samples(self) -> QByteArray:
@@ -102,3 +102,46 @@ def test_the_first_paint_of_a_full_waveform_is_immediate(qapp) -> None:
     finally:
         window.close()
         window.deleteLater()
+
+
+def test_a_waveform_that_is_not_ready_yet_draws_nothing_without_errors(qapp) -> None:
+    """An empty buffer reaches QML as a zero-length ArrayBuffer, which Float32Array refuses."""
+    messages: list[str] = []
+    previous = qInstallMessageHandler(lambda _mode, _context, text: messages.append(text))
+    try:
+        engine = QQmlEngine()
+        engine.addImportPath(str(qml_dir()))
+        waveform, playback = _Waveform(points=0), _Playback()
+        engine.rootContext().setContextProperty("testWaveform", waveform)
+        engine.rootContext().setContextProperty("testPlayback", playback)
+        components = (qml_dir() / "components").as_posix()
+        component = QQmlComponent(engine)
+        component.setData(
+            f"""
+            import QtQuick
+            import QtQuick.Window
+            import "file:///{components}"
+            Window {{
+                width: 1400; height: 200; visible: true
+                WaveformView {{
+                    objectName: "view"
+                    anchors.fill: parent
+                    waveform: testWaveform
+                    playback: testPlayback
+                }}
+            }}
+            """.encode(),
+            QUrl("file:///waveform-empty-probe.qml"),
+        )
+        window = component.create()
+        assert window is not None, component.errors()
+        for _ in range(10):
+            qapp.processEvents()
+        view = window.findChild(QObject, "view")
+        assert view is not None
+        assert len(view.property("displayPoints").toVariant()) == 0
+        window.close()
+        window.deleteLater()
+    finally:
+        qInstallMessageHandler(previous)
+    assert [text for text in messages if "WaveformView" in text] == []
