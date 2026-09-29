@@ -21,12 +21,22 @@ Date : 29 septembre 2026.
 - EXE construit : `dist/MTEE.exe`, 220,85 MiB (231 582 509 octets).
 - SHA-256 : `AF7B3EFB6F3E55667B61D1A4CB7D70D79F4536E88D158C78618E4442E801C572`.
 
+## Correction visuelle après retour utilisateur
+
+La capture a montré que l’assombrissement rectangulaire colorait le fond sans suivre la forme d’onde. Le remplissage est supprimé. Une seconde couche de traits monochromes grisés est découpée à la position de lecture ; le fond reste transparent. Les deux Canvas de données ne sont repeints qu’aux changements de données ou de largeur, pas à chaque tick du lecteur.
+
+- `uv run pyside6-qmllint -I src/mtee/qml src/mtee/qml/components/WaveformView.qml` : code de sortie 0.
+- `git diff --check` : réussi.
+- `scripts/build_windows.ps1` : terminé ; vérification du contenu embarqué réussie.
+- EXE principal après correction : `dist/MTEE.exe`, 220,85 MiB (231 582 846 octets).
+- SHA-256 : `EE2B2EB710561C8810FBC0C0421B3835A79BECE6E60C4ED58B699527F6F7D7F7`.
+
 ## Limites de la validation
 
-Conformément à la demande, aucun test automatisé ni lancement de l’application n’a été effectué. Les interactions de lecture, pause, seek, changement de morceau, dimensions de fenêtre et affichage du temps restent à essayer par l’utilisateur. Aucun corpus audio ni mesure de performance n’a été utilisé ; aucun gain de lisibilité ou de performance mesuré n’est revendiqué.
+Conformément à la demande, aucun test automatisé ni contrôle visuel interactif de cette correction n’a été effectué ; l’utilisateur essaiera le rendu dans l’EXE. Les interactions de lecture, pause, seek, changement de morceau, dimensions de fenêtre et affichage du temps restent à vérifier. Aucun corpus audio ni mesure de performance n’a été utilisé ; aucun gain de performance mesuré n’est revendiqué.
 
 ## Git
 
-Commit fonctionnel : `e907053` (`feat(waveform): improve monochrome density and playback cues`). Push confirmé sur `origin/main` après fetch.
+Commit fonctionnel : `e907053` (`feat(waveform): improve monochrome density and playback cues`). Correction du rendu : `44095cd` (`fix(waveform): shade played bars without background overlay`), poussée sur `origin/main` après fetch.
 
 Le push contient aussi le commit local antérieur `b39dbe3` (`docs(capture): apply user decisions to SoundCloud extension plans`), conservé intact comme parent. Les modifications locales de `.gitignore`, `AGENTS.md` et `.codex/` sont restées hors des commits du jalon.

@@ -79,6 +79,9 @@ Le rollback utilise le commit précédent et l’invalidation contrôlée des se
 - [x] 2026-09-29 — Tests automatisés et lancement manuel non effectués selon la demande ; recette audio laissée à l’utilisateur, aucune mesure de performance revendiquée.
 - [x] 2026-09-29 — Rapport `docs/validation/ux-ui-28.md` rédigé avec les résultats observés et les limites de validation.
 - [x] 2026-09-29 — Code du jalon livré par `e907053` (`feat(waveform): improve monochrome density and playback cues`) et poussé sur `origin/main`.
+- [x] 2026-09-29 — Retour visuel : le rectangle de progression est remplacé par les seuls traits passés redessinés en gris dans une couche découpée au curseur.
+- [x] 2026-09-29 — Lint QML et reconstruction Windows réussis après correction ; EXE principal prêt à essayer.
+- [x] 2026-09-29 — Correctif `44095cd` poussé sur `origin/main` ; vérification visuelle laissée à l’utilisateur.
 
 ## Surprises & Discoveries
 
@@ -94,8 +97,12 @@ Le rollback utilise le commit précédent et l’invalidation contrôlée des se
 
 2026-09-29 — Revue d’impact : la durée publique historique du lecteur conserve son repli sur les métadonnées ; `playbackDuration` expose séparément la durée positive rapportée par le moteur pour éviter un curseur temporel fondé sur un tag.
 
+2026-09-29 — Retour utilisateur sur capture : retirer l’assombrissement rectangulaire du fond ; griser uniquement les traits de waveform du côté passé. Correctif : deuxième tracé statique sous un Item découpé à la position, sans remplissage et sans redessin des données aux ticks du lecteur.
+
 ## Outcomes & Retrospective
 
-L’implémentation utilise le pipeline min/max et la palette monochrome existants. Aucun corpus utilisateur ni mesure de performance n’a été recueilli ; la compilation et le contenu distribué ont été vérifiés, mais la recette fonctionnelle reste à faire par l’utilisateur. Les captures de variantes restent un historique et ne correspondent pas à des modes livrés. Révision du 29 septembre 2026 : choix monochrome enregistré et périmètre réduit au rendu et au repère de lecture.
+L’implémentation utilise le pipeline min/max et la palette monochrome existants. Aucun corpus utilisateur ni mesure de performance n’a été recueilli ; la compilation et le contenu distribué ont été vérifiés, mais la recette fonctionnelle reste à faire par l’utilisateur. Après son retour sur le rectangle, seuls les traits passés sont maintenant dessinés en gris dans une couche découpée au curseur. Les captures de variantes restent un historique et ne correspondent pas à des modes livrés. Révision du 29 septembre 2026 : choix monochrome enregistré et périmètre réduit au rendu et au repère de lecture.
 
 Livraison du 29 septembre 2026 : commit fonctionnel `e907053` poussé sur `origin/main`. Le commit local antérieur `b39dbe3` sur les décisions SoundCloud a été conservé comme parent et poussé avec la livraison ; aucune modification locale de `.gitignore`, `AGENTS.md` ou `.codex/` n’a été incluse.
+
+Correctif visuel du 29 septembre 2026 : `44095cd` poussé sur `origin/main`.
