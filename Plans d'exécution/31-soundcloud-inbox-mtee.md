@@ -67,7 +67,7 @@ Créer `src/mtee/models/inbox_model.py` (rôles de liste de morceaux plus proven
 
 Tests : `tests/ui/test_inbox_view.py` avec pytest-qt et le profil `--demo` enrichi de captures fictives.
 
-### Jalon 31.5 — Recette et distribution
+### Jalon 31.5 — Recette depuis les sources
 
 Depuis la racine du dépôt :
 
@@ -76,14 +76,12 @@ Depuis la racine du dépôt :
     uv run pytest tests/unit/test_capture_manifest.py tests/integration/test_capture_ingestion.py tests/ui/test_inbox_view.py
     uv run python -m mtee --demo --data-dir .local/validation/31-demo --smoke-test
     uv run python -m mtee --data-dir .local/validation/31-live
-    pwsh -File scripts/build_windows.ps1
-    pwsh -File scripts/smoke_packaged.ps1 -DataDir .local/validation/31-packaged
 
 Parcours manuel : avec l'extension du plan 30, capturer un morceau pendant que MTEE est ouvert, puis un autre pendant qu'il est fermé ; vérifier leur apparition, la lecture, la provenance, `Open source page`, une capture corrompue à la main (sur copie) et le redémarrage. Consigner dans `docs/validation/31-soundcloud-inbox.md`.
 
 ## Validation et acceptation
 
-Accepté lorsque les tests ciblés passent, que la migration s'applique sur une copie de base réelle sans perte, que les captures réelles apparaissent sans gel de l'interface, que les captures invalides restent intactes et expliquées, que le paquet Windows passe son smoke test et le parcours manuel.
+Accepté lorsque les tests ciblés passent, que la migration s'applique sur une copie de base réelle sans perte, que les captures réelles apparaissent sans gel de l'interface, que les captures invalides restent intactes et expliquées, et que le parcours manuel depuis les sources réussit. Le build Windows relève d'une demande de distribution distincte.
 
 ## Reprise et réexécution
 
@@ -106,7 +104,7 @@ L'ingestion ne modifie jamais les fichiers de l'Inbox ; elle peut être relancé
     feat(inbox): ingest SoundCloud captures with provenance
 
     Changes: <manifest validation, migration, watcher, Inbox view and actions>
-    Validation: <tests, migration on copy, real captures, packaged smoke test>
+    Validation: <tests, migration on copy, real captures, source walkthrough>
     Limits: <archive handling, watcher fallback interval, open points>
     '@ | Set-Content -LiteralPath $mteeCommitMessage -Encoding utf8
     git commit --file $mteeCommitMessage
@@ -121,7 +119,7 @@ Adapter la liste `git add` aux fichiers QML réellement modifiés. Pousser selon
 - [ ] Lecture et validation des manifestes (31.2).
 - [ ] Migration et dépôt de provenance (31.3).
 - [ ] Surveillance et vue Inbox (31.4).
-- [ ] Recette, distribution, rapport, commit et push (31.5).
+- [ ] Recette depuis les sources, rapport, commit et push (31.5).
 
 ## Surprises & Discoveries
 
@@ -135,8 +133,12 @@ Non observé à ce stade.
 
 2026-09-29 — Utilisateur — Reporter l'intégration MTEE ; se limiter pour l'instant au téléchargement par l'extension.
 
+2026-09-29 — Utilisateur — Ne plus construire l'EXE à la fin d'une tâche ; la distribution éventuelle fera l'objet d'une demande explicite.
+
 ## Outcomes & Retrospective
 
 À compléter après exécution.
 
 Note de révision — 2026-09-29, Claude : création du plan.
+
+Note de révision — 2026-09-29, Codex : retrait du build automatique du futur jalon 31.5.

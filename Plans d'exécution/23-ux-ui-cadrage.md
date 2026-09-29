@@ -63,7 +63,7 @@ Exécuter 24, puis 25, puis 26, puis 27, puis 28. L’ordre permet de fiabiliser
 
 Pour 26, 27 et 28, préparer les états de maquette indiqués avant le code fonctionnel concerné. Une maquette QML avec données fictives et captures suffit ; conserver la direction graphique déjà validée. Regrouper les captures dans `docs/ux/review-ux-ui-2026-09.md`, à créer au premier jalon de maquettes. Présenter des choix concrets, puis consigner la décision utilisateur. Une demande d’exécuter le dossier n’est pas une validation anticipée d’une variante encore inexistante. Les correctifs 24 et 25 restaurent des interactions demandées et n’ajoutent pas de direction visuelle à valider.
 
-Chaque catégorie peut recevoir des commits intermédiaires. Avant de déclarer une catégorie livrée : tests pertinents, parcours manuel depuis les sources, mise à jour de son plan et du rapport, commit détaillé et push vérifié. Reconstruire et vérifier la distribution Windows seulement si le packaging, les dépendances ou les ressources embarquées changent, ou avant une version à distribuer ; noter le report dans les autres cas. Ne pas transformer une simple réussite de compilation en preuve d’interaction ou d’audio.
+Chaque catégorie peut recevoir des commits intermédiaires. Avant de déclarer une catégorie livrée : tests pertinents, parcours manuel depuis les sources, mise à jour de son plan et du rapport, commit détaillé et push vérifié. Ne pas reconstruire l'EXE à la clôture d'une catégorie ; le faire seulement sur demande explicite de packaging ou de distribution. Ne pas transformer une simple réussite de compilation en preuve d’interaction ou d’audio.
 
 ## Contrats communs
 
@@ -85,7 +85,7 @@ Depuis la racine du dépôt, les commandes suivantes existent déjà. Exécuter 
 
 Pour la recette interactive, relancer la dernière commande sans `--smoke-test`, puis ajouter uniquement le dossier synthétique de recette. Vérifier le chargement QML sans erreur de binding/import et les parcours souris/clavier. Le plan 22 remplace la chaîne Ruff/Pyright obligatoire par une chaîne courte ; ne pas installer de nouveaux outils de lint pour ce dossier. Si un contrôle supplémentaire est effectivement utilisé, noter sa commande et son résultat.
 
-Pour une catégorie qui déclenche un contrôle de distribution selon `PLANS.md` :
+Seulement lorsque la demande inclut explicitement un contrôle de distribution selon `PLANS.md` :
 
     pwsh -File scripts/build_windows.ps1
     pwsh -File scripts/smoke_packaged.ps1 -DataDir .local/validation/ux-ui-packaged
@@ -106,7 +106,7 @@ Pour commencer le premier lot :
     Exécute uniquement le plan 24. Vérifie d'abord les sources et reproduis le bug
     pause A → lancement B. Maintiens les quatre sections de suivi. Utilise des
     données de recette isolées. Termine par les tests ciblés, la recette native,
-    le packaging si le lot le modifie, un commit détaillé et un push vérifié. Décris toute
+    un commit détaillé et un push vérifié, sans build de l'EXE. Décris toute
     validation que tu n'as pas pu réaliser. Préserve les changements locaux étrangers.
 
 Pour une catégorie suivante, remplacer NN par 25, 26, 27 ou 28 :
@@ -116,7 +116,7 @@ Pour une catégorie suivante, remplacer NN par 25, 26, 27 ou 28 :
     décisions utilisateur. Prépare toute maquette requise avant sa revue. Avance
     sur les tâches indépendantes autorisées. Ne réintroduis aucune fonction
     abandonnée. Mets à jour le plan, les preuves et la note de reprise. À la clôture
-    du lot, vérifie le packaging si le lot le modifie, committe et pousse sans force.
+    du lot, committe et pousse sans force, sans build de l'EXE.
 
 Après chaque session, la note de reprise donne : dernier jalon terminé, fichiers modifiés, validations réellement passées, décision encore nécessaire, prochaine action précise. Éviter « tout est fait » si une maquette, une recette ou le push manque.
 
@@ -138,6 +138,8 @@ Après chaque session, la note de reprise donne : dernier jalon terminé, fichie
 
 2026-09-29 — Utilisateur : arrêter le repackaging à chaque itération et jalon. Les catégories se vérifient depuis les sources ; le binaire autonome est reconstruit aux points définis dans `PLANS.md`.
 
+2026-09-29 — Utilisateur : ne pas reconstruire l'EXE à la fin d'une tâche, même si le code ou des ressources ont changé. Un build demande un objectif explicite de packaging ou de distribution.
+
 ## Outcomes & Retrospective
 
 Dossier de planification préparé à partir du commit `adf3f49`. Les réponses utilisateur sont intégrées. Structure, encodage, liens et 41 références de chemins vérifiés ; rapport dans `docs/validation/ux-ui-planification-2026-09-28.md`. Aucun correctif applicatif, test d’application, build ou parcours natif n’est annoncé comme réalisé par cette préparation. Le commit et la confirmation du push sont donnés dans le compte rendu de conversation.
@@ -145,3 +147,5 @@ Dossier de planification préparé à partir du commit `adf3f49`. Les réponses 
 Révision du 28 septembre 2026 : création du cadrage et de la couverture complète du brouillon Notion.
 
 Révision du 29 septembre 2026 : adaptation des contrôles de distribution au cycle de développement rapide. Les builds déjà consignés dans les lots 24–28 restent des faits historiques.
+
+Révision du 29 septembre 2026 : suppression du build automatique en clôture des catégories et des consignes à copier.

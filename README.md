@@ -35,4 +35,4 @@ Pour itérer sur l'application réelle sans repackager, lancer `uv run python -m
     pwsh -File scripts/build_windows.ps1
     pwsh -File scripts/smoke_packaged.ps1
 
-La distribution monofichier est produite dans `dist/MTEE.exe`. La construire lorsque le packaging, les dépendances ou les ressources embarquées changent, et avant une version à distribuer. Un lancement depuis les sources ne remplace pas l'essai sur une machine Windows propre, sans Python ni Qt installés.
+La distribution monofichier est produite dans `dist/MTEE.exe`. Les commandes ci-dessus sont réservées aux demandes explicites de packaging ou de distribution Windows ; elles ne font pas partie de la clôture habituelle d'une tâche. Un lancement depuis les sources ne valide pas le paquet sur une machine Windows propre, sans Python ni Qt installés.
