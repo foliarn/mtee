@@ -27,4 +27,6 @@ Conformément à la demande, aucun test automatisé ni lancement de recette manu
 
 ## Git
 
-Le commit local `bb1d96b` contient des plans SoundCloud de l’utilisateur ; il a été laissé intact. Si le distant ne le contient pas déjà, le push de ce jalon avancera aussi `main` au-dessus de ce commit. Les modifications locales de `.gitignore`, `AGENTS.md` et le dossier `.codex/` ne seront ni modifiés ni indexés.
+Commit : `fbc7d02` (`feat(explorer): customize columns globally and reset sorting to creation date`). Push confirmé sur `origin/main` après fetch ; `HEAD` et `origin/main` correspondent à `fbc7d02d57b687133aed0be754c68ef753db81f6`.
+
+Le push contenait aussi le commit préexistant `bb1d96b` sur les plans SoundCloud, laissé intact. Les modifications locales de `.gitignore`, `AGENTS.md` et le dossier `.codex/` sont restées hors du commit fonctionnel.

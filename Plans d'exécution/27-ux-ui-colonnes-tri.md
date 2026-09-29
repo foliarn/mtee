@@ -82,7 +82,7 @@ Commits intermédiaires possibles : profil global, colonnes et gestes, puis cycl
 - [x] 2026-09-29 — Tri par défaut sur la date de création décroissante et cycle manuel à trois états implémentés.
 - [x] 2026-09-29 — Compilation Python/QML et distribution Windows principale vérifiées ; rapport de validation ajouté.
 - [ ] Recette comportementale manuelle laissée à l’utilisateur ; tests non lancés à sa demande.
-- [ ] Commit et push de ce jalon.
+- [x] 2026-09-29 — Commit `fbc7d02` poussé sur `origin/main`, puis confirmé après fetch.
 
 ## Surprises & Discoveries
 
