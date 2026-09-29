@@ -1,6 +1,12 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum capture SoundCloud — 2026-09-29
+
+L’utilisateur demande une extension Chrome qui repère sur SoundCloud les téléchargements gratuits, remplit les formulaires des passerelles Droploud, Hypeddit et Bandcamp, télécharge les fichiers, puis les rend disponibles dans MTEE pour un futur tri manuel ou automatique vers ses dossiers. La série [29–32](Plans%20d'ex%C3%A9cution/README.md) en prépare le cadrage, l’extension, l’Inbox de MTEE et le tri.
+
+Principes proposés, à confirmer au jalon 29.3 : remise par un dossier `MTEE Inbox` et un manifeste de provenance, sans serveur local ; aucune action engageant le compte (consentement OAuth, commentaire, CAPTCHA) automatisée, follow/like/repost sur demande par défaut ; aucun contournement de passerelle ni capture de flux ; provenance distincte des tags du fichier ; capture et tri séparés. Le tri réintroduit un déplacement limité à l’Inbox, retiré au lot 17, et n’est développé qu’avec l’accord de l’utilisateur. Les critères fondés sur des tags personnalisés attendent l’étape 10. Cet addendum ne modifie pas l’ordre de la stabilisation ni de la série UX/UI.
+
 ## Addendum UX/UI — 2026-09-28
 
 La demande du 28 septembre prépare cinq catégories de correctifs pour la version existante, détaillées dans les plans 23–28 de [l’index d’exécution](Plans%20d'ex%C3%A9cution/README.md). Cette préparation ne constitue pas leur implémentation ni la clôture de la recette de stabilisation.

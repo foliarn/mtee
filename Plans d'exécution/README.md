@@ -2,6 +2,17 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Capture SoundCloud — préparation du 2026-09-29
+
+Cette série répond à la demande d’une extension Chrome qui récupère les téléchargements gratuits proposés sur SoundCloud (téléchargement natif, Droploud, Hypeddit, Bandcamp) et les remet à MTEE pour un tri manuel puis automatique vers les dossiers. Elle est préparée, non implémentée ; les décisions du jalon 29.3 précèdent tout développement.
+
+| Plan | Catégorie et dépendances |
+|---|---|
+| [29 — Cadrage et contrats](29-soundcloud-cadrage.md) | Étude des voies réelles, contrat `capture.json` v1, politique d’automatisation, décisions utilisateur ; documentaire |
+| [30 — Extension Chrome](30-soundcloud-extension.md) | Extension MV3, détection, passerelles, téléchargement vers `MTEE Inbox` ; après 29, sans toucher au code Python |
+| [31 — Inbox MTEE](31-soundcloud-inbox-mtee.md) | Ingestion, provenance, vue Inbox ; après 28, 30 et une maquette validée |
+| [32 — Tri vers les dossiers](32-soundcloud-tri-dossiers.md) | Déplacement depuis l’Inbox puis règles ; après 31, accord sur le déplacement, étape 10 pour les tags personnalisés |
+
 ## Correctifs UX/UI — préparation du 2026-09-28
 
 Cette série traduit la page Notion « MTEE — UX/UI » et les réponses utilisateur du 28 septembre. Elle poursuit les correctifs de l’existant sans déclarer la stabilisation entièrement validée ni réactiver les anciennes fonctionnalités différées. La demande actuelle porte sur les plans ; leur présence n’autorise pas à implémenter toute la série.
