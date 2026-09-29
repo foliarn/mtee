@@ -114,6 +114,18 @@ def test_column_menu_updates_a_real_live_header(qapp, tmp_path: Path, monkeypatc
     try:
         header = _find(root, "columnHeader_album")
         assert header is not None and header.isVisible()
+
+        # The same entry removes the column again.
+        QTest.mouseClick(root, Qt.MouseButton.LeftButton, pos=point)
+        QCoreApplication.processEvents()
+        QTest.qWait(50)
+        option = _find(root, "columnOption_album")
+        assert option is not None and option.isVisible()
+        option_point = option.mapToScene(option.boundingRect().center()).toPoint()
+        QTest.mouseClick(root, Qt.MouseButton.LeftButton, pos=option_point)
+        QCoreApplication.processEvents()
+        QTest.qWait(50)
+        assert _find(root, "columnHeader_album") is None
     finally:
         _shutdown(runtime)
         application.quit()

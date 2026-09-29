@@ -16,7 +16,9 @@ FocusScope {
     // froze the interface for seconds; a typed array view is free.
     readonly property var displayPoints: {
         const raw = waveform.samples
-        const source = raw && raw.byteLength !== undefined ? new Float32Array(raw) : []
+        // An empty buffer reaches QML as a zero-length ArrayBuffer, which Float32Array
+        // refuses; there is nothing to draw until at least one (low, high) pair exists.
+        const source = raw && raw.byteLength >= 8 ? new Float32Array(raw) : []
         const count = Math.floor(source.length / 2)
         const budget = Math.max(1, Math.floor(width / 2))
         const points = []
