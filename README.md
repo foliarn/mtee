@@ -21,6 +21,8 @@ Le projet utilise [uv](https://docs.astral.sh/uv/) pour l'environnement et le ve
 
 Options reconnues : `--data-dir PATH` isole les données d'une recette, `--demo` affiche des données fictives dans un stockage séparé, `--smoke-test` charge la fenêtre puis quitte avec un code de succès ou d'échec.
 
+Pour itérer sur l'application réelle sans repackager, lancer `uv run python -m mtee --data-dir .local/dev` depuis la racine. Redémarrer ce processus après une modification Python ou QML. `uv sync --locked` est nécessaire à l'installation initiale et lorsque les dépendances changent ; il n'est pas à relancer à chaque édition.
+
 ## Contrôles
 
     uv run ruff check .
@@ -33,4 +35,4 @@ Options reconnues : `--data-dir PATH` isole les données d'une recette, `--demo`
     pwsh -File scripts/build_windows.ps1
     pwsh -File scripts/smoke_packaged.ps1
 
-La distribution est produite en répertoire dans `dist/MTEE/`. Un lancement rapide ne remplace pas l'essai sur une machine Windows propre, sans Python ni Qt installés.
+La distribution monofichier est produite dans `dist/MTEE.exe`. La construire lorsque le packaging, les dépendances ou les ressources embarquées changent, et avant une version à distribuer. Un lancement depuis les sources ne remplace pas l'essai sur une machine Windows propre, sans Python ni Qt installés.
