@@ -213,6 +213,12 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     )
 
     engine = QQmlApplicationEngine()
+    qml_diagnostics: list[str] = []
+
+    def capture_qml_diagnostics(warnings: Sequence) -> None:
+        qml_diagnostics.extend(error.toString() for error in warnings)
+
+    engine.warnings.connect(capture_qml_diagnostics)
     engine.addImportPath(str(qml_dir()))
     engine.addImageProvider(ICON_PROVIDER_ID, IconProvider())
     if artwork_provider is not None:
@@ -230,7 +236,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         _discard_partial_startup(database, jobs, player_service, engine, workspace)
         return None
     engine.load(QUrl.fromLocalFile(str(window_file)))
+    engine.warnings.disconnect(capture_qml_diagnostics)
     if not engine.rootObjects():
+        for diagnostic in qml_diagnostics:
+            _report(diagnostic)
         _report(f"MTEE could not load its interface from {window_file}")
         _discard_partial_startup(database, jobs, player_service, engine, workspace)
         return None
