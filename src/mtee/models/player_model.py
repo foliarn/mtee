@@ -103,6 +103,14 @@ class PlayerModel(QObject):
             return duration / 1_000_000
         return float(self._service.current_track.get("seconds", 0) or 0)
 
+    @Property(float, notify=playbackChanged)
+    def playbackDuration(self) -> float:
+        """Duration reported by the playback engine, without metadata fallback."""
+        duration = self._service.state.duration_us
+        if duration is not None and duration > 0:
+            return duration / 1_000_000
+        return 0.0
+
     @Property(int, notify=playbackChanged)
     def durationUs(self) -> int:
         return self._service.state.duration_us or 0

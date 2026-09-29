@@ -151,10 +151,13 @@ dans Settings. Masqué dans Fullscreen player.
 
 La barre d'activités reste visible ; barre latérale, éditeur et panneau droit
 sont masqués. En haut : `Playing from: <source>` et Exit fullscreen. Au
-centre : grande pochette, titre, artiste. En dessous : emplacement de la
-waveform (plan 08), qui affiche une barre de progression classique en
-attendant, puis les commandes de transport et le volume. Fullscreen player suit
-le morceau joué, pas la sélection. `Esc` restaure l'état précédent.
+centre : grande pochette, titre, artiste. En dessous : waveform monochrome à
+extrema min/max, adaptée à la largeur visible, puis les commandes de transport
+et le volume. La partie lue est assombrie ; une tête de lecture et son temps
+suivent la position et la durée du lecteur. Le clic sur les deux parties reste
+un seek. L’utilisateur retient uniquement cette variante monochrome ; aucune
+bande de fréquence ni coloration RGB. Fullscreen player suit le morceau joué,
+pas la sélection. `Esc` restaure l'état précédent.
 
 ## Convert
 
