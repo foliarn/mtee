@@ -2,25 +2,25 @@
 
 ## Résultat attendu et prérequis
 
-Accélérer légèrement la navigation à la molette, conserver les scrollbars visibles suffisamment longtemps et rendre prévisible le focus de recherche. Aligner `Search this folder` avec les boutons List, Artwork et Choose columns. Lire les plans 23 et 25 ; la stabilité des ancres doit être disponible pour distinguer un déplacement demandé d’un saut de modèle.
+Accélérer légèrement la navigation à la molette, conserver les scrollbars visibles suffisamment longtemps et rendre prévisible le focus de recherche. Garder l’en-tête fourni par l’utilisateur : champ de recherche à sa place en haut à droite, commandes List, Artwork et Choose columns groupées en bas à droite. Ne pas refaire le champ ni déplacer les commandes sur sa rangée. Lire les plans 23 et 25 ; la stabilité des ancres doit être disponible pour distinguer un déplacement demandé d’un saut de modèle.
 
-Décision utilisateur du 28 septembre 2026 : Échap et clic ailleurs retirent le focus de recherche mais conservent son texte et les résultats filtrés. Le clic sur un morceau du même listing conserve le focus si le champ l’avait déjà. Le tri de colonnes est une commande indépendante ; sortir du champ ne réinitialise pas le tri.
+Décision utilisateur du 28 septembre 2026 : Échap et clic ailleurs retirent le focus de recherche mais conservent son texte et les résultats filtrés. Le clic sur un morceau du même listing conserve le focus si le champ l’avait déjà. Le tri de colonnes est une commande indépendante ; sortir du champ ne réinitialise pas le tri. Le 29 septembre, l’utilisateur confirme l’apparence actuelle du champ et les commandes groupées ; la capture jointe fait référence pour leur disposition.
 
 ## Sources et état actuel
 
 Lire `src/mtee/qml/components/TrackListView.qml`, `ExplorerPane.qml`, `TrackRow.qml`, `src/mtee/qml/Mtee/ThinScrollBar.qml`, `Main.qml` et `src/mtee/models/workspace_model.py`. Lire les tests `tests/ui/test_player_views.py`, `test_incremental_scan_and_scroll.py` et `tests/unit/test_workspace_model.py`.
 
-La recherche est actuellement ancrée en haut de l’en-tête, tandis que les boutons sont ancrés en bas. Elle n’a pas de traitement explicite d’Échap. `press()` de la liste force le focus de la vue, ce qui entre en conflit avec l’exception demandée pour le clic sur une ligne. `ThinScrollBar` fait dépendre son opacité de `active` et `hovered`, avec un fondu de 160 ms mais sans délai de maintien dédié.
+La recherche est déjà ancrée en haut à droite de l’en-tête et les boutons sont ancrés en bas à droite, comme sur la capture utilisateur ; cette disposition et le style du champ sont conservés. Le champ n’a pas de traitement explicite d’Échap. `press()` de la liste force le focus de la vue. `ThinScrollBar` fait dépendre son opacité de `active` et `hovered`, avec un fondu de 160 ms mais sans délai de maintien dédié.
 
 ## Jalon 26.1 — Maquette locale de l’en-tête
 
-Créer dans le mode démo un état d’en-tête avec un titre long, son résumé, un champ vide puis rempli, et les trois boutons. Utiliser une même rangée avec centres verticaux alignés. Préserver l’espace du nom de dossier ; réduire ou élider proprement les éléments secondaires à petite largeur. Prévoir 1440 × 900, 1280 × 720 et la largeur effective d’un groupe divisé.
+Conserver la composition et le style existants tels qu’ils apparaissent sur la capture utilisateur : champ en haut à droite, titre et résumé à gauche, commandes en bas à droite. La maquette précédente qui rapprochait recherche et boutons reste une proposition non retenue ; elle ne doit pas être branchée dans l’application.
 
-Ajouter les captures et le contrat de focus à `docs/ux/review-ux-ui-2026-09.md` (à créer si absent). Faire valider cet ajustement avant son branchement fonctionnel conformément à `PLAN.md`. Il s’agit d’un ajustement de disposition dans l’identité existante ; ne pas changer la palette, la police ou la densité générale.
+`docs/ux/review-ux-ui-2026-09.md` conserve les propositions historiques et consigne la décision. L’utilisateur a validé la direction visuelle ; ne pas changer la palette, la police, la taille, les boutons ni le texte du champ.
 
 ## Jalon 26.2 — Focus et raccourcis
 
-Faire gérer Échap par le champ lui-même : quitter sa saisie sans effacer le texte, sans modifier le filtre et sans basculer lecture/pause. Restaurer le focus vers un destinataire de navigation explicite, par exemple le conteneur de liste du même groupe. Le liseré actif et le caret doivent disparaître.
+Faire gérer Échap par le champ lui-même : quitter sa saisie sans effacer le texte, sans modifier le filtre et sans basculer lecture/pause. Restaurer le focus vers le conteneur de liste du même groupe. Le liseré actif et le caret doivent disparaître.
 
 Un clic sur le fond, la sidebar, une autre activité, un onglet, une commande ou un autre éditeur retire le focus et laisse le contrôle cliqué agir dès ce premier clic. Utiliser la propagation et les gestionnaires de focus Qt existants ; éviter un grand `MouseArea` qui intercepterait tous les boutons ou imposerait un second clic.
 
@@ -32,9 +32,9 @@ La recherche est propre à l’onglet et ne filtre pas l’arbre. Le cas d’un 
 
 ## Jalon 26.3 — Molette et visibilité des barres
 
-Mesurer d’abord le déplacement obtenu avec dix crans identiques sur la même fixture, dans l’arbre et dans une liste de plus de 100 morceaux. Appliquer un facteur initial de 1,25 au delta de molette à crans. Centraliser cette valeur dans le composant ou les paramètres de présentation adaptés ; ne pas disperser des constantes dans les vues.
+Appliquer le facteur 1,25 aux crans de molette dans l’arbre et les vues List/Artwork du dossier, en respectant le nombre de lignes défini par Windows. Centraliser le traitement dans un composant réutilisable ; ne pas disperser des constantes dans les vues.
 
-Le pavé tactile, les deltas en pixels, le sens naturel de défilement, l’inertie native, Shift+molette et le défilement horizontal doivent être traités séparément du gain de molette. Éviter le double traitement du même événement par le nouveau gestionnaire et le `Flickable` existant. Borner aux extrémités. Ne pas détourner une molette destinée à un contrôle tel que le volume.
+Les deltas en pixels du pavé tactile sont transmis sans gain. Pour les crans, le nouveau gestionnaire applique une seule variation à 1,25 et borne aux extrémités ; les gestes horizontaux ne sont pas interceptés. Ne pas détourner une molette destinée à un contrôle tel que le volume.
 
 Le périmètre d’accélération est la sidebar Explorer et les vues List/Artwork du dossier. Les autres vues conservent leur vitesse, sauf nécessité démontrée et documentée. La scrollbar partagée peut recevoir le maintien commun si ses usages restent cohérents.
 
@@ -42,15 +42,15 @@ Après la fin du défilement, le curseur de scrollbar reste visible au moins 1 0
 
 ## Vérifications et commandes
 
-Créer `tests/ui/test_search_focus.py` au jalon 26.2. Il exercera un vrai champ QML, des clics sur une ligne, une commande, le fond et un autre groupe ; observer `activeFocus`, le texte, les IDs filtrés et l’état du lecteur. Créer `tests/ui/test_scroll_interactions.py` au jalon 26.3 : une série contrôlée d’événements de molette donne environ 1,25 fois le déplacement initial loin des bords ; la scrollbar reste visible avant le seuil puis s’efface après le délai et le fondu. Tolérer l’ordonnancement Qt dans les assertions temporelles sans élargir silencieusement le minimum demandé.
+L’utilisateur demande de ne pas exécuter la suite de tests ; il effectuera sa recette. Compiler et reconstruire l’EXE à la fin du jalon. Les tests UI prévus ci-dessous sont reportés à sa recette.
 
-Depuis la racine, après création des tests :
+Commande de tests documentée, non exécutée à la demande de l’utilisateur :
 
     uv run pytest tests/ui/test_search_focus.py tests/ui/test_scroll_interactions.py tests/ui/test_player_views.py tests/ui/test_incremental_scan_and_scroll.py
 
 Les tests de GUI ne remplacent pas la recette avec une molette physique et, si disponible, un pavé tactile. Noter les périphériques réellement utilisés. Vérifier 100 % et 150 % d’échelle Windows pour l’en-tête ; aucun chevauchement, aucune zone de clic inaccessible. La recherche reste filtrée après Échap, mais son état de focus est visuellement retiré.
 
-Clore selon le plan 23 : smoke-tests, build, scénario dans l’EXE et `docs/validation/ux-ui-26.md`.
+Clore avec une compilation de l’EXE et `docs/validation/ux-ui-26.md`. Ne pas lancer l’EXE ni faire la recette manuelle ; l’utilisateur le fera.
 
 ## Livraison et reprise
 
@@ -60,10 +60,10 @@ Livrer en trois jalons cohérents : disposition approuvée, focus, défilement. 
 
 - [x] 2026-09-28 — Sources et décision de conservation du filtre documentées.
 - [x] 2026-09-28 — Maquettes d’en-tête rendues à 1440 × 900, 1280 × 720 et en groupes partagés de 415 px.
-- [ ] En-tête maquetté et validé.
-- [ ] Focus et raccourcis corrigés et testés.
-- [ ] Vitesse et maintien des scrollbars mesurés et vérifiés.
-- [ ] Distribution, recette Windows, rapport, commit et push terminés.
+- [x] 2026-09-29 — Disposition actuelle confirmée par l’utilisateur ; la recherche reste inchangée et ses commandes gardent leur position.
+- [x] 2026-09-29 — Échap, focus de navigation, raccourcis et défilement ciblé implémentés ; les tests ne sont pas exécutés à la demande de l’utilisateur.
+- [x] 2026-09-29 — QML lint sans erreur, EXE Windows vérifié et rapport consigné dans `docs/validation/ux-ui-26.md`.
+- [ ] Commit et push terminés.
 
 ## Surprises & Discoveries
 
@@ -73,8 +73,10 @@ Livrer en trois jalons cohérents : disposition approuvée, focus, défilement. 
 
 2026-09-28 — Utilisateur : garder le texte et les résultats lorsqu’on quitte la recherche. Codex : proposer 1,25 pour la molette à crans et 1 200 ms pour le maintien, à vérifier sur périphériques réels.
 
-2026-09-28 — Codex : maquettes statiques rendues dans le thème natif, voir `docs/ux/review-ux-ui-2026-09.md`. La validation de disposition attend l’examen utilisateur ; aucun code du focus ou du défilement n’a été branché.
+2026-09-28 — Codex : maquettes statiques rendues dans le thème natif, voir `docs/ux/review-ux-ui-2026-09.md`.
+
+2026-09-29 — Utilisateur : ne pas changer le champ de recherche, uniquement conserver son emplacement de la capture ; garder les boutons dans leur disposition précédente. L’utilisateur confirme que le filtre doit survivre à Échap et aux clics ailleurs.
 
 ## Outcomes & Retrospective
 
-Plan d’en-tête préparé et rendu pour revue. La disposition n’est pas encore validée ; focus, raccourcis, mesures de molette, maintien de scrollbar, comportement applicatif et recette restent à réaliser. Révision du 28 septembre 2026 : ajout des trois tailles de maquette et lien vers le dossier de revue commun.
+La composition d’en-tête existante correspond à la référence utilisateur et est conservée. Le code traite le focus de recherche, les raccourcis, le gain des crans de molette et le maintien des scrollbars. La compilation Windows sera consignée dans `docs/validation/ux-ui-26.md` ; tests automatisés et recette manuelle sont reportés selon la demande de l’utilisateur.

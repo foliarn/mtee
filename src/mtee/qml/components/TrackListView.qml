@@ -147,6 +147,13 @@ FocusScope {
     }
 
     Keys.onPressed: (event) => {
+        if (folderSearchField.activeFocus) {
+            if (event.key === Qt.Key_Escape) {
+                view.forceActiveFocus()
+                event.accepted = true
+            }
+            return
+        }
         const count = orderedIds.length
         if (count === 0)
             return
@@ -170,6 +177,13 @@ FocusScope {
         id: heading
         width: parent.width
         height: 92
+
+        MouseArea {
+            anchors.fill: parent
+            z: -1
+            acceptedButtons: Qt.LeftButton
+            onClicked: view.forceActiveFocus()
+        }
 
         Column {
             x: view.columns.padding
@@ -300,6 +314,7 @@ FocusScope {
 
         TextField {
             objectName: "folderSearchField"
+            id: folderSearchField
             visible: view.modelBacked
             anchors.top: parent.top
             anchors.topMargin: 14
@@ -315,6 +330,10 @@ FocusScope {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSmall
             onTextEdited: view.workspace.setSearch(view.tab.id, text)
+            Keys.onEscapePressed: (event) => {
+                view.forceActiveFocus()
+                event.accepted = true
+            }
             background: Rectangle {
                 color: Theme.surface
                 border.width: 1
@@ -392,6 +411,10 @@ FocusScope {
                 footer: Item { width: 1; height: view.bottomInset + 8 }
                 ScrollBar.vertical: ThinScrollBar {}
 
+                WheelScrollHandler {
+                    flickable: list
+                }
+
                 delegate: TrackRow {
                     id: trackRow
                     objectName: "trackRow_" + (index + 1)
@@ -445,6 +468,10 @@ FocusScope {
         model: view.artwork ? view.trackModel : []
         footer: Item { width: 1; height: view.bottomInset + 8 }
         ScrollBar.vertical: ThinScrollBar {}
+
+        WheelScrollHandler {
+            flickable: grid
+        }
 
         delegate: Rectangle {
             id: tile

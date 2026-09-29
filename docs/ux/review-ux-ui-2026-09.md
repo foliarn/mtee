@@ -1,18 +1,18 @@
 # Revue des plans UX/UI 26 à 28
 
-**Statut : choix utilisateur attendu.** Les images sont une planche QML statique, fondée sur `docs/ux/specification.md`. Elles ne modifient ni l’interface livrée ni ses données. Régénérer avec `uv run python docs/ux/mockups/render_review.py` depuis la racine ; le rendu utilise Qt Quick en mode logiciel et n’ouvre aucune collection.
+**Statut : décisions utilisateur confirmées le 29 septembre 2026.** Les images restent une planche QML statique, fondée sur `docs/ux/specification.md`. Elles ne modifient ni l’interface livrée ni ses données. Les écrans non retenus sont conservés comme historique de revue ; seules les décisions ci-dessous guident le code. Régénérer avec `uv run python docs/ux/mockups/render_review.py` depuis la racine ; le rendu utilise Qt Quick en mode logiciel et n’ouvre aucune collection.
 
 ## Plan 26 — En-tête de dossier
 
-La recherche et les commandes List, Artwork et Choose columns partagent une même ligne et leurs centres verticaux sont alignés. Le nom et le résumé gardent chacun leur propre ligne. Les boutons restent groupés quand la largeur diminue ; le nom long est élidé.
+La proposition statique qui alignait la recherche et les commandes List, Artwork et Choose columns sur une même rangée est refusée. L’image fournie par l’utilisateur sert de référence : le champ garde son apparence, son libellé et sa place en haut à droite ; le nom et son résumé restent à gauche ; les commandes restent groupées en bas à droite. Le code existant présente déjà cette disposition.
 
 À 1440 × 900, l’éditeur fait 852 px entre la barre latérale et le panneau Info : [recherche vide](review-ux-ui-2026-09/header-wide-1440x900.png). À 1280 × 720, il fait 712 px avec le champ rempli : [recherche filtrée](review-ux-ui-2026-09/header-medium-1280x720.png). Le cas partagé montre deux groupes de 415 px dans une fenêtre de 1100 px : [groupes divisés](review-ux-ui-2026-09/header-split-1100x760.png).
 
-**À confirmer :** approuves-tu cet alignement et cette réduction, ou veux-tu un ajustement avant le code de recherche et de défilement du plan 26 ? Le texte et les résultats filtrés restent conservés selon ta décision déjà consignée.
+Le texte et les résultats filtrés restent conservés selon la décision déjà consignée. Le focus et le défilement sont implémentés sans changer l’apparence du champ ni déplacer les commandes.
 
 ## Plan 27 — Colonnes, pochettes et commandes de ligne
 
-Le tableau par défaut présente `Title | Artist | Date created | BPM | Key`, sans numéro ordinal, avec les pochettes visibles. Le menu liste les douze colonnes ainsi que Show artwork et Reset columns. Sa position flotte au-dessus de la liste pour rester atteignable avec peu de colonnes. Les commandes de lecture et d’information occupent une bande fixe de 36 px avant les colonnes et les pochettes ; elles gardent donc leur place même si Title ou les pochettes sont masqués. Une piste sélectionnée et en lecture reste indiquée par fond de sélection, chevron lime et titre lime quand celui-ci est visible.
+Le menu présenté dans la planche est retenu. La rangée d’en-têtes des colonnes conserve son apparence et son emplacement actuels, comme sur la capture de référence de l’utilisateur ; les contrôles d’en-tête du dossier ne changent pas. Le tableau par défaut présente `Title | Artist | Date created | BPM | Key`, les pochettes restent visibles par défaut, et la personnalisation reste globale. Le numéro ordinal n’est pas une colonne configurable. Une piste sélectionnée et en lecture reste indiquée par fond de sélection, chevron lime et titre lime quand celui-ci est visible.
 
 - [Menu complet et colonnes par défaut](review-ux-ui-2026-09/columns-menu-1440x900.png)
 - [Beaucoup de colonnes](review-ux-ui-2026-09/columns-many-1600x900.png)
@@ -20,7 +20,7 @@ Le tableau par défaut présente `Title | Artist | Date created | BPM | Key`, sa
 - [Une seule colonne, avec le menu encore accessible](review-ux-ui-2026-09/columns-single-1280x720.png)
 - [Menu dans un groupe partagé de 415 px](review-ux-ui-2026-09/columns-split-1100x760.png)
 
-Les choix déjà documentés — colonnes par défaut, personnalisation globale, pochettes configurables et aucune colonne `#` — restent ceux du plan. **À confirmer :** la bande d’actions fixe à gauche te convient-elle ? Elle est distincte des colonnes configurables ; le numéro de piste enregistré dans les tags reste inchangé.
+Les commandes de ligne restent utilisables même si Title ou les pochettes sont masqués ; le numéro de piste enregistré dans les tags reste inchangé. La présentation de la rangée d’en-têtes n’est pas remplacée par celle des captures de comparaison.
 
 ## Plan 28 — Comparaison de waveforms
 
@@ -32,7 +32,7 @@ Cette inspection du code ne remplace pas le diagnostic sur un corpus audio : auc
 
 ### Les variantes proposées
 
-La comparaison conserve le même morceau synthétique, la même taille de vue (1440 × 900), la même durée (4:36) et la même position courante (1:18, environ 28,3 %). La portion lue est assombrie dans les trois propositions et le repère temporel garde une couleur indépendante.
+La comparaison statique conserve le même morceau synthétique, la même taille de vue (1440 × 900), la même durée (4:36) et la même position courante (1:18, environ 28,3 %). Elle reste un historique de conception, pas une demande de livrer trois modes.
 
 ![Comparaison monochrome, 3 bandes et mélange RGB](review-ux-ui-2026-09/wave-compare-1440x900.png)
 
@@ -48,10 +48,10 @@ La grille montre chaque variante au début, à 1:18 et à la fin ; la capture d�
 | 3 bandes | Sépare visuellement trois zones de fréquences. | Exige un vrai calcul audio hors thread UI et une version de cache dédiée ; le cyan montré est un accent supplémentaire proposé. |
 | RGB | Résume les trois niveaux par une couleur composite. | Exige les mêmes calculs et une règle de mélange stable ; les teintes colorées s’éloignent de la palette Acid et peuvent être moins lisibles. |
 
-**Recommandation de mise en œuvre :** choisir le monochrome si les données disponibles doivent rester suffisantes. Choisir 3 bandes ou RGB seulement si la séparation fréquentielle apporte une lecture visuelle que tu préfères aux coûts de calcul et de cache. Aucun sélecteur permanent entre variantes n’est proposé.
+L’utilisateur retient uniquement le rendu monochrome montré dans les captures. Il indique que les trois bandes ne répondent pas au besoin ; le calcul fréquentiel et RGB ne sont donc pas implémentés. Le repère temporel, le contraste de la tête de lecture, l’assombrissement de la portion lue et le seek restent dans le périmètre.
 
-**À confirmer :** quelle variante unique veux-tu faire implémenter ? La demande de comparaison n’engage pas encore le développement d’une variante ni le retour du zoom, de la boucle A/B ou des cues.
+Le zoom, la boucle A/B et les cues restent hors périmètre.
 
 ## Réponse attendue
 
-Tu peux répondre en une ligne, par exemple : **« 26 : validé ; 27 : bande d’actions validée ; 28 : monochrome. »** Si tu souhaites des changements, indique seulement les éléments concernés. Après validation, les plans 26, 27 et 28 pourront s’enchaîner dans cet ordre, avec une compilation de l’EXE à chaque jalon applicatif.
+Les plans 26, 27 et 28 s’enchaînent dans cet ordre. La compilation de l’EXE est prévue à la fin de chaque jalon applicatif.
