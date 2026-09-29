@@ -387,6 +387,6 @@ Définir ensuite le contrat d’échange avec Shovel et vérifier les accès Spo
 
 ### Contrôle commun à chaque livraison
 
-À chaque jalon : tests ciblés, parcours manuel dans l’interface et vérification de la distribution Windows. Les opérations susceptibles de modifier des fichiers sont testées sur des copies.
+À chaque jalon : tests ciblés et parcours manuel dans l’interface lancée depuis les sources. Reconstruire et vérifier la distribution Windows lorsque le packaging, les dépendances ou les ressources embarquées changent, ainsi qu’avant une version destinée à être distribuée ; noter les jalons où ce contrôle est reporté. Les opérations susceptibles de modifier des fichiers sont testées sur des copies.
 
 Le portage Linux/macOS fera l’objet d’un jalon dédié avec validation des dépendances natives, chemins, raccourcis et sorties audio. La compatibilité architecturale ne sera pas présentée comme un portage testé.
