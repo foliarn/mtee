@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Accessibility
 import Mtee
 
 // Track data stays separate from the play gutter and the trailing row actions.
