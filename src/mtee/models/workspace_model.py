@@ -21,7 +21,11 @@ from mtee.models.player_model import PlayerModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
 from mtee.persistence.library_repository import LibraryRepository
-from mtee.persistence.workspace_repository import WorkspaceRepository
+from mtee.persistence.workspace_repository import (
+    COLUMN_OPTIONS,
+    DEFAULT_COLUMN_PREFERENCES,
+    WorkspaceRepository,
+)
 from mtee.services.jobs import JobContext, JobService
 from mtee.services.library_scanner import LibraryScanner
 from mtee.services.metadata_reader import MetadataReader
@@ -44,44 +48,7 @@ _SORT_KEYS = {
     "fileCreatedAt",
     "fileModifiedAt",
 }
-_COLUMN_KEYS = set(_SORT_KEYS) - {"index"}
-_DEFAULT_COLUMN_ORDER = [
-    "title",
-    "artist",
-    "album",
-    "genre",
-    "bpm",
-    "key",
-    "duration",
-    "format",
-    "filename",
-    "bitrate",
-    "fileCreatedAt",
-    "fileModifiedAt",
-]
-_DEFAULT_HIDDEN_COLUMNS = [
-    "album",
-    "duration",
-    "format",
-    "filename",
-    "bitrate",
-    "fileCreatedAt",
-    "fileModifiedAt",
-]
-_DEFAULT_COLUMN_WIDTHS = {
-    "title": 0,
-    "artist": 150,
-    "album": 150,
-    "genre": 110,
-    "bpm": 52,
-    "key": 52,
-    "duration": 70,
-    "format": 72,
-    "filename": 180,
-    "bitrate": 78,
-    "fileCreatedAt": 155,
-    "fileModifiedAt": 155,
-}
+_COLUMN_KEYS = {key for key, _label in COLUMN_OPTIONS}
 _ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins", "profile"}
 
 
@@ -129,6 +96,10 @@ class WorkspaceModel(QObject):
         self._roots_by_id: dict[str, dict[str, Any]] = {}
         self._resume_roots_requested = False
         self._state = session.load()
+        saved_column_preferences = self._state.get(
+            "columnPreferences", DEFAULT_COLUMN_PREFERENCES
+        )
+        self._column_preferences = _copy_column_preferences(saved_column_preferences)
         self._expanded = set(self._state.get("expanded", []))
         self._groups = self._restore_groups(self._state.get("groups", []))
         self._active_group = min(int(self._state.get("activeGroup", 0)), len(self._groups) - 1)
@@ -241,6 +212,14 @@ class WorkspaceModel(QObject):
     @Property(list, notify=layoutChanged)
     def groups(self) -> list[dict[str, Any]]:
         return self.groups_snapshot()
+
+    @Property(dict, notify=layoutChanged)
+    def columnPreferences(self) -> dict[str, Any]:
+        return _copy_column_preferences(self._column_preferences)
+
+    @Property(list, constant=True)
+    def columnOptions(self) -> list[dict[str, str]]:
+        return [{"key": key, "label": label} for key, label in COLUMN_OPTIONS]
 
     @Property(int, notify=layoutChanged)
     def activeGroup(self) -> int:
@@ -953,8 +932,8 @@ class WorkspaceModel(QObject):
         ref = f"{root_id}/{relative}"
         tab_id = f"folder:{ref}"
         state = self._ensure_tab(tab_id)
-        sort_key = str(state.get("sortKey", "index"))
-        ascending = bool(state.get("sortAscending", True))
+        sort_key = str(state.get("sortKey", "fileCreatedAt"))
+        ascending = bool(state.get("sortAscending", False))
         model = cast(
             TrackListModel,
             self.trackModelForTab(tab_id, "folder", ref, sort_key, ascending),
@@ -1259,14 +1238,18 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str)
     def setSort(self, tab_id: str, key: str) -> None:
-        if key not in _SORT_KEYS:
+        if key not in _COLUMN_KEYS:
             return
         self._cancel_explorer_track_action_for_tab(tab_id)
-        state = self._tab_state(tab_id)
-        state["sortAscending"] = (
-            not bool(state.get("sortAscending", True)) if state.get("sortKey") == key else True
-        )
-        state["sortKey"] = key
+        state = self._ensure_tab(tab_id)
+        if state.get("sortMode") != "manual" or state.get("sortKey") != key:
+            state["sortMode"] = "manual"
+            state["sortKey"] = key
+            state["sortAscending"] = True
+        elif bool(state.get("sortAscending", True)):
+            state["sortAscending"] = False
+        else:
+            self._set_default_sort(state)
         self._revision += 1
         self._dirty_tabs.add(tab_id)
         self.layoutChanged.emit()
@@ -1278,13 +1261,16 @@ class WorkspaceModel(QObject):
     def toggleColumn(self, tab_id: str, key: str) -> None:
         if key not in _COLUMN_KEYS:
             return
-        state = self._ensure_tab(tab_id)
-        hidden = list(state.get("hiddenColumns", []))
+        self._ensure_tab(tab_id)
+        hidden = list(self._column_preferences["hidden"])
         if key in hidden:
             hidden.remove(key)
         else:
+            if len(_COLUMN_KEYS) - len(hidden) <= 1:
+                return
             hidden.append(key)
-        state["hiddenColumns"] = hidden
+        self._column_preferences["hidden"] = hidden
+        self._refresh_hidden_sorts(set(hidden))
         self.layoutChanged.emit()
         self._persist()
 
@@ -1292,10 +1278,10 @@ class WorkspaceModel(QObject):
     def resizeColumn(self, tab_id: str, key: str, width: int) -> None:
         if key not in _COLUMN_KEYS:
             return
-        state = self._ensure_tab(tab_id)
-        widths = dict(state.get("columnWidths", _DEFAULT_COLUMN_WIDTHS))
+        self._ensure_tab(tab_id)
+        widths = dict(self._column_preferences["widths"])
         widths[key] = min(max(int(width), 44), 640)
-        state["columnWidths"] = widths
+        self._column_preferences["widths"] = widths
         self.layoutChanged.emit()
         self._persist()
 
@@ -1303,8 +1289,8 @@ class WorkspaceModel(QObject):
     def moveColumn(self, tab_id: str, key: str, offset: int) -> None:
         if key not in _COLUMN_KEYS or offset not in {-1, 1}:
             return
-        state = self._ensure_tab(tab_id)
-        order = list(state.get("columnOrder", _DEFAULT_COLUMN_ORDER))
+        self._ensure_tab(tab_id)
+        order = list(self._column_preferences["order"])
         if key not in order:
             return
         old_index = order.index(key)
@@ -1312,9 +1298,54 @@ class WorkspaceModel(QObject):
         if new_index == old_index:
             return
         order.insert(new_index, order.pop(old_index))
-        state["columnOrder"] = order
+        self._column_preferences["order"] = order
         self.layoutChanged.emit()
         self._persist()
+
+    @Slot(str, str, str, bool)
+    def moveColumnRelative(self, tab_id: str, key: str, target_key: str, after: bool) -> None:
+        if key not in _COLUMN_KEYS or target_key not in _COLUMN_KEYS or key == target_key:
+            return
+        self._ensure_tab(tab_id)
+        order = list(self._column_preferences["order"])
+        if key not in order or target_key not in order:
+            return
+        order.remove(key)
+        target_index = order.index(target_key) + (1 if after else 0)
+        order.insert(target_index, key)
+        if order == self._column_preferences["order"]:
+            return
+        self._column_preferences["order"] = order
+        self.layoutChanged.emit()
+        self._persist()
+
+    @Slot(bool)
+    def setShowArtwork(self, visible: bool) -> None:
+        visible = bool(visible)
+        if self._column_preferences["showArtwork"] == visible:
+            return
+        self._column_preferences["showArtwork"] = visible
+        self.layoutChanged.emit()
+        self._persist()
+
+    @Slot()
+    def resetColumns(self) -> None:
+        self._column_preferences = _copy_column_preferences(DEFAULT_COLUMN_PREFERENCES)
+        self._refresh_hidden_sorts(set(self._column_preferences["hidden"]))
+        self.layoutChanged.emit()
+        self._persist()
+
+    def _refresh_hidden_sorts(self, hidden: set[str]) -> None:
+        reset_tabs: list[str] = []
+        for tab_id, state in self._tab_states.items():
+            if state.get("sortMode") == "manual" and state.get("sortKey") in hidden:
+                self._set_default_sort(state)
+                self._dirty_tabs.add(tab_id)
+                reset_tabs.append(tab_id)
+        if reset_tabs:
+            self._revision += 1
+            self.libraryChanged.emit()
+            self._refresh_timer.start()
 
     @Slot(str, str)
     def setTabView(self, tab_id: str, view: str) -> None:
@@ -1463,8 +1494,8 @@ class WorkspaceModel(QObject):
                 ]
             folder_rows = _sort_rows(
                 folder_rows,
-                str(state.get("sortKey", "index")),
-                bool(state.get("sortAscending", True)),
+                str(state.get("sortKey", "fileCreatedAt")),
+                bool(state.get("sortAscending", False)),
             )
             order = [str(row["id"]) for row in folder_rows]
         else:
@@ -1610,26 +1641,29 @@ class WorkspaceModel(QObject):
                     "kind": kind,
                     "ref": ref,
                     "title": title,
-                    "sortKey": "index",
-                    "sortAscending": True,
+                    "sortMode": "default",
+                    "sortKey": "fileCreatedAt",
+                    "sortAscending": False,
                     "view": "list",
                     "searchQuery": "",
                     "selectedIds": [],
                     "selectionAnchor": "",
                 }
             )
-        column_order = state.get("columnOrder", _DEFAULT_COLUMN_ORDER)
+        column_order = state.get("columnOrder", DEFAULT_COLUMN_PREFERENCES["order"])
         if not isinstance(column_order, list):
-            column_order = list(_DEFAULT_COLUMN_ORDER)
+            column_order = list(DEFAULT_COLUMN_PREFERENCES["order"])
         valid_order = [key for key in column_order if isinstance(key, str) and key in _COLUMN_KEYS]
-        state["columnOrder"] = list(dict.fromkeys(valid_order + _DEFAULT_COLUMN_ORDER))
-        hidden = state.get("hiddenColumns", _DEFAULT_HIDDEN_COLUMNS)
+        state["columnOrder"] = list(
+            dict.fromkeys(valid_order + DEFAULT_COLUMN_PREFERENCES["order"])
+        )
+        hidden = state.get("hiddenColumns", DEFAULT_COLUMN_PREFERENCES["hidden"])
         state["hiddenColumns"] = (
             [key for key in hidden if isinstance(key, str) and key in _COLUMN_KEYS]
             if isinstance(hidden, list)
-            else list(_DEFAULT_HIDDEN_COLUMNS)
+            else list(DEFAULT_COLUMN_PREFERENCES["hidden"])
         )
-        widths = dict(_DEFAULT_COLUMN_WIDTHS)
+        widths = dict(DEFAULT_COLUMN_PREFERENCES["widths"])
         saved_widths = state.get("columnWidths", {})
         if isinstance(saved_widths, dict):
             for key in _COLUMN_KEYS:
@@ -1639,6 +1673,8 @@ class WorkspaceModel(QObject):
                     continue
                 widths[key] = 0 if key == "title" and value <= 0 else min(max(value, 44), 640)
         state["columnWidths"] = widths
+        if state.get("sortMode") not in {"default", "manual"}:
+            state["sortMode"] = "manual"
         return state
 
     def _tab_state(self, tab_id: str) -> dict[str, Any]:
@@ -1663,6 +1699,7 @@ class WorkspaceModel(QObject):
                     continue
                 tab_id = str(raw_tab.get("id", f"folder:{ref}"))
                 self._tab_states[tab_id] = dict(raw_tab)
+                self._set_default_sort(self._tab_states[tab_id])
                 self._ensure_tab(tab_id)
                 tab_ids.append(tab_id)
             active = str(raw_group.get("active", ""))
@@ -1740,8 +1777,8 @@ class WorkspaceModel(QObject):
                 tab_id,
                 "folder",
                 str(state.get("ref", "")),
-                str(state.get("sortKey", "index")),
-                bool(state.get("sortAscending", True)),
+                str(state.get("sortKey", "fileCreatedAt")),
+                bool(state.get("sortAscending", False)),
             )
         for folder_id in tuple(self._expanded):
             if self._folder_model.is_expanded(folder_id) and not self._folder_model.branch_loaded(
@@ -1820,6 +1857,12 @@ class WorkspaceModel(QObject):
         self._message = message
         self.messageChanged.emit()
 
+    @staticmethod
+    def _set_default_sort(state: dict[str, Any]) -> None:
+        state["sortMode"] = "default"
+        state["sortKey"] = "fileCreatedAt"
+        state["sortAscending"] = False
+
     def _persist(self) -> None:
         if self._session_closed:
             return
@@ -1851,6 +1894,7 @@ class WorkspaceModel(QObject):
             "sidebarWidth": self._sidebar_width,
             "rightPanelWidth": self._right_panel_width,
             "islandEnabled": self._island_enabled,
+            "columnPreferences": _copy_column_preferences(self._column_preferences),
         }
 
     @Slot()
@@ -1950,7 +1994,8 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
         "fileCreatedAt": "fileCreatedAtNs",
         "fileModifiedAt": "fileModifiedAtNs",
     }.get(key, key)
-    present = []
+    numeric_fields = {"fileCreatedAtNs", "fileModifiedAtNs", "seconds", "bpm", "bitrate"}
+    present: list[tuple[object, str, str, dict[str, Any]]] = []
     missing = []
     for row in rows:
         value = row.get(field)
@@ -1962,14 +2007,35 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
                 int(value)
                 if field in {"fileCreatedAtNs", "fileModifiedAtNs"}
                 else float(value)
-                if field in {"bpm", "seconds", "bitrate"}
+                if field in numeric_fields
                 else str(value).casefold()
             )
         except (TypeError, ValueError):
-            sort_value = str(value).casefold()
-        present.append((sort_value, str(row["id"]), row))
-    present.sort(key=lambda item: (item[0], item[1]), reverse=not ascending)
-    return [item[2] for item in present] + sorted(missing, key=lambda row: str(row["id"]))
+            missing.append(row)
+            continue
+        present.append(
+            (
+                sort_value,
+                str(row.get("title", "")).casefold(),
+                str(row.get("id", "")),
+                row,
+            )
+        )
+    # Stable passes keep title and UUID ties ascending in either direction.
+    present.sort(key=lambda item: (item[1], item[2]))
+    present.sort(key=lambda item: item[0], reverse=not ascending)
+    missing.sort(key=lambda row: (str(row.get("title", "")).casefold(), str(row.get("id", ""))))
+    return [item[3] for item in present] + missing
+
+
+def _copy_column_preferences(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else DEFAULT_COLUMN_PREFERENCES
+    return {
+        "order": list(source.get("order", DEFAULT_COLUMN_PREFERENCES["order"])),
+        "hidden": list(source.get("hidden", DEFAULT_COLUMN_PREFERENCES["hidden"])),
+        "widths": dict(source.get("widths", DEFAULT_COLUMN_PREFERENCES["widths"])),
+        "showArtwork": bool(source.get("showArtwork", True)),
+    }
 
 
 def _folder_from_track(track: dict[str, Any]) -> str:

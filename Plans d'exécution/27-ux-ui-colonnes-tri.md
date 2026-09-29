@@ -75,12 +75,14 @@ Commits intermédiaires possibles : profil global, colonnes et gestes, puis cycl
 ## Progress
 
 - [x] 2026-09-28 — Décisions utilisateur, modèle existant et tests inspectés.
-- [x] 2026-09-28 — États de colonnes, menu complet et accès dans un groupe partagé de 415 px rendus ; placement de la bande d’actions en revue.
-- [ ] Maquette des colonnes et commandes de ligne validée.
-- [ ] Profil global et reprise des anciennes sessions vérifiés.
-- [ ] Visibilité, dates, covers et déplacement testés.
-- [ ] Cycle de tri et état sans flèche vérifiés.
-- [ ] Recette Windows, distribution, rapport, commit et push terminés.
+- [x] 2026-09-28 — États de colonnes, menu complet et accès dans un groupe partagé de 415 px rendus.
+- [x] 2026-09-29 — L’utilisateur confirme le menu et demande de conserver la rangée d’en-têtes existante ; la maquette et l’emplacement du champ de recherche et des boutons restent inchangés.
+- [x] 2026-09-29 — Profil global persistant, valeurs par défaut, validation isolée et reprise des champs d’onglets historiques implémentés.
+- [x] 2026-09-29 — Colonnes masquables, dates système, affichage des pochettes, remise à zéro, déplacement par menu et glisser-déposer implémentés.
+- [x] 2026-09-29 — Tri par défaut sur la date de création décroissante et cycle manuel à trois états implémentés.
+- [x] 2026-09-29 — Compilation Python/QML et distribution Windows principale vérifiées ; rapport de validation ajouté.
+- [ ] Recette comportementale manuelle laissée à l’utilisateur ; tests non lancés à sa demande.
+- [ ] Commit et push de ce jalon.
 
 ## Surprises & Discoveries
 
@@ -92,6 +94,8 @@ Commits intermédiaires possibles : profil global, colonnes et gestes, puis cycl
 
 2026-09-28 — Codex : proposer une bande d’actions de 36 px à gauche des pochettes/colonnes pour que lecture et information restent accessibles dans les configurations réduites. Choix en attente ; captures dans `docs/ux/review-ux-ui-2026-09.md`.
 
+2026-09-29 — Utilisateur : conserve l’apparence actuelle de la rangée d’en-têtes (capture 2), accepte le menu flottant montré, et demande de ne pas retoucher l’en-tête de recherche ni ses boutons. Implémentation : conserver les cellules d’en-tête et leur placement ; le petit espace des commandes de ligne reste sans numéro ordinal.
+
 ## Outcomes & Retrospective
 
-Maquettes et états demandés rendus pour revue. La bande d’actions doit être validée avant le branchement ; profil global, compatibilité, gestes, dates et tri à trois états restent à implémenter. Révision du 28 septembre 2026 : ajout des états sans Title/couverture, nombreux champs et colonne unique.
+Les préférences globales, le menu, la visibilité des colonnes et pochettes, les gestes, les dates et le tri à trois états sont implémentés. La rangée d’en-têtes conserve son style existant. Compilation et distribution Windows vérifiées ; aucune recette comportementale ni test automatisé n’a été exécuté, conformément à la demande de l’utilisateur. Révision du 29 septembre 2026.

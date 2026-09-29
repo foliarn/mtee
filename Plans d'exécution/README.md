@@ -23,10 +23,10 @@ Cette série traduit la page Notion « MTEE — UX/UI » et les réponses utilis
 | [24 — Lecteur](24-ux-ui-lecteur.md) | Lancement effectif après pause ; premier correctif |
 | [25 — Explorer](25-ux-ui-explorer.md) | Double-clic, sélection/révélation et conservation de l’ancre ; après 24 |
 | [26 — Défilement et recherche](26-ux-ui-defilement-recherche.md) | Molette, scrollbars, focus et alignement ; après 25, maquette d’en-tête avant code concerné |
-| [27 — Colonnes et tri](27-ux-ui-colonnes-tri.md) | Profil global, dates, covers, retrait de # et tri à trois états ; après 26, maquette avant code concerné |
-| [28 — Waveforms](28-ux-ui-waveforms.md) | Comparaison monochrome/3 bandes/RGB, choix utilisateur, repère et portion lue ; après 27 |
+| [27 — Colonnes et tri](27-ux-ui-colonnes-tri.md) | Profil global, dates, covers, retrait de # et tri à trois états ; maquette confirmée par l’utilisateur, après 26 |
+| [28 — Waveforms](28-ux-ui-waveforms.md) | Branche monochrome retenue ; lisibilité, repère de lecture et portion lue ; après 27 |
 
-Le défaut de tri retenu est la date de création décroissante, sans flèche. Quitter la recherche conserve texte et résultats. Une cible masquée par cette recherche peut être jouée depuis l’arbre sans être révélée. Les colonnes sont configurées globalement. Le rendu waveform reste à choisir sur maquettes concrètes.
+Le défaut de tri retenu est la date de création décroissante, sans flèche. Quitter la recherche conserve texte et résultats. Une cible masquée par cette recherche peut être jouée depuis l’arbre sans être révélée. Les colonnes sont configurées globalement. Le 29 septembre, l’utilisateur retient uniquement le rendu waveform monochrome et rejette les trois bandes.
 
 ## Stabilisation — trajectoire du 2026-09-25
 

@@ -1,8 +1,8 @@
 import QtQuick
+import QtQuick.Accessibility
 import Mtee
 
-// One Spotify-style line: number, cover, title over artist, album, genre, BPM,
-// Camelot key, duration, then Edit info and Add to playlist on hover.
+// Track data stays separate from the play gutter and the trailing row actions.
 Rectangle {
     id: row
     objectName: "trackRow"
@@ -28,6 +28,7 @@ Rectangle {
 
     height: Theme.rowHeight
     color: selected ? Theme.selection : hovered ? Theme.surface : "transparent"
+    Accessible.name: row.track.title + (row.track.artist.length > 0 ? " — " + row.track.artist : "")
 
     Rectangle {
         anchors.fill: parent
@@ -58,19 +59,8 @@ Rectangle {
         spacing: row.columns.gap
 
         Item {
-            width: row.columns.number
+            width: row.columns.utility
             height: parent.height
-
-            Text {
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                visible: !row.hovered && !(row.playing && !row.paused)
-                text: row.track.number
-                color: row.playing ? Theme.primary : Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeBody
-                font.features: { "tnum": 1 }
-            }
 
             IconButton {
                 id: playButton
@@ -116,7 +106,7 @@ Rectangle {
 
                 CoverArt {
                     id: cover
-                    visible: field.columnKey === "title"
+                    visible: field.columnKey === "title" && row.columns.showArtwork
                     width: Theme.coverSize
                     height: Theme.coverSize
                     anchors.left: parent.left
@@ -127,8 +117,8 @@ Rectangle {
 
                 Column {
                     visible: field.columnKey === "title"
-                    anchors.left: cover.right
-                    anchors.leftMargin: 10
+                    anchors.left: cover.visible ? cover.right : parent.left
+                    anchors.leftMargin: cover.visible ? 10 : 0
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 2
