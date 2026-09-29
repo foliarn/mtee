@@ -42,3 +42,11 @@ Conformément à la demande, aucun test automatisé ni lancement de recette manu
 Commit : `fbc7d02` (`feat(explorer): customize columns globally and reset sorting to creation date`). Push confirmé sur `origin/main` après fetch ; `HEAD` et `origin/main` correspondent à `fbc7d02d57b687133aed0be754c68ef753db81f6`.
 
 Le push contenait aussi le commit préexistant `bb1d96b` sur les plans SoundCloud, laissé intact. Correctif de démarrage : `40dbe37` (`fix(packaging): use QtQuick accessibility type`), poussé sur `origin/main` après fetch. Les modifications locales de `.gitignore`, `AGENTS.md` et le dossier `.codex/` sont restées hors des commits fonctionnels.
+
+## Correctif visuel après livraison — 2026-09-29
+
+À la demande de l’utilisateur, l’espace laissé par l’ancienne colonne ordinale # est supprimé au début du tableau. La gouttière et son espacement ont été retirés des calculs de largeur ainsi que des rangées d’en-tête et de données; le bouton Lecture rejoint les actions à droite pour rester accessible. L’en-tête de recherche et ses boutons ne sont pas modifiés.
+
+- `uv run pyside6-qmllint -I src/mtee/qml src/mtee/qml/components/TrackListView.qml src/mtee/qml/components/TrackRow.qml` : code de sortie 0 ; avertissements d’accès non qualifié existants, aucune erreur bloquante.
+- `git diff --check` : réussi.
+- Tests interactifs non exécutés et EXE final non reconstruit.

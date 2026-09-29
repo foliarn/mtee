@@ -1,7 +1,7 @@
 import QtQuick
 import Mtee
 
-// Track data stays separate from the play gutter and the trailing row actions.
+// Track data stays separate from the trailing row actions.
 Rectangle {
     id: row
     objectName: "trackRow"
@@ -56,26 +56,6 @@ Rectangle {
         x: row.columns.padding
         height: parent.height
         spacing: row.columns.gap
-
-        Item {
-            width: row.columns.utility
-            height: parent.height
-
-            IconButton {
-                id: playButton
-                objectName: "trackPlayButton"
-                anchors.right: parent.right
-                anchors.rightMargin: -8
-                anchors.verticalCenter: parent.verticalCenter
-                visible: row.hovered || (row.playing && !row.paused)
-                hoverBackground: false
-                icon: row.playing && !row.paused ? (row.hovered ? "pause" : "play") : "play"
-                iconSize: 14
-                iconColor: row.playing ? Theme.primary : Theme.textPrimary
-                hoverColor: row.playing ? Theme.primary : Theme.textPrimary
-                onClicked: row.playing ? row.toggleRequested() : row.activated()
-            }
-        }
 
         Repeater {
             model: row.columns.items
@@ -195,6 +175,20 @@ Rectangle {
                 iconSize: 18
                 tip: "Edit info (Ctrl+I)"
                 onClicked: row.infoRequested()
+            }
+
+            IconButton {
+                id: playButton
+                objectName: "trackPlayButton"
+                anchors.verticalCenter: parent.verticalCenter
+                visible: row.hovered || (row.playing && !row.paused)
+                hoverBackground: false
+                icon: row.playing && !row.paused ? (row.hovered ? "pause" : "play") : "play"
+                iconSize: 14
+                iconColor: row.playing ? Theme.primary : Theme.textPrimary
+                hoverColor: row.playing ? Theme.primary : Theme.textPrimary
+                tip: row.playing && !row.paused ? "Pause" : "Play"
+                onClicked: row.playing ? row.toggleRequested() : row.activated()
             }
         }
     }

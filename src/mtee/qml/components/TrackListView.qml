@@ -31,8 +31,7 @@ FocusScope {
     readonly property var columns: {
         const padding = width < 600 ? 12 : 24
         const gap = width < 600 ? 10 : 16
-        const utility = 28
-        const actions = width < 600 ? 36 : 64
+        const actions = 104
         const fallbackOptions = [
             { key: "title", label: "Title" },
             { key: "artist", label: "Artist" },
@@ -82,7 +81,7 @@ FocusScope {
             fixedWidth += local || stored || baseWidths[key]
         }
         const titleStored = Number(view.localColumnWidths.title || storedWidths.title || 0)
-        const titleWidth = titleStored || Math.max(140, width - 2 * padding - utility - actions - gap * (keys.length + 1) - fixedWidth)
+        const titleWidth = titleStored || Math.max(140, width - 2 * padding - actions - gap * keys.length - fixedWidth)
         const items = keys.map((key) => {
             const local = Number(view.localColumnWidths[key] || 0)
             const stored = Number(storedWidths[key] || 0)
@@ -96,9 +95,9 @@ FocusScope {
         let itemWidth = 0
         for (const item of items)
             itemWidth += item.width
-        const totalWidth = 2 * padding + utility + actions + gap * (keys.length + 1) + itemWidth
+        const totalWidth = 2 * padding + actions + gap * keys.length + itemWidth
         return {
-            "padding": padding, "gap": gap, "utility": utility, "actions": actions,
+            "padding": padding, "gap": gap, "actions": actions,
             "items": items, "keys": keys, "totalWidth": totalWidth,
             "showArtwork": preferences.showArtwork !== false
         }
@@ -371,7 +370,6 @@ FocusScope {
             height: parent.height
             spacing: view.columns.gap
 
-            Item { width: view.columns.utility; height: parent.height }
             Repeater {
                 model: view.columns.items
                 HeaderCell {
