@@ -27,3 +27,7 @@ Les tests pytest et la recette interactive de l’arbre/listing/lecteur n’ont 
 ## Reprise
 
 Essayer dans `dist/MTEE.exe` : ouvrir une branche à mi-parcours, replier et développer des sous-dossiers, puis effectuer un double-clic sur une piste hors écran en mode liste et Artwork. Refaire avec une recherche qui masque la piste et vérifier que seuls le morceau joué et son îlot changent, sans déplacer la liste ni modifier sélection, texte ou résultats. Vérifier enfin le cas où le fichier source a disparu avant l’activation.
+
+## Correctif après livraison — 2026-09-29
+
+`TrackListModel` propose maintenant `row_for_id` au code Python et conserve son slot `rowForId` côté QML. `uv run python -m py_compile src/mtee/models/track_list_model.py src/mtee/models/workspace_model.py` passe. Aucun test interactif ni build de l’EXE n’a été effectué, conformément à la demande.

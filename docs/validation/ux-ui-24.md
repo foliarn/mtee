@@ -29,3 +29,7 @@ Les tests pytest unitaires et natifs n'ont pas été exécutés, à la demande d
 ## Reprise
 
 Essayer A → pause → B depuis le listing, la file et le lecteur plein écran; vérifier que le temps de B avance et que les commandes affichent l'état correct. Essayer aussi une pause pendant `Loading`, la réactivation de A, un changement rapide A/B/C et une source indisponible. Les résultats seront consignés à la recette utilisateur.
+
+## Correctif après livraison — 2026-09-29
+
+Le bandeau de récupération de `FullscreenPlayer.qml` ne relit plus la liste entre ses conditions et son texte. Il retourne une chaîne vide si aucun élément n'est disponible et utilise un nom de repli si `fileName` manque. `uv run pyside6-qmllint -I src/mtee/qml src/mtee/qml/views/FullscreenPlayer.qml` passe avec des avertissements d'accès non qualifié dans le délégué de tags. Pas de test interactif ni de reconstruction de l'EXE, conformément à la demande.

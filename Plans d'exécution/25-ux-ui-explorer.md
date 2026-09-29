@@ -78,3 +78,5 @@ Deux commits intermédiaires possibles : stabilité de l’arbre, puis révélat
 ## Outcomes & Retrospective
 
 Le correctif et le build Windows sont réalisés. Compilation Python, chargement QML en mode démo, lint/formatage et vérification de l’EXE ont réussi. Les tests pytest et la recette Explorer interactive n’ont pas été exécutés à la demande de l’utilisateur ; voir `docs/validation/ux-ui-25.md`. Révision du 28 septembre 2026 : exécution du lot Explorer.
+
+2026-09-29 — Correctif après livraison : ajout de `row_for_id` pour les appels Python tout en conservant le slot QML `rowForId`; la sélection de piste depuis l’arbre ne lève plus l’attribut absent. Compilation Python réussie; aucun test interactif ni build de l’EXE, conformément à la demande. Voir `docs/validation/ux-ui-25.md`.

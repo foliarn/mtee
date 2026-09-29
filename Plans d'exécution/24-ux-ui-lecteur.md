@@ -70,3 +70,5 @@ Sujet de commit proposé : `fix(player): resume explicitly activated tracks afte
 La correction et les scénarios de régression sont implémentés. `uv run python -m compileall -q src/mtee`, le smoke-test de démonstration (chargement Python/QML), les contrôles Ruff ciblés et `pwsh -File scripts/build_windows.ps1` ont réussi sous Python 3.12.14 et uv 0.12.17. Le build a produit `dist/MTEE.exe` (220,85 MiB) et validé son contenu monofichier. Les tests automatisés, l'audio libmpv et la recette interactive restent à la recette utilisateur. Voir `docs/validation/ux-ui-24.md`.
 
 Révision du 28 septembre 2026 : activation explicite dépausée, pause en attente par session, état de contrôle Qt/QML et scénarios automatisés ajoutés.
+
+2026-09-29 — Correctif après livraison : le bandeau de récupération du lecteur plein écran calcule son texte à partir d'une seule liste et protège les entrées absentes. `qmllint` passe; avertissements non qualifiés existants dans le délégué de tags. L'EXE n'a pas été reconstruit à la demande de l'utilisateur; voir `docs/validation/ux-ui-24.md`.
