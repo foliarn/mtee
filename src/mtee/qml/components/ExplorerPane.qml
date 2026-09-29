@@ -109,6 +109,10 @@ Item {
         model: pane.treeModel || pane.workspace.explorerRows
         ScrollBar.vertical: ThinScrollBar {}
 
+        WheelScrollHandler {
+            flickable: tree
+        }
+
         delegate: Rectangle {
             id: row
 

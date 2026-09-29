@@ -223,14 +223,14 @@ Window {
         enabled: root.ws.playingId.length > 0 && !root.textInputFocused()
         onActivated: root.ws.togglePlay()
     }
-    Shortcut { sequence: "Ctrl+I"; onActivated: root.ws.toggleRightPanel("info") }
-    Shortcut { sequence: "Ctrl+B"; onActivated: root.ws.toggleSidebar() }
-    Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.ws.setActivity("explorer") }
-    Shortcut { sequence: "Ctrl+\\"; onActivated: root.ws.toggleSplit() }
-    Shortcut { sequence: "Ctrl+,"; onActivated: root.ws.openSettings() }
-    Shortcut { sequence: "Ctrl+Right"; onActivated: root.ws.next() }
-    Shortcut { sequence: "Ctrl+Left"; onActivated: root.ws.previous() }
-    Shortcut { sequence: "Ctrl+Z"; onActivated: root.ws.undoSave() }
+    Shortcut { sequence: "Ctrl+I"; enabled: !root.textInputFocused(); onActivated: root.ws.toggleRightPanel("info") }
+    Shortcut { sequence: "Ctrl+B"; enabled: !root.textInputFocused(); onActivated: root.ws.toggleSidebar() }
+    Shortcut { sequence: "Ctrl+Shift+E"; enabled: !root.textInputFocused(); onActivated: root.ws.setActivity("explorer") }
+    Shortcut { sequence: "Ctrl+\\"; enabled: !root.textInputFocused(); onActivated: root.ws.toggleSplit() }
+    Shortcut { sequence: "Ctrl+,"; enabled: !root.textInputFocused(); onActivated: root.ws.openSettings() }
+    Shortcut { sequence: "Ctrl+Right"; enabled: !root.textInputFocused(); onActivated: root.ws.next() }
+    Shortcut { sequence: "Ctrl+Left"; enabled: !root.textInputFocused(); onActivated: root.ws.previous() }
+    Shortcut { sequence: "Ctrl+Z"; enabled: !root.textInputFocused(); onActivated: root.ws.undoSave() }
     Shortcut {
         sequence: "Del"
         enabled: !shell.demoMode && root.ws.activity === "explorer" && root.ws.selectedIds.length > 0

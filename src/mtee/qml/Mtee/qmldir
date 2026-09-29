@@ -10,6 +10,7 @@ AppMenu 1.0 AppMenu.qml
 AppMenuItem 1.0 AppMenuItem.qml
 AppMenuSeparator 1.0 AppMenuSeparator.qml
 ThinScrollBar 1.0 ThinScrollBar.qml
+WheelScrollHandler 1.0 WheelScrollHandler.qml
 LineSlider 1.0 LineSlider.qml
 ProgressLine 1.0 ProgressLine.qml
 PaneHeader 1.0 PaneHeader.qml
