@@ -14,6 +14,10 @@ FocusScope {
     property int groupIndex: 0
     property int bottomInset: 0
     property var localColumnWidths: ({})
+    property string draggedColumnKey: ""
+    property string dropTargetKey: ""
+    property bool dropAfterTarget: false
+    property bool columnDragCancelled: false
 
     readonly property string source: tab.kind + ":" + tab.ref
     readonly property bool modelBacked: typeof workspace.trackModelForTab === "function"
@@ -27,24 +31,48 @@ FocusScope {
     readonly property var columns: {
         const padding = width < 600 ? 12 : 24
         const gap = width < 600 ? 10 : 16
-        const number = 28
+        const utility = 28
         const actions = width < 600 ? 36 : 64
-        const liveDefaults = ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename", "bitrate", "fileCreatedAt", "fileModifiedAt"]
-        const demoDefaults = ["title", "album", "genre", "bpm", "key", "duration"]
-        const defaults = view.modelBacked ? liveDefaults : demoDefaults
-        const labels = ({ title: "Title", artist: "Artist", album: "Album", genre: "Genre", bpm: "BPM", key: "Key", duration: "Duration", format: "Format", filename: "Filename", bitrate: "Bitrate", fileCreatedAt: "Date created", fileModifiedAt: "Date modified" })
+        const fallbackOptions = [
+            { key: "title", label: "Title" },
+            { key: "artist", label: "Artist" },
+            { key: "album", label: "Album" },
+            { key: "genre", label: "Genre" },
+            { key: "bpm", label: "BPM" },
+            { key: "key", label: "Key" },
+            { key: "duration", label: "Duration" },
+            { key: "format", label: "Format" },
+            { key: "filename", label: "Filename" },
+            { key: "bitrate", label: "Bitrate" },
+            { key: "fileCreatedAt", label: "Date created" },
+            { key: "fileModifiedAt", label: "Date modified" }
+        ]
+        const options = view.workspace.columnOptions || fallbackOptions
+        const defaults = options.length > 0
+            ? options.map((option) => option.key)
+            : ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename", "bitrate", "fileCreatedAt", "fileModifiedAt"]
+        const labels = ({})
+        for (const option of options)
+            labels[option.key] = option.label
         const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180, bitrate: 78, fileCreatedAt: 155, fileModifiedAt: 155 })
-        const configuredOrder = tab.columnOrder !== undefined && tab.columnOrder !== null
-            ? Array.from(tab.columnOrder) : defaults
+        const fallbackPreferences = {
+            order: ["title", "artist", "fileCreatedAt", "bpm", "key", "album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"],
+            hidden: ["album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"],
+            widths: baseWidths,
+            showArtwork: true
+        }
+        const preferences = view.workspace.columnPreferences || fallbackPreferences
+        const configuredOrder = Array.isArray(preferences.order) ? Array.from(preferences.order) : defaults
         const order = configuredOrder.filter((key, index) => defaults.indexOf(key) >= 0 && configuredOrder.indexOf(key) === index)
-        const hidden = view.modelBacked
-            ? (tab.hiddenColumns !== undefined && tab.hiddenColumns !== null
-                ? Array.from(tab.hiddenColumns) : ["album", "duration", "format", "filename", "bitrate", "fileCreatedAt", "fileModifiedAt"])
-            : []
-        let keys = order.filter((key) => key === "title" || hidden.indexOf(key) < 0)
-        if (keys.indexOf("title") < 0)
-            keys.unshift("title")
-        const storedWidths = tab.columnWidths || ({})
+        for (const key of defaults) {
+            if (order.indexOf(key) < 0)
+                order.push(key)
+        }
+        const hidden = Array.isArray(preferences.hidden) ? Array.from(preferences.hidden) : ["album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"]
+        let keys = order.filter((key) => hidden.indexOf(key) < 0)
+        if (keys.length === 0)
+            keys = ["title"]
+        const storedWidths = preferences.widths || ({})
         let fixedWidth = 0
         for (const key of keys) {
             if (key === "title")
@@ -54,13 +82,13 @@ FocusScope {
             fixedWidth += local || stored || baseWidths[key]
         }
         const titleStored = Number(view.localColumnWidths.title || storedWidths.title || 0)
-        const titleWidth = titleStored || Math.max(140, width - 2 * padding - number - actions - gap * (keys.length + 1) - fixedWidth)
+        const titleWidth = titleStored || Math.max(140, width - 2 * padding - utility - actions - gap * (keys.length + 1) - fixedWidth)
         const items = keys.map((key) => {
             const local = Number(view.localColumnWidths[key] || 0)
             const stored = Number(storedWidths[key] || 0)
             return {
                 key: key,
-                label: labels[key],
+                label: labels[key] || key,
                 sortKey: key,
                 width: key === "title" ? titleWidth : (local || stored || baseWidths[key])
             }
@@ -68,10 +96,11 @@ FocusScope {
         let itemWidth = 0
         for (const item of items)
             itemWidth += item.width
-        const totalWidth = 2 * padding + number + actions + gap * (keys.length + 1) + itemWidth
+        const totalWidth = 2 * padding + utility + actions + gap * (keys.length + 1) + itemWidth
         return {
-            "padding": padding, "gap": gap, "number": number, "actions": actions,
-            "items": items, "keys": keys, "totalWidth": totalWidth
+            "padding": padding, "gap": gap, "utility": utility, "actions": actions,
+            "items": items, "keys": keys, "totalWidth": totalWidth,
+            "showArtwork": preferences.showArtwork !== false
         }
     }
 
@@ -147,6 +176,13 @@ FocusScope {
     }
 
     Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Escape && view.draggedColumnKey.length > 0) {
+            view.columnDragCancelled = true
+            view.dropTargetKey = ""
+            view.draggedColumnKey = ""
+            event.accepted = true
+            return
+        }
         if (folderSearchField.activeFocus) {
             if (event.key === Qt.Key_Escape) {
                 view.forceActiveFocus()
@@ -241,74 +277,54 @@ FocusScope {
             }
 
             IconButton {
+                id: chooseColumnsButton
                 objectName: "chooseColumnsButton"
                 icon: "settings"
                 iconSize: 18
                 enabled: view.modelBacked
                 tip: "Choose columns"
-                onClicked: columnMenu.open()
+                onClicked: columnMenu.popup(chooseColumnsButton, 0, chooseColumnsButton.height)
             }
         }
 
-        Menu {
+        AppMenu {
             id: columnMenu
             objectName: "columnChooserMenu"
 
-            MenuItem {
-                text: "Artist"
-                checkable: true
-                checked: view.columns.keys.indexOf("artist") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "artist")
+            AppMenuItem { text: "COLUMNS"; enabled: false }
+
+            Instantiator {
+                model: view.workspace.columnOptions
+                delegate: AppMenuItem {
+                    required property var modelData
+                    objectName: "columnOption_" + modelData.key
+                    text: modelData.label
+                    checkable: true
+                    checked: view.columns.keys.indexOf(modelData.key) >= 0
+                    mark: checked
+                    enabled: checked || view.columns.keys.length > 1
+                    onTriggered: view.workspace.toggleColumn(view.tab.id, modelData.key)
+                }
+                onObjectAdded: (index, object) => columnMenu.insertItem(index + 1, object)
+                onObjectRemoved: (index, object) => columnMenu.removeItem(object)
             }
-            MenuItem {
-                objectName: "columnOption_album"
-                text: "Album"
+
+            AppMenuSeparator {}
+
+            AppMenuItem {
+                text: "Show artwork"
                 checkable: true
-                checked: view.columns.keys.indexOf("album") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "album")
+                checked: view.columns.showArtwork
+                mark: checked
+                onTriggered: view.workspace.setShowArtwork(!checked)
             }
-            MenuItem {
-                text: "Genre"
-                checkable: true
-                checked: view.columns.keys.indexOf("genre") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "genre")
-            }
-            MenuItem {
-                text: "BPM"
-                checkable: true
-                checked: view.columns.keys.indexOf("bpm") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "bpm")
-            }
-            MenuItem {
-                text: "Key"
-                checkable: true
-                checked: view.columns.keys.indexOf("key") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "key")
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: "Duration"
-                checkable: true
-                checked: view.columns.keys.indexOf("duration") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "duration")
-            }
-            MenuItem {
-                text: "Format"
-                checkable: true
-                checked: view.columns.keys.indexOf("format") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "format")
-            }
-            MenuItem {
-                text: "Filename"
-                checkable: true
-                checked: view.columns.keys.indexOf("filename") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "filename")
-            }
-            MenuItem {
-                text: "Bitrate"
-                checkable: true
-                checked: view.columns.keys.indexOf("bitrate") >= 0
-                onTriggered: view.workspace.toggleColumn(view.tab.id, "bitrate")
+
+            AppMenuItem {
+                text: "Reset columns"
+                onTriggered: {
+                    view.localColumnWidths = ({})
+                    view.workspace.resetColumns()
+                }
             }
         }
 
@@ -355,7 +371,7 @@ FocusScope {
             height: parent.height
             spacing: view.columns.gap
 
-            HeaderCell { width: view.columns.number; label: "#"; sortKey: "index"; alignRight: true }
+            Item { width: view.columns.utility; height: parent.height }
             Repeater {
                 model: view.columns.items
                 HeaderCell {
@@ -558,7 +574,15 @@ FocusScope {
         property string sortKey: ""
         property string columnKey: ""
         property bool alignRight: false
-        readonly property bool sorted: view.tab.sortKey === sortKey && sortKey !== "index"
+        readonly property bool sorted: view.tab.sortMode === "manual"
+            && view.tab.sortKey === sortKey && sortKey.length > 0
+
+        Drag.active: columnDragHandler.active
+        Drag.source: cell
+        Drag.keys: ["mtee-column"]
+        Drag.supportedActions: Qt.MoveAction
+        Drag.hotSpot.x: cell.width / 2
+        Drag.hotSpot.y: cell.height / 2
 
         height: parent.height
 
@@ -589,27 +613,85 @@ FocusScope {
         MouseArea {
             id: headerMouse
             anchors.fill: parent
+            anchors.rightMargin: 8
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.PointingHandCursor
+            onPressed: view.forceActiveFocus()
             onClicked: (event) => {
                 if (event.button === Qt.RightButton)
-                    reorderMenu.open()
+                    reorderMenu.popup(cell, event.x, event.y)
                 else if (cell.sortKey.length > 0)
                     view.workspace.setSort(view.tab.id, cell.sortKey)
             }
         }
 
-        Menu {
+        AppMenu {
             id: reorderMenu
-            MenuItem {
+            AppMenuItem {
                 text: "Move left"
                 onTriggered: view.workspace.moveColumn(view.tab.id, cell.columnKey, -1)
             }
-            MenuItem {
+            AppMenuItem {
                 text: "Move right"
                 onTriggered: view.workspace.moveColumn(view.tab.id, cell.columnKey, 1)
             }
+        }
+
+        DragHandler {
+            id: columnDragHandler
+            parent: headerMouse
+            target: null
+            acceptedButtons: Qt.LeftButton
+            enabled: cell.columnKey.length > 0
+            onActiveChanged: {
+                if (active) {
+                    view.draggedColumnKey = cell.columnKey
+                    view.dropTargetKey = ""
+                    view.columnDragCancelled = false
+                } else if (view.draggedColumnKey === cell.columnKey) {
+                    view.draggedColumnKey = ""
+                    view.dropTargetKey = ""
+                }
+            }
+        }
+
+        DropArea {
+            anchors.fill: parent
+            keys: ["mtee-column"]
+
+            onEntered: (drag) => {
+                if (!view.columnDragCancelled && drag.source && drag.source.columnKey !== cell.columnKey) {
+                    view.dropTargetKey = cell.columnKey
+                    view.dropAfterTarget = drag.x >= width / 2
+                }
+            }
+            onPositionChanged: (drag) => {
+                if (!view.columnDragCancelled && drag.source && drag.source.columnKey !== cell.columnKey) {
+                    view.dropTargetKey = cell.columnKey
+                    view.dropAfterTarget = drag.x >= width / 2
+                }
+            }
+            onExited: {
+                if (view.dropTargetKey === cell.columnKey)
+                    view.dropTargetKey = ""
+            }
+            onDropped: (drop) => {
+                if (!view.columnDragCancelled && drop.source && drop.source.columnKey !== cell.columnKey)
+                    view.workspace.moveColumnRelative(view.tab.id, drop.source.columnKey, cell.columnKey, drop.x >= width / 2)
+                drop.acceptProposedAction()
+                view.dropTargetKey = ""
+            }
+        }
+
+        Rectangle {
+            z: 3
+            visible: view.draggedColumnKey.length > 0 && view.dropTargetKey === cell.columnKey
+            x: view.dropAfterTarget ? parent.width - width : 0
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 2
+            color: Theme.primary
         }
 
         MouseArea {
@@ -640,6 +722,7 @@ FocusScope {
             onReleased: {
                 const resized = Number(view.localColumnWidths[cell.columnKey] || cell.width)
                 view.workspace.resizeColumn(view.tab.id, cell.columnKey, Math.round(resized))
+                view.localColumnWidths = ({})
             }
         }
     }

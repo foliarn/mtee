@@ -9,7 +9,71 @@ from typing import Any
 
 from mtee.persistence.database import Database
 
-__all__ = ["DEFAULT_WORKSPACE", "WorkspaceRepository"]
+__all__ = [
+    "COLUMN_OPTIONS",
+    "DEFAULT_COLUMN_PREFERENCES",
+    "DEFAULT_WORKSPACE",
+    "WorkspaceRepository",
+]
+
+COLUMN_OPTIONS = (
+    ("title", "Title"),
+    ("artist", "Artist"),
+    ("album", "Album"),
+    ("genre", "Genre"),
+    ("bpm", "BPM"),
+    ("key", "Key"),
+    ("duration", "Duration"),
+    ("format", "Format"),
+    ("filename", "Filename"),
+    ("bitrate", "Bitrate"),
+    ("fileCreatedAt", "Date created"),
+    ("fileModifiedAt", "Date modified"),
+)
+_COLUMN_KEYS = tuple(key for key, _label in COLUMN_OPTIONS)
+_DEFAULT_COLUMN_ORDER = [
+    "title",
+    "artist",
+    "fileCreatedAt",
+    "bpm",
+    "key",
+    "album",
+    "genre",
+    "duration",
+    "format",
+    "filename",
+    "bitrate",
+    "fileModifiedAt",
+]
+_DEFAULT_HIDDEN_COLUMNS = [
+    "album",
+    "genre",
+    "duration",
+    "format",
+    "filename",
+    "bitrate",
+    "fileModifiedAt",
+]
+_DEFAULT_COLUMN_WIDTHS = {
+    "title": 0,
+    "artist": 150,
+    "album": 150,
+    "genre": 110,
+    "bpm": 52,
+    "key": 52,
+    "duration": 70,
+    "format": 72,
+    "filename": 180,
+    "bitrate": 78,
+    "fileCreatedAt": 155,
+    "fileModifiedAt": 155,
+}
+DEFAULT_COLUMN_PREFERENCES: dict[str, Any] = {
+    "order": list(_DEFAULT_COLUMN_ORDER),
+    "hidden": list(_DEFAULT_HIDDEN_COLUMNS),
+    "widths": dict(_DEFAULT_COLUMN_WIDTHS),
+    "showArtwork": True,
+}
 
 DEFAULT_WORKSPACE: dict[str, Any] = {
     "version": 1,
@@ -25,6 +89,7 @@ DEFAULT_WORKSPACE: dict[str, Any] = {
     "sidebarWidth": 240,
     "rightPanelWidth": 360,
     "islandEnabled": True,
+    "columnPreferences": deepcopy(DEFAULT_COLUMN_PREFERENCES),
 }
 
 
@@ -70,6 +135,9 @@ def _validated(value: Any) -> dict[str, Any]:
         return deepcopy(DEFAULT_WORKSPACE)
     result: dict[str, Any] = deepcopy(DEFAULT_WORKSPACE)
     result.update({key: item for key, item in value.items() if key in result})
+    result["columnPreferences"] = _validated_column_preferences(
+        value.get("columnPreferences")
+    )
     if not isinstance(result["roots"], list) or not isinstance(result["groups"], list):
         return deepcopy(DEFAULT_WORKSPACE)
     if not result["groups"]:
@@ -141,6 +209,58 @@ def _validated(value: Any) -> dict[str, Any]:
         result["rightPanelTab"] = "info"
     result["islandEnabled"] = bool(result.get("islandEnabled", True))
     return result
+
+
+def _validated_column_preferences(value: Any) -> dict[str, Any]:
+    """Normalize table preferences without invalidating the saved workspace."""
+    if not isinstance(value, dict):
+        return deepcopy(DEFAULT_COLUMN_PREFERENCES)
+
+    raw_order = value.get("order")
+    if isinstance(raw_order, list):
+        order = list(
+            dict.fromkeys(
+                key for key in raw_order if isinstance(key, str) and key in _COLUMN_KEYS
+            )
+        )
+        order.extend(key for key in _DEFAULT_COLUMN_ORDER if key not in order)
+    else:
+        order = list(_DEFAULT_COLUMN_ORDER)
+
+    raw_hidden = value.get("hidden")
+    if isinstance(raw_hidden, list):
+        hidden = list(
+            dict.fromkeys(
+                key for key in raw_hidden if isinstance(key, str) and key in _COLUMN_KEYS
+            )
+        )
+    else:
+        hidden = list(_DEFAULT_HIDDEN_COLUMNS)
+    if len(hidden) >= len(_COLUMN_KEYS):
+        hidden.remove("title")
+
+    widths = dict(_DEFAULT_COLUMN_WIDTHS)
+    raw_widths = value.get("widths")
+    if isinstance(raw_widths, dict):
+        for key in _COLUMN_KEYS:
+            raw_width = raw_widths.get(key)
+            if isinstance(raw_width, bool):
+                continue
+            try:
+                width = int(raw_width)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            widths[key] = 0 if key == "title" and width <= 0 else min(max(width, 44), 640)
+
+    show_artwork = value.get("showArtwork", True)
+    if not isinstance(show_artwork, bool):
+        show_artwork = True
+    return {
+        "order": order,
+        "hidden": hidden,
+        "widths": widths,
+        "showArtwork": show_artwork,
+    }
 
 
 def _has_valid_session_structure(value: Any) -> bool:
