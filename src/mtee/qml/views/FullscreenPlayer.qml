@@ -146,13 +146,25 @@ Rectangle {
 
                 Text {
                     width: tagColumn.width
-                    visible: player.recoveryForPlayingTrack().length > 0
-                    text: player.recoveryForPlayingTrack().some(function(operation) {
-                        return operation.situation === "inspection_failed"
-                    })
-                        ? "MTEE could not inspect a previous tag save. Review its recovery files before editing."
-                        : "A previous tag save for " + player.recoveryForPlayingTrack()[0].fileName
+                    text: {
+                        const operations = player.recoveryForPlayingTrack()
+                        if (!operations || operations.length === 0)
+                            return ""
+
+                        const inspectionFailed = operations.some(function(operation) {
+                            return operation && operation.situation === "inspection_failed"
+                        })
+                        if (inspectionFailed)
+                            return "MTEE could not inspect a previous tag save. Review its recovery files before editing."
+
+                        const recovery = operations[0]
+                        if (!recovery)
+                            return ""
+                        const fileName = recovery.fileName || "this track"
+                        return "A previous tag save for " + fileName
                             + " needs recovery. Its source and recovery files were kept."
+                    }
+                    visible: text.length > 0
                     color: Theme.danger
                     wrapMode: Text.WordWrap
                     font.family: Theme.fontFamily

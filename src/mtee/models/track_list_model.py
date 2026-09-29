@@ -64,9 +64,13 @@ class TrackListModel(QAbstractListModel):
     def rows_snapshot(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self._rows]
 
+    def row_for_id(self, identity: str) -> int:
+        return self._row_by_id.get(identity, -1)
+
     @Slot(str, result=int)
     def rowForId(self, identity: str) -> int:
-        return self._row_by_id.get(identity, -1)
+        """Expose the row lookup to QML while keeping a Python-style helper."""
+        return self.row_for_id(identity)
 
     @Property(int, notify=rowsChanged)
     def count(self) -> int:
