@@ -76,9 +76,49 @@ FocusScope {
         }
     }
 
+    Item {
+        id: playedWaveformClip
+        z: 1
+        anchors.left: waveformCanvas.left
+        anchors.top: waveformCanvas.top
+        height: waveformCanvas.height
+        width: playbackOverlay.played * waveformCanvas.width
+        clip: true
+
+        Canvas {
+            id: playedWaveformCanvas
+            width: waveformCanvas.width
+            height: waveformCanvas.height
+            property var points: view.displayPoints
+            onPointsChanged: requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                if (points.length === 0 || width <= 0 || height <= 0)
+                    return
+                const center = height / 2
+                ctx.beginPath()
+                for (let i = 0; i < points.length; ++i) {
+                    const x = (i + 0.5) * width / points.length
+                    const low = points[i][0]
+                    const high = points[i][1]
+                    const y1 = center - high * center * 0.92
+                    const y2 = center - low * center * 0.92
+                    ctx.moveTo(x, y1)
+                    ctx.lineTo(x, y2)
+                }
+                ctx.strokeStyle = Theme.textMuted
+                ctx.lineWidth = Math.min(2, Math.max(1, width / points.length * 0.64))
+                ctx.stroke()
+            }
+        }
+    }
+
     Canvas {
         id: playbackOverlay
-        z: 1
+        z: 2
         anchors.fill: waveformCanvas
         property real played: view.playheadRatio
         property real duration: view.durationSeconds
@@ -95,10 +135,6 @@ FocusScope {
 
             const ratio = Math.max(0, Math.min(1, played))
             const playedWidth = ratio * width
-            if (playedWidth > 0) {
-                ctx.fillStyle = Qt.rgba(0, 0, 0, 0.36)
-                ctx.fillRect(0, 0, playedWidth, height)
-            }
 
             const lineX = Math.max(0.5, Math.min(width - 0.5, playedWidth))
             ctx.beginPath()
@@ -112,7 +148,7 @@ FocusScope {
 
     Rectangle {
         id: timeTag
-        z: 2
+        z: 3
         visible: view.durationSeconds > 0
         width: Math.min(view.width, timeLabel.implicitWidth + 12)
         height: 22
