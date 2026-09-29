@@ -63,7 +63,7 @@ Livrer en trois jalons cohérents : disposition approuvée, focus, défilement. 
 - [x] 2026-09-29 — Disposition actuelle confirmée par l’utilisateur ; la recherche reste inchangée et ses commandes gardent leur position.
 - [x] 2026-09-29 — Échap, focus de navigation, raccourcis et défilement ciblé implémentés ; les tests ne sont pas exécutés à la demande de l’utilisateur.
 - [x] 2026-09-29 — QML lint sans erreur, EXE Windows vérifié et rapport consigné dans `docs/validation/ux-ui-26.md`.
-- [ ] Commit et push terminés.
+- [x] 2026-09-29 — Commit `69699da` poussé vers `origin/main`.
 
 ## Surprises & Discoveries
 
