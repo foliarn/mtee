@@ -11,21 +11,29 @@ FocusScope {
     readonly property real positionSeconds: Math.max(0, Number(playback.position) || 0)
     readonly property real playheadRatio: durationSeconds > 0
         ? Math.max(0, Math.min(1, positionSeconds / durationSeconds)) : 0
+    // ``waveform.samples`` is a packed buffer of little-endian float32 pairs
+    // (low, high). A Python list read from QML costs a full copy per element, which
+    // froze the interface for seconds; a typed array view is free.
     readonly property var displayPoints: {
-        const source = waveform.samples || []
+        const raw = waveform.samples
+        const source = raw && raw.byteLength !== undefined ? new Float32Array(raw) : []
+        const count = Math.floor(source.length / 2)
         const budget = Math.max(1, Math.floor(width / 2))
-        if (source.length <= budget)
-            return source
-
         const points = []
+        if (count <= budget) {
+            for (let index = 0; index < count; ++index)
+                points.push([source[2 * index], source[2 * index + 1]])
+            return points
+        }
+
         for (let bin = 0; bin < budget; ++bin) {
-            const start = Math.floor(bin * source.length / budget)
-            const end = Math.max(start + 1, Math.floor((bin + 1) * source.length / budget))
+            const start = Math.floor(bin * count / budget)
+            const end = Math.max(start + 1, Math.floor((bin + 1) * count / budget))
             let low = 1
             let high = -1
             for (let index = start; index < end; ++index) {
-                low = Math.min(low, source[index][0])
-                high = Math.max(high, source[index][1])
+                low = Math.min(low, source[2 * index])
+                high = Math.max(high, source[2 * index + 1])
             }
             points.push([low, high])
         }

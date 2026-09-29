@@ -10,6 +10,7 @@ dependencies = [
     # and Quick3D, which MTEE does not use and which weigh on the distribution.
     "PySide6-Essentials>=6.8,<6.10",
     "mutagen>=1.47",
+    "numpy>=2.5.3",
 ]
 
 [project.scripts]

@@ -57,8 +57,9 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         12,
         13,
         14,
+        15,
     ]
-    assert database.schema_version() == 14
+    assert database.schema_version() == 15
     tables = {
         str(row["name"])
         for row in database.connection().execute(
@@ -69,6 +70,8 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         "settings",
         "schema_migrations",
         "file_copy_operations",
+        "track_analysis",
+        "track_waveforms",
     } <= tables
     operation_columns = {
         str(row[1]) for row in database.connection().execute("PRAGMA table_info(file_operations)")
@@ -89,7 +92,7 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
     original.close()
 
     upgraded = Database(path)
-    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 11, 12, 13, 14]
+    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 11, 12, 13, 14, 15]
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     backups = list(tmp_path.glob("mtee.sqlite3.v4.*.backup"))
     assert len(backups) == 1
@@ -213,8 +216,8 @@ def test_a_database_with_the_retired_analysis_migration_is_upgraded_and_preserve
     legacy.close()
 
     upgraded = Database(path)
-    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14]
-    assert upgraded.schema_version() == 14
+    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14, 15]
+    assert upgraded.schema_version() == 15
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     assert (
         upgraded.connection()
@@ -249,7 +252,7 @@ def test_an_unknown_retired_migration_remains_refused(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedMigrationHistoryError, match="unknown or unsupported"):
         database.migrate()
-    assert database.schema_version() == 14
+    assert database.schema_version() == 15
     database.close()
 
 

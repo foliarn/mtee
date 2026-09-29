@@ -69,7 +69,7 @@ Rectangle {
                         artist: row.track.artist,
                         album: row.track.album,
                         genre: row.track.genre,
-                        bpm: row.track.bpm,
+                        bpm: row.track.bpmText !== undefined ? row.track.bpmText : row.track.bpm,
                         duration: row.track.duration,
                         bitrate: row.track.bitrateText || row.track.bitrate,
                         fileCreatedAt: row.track.fileCreatedAtText,
@@ -126,6 +126,7 @@ Rectangle {
                     visible: field.columnKey === "key"
                     anchors.centerIn: parent
                     key: row.track.key
+                    camelot: row.track.keyCamelot !== undefined ? row.track.keyCamelot : row.track.key
                 }
 
                 Text {

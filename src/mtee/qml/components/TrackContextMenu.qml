@@ -39,6 +39,18 @@ AppMenu {
     }
 
     AppMenuItem {
+        objectName: "analyzeAction"
+        text: "Analyze"
+        onTriggered: menu.workspace.analyzeTracks(menu.targetIds(), false)
+    }
+
+    AppMenuItem {
+        objectName: "reanalyzeAction"
+        text: "Re-analyze"
+        onTriggered: menu.workspace.analyzeTracks(menu.targetIds(), true)
+    }
+
+    AppMenuItem {
         text: "Show in Explorer"
         onTriggered: menu.workspace.showInExplorer(menu.trackId)
     }
@@ -49,5 +61,10 @@ AppMenu {
         workspace: menu.workspace
         trackIds: menu.trackIds
         trackId: menu.trackId
+    }
+
+    // The selection when the clicked track is part of it, else the clicked track.
+    function targetIds() {
+        return trackIds.indexOf(trackId) >= 0 ? trackIds : [trackId]
     }
 }

@@ -1,6 +1,15 @@
 Third-party software included with MTEE
 =======================================
 
+NumPy
+-----
+MTEE uses NumPy for the tempo, key and waveform analysis. NumPy is
+distributed under the BSD-3-Clause license; its metadata also lists
+0BSD, MIT, Zlib and CC0-1.0 components. The primary license text is
+bundled next to this file in resources/licenses/numpy/LICENSE.txt.
+
+  Project: https://numpy.org
+
 libmpv Windows x86-64
 ---------------------
 MTEE bundles libmpv-2.dll from the zhongfly/mpv-winbuild project.

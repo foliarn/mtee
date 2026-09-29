@@ -14,6 +14,8 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
+from mtee.models.analysis_model import AnalysisModel
+from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
@@ -90,6 +92,8 @@ class WorkspaceModel(QObject):
         self._metadata_editor: MetadataEditorModel | None = None
         self._conversion_model: ConversionQueueModel | None = None
         self._trash_model: TrashModel | None = None
+        self._analysis_model: AnalysisModel | None = None
+        self._analysis_settings: AnalysisSettingsModel | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._shell_reveal = WindowsShellReveal()
@@ -408,6 +412,10 @@ class WorkspaceModel(QObject):
     def trashModel(self) -> QObject:
         return self._trash_model if self._trash_model is not None else self
 
+    @Property(QObject, constant=True)
+    def analysisSettings(self) -> QObject:
+        return self._analysis_settings if self._analysis_settings is not None else self
+
     @Property(list, notify=selectionChanged)
     def infoFieldsReadOnly(self) -> list[dict[str, str]]:
         ids = self.selected_ids_snapshot()
@@ -420,7 +428,7 @@ class WorkspaceModel(QObject):
             ("Album", "album"),
             ("Genre", "genre"),
             ("Date", "year"),
-            ("BPM", "bpm"),
+            ("BPM", "bpmText"),
             ("Key", "key"),
             ("Track number", "trackNumber"),
             ("Comment", "comment"),
@@ -500,6 +508,63 @@ class WorkspaceModel(QObject):
         self._trash_model = model
         model.setParent(self)
         model.tracksRecycled.connect(self._on_tracks_recycled)
+
+    def attach_analysis(self, settings: AnalysisSettingsModel, model: AnalysisModel) -> None:
+        """Attach the analysis settings and the model that launches analysis jobs."""
+        if self._analysis_model is not None:
+            raise RuntimeError("An analysis model is already attached to this workspace.")
+        self._analysis_settings = settings
+        self._analysis_model = model
+        model.setParent(self)
+        model.resultsChanged.connect(self._on_analysis_results)
+        model.noticeRaised.connect(self._set_message)
+        settings.changed.connect(self._on_analysis_display_changed)
+        self._apply_analysis_display()
+
+    def _apply_analysis_display(self) -> None:
+        if self._analysis_settings is not None:
+            current = self._analysis_settings.settings
+            self._library.set_analysis_display(current.notation, current.bpm_decimals)
+
+    @Slot(list, bool)
+    def analyzeTracks(self, track_ids: list, force: bool) -> None:
+        """Analyze tracks on demand; ``force`` recomputes those already analyzed."""
+        if self._analysis_model is not None:
+            self._analysis_model.analyzeTracks(track_ids, force)
+
+    @Slot(str, bool)
+    def analyzeFolder(self, folder_id: str, force: bool) -> None:
+        """Analyze a folder and everything inside it, recursively."""
+        if self._analysis_model is None:
+            return
+        try:
+            parsed = _parse_folder_id(str(folder_id))
+        except ValueError:
+            parsed = None
+        if parsed is None:
+            self._set_message("This folder cannot be analyzed.")
+            return
+        self._analysis_model.analyzeTree(parsed[0], parsed[1], force)
+
+    @Slot(list)
+    def _on_analysis_results(self, track_ids: list) -> None:
+        self._reload_analysis_values()
+        playing = self._player.playing_id_value() if self._player is not None else ""
+        if playing and playing in track_ids and self._player is not None:
+            self._player.refreshTrack(playing)
+
+    @Slot()
+    def _on_analysis_display_changed(self) -> None:
+        self._apply_analysis_display()
+        self._reload_analysis_values()
+
+    def _reload_analysis_values(self) -> None:
+        """Reload the rows and the inspector so calculated values appear."""
+        self._revision += 1
+        self._dirty_all_tabs = True
+        self.libraryChanged.emit()
+        self.metadataChanged.emit()
+        self._refresh_timer.start()
 
     @Slot(object)
     def _on_tracks_recycled(self, recycled: object) -> None:

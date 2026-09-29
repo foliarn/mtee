@@ -19,6 +19,8 @@ from mtee import __version__
 from mtee.assets import main_qml, qml_dir
 from mtee.cli import AppOptions, parse_arguments
 from mtee.fonts import register_fonts, resolve_ui_family
+from mtee.models.analysis_model import AnalysisModel
+from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.demo_tracks_model import DemoTracksModel
@@ -31,6 +33,7 @@ from mtee.models.shell_controller import ShellController
 from mtee.models.trash_model import TrashModel
 from mtee.models.waveform_model import WaveformModel
 from mtee.models.workspace_model import WorkspaceModel
+from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.library_repository import LibraryRepository
@@ -39,10 +42,13 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.windows_frame import WindowFrame
+from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
+from mtee.services.audio_analyzer import AudioAnalyzer
 from mtee.services.conversion_service import ConversionService
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.jobs import JobService
+from mtee.services.media_decode_service import MediaDecodeService
 from mtee.services.metadata_writer import MetadataEditService
 from mtee.services.mpv_backend import MpvBackend
 from mtee.services.player_backend import PlayerBackendError
@@ -131,6 +137,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     database = Database(paths.database_path)
     database.migrate()
     settings = SettingsRepository(database)
+    analysis_settings = AnalysisSettingsModel(settings, application)
 
     families = register_fonts()
     font_family = resolve_ui_family(families)
@@ -144,8 +151,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     workspace: QObject | None = None
     if options.demo:
         workspace: QObject = DemoWorkspace(options.scenario)
+        workspace.attach_analysis_settings(analysis_settings)
     else:
         library = LibraryRepository(database)
+        analysis_repository = AnalysisRepository(database)
         workspace_repository = WorkspaceRepository(database)
         file_access = FileAccessCoordinator()
         backend = None
@@ -162,7 +171,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             parent=application,
         )
         waveform_model = WaveformModel(
-            player_service, library, jobs, file_access, paths.cache_dir, application
+            player_service, library, jobs, file_access, analysis_repository, application
         )
         player_model = PlayerModel(player_service, application, waveform=waveform_model)
         workspace = WorkspaceModel(
@@ -182,8 +191,20 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             jobs,
             workspace.selected_ids_snapshot,
             player=player_model,
+            analysis=analysis_repository,
+            analysis_settings=lambda: analysis_settings.settings,
         )
         workspace.attach_metadata_editor(metadata_editor)
+        analysis_service = AnalysisService(
+            library,
+            analysis_repository,
+            AudioAnalyzer(MediaDecodeService(file_access), file_access),
+            metadata_writer,
+        )
+        workspace.attach_analysis(
+            analysis_settings,
+            AnalysisModel(library, analysis_service, jobs, analysis_settings, application),
+        )
         conversion_model = ConversionQueueModel(
             library,
             jobs,
