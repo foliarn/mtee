@@ -2,6 +2,8 @@
 
 Ce document est un ExecPlan vivant à maintenir selon `PLANS.md`, à la racine du dépôt. Il range les morceaux de l'Inbox livrée au [plan 31](31-soundcloud-inbox-mtee.md) dans les dossiers de la collection. Il comprend deux livraisons distinctes : le tri manuel, puis les règles de tri automatique. Chacune a ses prérequis.
 
+**État au 2026-09-29 : abandonné par l'utilisateur.** Ni tri manuel, ni règles de tri ne seront développés dans cette série. Le document est conservé comme trace ; aucune de ses étapes ne doit être exécutée sans une nouvelle demande explicite.
+
 ## Objectif et résultat observable
 
 **Tri manuel.** Depuis l'Inbox, l'utilisateur sélectionne un ou plusieurs morceaux, choisit `Move to folder…`, voit un aperçu (fichier, destination, collision éventuelle) et confirme. Les fichiers quittent l'Inbox pour le dossier choisi, conservent leur `track_id`, leur provenance et leur place dans la file de lecture ; la capture passe à `triaged`. `Undo` remet le dernier lot à sa place tant que les fichiers n'ont pas changé.
@@ -86,6 +88,7 @@ Restreindre `git add` aux fichiers réellement modifiés dans `persistence`, `mo
 ## Progress
 
 - [x] 2026-09-29 — Plan préparé ; attend 31 et les décisions 29.3-5 et 29.3-6.
+- [x] 2026-09-29 — Abandonné par l'utilisateur (réponses 29.3-5 et 29.3-6).
 - [ ] Maquettes validées (32.1).
 - [ ] Déplacement sûr depuis l'Inbox livré (32.2).
 - [ ] Règles et suggestions livrées (32.3).
@@ -101,8 +104,10 @@ Non observé à ce stade.
 
 2026-09-29 — Claude — Règles proposant une destination, application automatique désactivée par défaut. Motif : une règle erronée ne doit pas disperser la collection ; l'aperçu reste la voie ordinaire.
 
+2026-09-29 — Utilisateur — Abandonner le tri vers les dossiers ; pas de réintroduction du déplacement.
+
 ## Outcomes & Retrospective
 
-À compléter après exécution.
+Non exécuté : plan abandonné le 2026-09-29.
 
 Note de révision — 2026-09-29, Claude : création du plan.

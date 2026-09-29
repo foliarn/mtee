@@ -1,146 +1,134 @@
 # 29 — Capture SoundCloud : cadrage, contrats et décisions
 
-Ce document est un ExecPlan vivant à maintenir selon `PLANS.md`, à la racine du dépôt. Il cadre une nouvelle capacité demandée le 29 septembre 2026 : une extension Chrome qui repère les téléchargements gratuits proposés sur SoundCloud, remplit les formulaires des passerelles (« download gates ») Droploud, Hypeddit et Bandcamp, télécharge les fichiers, puis les remet à MTEE pour un futur tri manuel ou automatique vers les dossiers de la collection. Sa rédaction ne modifie ni l'application ni l'extension, qui n'existe pas encore.
+Ce document est un ExecPlan vivant à maintenir selon `PLANS.md`, à la racine du dépôt. Il cadre une capacité demandée le 29 septembre 2026 : une extension Chrome qui repère les téléchargements gratuits proposés sur SoundCloud, remplit les formulaires des passerelles (« download gates ») Droploud, Hypeddit et Bandcamp, télécharge les fichiers dans `Downloads/Songs`, puis soutient l'artiste par un like, un repost et un commentaire choisi par l'utilisateur. Sa rédaction ne modifie ni l'application ni l'extension, qui n'existe pas encore.
 
 ## Résultat attendu et portée
 
-À la fin de la série 29–32, l'utilisateur ouvre un morceau SoundCloud, clique sur un bouton `Send to MTEE` injecté dans la page, complète au besoin les étapes qui engagent son compte, puis retrouve le fichier dans une boîte de réception MTEE (`Inbox`) avec sa provenance : page SoundCloud, passerelle, artiste, titre affiché et date de capture. Depuis cette boîte, il range le morceau dans un dossier de sa collection, d'abord manuellement, puis par des règles qui proposent une destination.
+À la fin de la série, l'utilisateur ouvre un morceau ou une playlist SoundCloud et clique sur `Download` ou `Download playlist`, un bouton injecté dans la page. L'extension trouve la voie de téléchargement, remplit les formulaires avec les informations enregistrées dans ses options et exécute les étapes exigées par la passerelle. Elle laisse l'utilisateur consentir aux connexions OAuth et résoudre les CAPTCHA, puis enregistre les fichiers audio dans `Downloads/Songs`, archives `.zip` extraites. Après chaque téléchargement réussi, elle like, reposte et commente le morceau sur SoundCloud si ce n'est pas déjà fait, selon les options.
 
-La série se découpe en quatre plans exécutables séparément :
+Réponses utilisateur du 29 septembre, consignées dans `docs/decisions/29-soundcloud-capture.md` : seule l'extension est développée maintenant. L'intégration à MTEE ([plan 31](31-soundcloud-inbox-mtee.md)) est reportée ; le tri vers les dossiers ([plan 32](32-soundcloud-tri-dossiers.md)) est abandonné.
 
-| Plan | Livrable | Dépend de |
+| Plan | Livrable | État |
 |---|---|---|
-| 29 — ce document | Étude des sites, contrat de remise extension → MTEE, politique d'automatisation, décisions utilisateur | Rien dans le code ; démarrable immédiatement |
-| [30 — Extension Chrome](30-soundcloud-extension.md) | Extension MV3 : détection, passerelles, téléchargement, manifeste de capture | 29 ; indépendant du code Python |
-| [31 — Inbox MTEE](31-soundcloud-inbox-mtee.md) | Ingestion des captures, provenance en base, vue `Inbox` | 29, 30 (au moins une capture réelle), clôture de la série 23–28, maquette validée |
-| [32 — Tri vers les dossiers](32-soundcloud-tri-dossiers.md) | Tri manuel puis règles de tri automatique | 31, décision sur le déplacement, étape 10 pour les règles fondées sur des tags |
+| 29 — ce document | Étude des sites, politique d'automatisation, contrat de provenance, décisions | En cours ; décisions recueillies |
+| [30 — Extension Chrome](30-soundcloud-extension.md) | Extension MV3 : détection, passerelles, téléchargement, extraction, actions de soutien | Après 29.1–29.2 |
+| [31 — Inbox MTEE](31-soundcloud-inbox-mtee.md) | Ingestion dans MTEE | Reporté par l'utilisateur |
+| [32 — Tri vers les dossiers](32-soundcloud-tri-dossiers.md) | Tri manuel et règles | Abandonné par l'utilisateur |
 
-Hors périmètre : publication sur le Chrome Web Store, extraction d'un flux audio non proposé au téléchargement, contournement d'une passerelle, résolution de CAPTCHA, génération de commentaires, prise en charge d'autres navigateurs, écriture automatique des tags à partir de la page.
+Hors périmètre : publication sur le Chrome Web Store, extraction d'un flux audio non proposé au téléchargement, contournement d'une passerelle, résolution de CAPTCHA, consentement OAuth automatique, génération de commentaires par l'extension, envois groupés depuis les likes, autres navigateurs, toute modification du code Python de MTEE.
 
 ## Sources et état vérifié
 
-Lire `AGENTS.md`, `PLAN.md` (addendum du 29 septembre), `PLANS.md`, ce plan, puis le plan exécuté. Les plans 14 (contrats externes vérifiés avant tout adaptateur), 17 (retraits), 21 (corbeille) et 10 (vocabulaire des tags non validé) fixent des contraintes reprises ici.
+Lire `AGENTS.md`, `PLAN.md` (addendum du 29 septembre), `PLANS.md`, ce plan, `docs/decisions/29-soundcloud-capture.md`, puis le plan exécuté.
 
-État inspecté le 29 septembre 2026 sur `main`, commit `a783620`. Les modifications locales de `.gitignore`, `AGENTS.md` et `.codex/` appartiennent à l'utilisateur et restent hors des commits de cette série.
+État inspecté le 29 septembre 2026 sur `main`, commit `a783620`, puis revu après `7a1dda3`. Les modifications locales de `.gitignore`, `AGENTS.md` et `.codex/` appartiennent à l'utilisateur et restent hors des commits de cette série.
 
-Constats issus des sources :
+Constats du dépôt utiles à l'intégration ultérieure : `library_scanner.py` reconnaît les suffixes audio via `AUDIO_SUFFIXES` ; `library_repository.py` conserve `move_location_in_transaction` sans appelant depuis le lot 17 ; la dernière migration est `014`. Node.js v24.13.0 est installé sur la machine de développement ; il sert uniquement aux tests de l'extension.
 
-- `src/mtee/services/library_scanner.py` reconnaît les suffixes audio via `AUDIO_SUFFIXES` et ignore déjà les fichiers temporaires de conversion MTEE ; un dossier de captures peut donc être parcouru par le scanner existant, à condition d'ignorer les téléchargements incomplets de Chrome (`.crdownload`).
-- `src/mtee/persistence/library_repository.py` conserve `move_location_in_transaction` et `copy_location_in_transaction`, mais aucun appelant n'existe depuis le lot 17, qui a retiré les actions Move/Copy/Rename. Le tri vers un dossier réintroduit donc une opération retirée : c'est une décision utilisateur, pas un choix technique ordinaire.
-- La dernière migration est `014_trash_recycle_identity.sql` ; la numéro 010 est réservée comme migration retirée (`_RETIRED_MIGRATIONS` dans `database.py`). La provenance des captures demandera la prochaine migration libre au moment de l'étape 31.
-- Le plan 10 n'a pas d'accord de vocabulaire ; aucun critère fondé sur des tags personnalisés ne peut être livré avant cet accord.
-- Node.js v24.13.0 est présent sur la machine de développement (`C:\Program Files\nodejs\node.exe`). Il n'est pas une dépendance de MTEE ; il sert uniquement aux tests de l'extension.
+Constats externes à confirmer au jalon 29.1 (recherche web du 29 septembre 2026, non reproduite dans un navigateur) :
 
-Constats externes, à confirmer pendant le jalon 29.1 (recherche web du 29 septembre 2026, non reproduite dans un navigateur) :
+- Droploud (`droploud.com`) : étapes choisies par l'artiste, dont e-mail, follow, like et repost SoundCloud ; conditions sur `https://droploud.com/legal/gate-terms`.
+- Hypeddit (`hypeddit.com`) : e-mail et actions sur plusieurs plateformes ; selon des sources de 2026, les étapes SoundCloud sont devenues facultatives après la suspension de l'accès API de Hypeddit par SoundCloud.
+- Bandcamp : sorties gratuites ou « name your price », lien immédiat ou envoyé par e-mail, domaines personnalisés possibles, albums livrés en `.zip`.
 
-- Droploud (`droploud.com`) propose des passerelles dont les étapes, choisies par l'artiste, peuvent comprendre e-mail, abonnement SoundCloud, like et repost. Ses conditions sont publiées sur `https://droploud.com/legal/gate-terms`.
-- Hypeddit (`hypeddit.com`) propose des passerelles combinant e-mail et actions sur plusieurs plateformes. Des sources de 2026 rapportent que SoundCloud a suspendu l'accès API de Hypeddit et que les étapes SoundCloud y sont devenues facultatives. L'extension suit l'interface affichée ; elle ne suppose pas que cet état est durable.
-- Bandcamp propose des sorties gratuites ou « name your price » ; certaines délivrent le lien immédiatement, d'autres l'envoient par e-mail. Les artistes peuvent utiliser un domaine personnalisé.
+## Décisions de conception
 
-## Décisions de conception proposées
+**Deux familles d'actions.** Les *étapes de passerelle* sont celles que la passerelle exige pour libérer le téléchargement. Les *actions de soutien* sont le like, le repost et le commentaire réalisés sur la page SoundCloud du morceau après un téléchargement réussi, qu'ils aient été exigés ou non.
 
-Ces choix sont proposés pour être confirmés au jalon 29.3. Ils ne valent pas accord utilisateur.
-
-**Remise par dossier plutôt que par serveur local.** L'extension télécharge chaque capture dans `<dossier Téléchargements de Chrome>/MTEE Inbox/<capture_id>/` et y écrit en dernier un manifeste `capture.json`. MTEE lit ce dossier. Motifs : Chrome n'autorise l'extension à écrire que sous son dossier de téléchargements ; MTEE n'a pas besoin d'être ouvert pendant la capture ; aucun port local n'est exposé aux pages web ; aucune clé de registre n'est créée. Un hôte de messagerie native (« native messaging ») reste une amélioration ultérieure possible pour afficher l'état de MTEE ou ouvrir la capture, après accord, puisqu'il exige un manifeste enregistré dans `HKCU`.
-
-**Le manifeste est le marqueur de fin.** Un dossier sans `capture.json` valide est une capture en cours ou abandonnée ; MTEE l'ignore. L'extension n'écrit le manifeste qu'après l'événement de téléchargement terminé pour chaque fichier.
-
-**Automatisation graduée.** L'extension automatise ce qui ne parle pas au nom de l'utilisateur et laisse la main pour ce qui engage son compte :
-
-| Étape de passerelle | Comportement par défaut | Réglable |
+| Action | Comportement | Réglable |
 |---|---|---|
-| Détection du lien gratuit, ouverture de la passerelle | Automatique après clic sur `Send to MTEE` | Non |
-| E-mail, nom, pays | Remplis depuis les options locales | Oui : désactivable |
-| Connexion SoundCloud/Spotify/autre (OAuth) | Jamais automatique : l'utilisateur consent | Non |
-| Follow, like, repost | L'extension met l'étape en évidence et attend le clic | Oui : `Ask` ou `Auto` par type d'action |
-| Commentaire | Jamais généré ni posté par l'extension | Non |
+| Détection, ouverture de la passerelle | Automatique après clic sur `Download` | Non |
+| E-mail, nom, pays et autres champs | Remplis depuis le profil de formulaire des options | Oui : contenu et activation |
+| Connexion OAuth (SoundCloud, Spotify…) | Jamais automatique : l'utilisateur consent | Non |
+| Follow, like, repost, commentaire exigés par la passerelle | Automatiques ; commentaire tiré de la liste de l'utilisateur | Oui : `Auto` ou `Ask` |
 | CAPTCHA, anti-robot | Pause, l'utilisateur agit | Non |
 | Bouton de téléchargement final | Automatique | Non |
+| Like, repost de soutien après succès | Automatiques si pas déjà actifs sur SoundCloud | Oui : chacun activable |
+| Commentaire de soutien après succès | Automatique, tiré de la liste de l'utilisateur, un seul par morceau | Oui : activable, liste modifiable |
 
-**Pas de contournement.** Aucune requête fabriquée vers l'API d'une passerelle, aucune étape exigée sautée, aucune capture de flux audio. Si un morceau n'offre ni téléchargement SoundCloud natif ni lien vers une passerelle prise en charge, l'extension l'indique et s'arrête.
+**Pas de double action.** Like et repost sont des bascules : leur état est lu avant tout clic et un bouton déjà actif n'est pas touché. Une action exigée par la passerelle et déjà réalisée n'est pas répétée. L'historique local mémorise les commentaires postés par l'extension ; un morceau déjà commenté par elle ne l'est plus.
 
-**Tri découplé de la capture.** La capture ne place rien directement dans la collection. Une capture arrive dans `Inbox` ; le tri est une étape séparée, réversible et journalisée. Les métadonnées lues sur la page sont des observations de provenance, jamais écrites dans le fichier sans action explicite (même règle que le plan 14).
+**Rythme et plafond.** Les actions de soutien sont espacées d'un délai aléatoire. Un plafond quotidien réglable s'applique ; au-delà, les téléchargements continuent, mais sans actions de soutien, et la popup le signale. Les valeurs par défaut sont proposées au plan 30 et mesurées en recette ; elles ne proviennent d'aucune règle publiée par SoundCloud. L'utilisateur est informé que des commentaires répétitifs peuvent être considérés comme du spam par la plateforme.
 
-**Code dans le dépôt MTEE.** L'extension vit dans `extensions/soundcloud-capture/`, en JavaScript ES modules sans étape de compilation, documenté par JSDoc. Motif : le projet est Python/uv ; une chaîne TypeScript ajouterait un outil de build pour quelques centaines de lignes. Le contrat `capture.json` est défini une fois dans `docs/integrations/soundcloud-capture.md` et testé des deux côtés.
+**Aucun contournement.** Aucune requête fabriquée vers l'API d'une passerelle ou de SoundCloud : toutes les actions passent par l'interface affichée, dans la session de l'utilisateur. Aucune étape exigée n'est sautée et aucun flux audio n'est capturé.
 
-**Installation locale.** L'extension est chargée « non empaquetée » en mode développeur de Chrome. Un script produit une archive dans `dist/` (non versionnée) ; aucune publication sur le Chrome Web Store n'est faite sans décision séparée.
+**Emplacement.** Les fichiers audio vont à plat dans `<Téléchargements de Chrome>/Songs/`, sans jamais écraser un fichier : Chrome ajoute un suffixe numéroté en cas de collision. Chrome n'autorise l'extension à écrire que sous son dossier de téléchargements. Si l'utilisateur a activé « Demander où enregistrer chaque fichier », ce choix peut détourner le fichier ; la popup doit alors le signaler.
 
-## Contrat de capture (version 1)
+**Provenance légère pour plus tard.** Un manifeste par téléchargement est écrit dans `Songs/_mtee/<capture_id>.json`, après les fichiers audio. Ce réglage est actif par défaut et désactivable. Il prépare l'intégration MTEE reportée sans encombrer le dossier des morceaux.
 
-Définir dans `docs/integrations/soundcloud-capture.md`, au jalon 29.2 :
+**Archives.** Si le fichier final est un `.zip` que l'extension peut lire elle-même, elle l'extrait et n'enregistre que les fichiers audio ; la pochette est conservée si l'option correspondante est active. Si l'archive ne peut être obtenue que par le téléchargement normal de Chrome (lien à usage unique, requête déclenchée par la page), elle est enregistrée telle quelle et signalée `Zip not extracted`. Le choix entre ces deux cas se fait au jalon 29.2.
 
-    MTEE Inbox/
-      <capture_id>/                 UUID v4 généré par l'extension
-        <nom de fichier fourni par le serveur, assaini>
-        [fichiers supplémentaires éventuels, par exemple une archive .zip]
-        capture.json                écrit en dernier
+**Code dans le dépôt MTEE.** L'extension vit dans `extensions/soundcloud-capture/`, en JavaScript ES modules sans compilation, documenté par JSDoc et testé avec `node --test`. Elle est chargée non empaquetée en mode développeur ; aucune publication sur le Chrome Web Store.
 
-    capture.json
+## Contrat de provenance (version 1)
+
+À décrire dans `docs/integrations/soundcloud-capture.md` au jalon 29.2 :
+
+    Downloads/Songs/
+      <fichiers audio, noms fournis par le serveur, assainis>
+      _mtee/
+        <capture_id>.json        écrit après les fichiers audio
+
+    <capture_id>.json
     {
       "schema": "mtee.capture/1",
-      "capture_id": "<uuid>",
+      "capture_id": "<uuid v4>",
       "created_at_utc": "2026-09-29T12:34:56Z",
       "extension_version": "0.1.0",
       "source": {
         "platform": "soundcloud",
         "page_url": "https://soundcloud.com/<artist>/<track>",
+        "playlist_url": "<facultatif, envoi groupé>",
         "track_title": "<tel qu'affiché>",
         "artist_display": "<tel qu'affiché>",
-        "artwork_url": "<facultatif>",
         "tags_displayed": ["<genre affiché>"]
       },
       "route": {
         "kind": "soundcloud_native | droploud | hypeddit | bandcamp",
         "gate_url": "<facultatif>",
-        "steps": [{"kind": "email", "mode": "autofill"}, {"kind": "follow", "mode": "user"}]
+        "steps": [{"kind": "email", "mode": "autofill", "done": true}]
       },
       "files": [
-        {"name": "<nom relatif>", "size_bytes": 12345678, "mime": "audio/mpeg",
-         "final_url_host": "<hôte seul>", "completed_at_utc": "..."}
-      ]
+        {"name": "<nom relatif à Songs>", "size_bytes": 12345678, "mime": "audio/mpeg",
+         "from_archive": "<nom de l'archive si extrait>", "completed_at_utc": "..."}
+      ],
+      "support": {"like": "done | already | skipped | failed",
+                  "repost": "...", "comment": "posted | skipped | failed"}
     }
 
-Le manifeste ne contient ni adresse e-mail, ni jeton, ni cookie, ni URL de téléchargement signée complète (seul l'hôte est conservé). Un champ absent reste absent. MTEE refuse un `schema` inconnu en l'affichant comme capture non lisible, sans la supprimer. Toute évolution incompatible crée `mtee.capture/2`.
+Le manifeste ne contient ni adresse e-mail, ni nom saisi, ni texte du commentaire, ni jeton, ni cookie, ni URL de téléchargement signée. Un champ absent reste absent. L'intégration MTEE future refusera un `schema` inconnu sans supprimer le fichier.
 
 ## Plan de travail et jalons
 
 ### Jalon 29.1 — Étudier les pages réelles
 
-Avec l'utilisateur, ouvrir dans Chrome au moins un exemple par voie : téléchargement SoundCloud natif, lien vers Droploud, lien vers Hypeddit, lien vers Bandcamp (sortie gratuite directe et sortie envoyée par e-mail si disponible), et un morceau sans téléchargement. Relever pour chacun : où apparaît le lien sur SoundCloud (bouton d'achat, menu `More`, description), la redirection éventuelle par `gate.sc`, les domaines traversés, les étapes et leur ordre, les champs de formulaire, les pop-ups OAuth, le nom et le type du fichier final, et le déclencheur du téléchargement (lien direct, requête après clic, archive).
+Avec l'utilisateur, ouvrir dans Chrome au moins un exemple par voie : téléchargement SoundCloud natif, Droploud, Hypeddit, Bandcamp (lien direct et, si disponible, lien par e-mail, plus un album en `.zip`), un morceau sans téléchargement et une playlist mêlant ces cas. Relever pour chacun : emplacement du lien sur SoundCloud (bouton d'achat, menu `More`, description), redirection par `gate.sc`, domaines traversés, étapes et ordre, champs de formulaire, fenêtres OAuth, nom et type du fichier final, mode de déclenchement (lien direct lisible, requête après clic, lien à usage unique).
 
-Consigner les conditions d'utilisation consultées (SoundCloud, Droploud, Hypeddit, Bandcamp) et ce qu'elles disent de l'automatisation, avec URL et date. Ne pas copier les pages : noter la structure utile (rôles, textes de boutons, attributs stables) pour reconstruire des fixtures synthétiques au plan 30.
+Sur SoundCloud, relever aussi comment se présentent l'état liké/reposté, la zone de commentaire, le message affiché si l'utilisateur n'est pas connecté et le comportement d'une page de playlist longue (chargement progressif des titres).
 
-Résultat attendu : `docs/integrations/soundcloud-capture.md`, section « Observations », avec une ligne par voie : `observé`, `documenté seulement` ou `non disponible`. Une voie non observée n'est pas développée au plan 30.
+Consigner les conditions d'utilisation de SoundCloud, Droploud, Hypeddit et Bandcamp relatives à l'automatisation et aux commentaires, avec URL et date. Ne pas copier les pages : noter la structure utile pour les fixtures synthétiques du plan 30. Chaque voie reçoit l'état `observé`, `documenté seulement` ou `non disponible` ; une voie non observée n'est pas développée.
 
-### Jalon 29.2 — Fixer le contrat de remise
+### Jalon 29.2 — Prototyper les points incertains
 
-Rédiger le contrat ci-dessus dans `docs/integrations/soundcloud-capture.md` et le prototyper à la main : dans Chrome, vérifier depuis la console d'une extension minimale jetable (hors dépôt) que `chrome.downloads.download` accepte un sous-dossier relatif et une URL `data:application/json` pour le manifeste. Si l'URL `data:` est refusée, retenir la génération du manifeste par un document hors écran (`chrome.offscreen`) avec `URL.createObjectURL`, et le consigner.
+Avec une extension jetable hors dépôt, vérifier : `chrome.downloads.download` vers `Songs/…` et `Songs/_mtee/…` ; écriture d'un JSON par URL `data:` depuis le service worker, sinon par document hors écran (`chrome.offscreen`) et `URL.createObjectURL` ; lecture d'une archive Bandcamp par `fetch` depuis l'extension avec les cookies de session, puis extraction en mémoire et enregistrement des entrées audio. Mesurer la mémoire sur une archive d'album réelle et fixer un plafond de taille au-delà duquel l'archive est enregistrée sans extraction.
 
-Vérifier aussi le comportement lorsque l'utilisateur a activé « Demander où enregistrer chaque fichier » dans Chrome : le téléchargement doit alors être détecté comme sorti de `MTEE Inbox` et signalé, pas perdu en silence.
+Consigner les résultats et le mécanisme retenu dans `docs/integrations/soundcloud-capture.md`.
 
-### Jalon 29.3 — Recueillir les décisions utilisateur
+### Jalon 29.3 — Décisions utilisateur
 
-Préparer `docs/decisions/29-soundcloud-capture.md` avec les questions ci-dessous, chacune accompagnée d'une recommandation, puis consigner les réponses datées. Le développement du plan 30 attend ces réponses ; le silence ne vaut pas accord.
-
-1. Politique d'automatisation : le tableau ci-dessus convient-il ? Follow/like/repost par défaut en `Ask` ?
-2. Données de formulaire : quelle adresse e-mail (idéalement dédiée), faut-il remplir nom et pays ?
-3. Emplacement : `Téléchargements/MTEE Inbox` convient-il, ou un autre dossier sous Téléchargements ?
-4. Lots : faut-il pouvoir envoyer plusieurs morceaux d'une playlist ou des likes en une fois ? Recommandation : oui, en file séquentielle, un onglet de passerelle à la fois, utilisateur présent.
-5. Tri manuel (plan 32) : accepter la réintroduction d'une action `Move to folder` limitée aux morceaux de l'Inbox ?
-6. Tri automatique : quels critères sont attendus en premier (artiste SoundCloud, genre affiché, BPM/Key des tags, passerelle, playlist SoundCloud d'origine) ? Les critères fondés sur des tags personnalisés attendent l'étape 10.
-7. Archives : extraire automatiquement les `.zip` (albums Bandcamp, packs) dans MTEE, ou les laisser à l'utilisateur ?
+Réalisé le 29 septembre 2026 ; voir `docs/decisions/29-soundcloud-capture.md`. Restent à fournir par l'utilisateur avant la recette réelle du plan 30 : la liste des commentaires et les valeurs du profil de formulaire. Ces données sont saisies dans les options de l'extension et ne sont jamais versionnées.
 
 ### Jalon 29.4 — Ordonner la série
 
-Mettre à jour `Plans d'exécution/README.md` et l'addendum de `PLAN.md` selon les réponses. Recommandation : 29 et 30 peuvent avancer pendant la série UX/UI puisqu'ils ne touchent pas le code Python ; 31 et 32 attendent la clôture du plan 28 et leurs maquettes validées.
+Index et addendum de `PLAN.md` mis à jour le 29 septembre selon les décisions. Le plan 30 peut avancer pendant les séries en cours puisqu'il ne touche pas le code Python.
 
 ## Validation et acceptation
 
-Ce plan est documentaire. Il est accepté lorsque : chaque voie a un statut observé/documenté/non disponible avec sources datées ; le contrat v1 est rédigé et prototypé sur les deux points du jalon 29.2 ; les réponses utilisateur sont consignées ; l'index et `PLAN.md` sont à jour. Contrôles : liens relatifs valides, encodage UTF-8, `git diff --check`. Aucun test applicatif n'est annoncé.
+Ce plan est documentaire. Il est accepté lorsque chaque voie a un statut observé/documenté/non disponible avec sources datées, que les prototypes du jalon 29.2 ont donné un mécanisme retenu pour le manifeste et pour les archives, et que les décisions sont consignées. Contrôles : liens relatifs, encodage UTF-8, `git diff --check`. Aucun test applicatif n'est annoncé.
 
 ## Reprise et réexécution
 
-Les observations sont datées ; une passerelle qui change d'interface demande de refaire la ligne concernée du jalon 29.1, sans rouvrir les autres. Une décision utilisateur modifiée est ajoutée au journal avec sa date ; l'ancienne reste visible.
+Les observations sont datées ; une passerelle qui change d'interface demande de refaire sa seule ligne du jalon 29.1. Une décision utilisateur modifiée est ajoutée au journal et au fichier de décisions avec sa date ; l'ancienne reste visible.
 
 ## Preuves et livraison Git
 
@@ -148,17 +136,17 @@ Depuis la racine du dépôt :
 
     git status --short
     git diff --check
-    git add -- "Plans d'exécution/29-soundcloud-cadrage.md" docs/integrations/soundcloud-capture.md docs/decisions/29-soundcloud-capture.md "Plans d'exécution/README.md" PLAN.md
+    git add -- "Plans d'exécution/29-soundcloud-cadrage.md" docs/integrations/soundcloud-capture.md docs/decisions/29-soundcloud-capture.md
     git diff --cached --check
     git diff --cached
 
     $mteeCommitMessage = Join-Path $env:TEMP 'mtee-step29-commit.txt'
     @'
-    docs(capture): record SoundCloud capture study and decisions
+    docs(capture): record SoundCloud route study and prototypes
 
-    Changes: <routes observed, capture.json v1 contract, automation policy, user answers>
-    Validation: <pages examined, prototype results for subfolder and manifest downloads>
-    Limits: <routes not observed, open questions>
+    Changes: <routes observed, provenance contract, manifest and zip mechanisms>
+    Validation: <pages examined, prototype measurements>
+    Limits: <routes not observed, open points>
     '@ | Set-Content -LiteralPath $mteeCommitMessage -Encoding utf8
     git commit --file $mteeCommitMessage
 
@@ -167,27 +155,31 @@ Pousser selon `PLANS.md` (fetch, comparaison, `git push origin main`, vérificat
 ## Progress
 
 - [x] 2026-09-29 — Demande reçue ; dépôt, plans 10, 14, 17 et services concernés inspectés ; série 29–32 préparée.
+- [x] 2026-09-29 — Réponses utilisateur consignées ; périmètre réduit à l'extension, actions de soutien ajoutées, 31 reporté, 32 abandonné (29.3, 29.4).
 - [ ] Voies réelles observées et conditions d'utilisation consultées (29.1).
-- [ ] Contrat `capture.json` v1 rédigé et prototypé (29.2).
-- [ ] Décisions utilisateur consignées (29.3).
-- [ ] Index et `PLAN.md` mis à jour selon les décisions, commit et push (29.4).
+- [ ] Manifeste, écriture dans `Songs/_mtee/` et extraction d'archive prototypés (29.2).
+- [ ] Liste de commentaires et profil de formulaire saisis par l'utilisateur dans l'extension (avant recette 30).
 
 ## Surprises & Discoveries
 
-2026-09-29 — Les primitives `move_location_in_transaction` et `copy_location_in_transaction` subsistent dans `library_repository.py` sans appelant depuis le lot 17. Elles peuvent servir de base au tri, sous réserve de relire leurs tests et de l'accord sur la réintroduction du déplacement.
+2026-09-29 — Les primitives `move_location_in_transaction` et `copy_location_in_transaction` subsistent dans `library_repository.py` sans appelant depuis le lot 17. Sans objet tant que le tri est abandonné.
 
-2026-09-29 — Des sources publiques de 2026 indiquent que les étapes SoundCloud des passerelles Hypeddit sont devenues facultatives après la suspension de son accès API. Non vérifié dans un navigateur.
+2026-09-29 — Des sources publiques de 2026 indiquent que les étapes SoundCloud des passerelles Hypeddit sont devenues facultatives. Non vérifié dans un navigateur. Cela motive les actions de soutien demandées par l'utilisateur.
 
 ## Decision Log
 
-2026-09-29 — Claude — Remise par dossier `MTEE Inbox` et manifeste écrit en dernier, plutôt qu'un serveur HTTP local ou un hôte natif. Motif : aucune surface réseau locale, pas d'écriture dans le registre, MTEE peut être fermé pendant la capture.
+2026-09-29 — Claude — Remise par fichiers dans le dossier Téléchargements plutôt qu'un serveur HTTP local ou un hôte natif. Motif : aucune surface réseau locale, pas d'écriture dans le registre, MTEE n'a pas besoin d'être ouvert.
 
-2026-09-29 — Claude — Aucune action engageant le compte de l'utilisateur n'est automatisée par défaut ; commentaires, consentements OAuth et CAPTCHA restent toujours manuels. Motif : ces actions publient au nom de l'utilisateur et relèvent des conditions des plateformes. À confirmer au jalon 29.3.
+2026-09-29 — Claude — Proposition initiale : aucune action engageant le compte automatisée, commentaires jamais postés. Remplacée le même jour par la décision utilisateur ci-dessous.
 
-2026-09-29 — Claude — Capture et tri séparés par une Inbox. Motif : le déplacement est retiré depuis le lot 17 et les critères de tags attendent l'étape 10 ; la capture peut être livrée sans ces deux dépendances.
+2026-09-29 — Utilisateur — Après un téléchargement réussi, liker, reposter et commenter avec un texte choisi dans sa propre liste, même si la passerelle ne l'exige pas, pour soutenir les artistes. Claude — Appliquer avec lecture d'état avant clic, un commentaire par morceau, délais et plafond quotidien ; OAuth et CAPTCHA restent manuels.
+
+2026-09-29 — Utilisateur — Téléchargements dans `Downloads/Songs` ; envois groupés depuis les playlists, pas depuis les likes ; extraction des `.zip` ; profil de formulaire géré dans l'extension ; intégration MTEE reportée ; tri abandonné.
+
+2026-09-29 — Claude — Conserver un manifeste de provenance désactivable dans `Songs/_mtee/`. Motif : faible coût, et prépare l'intégration MTEE reportée sans décision supplémentaire.
 
 ## Outcomes & Retrospective
 
-Série préparée à partir du commit `a783620`. Aucune page de passerelle n'a été ouverte, aucun prototype d'extension exécuté, aucune décision utilisateur recueillie. Les constats externes proviennent d'une recherche web et restent à observer.
+Série préparée à partir du commit `a783620`, décisions intégrées après `7a1dda3`. Aucune page de passerelle ouverte, aucun prototype d'extension exécuté. Les constats externes proviennent d'une recherche web et restent à observer.
 
-Note de révision — 2026-09-29, Claude : création du cadrage de la capture SoundCloud et de la série 29–32.
+Note de révision — 2026-09-29, Claude : création du cadrage ; même jour, intégration des réponses utilisateur (actions de soutien, `Downloads/Songs`, playlists, archives, report de 31, abandon de 32).

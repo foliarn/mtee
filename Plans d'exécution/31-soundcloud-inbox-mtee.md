@@ -2,6 +2,8 @@
 
 Ce document est un ExecPlan vivant à maintenir selon `PLANS.md`, à la racine du dépôt. Il fait entrer dans MTEE les captures produites par l'extension du [plan 30](30-soundcloud-extension.md) selon le contrat `capture.json` v1 du [cadrage 29](29-soundcloud-cadrage.md). Il commence après la clôture du plan 28, avec au moins une capture réelle disponible et une maquette validée.
 
+**État au 2026-09-29 : reporté par l'utilisateur.** L'extension du plan 30 télécharge seulement dans `Downloads/Songs` ; l'intégration à MTEE sera reprise plus tard. Le dossier de captures prévu ci-dessous devient `Downloads/Songs`, avec les manifestes dans `Songs/_mtee/` (voir le plan 29). Le tri du plan 32 étant abandonné, l'Inbox ne sera plus une étape de tri. À la reprise, réviser ce plan pour une simple ingestion de ce dossier comme racine avec provenance, et consigner cette révision.
+
 ## Objectif et résultat observable
 
 Dans Settings, l'utilisateur choisit le dossier `MTEE Inbox` (proposé par défaut sous son dossier Téléchargements). MTEE détecte les nouvelles captures complètes, sans blocage de l'interface, et les montre dans une vue `Inbox` : titre, artiste, voie (`SoundCloud`, `Droploud`, `Hypeddit`, `Bandcamp`), date de capture, format, durée, BPM et Key des tags s'ils existent. Un compteur signale les captures non triées. Les morceaux se jouent comme n'importe quelle liste. `Open source page` ouvre la page SoundCloud d'origine dans le navigateur par défaut.
@@ -114,6 +116,7 @@ Adapter la liste `git add` aux fichiers QML réellement modifiés. Pousser selon
 ## Progress
 
 - [x] 2026-09-29 — Plan préparé ; attend 28, 30 et une capture réelle.
+- [x] 2026-09-29 — Reporté par l'utilisateur ; à réviser avant reprise.
 - [ ] Maquette Inbox validée (31.1).
 - [ ] Lecture et validation des manifestes (31.2).
 - [ ] Migration et dépôt de provenance (31.3).
@@ -129,6 +132,8 @@ Non observé à ce stade.
 2026-09-29 — Claude — L'Inbox est une racine de bibliothèque particulière plutôt qu'un mécanisme parallèle. Motif : réutiliser scanner, identités, lecture et pochettes ; le tri devient un déplacement entre racines connues.
 
 2026-09-29 — Claude — Les données de page restent des observations de provenance. Motif : séparation métadonnées écrites / données externes exigée par `AGENTS.md` et appliquée au plan 14.
+
+2026-09-29 — Utilisateur — Reporter l'intégration MTEE ; se limiter pour l'instant au téléchargement par l'extension.
 
 ## Outcomes & Retrospective
 

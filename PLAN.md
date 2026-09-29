@@ -3,9 +3,9 @@
 
 ## Addendum capture SoundCloud — 2026-09-29
 
-L’utilisateur demande une extension Chrome qui repère sur SoundCloud les téléchargements gratuits, remplit les formulaires des passerelles Droploud, Hypeddit et Bandcamp, télécharge les fichiers, puis les rend disponibles dans MTEE pour un futur tri manuel ou automatique vers ses dossiers. La série [29–32](Plans%20d'ex%C3%A9cution/README.md) en prépare le cadrage, l’extension, l’Inbox de MTEE et le tri.
+L’utilisateur demande une extension Chrome qui repère sur SoundCloud les téléchargements gratuits, remplit les formulaires des passerelles Droploud, Hypeddit et Bandcamp avec des informations gérées dans l’extension, puis enregistre les fichiers dans `Downloads/Songs`, archives `.zip` extraites. Après chaque téléchargement réussi, elle like, reposte et commente le morceau avec un texte choisi dans sa propre liste, même si la passerelle ne l’exige pas, pour soutenir les artistes. Les envois groupés sont possibles depuis les playlists, pas depuis les likes. La série [29–32](Plans%20d'ex%C3%A9cution/README.md) détaille ce travail.
 
-Principes proposés, à confirmer au jalon 29.3 : remise par un dossier `MTEE Inbox` et un manifeste de provenance, sans serveur local ; aucune action engageant le compte (consentement OAuth, commentaire, CAPTCHA) automatisée, follow/like/repost sur demande par défaut ; aucun contournement de passerelle ni capture de flux ; provenance distincte des tags du fichier ; capture et tri séparés. Le tri réintroduit un déplacement limité à l’Inbox, retiré au lot 17, et n’est développé qu’avec l’accord de l’utilisateur. Les critères fondés sur des tags personnalisés attendent l’étape 10. Cet addendum ne modifie pas l’ordre de la stabilisation ni de la série UX/UI.
+Décisions du 29 septembre : l’intégration à MTEE est reportée, le tri vers les dossiers est abandonné. Le consentement OAuth et les CAPTCHA restent toujours à l’utilisateur. Aucun like ni repost existant n’est inversé, un seul commentaire est posté par morceau, et des délais comme un plafond quotidien encadrent les actions de soutien. Aucun contournement de passerelle ni capture de flux n’est prévu. Un manifeste de provenance désactivable prépare l’intégration future. Cet addendum ne modifie ni l’application MTEE ni l’ordre des séries en cours.
 
 ## Addendum UX/UI — 2026-09-28
 

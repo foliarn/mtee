@@ -4,14 +4,14 @@ Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d
 
 ## Capture SoundCloud — préparation du 2026-09-29
 
-Cette série répond à la demande d’une extension Chrome qui récupère les téléchargements gratuits proposés sur SoundCloud (téléchargement natif, Droploud, Hypeddit, Bandcamp) et les remet à MTEE pour un tri manuel puis automatique vers les dossiers. Elle est préparée, non implémentée ; les décisions du jalon 29.3 précèdent tout développement.
+Cette série répond à la demande d’une extension Chrome qui récupère les téléchargements gratuits proposés sur SoundCloud (téléchargement natif, Droploud, Hypeddit, Bandcamp) et les enregistre dans `Downloads/Songs`. Elle soutient ensuite l’artiste par un like, un repost et un commentaire choisi dans la liste de l’utilisateur. Les réponses utilisateur du 29 septembre sont consignées dans `docs/decisions/29-soundcloud-capture.md` : seule l’extension est développée maintenant. Elle est préparée, non implémentée.
 
 | Plan | Catégorie et dépendances |
 |---|---|
-| [29 — Cadrage et contrats](29-soundcloud-cadrage.md) | Étude des voies réelles, contrat `capture.json` v1, politique d’automatisation, décisions utilisateur ; documentaire |
-| [30 — Extension Chrome](30-soundcloud-extension.md) | Extension MV3, détection, passerelles, téléchargement vers `MTEE Inbox` ; après 29, sans toucher au code Python |
-| [31 — Inbox MTEE](31-soundcloud-inbox-mtee.md) | Ingestion, provenance, vue Inbox ; après 28, 30 et une maquette validée |
-| [32 — Tri vers les dossiers](32-soundcloud-tri-dossiers.md) | Déplacement depuis l’Inbox puis règles ; après 31, accord sur le déplacement, étape 10 pour les tags personnalisés |
+| [29 — Cadrage et contrats](29-soundcloud-cadrage.md) | Étude des voies réelles, prototypes du manifeste et des archives, décisions ; documentaire |
+| [30 — Extension Chrome](30-soundcloud-extension.md) | Extension MV3 : détection, passerelles, `Downloads/Songs`, extraction zip, lots de playlist, actions de soutien ; après 29.1–29.2, sans toucher au code Python |
+| [31 — Inbox MTEE](31-soundcloud-inbox-mtee.md) | Reporté par l’utilisateur ; à réviser avant reprise |
+| [32 — Tri vers les dossiers](32-soundcloud-tri-dossiers.md) | Abandonné par l’utilisateur ; conservé comme trace |
 
 ## Correctifs UX/UI — préparation du 2026-09-28
 
