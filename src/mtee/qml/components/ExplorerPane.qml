@@ -80,6 +80,25 @@ Item {
         }
     }
 
+    function openContextMenu(row, x, y) {
+        const data = row.modelData
+        if (data.kind === "folder") {
+            explorerMenu.folderId = String(data.id)
+            explorerMenu.trackIds = []
+        } else {
+            const selected = workspace.selectedIds
+            explorerMenu.folderId = ""
+            explorerMenu.trackIds = selected.indexOf(data.id) >= 0 ? selected : [String(data.id)]
+        }
+        explorerMenu.popup(row, x, y)
+    }
+
+    ExplorerContextMenu {
+        id: explorerMenu
+        objectName: "explorerContextMenu"
+        workspace: pane.workspace
+    }
+
     FolderDialog {
         id: folderPicker
         title: "Add a music folder"
@@ -116,6 +135,7 @@ Item {
         delegate: Rectangle {
             id: row
 
+            objectName: "explorerRow"
             required property var modelData
             readonly property bool isFolder: modelData.kind === "folder"
             readonly property bool isLoading: modelData.kind === "loading"
@@ -172,11 +192,18 @@ Item {
                 id: rowMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                acceptedButtons: Qt.LeftButton
-                onPressed: pane.rememberAnchor(row.modelData, row.y)
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onPressed: (event) => {
+                    if (event.button === Qt.LeftButton)
+                        pane.rememberAnchor(row.modelData, row.y)
+                }
                 onClicked: (event) => {
                     if (row.isLoading)
                         return
+                    if (event.button === Qt.RightButton) {
+                        pane.openContextMenu(row, event.x, event.y)
+                        return
+                    }
                     if (row.isFolder) {
                         const onChevron = event.x < chevron.x + chevron.width + 2
                         if (onChevron) {

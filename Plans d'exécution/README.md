@@ -2,6 +2,14 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Analyse audio — 2026-09-30
+
+Demande explicite de l'utilisateur : réintroduire l'analyse pour le BPM, la tonalité et la waveform, avec stockage permanent, un onglet de réglages et un lancement par clic droit. Le périmètre est limité à ces trois valeurs ; les silences, la loudness et les tags sémantiques restent hors périmètre.
+
+| Plan | Catégorie et dépendances |
+|---|---|
+| [33 — Analyse audio](33-analyse-audio.md) | BPM précis, tonalité, waveform permanente, onglet Analysis, menus clic droit ; implémenté depuis les sources, recette réelle et build non réalisés |
+
 ## Capture SoundCloud — préparation du 2026-09-29
 
 Cette série répond à la demande d’une extension Chrome qui récupère les téléchargements gratuits proposés sur SoundCloud (téléchargement natif, Droploud, Hypeddit, Bandcamp) et les enregistre dans `Downloads/Songs`. Elle soutient ensuite l’artiste par un like, un repost et un commentaire choisi dans la liste de l’utilisateur. Les réponses utilisateur du 29 septembre sont consignées dans `docs/decisions/29-soundcloud-capture.md` : seule l’extension est développée maintenant. Elle est préparée, non implémentée.

@@ -13,8 +13,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from mtee.domain.analysis import format_bpm
 from mtee.domain.file_dates import FileDates, format_file_timestamp
 from mtee.domain.metadata import MetadataSnapshot, format_bitrate
+from mtee.domain.musical_key import MusicalKey, format_key, parse_key
 from mtee.domain.tracks import SourceRevision, TrackId, sha256_of_file
 from mtee.persistence.database import Database
 
@@ -32,11 +34,30 @@ class TrackSource:
     status: str
 
 
+@dataclass(frozen=True, slots=True)
+class AnalysisDisplay:
+    """How calculated tempo and key are written in the rows handed to the interface."""
+
+    notation: str = "camelot"
+    decimals: int = 2
+
+
+_ANALYSIS_COLUMNS = (
+    "a.bpm AS analysis_bpm,a.key_tonic AS analysis_key_tonic,a.key_minor AS analysis_key_minor,"
+    "a.bpm_user_edited AS bpm_user_edited,a.key_user_edited AS key_user_edited,"
+)
+
+
 class LibraryRepository:
     """Store file references and read-only metadata without touching audio bytes."""
 
     def __init__(self, database: Database) -> None:
         self._database = database
+        self._display = AnalysisDisplay()
+
+    def set_analysis_display(self, notation: str, decimals: int) -> None:
+        """Choose the key notation and BPM decimals of the rows built from now on."""
+        self._display = AnalysisDisplay(notation, decimals)
 
     def add_root(self, path: Path | str) -> dict[str, Any]:
         source = Path(path).expanduser().resolve(strict=False)
@@ -488,17 +509,38 @@ class LibraryRepository:
             self._database.connection()
             .execute(
                 "SELECT t.track_id,l.path,l.size_bytes,l.mtime_ns,l.file_id,l.generation,"
-                "l.file_created_at_ns,l.file_modified_at_ns,"
+                f"l.file_created_at_ns,l.file_modified_at_ns,{_ANALYSIS_COLUMNS}"
                 "l.status,l.metadata_json,rt.relative_path "
                 "FROM root_tracks rt JOIN tracks t ON t.track_id=rt.track_id "
                 "JOIN track_locations l ON l.track_id=t.track_id "
+                "LEFT JOIN track_analysis a ON a.track_id=t.track_id "
                 f"WHERE rt.root_id=? AND rt.present=1 AND {where} "
                 "ORDER BY rt.relative_path COLLATE NOCASE,rt.relative_path",
                 parameters,
             )
             .fetchall()
         )
-        return [_track_dict(row, root_id) for row in rows]
+        return [_track_dict(row, root_id, display=self._display) for row in rows]
+
+    def track_ids_in_tree(self, root_id: str, relative_folder: str) -> list[str]:
+        """Return every readable track of a folder and of all its sub-folders."""
+        prefix = relative_folder.strip("/")
+        where = "AND substr(rt.relative_path,1,?)=?" if prefix else ""
+        parameters: tuple[Any, ...] = (root_id,)
+        if prefix:
+            parameters += (len(prefix) + 1, prefix + "/")
+        rows = (
+            self._database.connection()
+            .execute(
+                "SELECT rt.track_id FROM root_tracks rt "
+                "JOIN track_locations l ON l.track_id=rt.track_id "
+                f"WHERE rt.root_id=? AND rt.present=1 AND l.status='readable' {where} "
+                "ORDER BY rt.relative_path COLLATE NOCASE,rt.relative_path",
+                parameters,
+            )
+            .fetchall()
+        )
+        return [str(row[0]) for row in rows]
 
     def folder_stats(self, root_id: str, relative_folder: str) -> tuple[int, int, int]:
         """Return direct child track count, bytes and duration in one indexed query."""
@@ -520,11 +562,12 @@ class LibraryRepository:
             self._database.connection()
             .execute(
                 "SELECT l.path,l.size_bytes,l.mtime_ns,l.file_id,l.generation,l.status,"
-                "l.file_created_at_ns,l.file_modified_at_ns,"
+                f"l.file_created_at_ns,l.file_modified_at_ns,{_ANALYSIS_COLUMNS}"
                 "l.metadata_json,"
                 "rt.root_id,COALESCE(rt.relative_path,'') AS relative_path "
                 "FROM track_locations l LEFT JOIN root_tracks rt ON rt.track_id=l.track_id "
                 "AND rt.present=1 "
+                "LEFT JOIN track_analysis a ON a.track_id=l.track_id "
                 "WHERE l.track_id=? ORDER BY rt.root_id LIMIT 1",
                 (track_id,),
             )
@@ -532,7 +575,9 @@ class LibraryRepository:
         )
         if row is None:
             return {}
-        return _track_dict(row, str(row["root_id"] or ""), track_id=track_id)
+        return _track_dict(
+            row, str(row["root_id"] or ""), track_id=track_id, display=self._display
+        )
 
     def source_record(self, track_id: str) -> TrackSource | None:
         """Return the path, cached metadata, and exact stored source revision."""
@@ -779,7 +824,14 @@ def _root_dict(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) -> dict[str, Any]:
+def _track_dict(
+    row: sqlite3.Row,
+    root_id: str,
+    *,
+    track_id: str | None = None,
+    display: AnalysisDisplay | None = None,
+) -> dict[str, Any]:
+    display = display or AnalysisDisplay()
     identity = track_id or str(row["track_id"])
     path = Path(str(row["path"]))
     relative = str(row["relative_path"])
@@ -793,6 +845,7 @@ def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) 
     seconds = round(duration / 1_000_000)
     parent = _folder_of(relative)
     folder_id = f"folder:{root_id}/{parent}"
+    tempo, tempo_text, key_text, key_camelot = _effective_tempo_and_key(row, values, display)
     return {
         "id": identity,
         "folder": folder_id,
@@ -802,8 +855,10 @@ def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) 
         "artist": artist,
         "album": album,
         "genre": genre,
-        "bpm": _number(_first(values.bpm)),
-        "key": _first(values.key),
+        "bpm": tempo,
+        "bpmText": tempo_text,
+        "key": key_text,
+        "keyCamelot": key_camelot,
         "seconds": seconds,
         "durationUs": duration,
         "duration": _duration(seconds),
@@ -832,6 +887,41 @@ def _track_dict(row: sqlite3.Row, root_id: str, *, track_id: str | None = None) 
         "error": values.error,
         "revision": int(row["generation"]),
     }
+
+
+def _effective_tempo_and_key(
+    row: sqlite3.Row, values: MetadataSnapshot, display: AnalysisDisplay
+) -> tuple[int | float | str, str, str, str]:
+    """Return tempo, tempo text, key text and Camelot code as the interface shows them.
+
+    Order of precedence: value edited by the user (kept in the tag), calculated
+    value, tag of the file.
+    """
+    columns = set(row.keys())
+    tag_bpm = _number(_first(values.bpm))
+    calculated_bpm = row["analysis_bpm"] if "analysis_bpm" in columns else None
+    bpm_edited = bool(row["bpm_user_edited"]) if "bpm_user_edited" in columns else False
+    if calculated_bpm is not None and not bpm_edited:
+        tempo: int | float | str = float(calculated_bpm)
+        tempo_text = format_bpm(tempo, display.decimals)
+    else:
+        tempo = tag_bpm
+        tempo_text = "" if tag_bpm == "" else str(tag_bpm)
+
+    tag_key = _first(values.key)
+    tonic = row["analysis_key_tonic"] if "analysis_key_tonic" in columns else None
+    minor = row["analysis_key_minor"] if "analysis_key_minor" in columns else None
+    key_edited = bool(row["key_user_edited"]) if "key_user_edited" in columns else False
+    if tonic is not None and minor is not None and not key_edited:
+        key = MusicalKey(int(tonic), bool(minor))
+        return tempo, tempo_text, key.text(display.notation), key.camelot
+    parsed = parse_key(tag_key)
+    return (
+        tempo,
+        tempo_text,
+        format_key(tag_key, display.notation),
+        parsed.camelot if parsed is not None else "",
+    )
 
 
 def _folder_of(relative: str) -> str:

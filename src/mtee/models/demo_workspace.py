@@ -117,6 +117,7 @@ class DemoWorkspace(QObject):
 
     def __init__(self, scenario: str = DEFAULT_SCENARIO, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        self._analysis_settings: QObject | None = None
         self._tracks: dict[str, dict[str, object]] = {}
         self._order: list[str] = []
         self._playlists: dict[str, dict[str, object]] = {}
@@ -473,6 +474,22 @@ class DemoWorkspace(QObject):
     @Property(QObject, constant=True)
     def conversionModel(self) -> QObject:
         return self
+
+    @Property(QObject, constant=True)
+    def analysisSettings(self) -> QObject:
+        return self._analysis_settings if self._analysis_settings is not None else self
+
+    def attach_analysis_settings(self, settings: QObject) -> None:
+        """Show the real Analysis settings tab; the demo never analyzes audio."""
+        self._analysis_settings = settings
+
+    @Slot(list, bool)
+    def analyzeTracks(self, track_ids: list, force: bool) -> None:
+        """The demo library has no audio files, so there is nothing to analyze."""
+
+    @Slot(str, bool)
+    def analyzeFolder(self, folder_id: str, force: bool) -> None:
+        """The demo library has no audio files, so there is nothing to analyze."""
 
     @Property(list, constant=True)
     def formats(self) -> list[dict[str, str]]:

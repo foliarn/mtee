@@ -9,6 +9,7 @@ MTEE_BUILD_CONSOLE to 1 for a diagnostic build that keeps its console.
 import hashlib
 import json
 import os
+from importlib.metadata import distribution
 from pathlib import Path
 
 project_root = Path(SPECPATH).resolve().parent
@@ -49,6 +50,23 @@ datas = [
     (str(package_dir / "persistence" / "migrations"), "mtee/persistence/migrations"),
     (str(ffmpeg_license), "mtee/resources"),
 ]
+# Keep the primary NumPy license, used by the tempo/key analysis, visible in the
+# distributable next to FFmpeg's separately verified notice.
+numpy_distribution = distribution("numpy")
+numpy_license_relative = next(
+    (
+        entry
+        for entry in numpy_distribution.files or ()
+        if str(entry).replace("\\", "/").endswith("licenses/LICENSE.txt")
+    ),
+    None,
+)
+if numpy_license_relative is None:
+    raise SystemExit("The NumPy license file is missing from its distribution.")
+numpy_license = Path(numpy_distribution.locate_file(numpy_license_relative)).resolve()
+if not numpy_license.is_file():
+    raise SystemExit(f"The NumPy license file is unavailable: {numpy_license}")
+datas.append((str(numpy_license), "mtee/resources/licenses/numpy"))
 ffmpeg_binaries = [
     (str(ffmpeg_bin / entry["name"]), "mtee/native/ffmpeg/bin")
     for entry in ffmpeg_manifest["binaries"]

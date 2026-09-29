@@ -555,6 +555,7 @@ FocusScope {
 
     TrackContextMenu {
         id: contextMenu
+        objectName: "trackContextMenu"
         workspace: view.workspace
         source: view.source
     }

@@ -11,10 +11,13 @@ from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
-from mtee.domain.metadata_edit import EDITABLE_METADATA_FIELDS, MetadataEditResult, MetadataPatch
+from mtee.domain.analysis import AnalysisSettings, TrackAnalysis, format_bpm
 from mtee.domain.metadata import MetadataSnapshot
+from mtee.domain.metadata_edit import EDITABLE_METADATA_FIELDS, MetadataEditResult, MetadataPatch
+from mtee.domain.musical_key import format_key
 from mtee.domain.tracks import SourceRevision
 from mtee.models.player_model import PlayerModel
+from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.library_repository import LibraryRepository, TrackSource
 from mtee.services.jobs import JobCancelledError, JobContext, JobId, JobService, UnknownJobError
 from mtee.services.metadata_writer import MetadataEditService
@@ -78,10 +81,15 @@ class MetadataEditorModel(QObject):
         selected_ids: Callable[[], list[str]],
         player: PlayerModel | None = None,
         parent: QObject | None = None,
+        *,
+        analysis: AnalysisRepository | None = None,
+        analysis_settings: Callable[[], AnalysisSettings] | None = None,
     ) -> None:
         super().__init__(parent)
         self._library = library
         self._writer = writer
+        self._analysis = analysis
+        self._analysis_settings = analysis_settings
         self._jobs = jobs
         self._selected_ids = selected_ids
         self._player = player
@@ -249,9 +257,15 @@ class MetadataEditorModel(QObject):
         ]
         snapshots = [result[0] if result is not None else source.snapshot
                      for source, result in zip(sources, inspected, strict=True)]
+        calculated = (
+            self._analysis.get_many(source.track_id for source in sources)
+            if self._analysis is not None
+            else {}
+        )
         for field in EDITABLE_METADATA_FIELDS:
             values = [
-                tuple(getattr(snapshot, _FIELD_ATTRIBUTES[field])) for snapshot in snapshots
+                self._displayed_values(field, source.track_id, snapshot, calculated)
+                for source, snapshot in zip(sources, snapshots, strict=True)
             ]
             normalized = [" / ".join(value) for value in values]
             unique = set(normalized)
@@ -274,6 +288,27 @@ class MetadataEditorModel(QObject):
                 }
             )
         return fields
+
+    def _displayed_values(
+        self,
+        field: str,
+        track_id: str,
+        snapshot: MetadataSnapshot,
+        calculated: dict[str, TrackAnalysis],
+    ) -> tuple[str, ...]:
+        """Return what the inspector shows: the calculated tempo/key unless the user edited it."""
+        tag_values = tuple(getattr(snapshot, _FIELD_ATTRIBUTES[field]))
+        if field not in {"bpm", "key"} or self._analysis_settings is None:
+            return tag_values
+        settings = self._analysis_settings()
+        analysis = calculated.get(track_id)
+        if field == "bpm":
+            if analysis is not None and analysis.bpm is not None and not analysis.bpm_user_edited:
+                return (format_bpm(analysis.bpm, settings.bpm_decimals),)
+            return tag_values
+        if analysis is not None and analysis.key is not None and not analysis.key_user_edited:
+            return (analysis.key.text(settings.notation),)
+        return tuple(format_key(value, settings.notation) for value in tag_values)
 
     def refresh_selection(self) -> None:
         """Refresh the displayed values; drafts remain bound to their captured UUIDs."""
@@ -501,14 +536,20 @@ class MetadataEditorModel(QObject):
                 try:
                     context.raise_if_cancelled()
                     patch = MetadataPatch.one(batch.field, batch.value)
-                    results.append(
-                        self._writer.save(
-                            target.track_id,
-                            target.revision,
-                            patch,
-                            batch.draft_id,
-                        )
+                    saved = self._writer.save(
+                        target.track_id,
+                        target.revision,
+                        patch,
+                        batch.draft_id,
                     )
+                    results.append(saved)
+                    if (
+                        saved.status == "saved"
+                        and self._analysis is not None
+                        and batch.field in {"bpm", "key"}
+                    ):
+                        # An edit made by the user protects that value from analysis.
+                        self._analysis.mark_user_edited([target.track_id], batch.field)
                     context.report_progress((index + 1) / total)
                 except Exception as error:
                     results.append(

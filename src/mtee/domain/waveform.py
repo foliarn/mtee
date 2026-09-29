@@ -1,76 +1,69 @@
-"""Versioned waveform contracts for bounded amplitude previews."""
+"""Stored waveform: a fixed number of min/max amplitude points per track.
+
+The waveform is computed once, kept permanently and drawn as is. Its resolution
+does not depend on the length of the track, which keeps the size of a stored
+waveform constant (a few kilobytes) and its display predictable.
+"""
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 
-from mtee.domain.tracks import SourceRevision
+__all__ = ["WAVEFORM_POINTS", "WaveformPoints"]
 
-__all__ = ["WAVEFORM_ALGORITHM_VERSION", "WaveformConfig", "WaveformData", "WaveformLevel"]
-
-WAVEFORM_ALGORITHM_VERSION = 1
-
-
-@dataclass(frozen=True, slots=True)
-class WaveformConfig:
-    sample_rate: int = 22_050
-    channels: int = 2
-    bin_ms: int = 20
-    algorithm_version: int = WAVEFORM_ALGORITHM_VERSION
-
-    def __post_init__(self) -> None:
-        if not 8_000 <= self.sample_rate <= 192_000:
-            raise ValueError("sample_rate must be between 8000 and 192000 Hz")
-        if self.channels not in {1, 2}:
-            raise ValueError("channels must be mono or stereo")
-        if not 5 <= self.bin_ms <= 100:
-            raise ValueError("bin_ms must be between 5 and 100")
-        if self.algorithm_version < 1:
-            raise ValueError("algorithm_version must be positive")
+WAVEFORM_POINTS = 1200
+_POINT = struct.Struct("<hh")
 
 
 @dataclass(frozen=True, slots=True)
-class WaveformLevel:
-    """Interleaved signed 16-bit minimum/maximum values, two per channel/bin."""
+class WaveformPoints:
+    """Minimum and maximum sample of each slice of the track, signed 16-bit."""
 
-    bin_count: int
-    channels: int
-    values: tuple[int, ...]
+    duration_us: int
+    lows: tuple[int, ...]
+    highs: tuple[int, ...]
 
     def __post_init__(self) -> None:
-        if self.bin_count < 1 or self.channels not in {1, 2}:
-            raise ValueError("waveform level dimensions must be positive")
-        if len(self.values) != self.bin_count * self.channels * 2:
-            raise ValueError("waveform level value count does not match its dimensions")
-        if any(value < -32768 or value > 32767 for value in self.values):
+        if self.duration_us <= 0:
+            raise ValueError("a waveform needs a positive duration")
+        if not self.lows or len(self.lows) != len(self.highs):
+            raise ValueError("a waveform needs as many minima as maxima, and at least one")
+        if any(not -32768 <= value <= 32767 for value in (*self.lows, *self.highs)):
             raise ValueError("waveform values must fit signed 16-bit PCM")
 
-    def bin(self, index: int, channel: int = 0) -> tuple[int, int]:
-        if not 0 <= index < self.bin_count or not 0 <= channel < self.channels:
-            raise IndexError("waveform bin or channel is outside the level")
-        offset = (index * self.channels + channel) * 2
-        return self.values[offset], self.values[offset + 1]
+    def __len__(self) -> int:
+        return len(self.lows)
 
+    def to_bytes(self) -> bytes:
+        return b"".join(
+            _POINT.pack(low, high) for low, high in zip(self.lows, self.highs, strict=True)
+        )
 
-@dataclass(frozen=True, slots=True)
-class WaveformData:
-    track_id: str
-    source_revision: SourceRevision
-    config: WaveformConfig
-    duration_us: int
-    levels: tuple[WaveformLevel, ...]
+    @classmethod
+    def from_bytes(cls, duration_us: int, payload: bytes) -> WaveformPoints:
+        if not payload or len(payload) % _POINT.size:
+            raise ValueError("the stored waveform has an invalid size")
+        pairs = [
+            _POINT.unpack_from(payload, offset) for offset in range(0, len(payload), _POINT.size)
+        ]
+        return cls(duration_us, tuple(pair[0] for pair in pairs), tuple(pair[1] for pair in pairs))
 
-    def __post_init__(self) -> None:
-        if not self.track_id:
-            raise ValueError("track_id is required")
-        if self.duration_us <= 0 or not self.levels:
-            raise ValueError("a waveform must have positive duration and at least one level")
-        previous = self.levels[0].bin_count
-        for level in self.levels:
-            if level.channels != self.config.channels or level.bin_count > previous:
-                raise ValueError("waveform levels must use the configured channels and descend")
-            previous = level.bin_count
+    def packed(self) -> bytes:
+        """Return little-endian float32 ``(low, high)`` pairs scaled to ``[-1, 1]``.
 
-    @property
-    def base(self) -> WaveformLevel:
-        return self.levels[0]
+        This is what the interface reads: one flat buffer that QML views as a typed
+        array, instead of a nested list that it would copy for every element.
+        """
+        pairs = [
+            value / 32768.0
+            for low, high in zip(self.lows, self.highs, strict=True)
+            for value in (low, high)
+        ]
+        return struct.pack(f"<{len(pairs)}f", *pairs)
+
+    def samples(self) -> list[list[float]]:
+        """Return ``[low, high]`` pairs scaled to ``[-1, 1]`` for the display."""
+        return [
+            [low / 32768.0, high / 32768.0] for low, high in zip(self.lows, self.highs, strict=True)
+        ]

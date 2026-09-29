@@ -15,6 +15,10 @@ Les décisions utilisateur précisent : ordre de référence par date de créati
 
 La lisibilité des waveforms, leur repère temporel et l’assombrissement de la portion lue sont à améliorer. Trois variantes monochrome, 3 bandes et RGB seront comparées dans des maquettes avant le choix utilisateur. Jusqu’à ce choix et à son implémentation validée, la version fonctionnelle reste celle de la stabilisation. Cette étude ne réactive ni zoom temporel, ni boucle A/B, ni analyse musicale. Les autres fonctionnalités différées restent hors périmètre.
 
+## Addendum analyse audio — 2026-09-30
+
+À la demande explicite de l'utilisateur, une analyse calculée est réintroduite, limitée à trois valeurs : BPM précis (décimales, musique à tempo stable), tonalité et waveform. Elle ne démarre jamais seule : l'utilisateur la lance par clic droit sur un morceau ou un dossier (récursif). Les résultats sont conservés définitivement, séparés des tags du fichier, et une valeur éditée par l'utilisateur n'est jamais remplacée. L'onglet Analysis des réglages porte la notation de la tonalité (Camelot ou classique), la plage de BPM, le nombre d'analyses en parallèle, les décimales affichées et une écriture facultative dans les tags. Ce périmètre ne rétablit ni silences, ni loudness, ni zoom ou boucle A/B. Voir le [plan 33](Plans%20d'ex%C3%A9cution/33-analyse-audio.md). L'écriture dans les tags, désactivée par défaut, est une exception explicite à « l'analyse ne réécrit pas automatiquement les tags » de la section 4.7.
+
 ## Addendum de trajectoire — 2026-09-25
 
 La trajectoire fonctionnelle décrite ci-dessous est suspendue pendant la remise en état de la version Windows. La série [16–22 — Stabilisation](Plans%20d'ex%C3%A9cution/README.md) devient prioritaire et ses critères remplacent temporairement les livraisons C–K ci-dessous.

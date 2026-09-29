@@ -10,6 +10,7 @@ Versions résolues le 10 septembre 2026 par `uv lock`, puis installées par `uv 
 | PySide6-Essentials | 6.9.3 | Qt Quick, QML, Core et Gui | <https://doc.qt.io/qtforpython-6/> |
 | shiboken6 | 6.9.3 | Liaison C++/Python de PySide6, tirée automatiquement | <https://doc.qt.io/qtforpython-6/shiboken6/> |
 | Mutagen | 1.48.1 | Lecture des métadonnées audio, avancée depuis le plan 05 pour la livraison A | <https://mutagen.readthedocs.io/> |
+| NumPy | 2.5.3 | Calcul vectorisé du tempo, de la tonalité et de la waveform (plan 33) | <https://numpy.org/doc/> |
 | SQLite | 3.53.1 via `sqlite3` de la bibliothèque standard | Persistance locale | <https://docs.python.org/3.12/library/sqlite3.html> |
 
 Le paquet complet `PySide6` a d'abord été verrouillé, puis remplacé par `PySide6-Essentials` : les add-ons embarquaient Qt WebEngine, Quick3D et leurs dépendances, soit 377 Mo de distribution pour un socle qui ne les utilise pas. Avec les essentiels, la même distribution occupe 138 Mo et le contrôle après empaquetage reste vert. Qt Multimedia n'est pas utilisé ; la lecture native viendra de libmpv au plan 04.
@@ -33,4 +34,4 @@ Ruff impose les noms Python ordinaires, sauf dans `src/mtee/models/` et pour les
 
 Les tests forcent la plateforme Qt `offscreen`. Ce mode ne fournit aucune police : une capture prise dans ce mode affiche des caractères manquants, ce qui n'indique pas un défaut de l'application. La vérification visuelle passe par la plateforme Windows réelle.
 
-Aucune bibliothèque native supplémentaire n'est installée à cette étape : ni FFmpeg, ni ffprobe, ni NumPy, SciPy ou librosa. Leur ajout appartient aux plans 07 et 09, et l'état des vérifications natives est tenu dans `native-dependencies.md`.
+Aucune bibliothèque native supplémentaire n'était installée à l'étape du socle. FFmpeg est venu avec le plan 07 ; NumPy a été ajouté par le [plan 33](../../Plans%20d'ex%C3%A9cution/33-analyse-audio.md) pour l'analyse, sans SciPy, librosa, Numba ni llvmlite. L'état des vérifications natives est tenu dans `native-dependencies.md`.
