@@ -30,6 +30,7 @@ from mtee.models.jobs_model import JobsListModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.shell_controller import ShellController
+from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.trash_model import TrashModel
 from mtee.models.waveform_model import WaveformModel
 from mtee.models.workspace_model import WorkspaceModel
@@ -151,7 +152,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     workspace: QObject | None = None
     if options.demo:
         workspace: QObject = DemoWorkspace(options.scenario)
-        workspace.attach_analysis_settings(analysis_settings)
+        workspace.attach_analysis_settings(
+            analysis_settings, TagConflictsModel(parent=application)
+        )
     else:
         library = LibraryRepository(database)
         analysis_repository = AnalysisRepository(database)
@@ -204,6 +207,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace.attach_analysis(
             analysis_settings,
             AnalysisModel(library, analysis_service, jobs, analysis_settings, application),
+            TagConflictsModel(jobs, analysis_service.resolve_tag_conflict, application),
         )
         conversion_model = ConversionQueueModel(
             library,

@@ -78,6 +78,16 @@ Résultat sur ce poste : les nouveaux tests passent. Les mêmes échecs préexis
 
 La migration a été appliquée à une copie cohérente (API de sauvegarde SQLite, ouverture en lecture seule de l'original) de la base de l'utilisateur : schéma 14 avec 2 764 morceaux et l'historique 1–14 dont la migration 010 retirée. Résultat : migration 15 appliquée, tables `track_analysis` et `track_waveforms` créées, tables d'analyse de la migration 010 conservées, sauvegarde `v14` créée, second passage sans effet. L'original n'a pas été modifié.
 
+### Conflits de tags (FLAC, Ogg, Opus)
+
+Un fichier qui stocke un champ sous deux noms de tag (`KEY` et `INITIALKEY`, `BPM` et `TEMPO`) refusait toute édition de ce champ (« … has multiple tag aliases; editing is disabled »). Quand l'écriture des tags est activée, l'analyse met désormais ces valeurs de côté comme conflit au lieu d'échouer, et la liste **Tag conflicts** de l'activité Tasks propose de remplacer : le code supprime tous les anciens noms et valeurs du champ et écrit la nouvelle valeur sous `INITIALKEY`, `BPM`, `DATE`, `COMMENT` ou `TRACKNUMBER`.
+
+Vérifié sur un FLAC produit par FFmpeg à partir d'un signal synthétique et doté de `KEY`/`INITIALKEY`, `BPM`/`TEMPO`, d'un tag inconnu et d'une image : refus par défaut ; avec le remplacement de la clé, `KEY` disparaît, `INITIALKEY` porte la nouvelle valeur, `BPM` et `TEMPO` restent tels quels, le titre, l'artiste, le tag inconnu et l'image sont intacts et la signature MD5 de l'audio du FLAC ne change pas ; en résolvant un conflit de clé et de tempo, `KEY` et `TEMPO` disparaissent et `INITIALKEY` et `BPM` portent les valeurs calculées ; un champ non ambigu écrit avec le remplacement se comporte comme une édition normale ; un champ à plusieurs valeurs sous un seul nom compte aussi comme conflit ; une valeur éditée par l'utilisateur depuis l'enregistrement du conflit n'est pas remplacée ; une piste sortie de la bibliothèque est signalée. Dans la vraie fenêtre : le conflit apparaît avec le message d'état, le bouton de remplacement corrige le fichier et retire la ligne, un échec reste affiché avec sa raison, et les boutons d'abandon retirent une ou toutes les lignes.
+
+Non vérifié : l'aspect avec la vraie police (le volet de 240 px a été contrôlé sur une capture sans texte lisible) ; les fichiers de la bibliothèque réelle de l'utilisateur (aucun n'a été modifié) ; MP3 et M4A, dont les adaptateurs n'ont pas ce type d'ambiguïté et ignorent l'option.
+
+Limites : le remplacement supprime définitivement l'ancienne valeur du second nom ; l'**Undo** de l'éditeur de métadonnées ne restaure qu'une valeur, sous le nom standard. Le rafraîchissement différé de l'explorateur ne s'exécute plus quand l'arrêt des tâches a commencé (il levait une exception à la fermeture).
+
 ### Capture
 
 Aucune capture n'est versionnée : le mode `offscreen` n'a pas de police et affiche des carrés à la place du texte. La mise en page de l'onglet Analysis (onglets General/Analysis, choix Camelot/Classique, boutons − / +, choix des décimales, interrupteur) a été contrôlée sur une capture hors écran, sans lecture possible du texte.

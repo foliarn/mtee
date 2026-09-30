@@ -78,6 +78,22 @@ class MetadataEditService:
             return self._unsupported(reason)
         return adapter.capabilities(source.path)
 
+    def tag_conflicts(self, track_id: str, fields: Any) -> dict[str, tuple[str, ...]]:
+        """Return the fields of ``track_id`` stored under several tag names or values.
+
+        Such a field cannot be edited in place; writing it with
+        ``replace_aliases`` deletes the old names and values first. Formats without
+        that ambiguity report nothing.
+        """
+        source = self._library.source_record(track_id)
+        if source is None:
+            return {}
+        adapter = self._adapter_for(source.path)
+        finder = getattr(adapter, "alias_conflicts", None)
+        if finder is None:
+            return {}
+        return finder(source.path, tuple(fields))
+
     def inspect(self, track_id: str):
         """Read tags and edit capabilities for the current catalog revision."""
         source = self._library.source_record(track_id)
@@ -209,7 +225,7 @@ class MetadataEditService:
                 return MetadataEditResult(
                     track_id, "unsupported", self._unsupported_format_reason(source.path)
                 )
-            capabilities = adapter.capabilities(source.path)
+            capabilities = adapter.capabilities(source.path, replace_aliases=patch.replace_aliases)
             unsupported = [
                 (field, capabilities.get(field, (False, "Unknown metadata field."))[1])
                 for field, _value in patch.changes

@@ -118,6 +118,7 @@ class DemoWorkspace(QObject):
     def __init__(self, scenario: str = DEFAULT_SCENARIO, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._analysis_settings: QObject | None = None
+        self._tag_conflicts: QObject | None = None
         self._tracks: dict[str, dict[str, object]] = {}
         self._order: list[str] = []
         self._playlists: dict[str, dict[str, object]] = {}
@@ -479,9 +480,14 @@ class DemoWorkspace(QObject):
     def analysisSettings(self) -> QObject:
         return self._analysis_settings if self._analysis_settings is not None else self
 
-    def attach_analysis_settings(self, settings: QObject) -> None:
+    @Property(QObject, constant=True)
+    def tagConflicts(self) -> QObject:
+        return self._tag_conflicts if self._tag_conflicts is not None else self
+
+    def attach_analysis_settings(self, settings: QObject, conflicts: QObject | None = None) -> None:
         """Show the real Analysis settings tab; the demo never analyzes audio."""
         self._analysis_settings = settings
+        self._tag_conflicts = conflicts
 
     @Slot(list, bool)
     def analyzeTracks(self, track_ids: list, force: bool) -> None:

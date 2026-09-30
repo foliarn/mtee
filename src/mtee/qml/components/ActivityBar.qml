@@ -14,8 +14,12 @@ Rectangle {
         const active = groups[workspace.activeGroup].active
         return active.split(":")[0]
     }
+    // Running tasks plus tag conflicts waiting for the user, like the badge of a
+    // source-control view.
     readonly property int runningTasks: {
-        return jobsModel.runningCount
+        const waiting = workspace.tagConflicts && workspace.tagConflicts.count !== undefined
+            ? workspace.tagConflicts.count : 0
+        return jobsModel.runningCount + waiting
     }
 
     width: Theme.activityBarWidth

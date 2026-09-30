@@ -51,7 +51,9 @@ class MP4MetadataAdapter:
             return audio, self.reason_container
         return audio, ""
 
-    def capabilities(self, path: Any) -> dict[str, tuple[bool, str]]:
+    def capabilities(
+        self, path: Any, *, replace_aliases: bool = False
+    ) -> dict[str, tuple[bool, str]]:
         if not self.supports_path(path):
             return self._disabled(self.reason_container)
         try:

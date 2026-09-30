@@ -33,6 +33,10 @@ class MetadataPatch:
     """Values changed in one editing action; ``None`` means explicit removal."""
 
     changes: tuple[tuple[str, str | None], ...]
+    # Some containers can hold one field under several tag names (``KEY`` and
+    # ``INITIALKEY``). By default such a field is left alone; with this flag the
+    # write deletes every old name and value of the field and stores the new one.
+    replace_aliases: bool = False
     fields: ClassVar[tuple[str, ...]] = EDITABLE_METADATA_FIELDS
 
     def __post_init__(self) -> None:
@@ -49,12 +53,14 @@ class MetadataPatch:
                 raise ValueError(f"Invalid value for metadata field {key}.")
 
     @classmethod
-    def one(cls, field: str, value: str | None) -> MetadataPatch:
-        return cls(((field, value),))
+    def one(cls, field: str, value: str | None, *, replace_aliases: bool = False) -> MetadataPatch:
+        return cls(((field, value),), replace_aliases)
 
     @classmethod
-    def from_mapping(cls, changes: dict[str, str | None]) -> MetadataPatch:
-        return cls(tuple(changes.items()))
+    def from_mapping(
+        cls, changes: dict[str, str | None], *, replace_aliases: bool = False
+    ) -> MetadataPatch:
+        return cls(tuple(changes.items()), replace_aliases)
 
     def as_dict(self) -> dict[str, str | None]:
         return dict(self.changes)

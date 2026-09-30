@@ -2,7 +2,9 @@
 
 A track is analyzed only when the user asks. The result is stored beside the tags,
 never in place of them; a value the user edited is never replaced, and the tags of
-the file change only when the user enabled that option.
+the file change only when the user enabled that option. A field that a file stores
+under several tag names is not written by itself: it becomes a tag conflict that the
+user can resolve, which deletes the old names and values and writes the new one.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from mtee.domain.analysis import AnalysisSettings, TrackAnalysis, format_bpm
 from mtee.domain.conversion import ConversionSource
 from mtee.domain.jobs import JobCancelledError
 from mtee.domain.metadata_edit import MetadataEditResult, MetadataPatch
+from mtee.domain.tag_conflicts import TagConflict, TagConflictEntry
 from mtee.domain.tracks import SourceRevision
 from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.library_repository import LibraryRepository, TrackSource
@@ -46,6 +49,8 @@ class TagWriter(Protocol):
         draft_id: str,
     ) -> MetadataEditResult: ...
 
+    def tag_conflicts(self, track_id: str, fields: Sequence[str]) -> dict[str, tuple[str, ...]]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class TrackReport:
@@ -54,6 +59,7 @@ class TrackReport:
     track_id: str
     ok: bool
     message: str = ""
+    conflict: TagConflict | None = None
 
 
 class AnalysisService:
@@ -91,6 +97,7 @@ class AnalysisService:
         is_cancelled: Callable[[], bool],
         report_progress: Callable[[float], None],
         on_track_done: Callable[[str], None] = lambda _track_id: None,
+        on_conflict: Callable[[TagConflict], None] = lambda _conflict: None,
     ) -> list[TrackReport]:
         """Analyze ``track_ids``, ``settings.parallel_jobs`` at a time.
 
@@ -118,6 +125,8 @@ class AnalysisService:
                 report_progress=lambda value: overall(track_id, value),
             )
             overall(track_id, 1.0)
+            if report.conflict is not None:
+                on_conflict(report.conflict)
             on_track_done(track_id)
             return report
 
@@ -174,18 +183,52 @@ class AnalysisService:
         stored = self._repository.save_result(
             track_id, bpm=outcome.bpm, key=outcome.key, source_duration_us=duration
         )
+        conflict = None
         if settings.write_tags:
-            message = self._write_tags(record, stored, settings)
+            message, conflict = self._write_tags(record, stored, settings)
             if message:
-                return TrackReport(track_id, False, f"{record.path.name}: {message}")
-        return TrackReport(track_id, True)
+                return TrackReport(track_id, False, f"{record.path.name}: {message}", conflict)
+        return TrackReport(track_id, True, conflict=conflict)
+
+    def resolve_tag_conflict(self, conflict: TagConflict) -> str:
+        """Replace the old tag names and values of a conflict by the waiting values.
+
+        Returns ``""`` on success, else the reason. A value the user edited since the
+        conflict was recorded is left alone.
+        """
+        if self._tag_writer is None:
+            return "Writing tags is not available."
+        record = self._library.source_record(conflict.track_id)
+        if record is None:
+            return "The track is no longer in the library."
+        stored = self._repository.get(conflict.track_id)
+        changes: dict[str, str | None] = {}
+        for entry in conflict.entries:
+            edited = stored is not None and (
+                stored.bpm_user_edited if entry.field == "bpm" else stored.key_user_edited
+            )
+            if not edited:
+                changes[entry.field] = entry.value
+        if not changes:
+            return ""
+        result = self._tag_writer.save(
+            conflict.track_id,
+            record.revision,
+            MetadataPatch.from_mapping(changes, replace_aliases=True),
+            str(uuid.uuid4()),
+        )
+        return "" if result.status == "saved" else (result.message or result.status)
 
     def _write_tags(
         self, record: TrackSource, stored: TrackAnalysis, settings: AnalysisSettings
-    ) -> str:
-        """Copy the calculated values into the tags; return a failure message or ``""``."""
+    ) -> tuple[str, TagConflict | None]:
+        """Copy the calculated values into the tags.
+
+        Returns a failure message (``""`` when none) and the conflict holding the
+        values that were not written because the file stores their field ambiguously.
+        """
         if self._tag_writer is None:
-            return ""
+            return "", None
         changes: dict[str, str | None] = {}
         if stored.bpm is not None and not stored.bpm_user_edited:
             text = bpm_tag_text(stored.bpm, record.path)
@@ -196,17 +239,27 @@ class AnalysisService:
             if record.snapshot.key != (text,):
                 changes["key"] = text
         if not changes:
-            return ""
+            return "", None
+        ambiguous = self._tag_writer.tag_conflicts(record.track_id, tuple(changes))
+        entries = tuple(
+            TagConflictEntry(field, aliases, str(changes.pop(field)))
+            for field, aliases in ambiguous.items()
+            if field in changes
+        )
+        conflict = TagConflict(record.track_id, record.path.name, entries) if entries else None
+        if not changes:
+            return "", conflict
         current = self._library.source_record(record.track_id)
         if current is None:
-            return "The track is no longer in the library."
+            return "The track is no longer in the library.", conflict
         result = self._tag_writer.save(
             record.track_id,
             current.revision,
             MetadataPatch.from_mapping(changes),
             str(uuid.uuid4()),
         )
-        return "" if result.status == "saved" else (result.message or result.status)
+        message = "" if result.status == "saved" else (result.message or result.status)
+        return message, conflict
 
 
 def bpm_tag_text(bpm: float, path: Path) -> str:
