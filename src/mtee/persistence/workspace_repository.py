@@ -135,9 +135,7 @@ def _validated(value: Any) -> dict[str, Any]:
         return deepcopy(DEFAULT_WORKSPACE)
     result: dict[str, Any] = deepcopy(DEFAULT_WORKSPACE)
     result.update({key: item for key, item in value.items() if key in result})
-    result["columnPreferences"] = _validated_column_preferences(
-        value.get("columnPreferences")
-    )
+    result["columnPreferences"] = _validated_column_preferences(value.get("columnPreferences"))
     if not isinstance(result["roots"], list) or not isinstance(result["groups"], list):
         return deepcopy(DEFAULT_WORKSPACE)
     if not result["groups"]:
@@ -147,7 +145,9 @@ def _validated(value: Any) -> dict[str, Any]:
         if not isinstance(group, dict) or not isinstance(group.get("tabs"), list):
             return deepcopy(DEFAULT_WORKSPACE)
         group["tabs"] = [
-            tab for tab in group["tabs"] if isinstance(tab, dict) and tab.get("kind") == "folder"
+            tab
+            for tab in group["tabs"]
+            if isinstance(tab, dict) and tab.get("kind") in {"folder", "playlist"}
         ]
         group["active"] = str(group.get("active", ""))
         saved_selections = group.get("selections", {})
@@ -219,9 +219,7 @@ def _validated_column_preferences(value: Any) -> dict[str, Any]:
     raw_order = value.get("order")
     if isinstance(raw_order, list):
         order = list(
-            dict.fromkeys(
-                key for key in raw_order if isinstance(key, str) and key in _COLUMN_KEYS
-            )
+            dict.fromkeys(key for key in raw_order if isinstance(key, str) and key in _COLUMN_KEYS)
         )
         order.extend(key for key in _DEFAULT_COLUMN_ORDER if key not in order)
     else:
@@ -230,9 +228,7 @@ def _validated_column_preferences(value: Any) -> dict[str, Any]:
     raw_hidden = value.get("hidden")
     if isinstance(raw_hidden, list):
         hidden = list(
-            dict.fromkeys(
-                key for key in raw_hidden if isinstance(key, str) and key in _COLUMN_KEYS
-            )
+            dict.fromkeys(key for key in raw_hidden if isinstance(key, str) and key in _COLUMN_KEYS)
         )
     else:
         hidden = list(_DEFAULT_HIDDEN_COLUMNS)

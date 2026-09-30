@@ -186,3 +186,11 @@ Convert, Tasks, Plugins, Profile, Settings, Info, Queue, Edit info, Add to
 playlist, Player island, Fullscreen player, Exit fullscreen, Save, Saved,
 Retry, Undo. Les messages décrivent l'état et l'action possible ; ils
 n'exposent pas de journal technique dans le parcours courant.
+
+## Playlists locales — livraison 34
+
+En-tête réservé aux playlists : pochette 208 px (164 px dans un groupe étroit), titre 52/36 px, description, créateur commun et durée connue. Play/Shuffle sous la pochette ; Search/List/Artwork/Choose columns alignés à droite avant le séparateur. Recherche déployée vers la gauche en 190 ms, filtre conservé lorsqu’elle est repliée. Les commandes jouent les résultats visibles disponibles et capturent la file.
+
+Sidebar : Liked tracks, épingles puis dossiers imbriqués/playlists ; aucune ligne de créateur. Le menu + crée playlist/dossier ou importe MTEE/ZIP, et propose la reprise des imports interrompus. Les menus contextuels permettent copie, édition, export et déplacement ; suppression de playlist confirmée et dossier non vide refusé. Drag de morceaux vers une playlist, drag d’organisation et ordre Custom avant réordonnancement des entrées.
+
+Le popup Add to playlist propose recherche, création, mosaïques et chemin de dossier, Saved in/Recently updated, coche complète ou état partiel. Chaque clic persiste immédiatement sans fermeture. Le cœur est une action distincte. Les absences gardent leurs positions et métadonnées, apparaissent grisées et proposent Locate. Colonnes Title/Artist/Album/BPM/Key/Duration et largeurs stockées séparément des dossiers audio. Spotify reste une idée différée.

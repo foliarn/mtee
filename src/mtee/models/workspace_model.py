@@ -20,6 +20,7 @@ from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
+from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
@@ -75,6 +76,7 @@ class WorkspaceModel(QObject):
     trackRowsReady = Signal(str, int, object)
     explorerTrackReady = Signal(int, object, object)
     sessionWriteFinished = Signal(object, object)
+    playlistCreationRequested = Signal(list)
 
     def __init__(
         self,
@@ -90,6 +92,7 @@ class WorkspaceModel(QObject):
         self._session = session
         self._jobs = jobs
         self._player = player
+        self._playlists_model: PlaylistsModel | None = None
         self._metadata_editor: MetadataEditorModel | None = None
         self._conversion_model: ConversionQueueModel | None = None
         self._trash_model: TrashModel | None = None
@@ -102,9 +105,7 @@ class WorkspaceModel(QObject):
         self._roots_by_id: dict[str, dict[str, Any]] = {}
         self._resume_roots_requested = False
         self._state = session.load()
-        saved_column_preferences = self._state.get(
-            "columnPreferences", DEFAULT_COLUMN_PREFERENCES
-        )
+        saved_column_preferences = self._state.get("columnPreferences", DEFAULT_COLUMN_PREFERENCES)
         self._column_preferences = _copy_column_preferences(saved_column_preferences)
         self._expanded = set(self._state.get("expanded", []))
         self._groups = self._restore_groups(self._state.get("groups", []))
@@ -274,11 +275,13 @@ class WorkspaceModel(QObject):
 
     @Property(list, notify=selectionChanged)
     def selectedIds(self) -> list[str]:
-        return self.selected_ids_snapshot()
+        tab_id = str(self._groups[self._active_group]["active"])
+        return list(self._selection_by_tab.get((self._active_group, tab_id), []))
 
     def selected_ids_snapshot(self) -> list[str]:
         tab_id = str(self._groups[self._active_group]["active"])
-        return list(self._selection_by_tab.get((self._active_group, tab_id), []))
+        identities = list(self._selection_by_tab.get((self._active_group, tab_id), []))
+        return self.localTrackIds(identities)
 
     @Property(str, notify=playbackChanged)
     def playingId(self) -> str:
@@ -394,9 +397,141 @@ class WorkspaceModel(QObject):
     def convertBatches(self) -> list[dict[str, Any]]:
         return []
 
-    @Property(list, constant=True)
+    @Property(list, notify=libraryChanged)
     def playlists(self) -> list[dict[str, Any]]:
-        return []
+        return (
+            cast(list[dict[str, Any]], self._playlists_model.playlists)
+            if self._playlists_model is not None
+            else []
+        )
+
+    @Property(QObject, notify=libraryChanged)
+    def playlistModel(self) -> QObject:
+        return self._playlists_model if self._playlists_model is not None else self
+
+    def attach_playlists(self, model: PlaylistsModel) -> None:
+        self._playlists_model = model
+        model.setParent(self)
+        model.changed.connect(self._on_playlists_changed)
+        model.noticeRaised.connect(self._set_message)
+        model.playlistCreated.connect(self.openPlaylist)
+        model.playlistDeleted.connect(self._on_playlist_deleted)
+        model.libraryImported.connect(self._refresh_library)
+
+    @Slot()
+    def _on_playlists_changed(self) -> None:
+        if self._playlists_model is not None:
+            for state in self._tab_states.values():
+                if state.get("kind") == "playlist":
+                    detail = self._playlists_model.details(str(state.get("ref", "")))
+                    if detail:
+                        state["title"] = detail["name"]
+        self._revision += 1
+        self._dirty_all_tabs = True
+        self.libraryChanged.emit()
+        self.layoutChanged.emit()
+        self._refresh_timer.start()
+
+    @Slot(str)
+    def _on_playlist_deleted(self, identity: str) -> None:
+        for index in range(len(self._groups)):
+            self.closeTab(index, "playlist:" + identity)
+
+    @Slot(list, result=list)
+    def localTrackIds(self, identities: list) -> list[str]:
+        model = self._current_track_model()
+        lookup = (
+            {r["id"]: r.get("trackId", r["id"]) for r in model.rows_snapshot()} if model else {}
+        )
+        playlist = bool(model and any("entryId" in r for r in model.rows_snapshot()))
+        lookup.update({identity: identity for identity in lookup.values() if identity})
+        return list(
+            dict.fromkeys(
+                str(lookup.get(i, "" if playlist else i))
+                for i in identities
+                if lookup.get(i, "" if playlist else i)
+            )
+        )
+
+    @Slot(str, result=bool)
+    def isLiked(self, track_id: str) -> bool:
+        return bool(self._playlists_model and self._playlists_model.isLiked(track_id))
+
+    @Slot(str)
+    def toggleLike(self, track_id: str) -> None:
+        if self._playlists_model is not None:
+            self._playlists_model.toggleLike(track_id)
+
+    @Slot(str, str, int)
+    def movePlaylistEntry(self, source: str, entry: str, offset: int) -> None:
+        state = self._tab_state(source)
+        if state.get("searchQuery") or state.get("sortKey") != "index":
+            self._set_message("Switch to Custom order and clear search before reordering.")
+            return
+        model = self._track_models.get(source)
+        if model is None or self._playlists_model is None or source == "playlist:liked":
+            return
+        entries = model.track_ids_snapshot()
+        if entry not in entries:
+            return
+        index = entries.index(entry)
+        target = min(max(index + offset, 0), len(entries) - 1)
+        entries.insert(target, entries.pop(index))
+        identity = source.partition(":")[2]
+        version = self._playlists_model.details(identity).get("version", -1)
+        self._playlists_model.reorder(identity, entries, version)
+
+    @Slot(str, str, str)
+    def reorderPlaylistBefore(self, source: str, entry: str, before: str) -> None:
+        state = self._tab_state(source)
+        if state.get("searchQuery") or state.get("sortKey") != "index":
+            self._set_message("Switch to Custom order and clear search before reordering.")
+            return
+        model = self._track_models.get(source)
+        if model is None or self._playlists_model is None or source == "playlist:liked":
+            return
+        entries = model.track_ids_snapshot()
+        if entry not in entries or before not in entries or entry == before:
+            return
+        entries.remove(entry)
+        entries.insert(entries.index(before), entry)
+        identity = source.partition(":")[2]
+        self._playlists_model.reorder(
+            identity, entries, self._playlists_model.details(identity).get("version", -1)
+        )
+
+    @Slot(str)
+    def customPlaylistOrder(self, tab_id: str) -> None:
+        state = self._tab_state(tab_id)
+        state.update(
+            {"sortMode": "default", "sortKey": "index", "sortAscending": True, "searchQuery": ""}
+        )
+        self._dirty_tabs.add(tab_id)
+        self._revision += 1
+        self.libraryChanged.emit()
+        self.layoutChanged.emit()
+        self._refresh_timer.start()
+        self._persist()
+
+    @Slot(str, list, bool)
+    def playPlaylistRows(self, identity: str, rows: list, shuffled: bool) -> None:
+        import random
+
+        available = [
+            dict(r) | {"id": r["trackId"]}
+            for r in rows
+            if isinstance(r, dict) and r.get("available") and r.get("trackId")
+        ]
+        if shuffled:
+            random.shuffle(available)
+        if available and self._player is not None:
+            ids = [r["id"] for r in available]
+            detail = self._playlists_model.details(identity) if self._playlists_model else {}
+            self._player.playQueueWithRows(
+                ids, 0, "playlist:" + identity, detail.get("name", "Playlist"), available
+            )
+        elif not available:
+            self._set_message("There are no available tracks in these results.")
 
     @Property(list, notify=metadataChanged)
     def infoFields(self) -> list[dict[str, Any]]:
@@ -612,7 +747,7 @@ class WorkspaceModel(QObject):
         if model is None:
             model = TrackListModel(self)
             self._track_models[tab_id] = model
-        if kind == "folder":
+        if kind in {"folder", "playlist"}:
             self._request_track_rows(tab_id, kind, ref, sort_key, ascending)
         else:
             model.replace([])
@@ -639,8 +774,11 @@ class WorkspaceModel(QObject):
 
         def read_rows(context: JobContext) -> None:
             context.raise_if_cancelled()
-            root_id, relative = _parse_folder_ref(ref)
-            rows = self._library.tracks_in_folder(root_id, relative)
+            if kind == "playlist" and self._playlists_model is not None:
+                rows = self._playlists_model.service.rows(ref)
+            else:
+                root_id, relative = _parse_folder_ref(ref)
+                rows = self._library.tracks_in_folder(root_id, relative)
             if query:
                 rows = [
                     row
@@ -651,7 +789,9 @@ class WorkspaceModel(QObject):
                         for field in ("title", "artist", "album", "genre", "filename")
                     ).casefold()
                 ]
-            ordered = _sort_rows(rows, sort_key, ascending)
+            ordered = (
+                rows if sort_key == "index" and ascending else _sort_rows(rows, sort_key, ascending)
+            )
             context.raise_if_cancelled()
             self.trackRowsReady.emit(tab_id, generation, ordered)
 
@@ -800,7 +940,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str, int, result=list)
     def playlistsContaining(self, _track_id: str, _revision: int = 0) -> list[str]:
-        return []
+        return self._playlists_model.containing(_track_id) if self._playlists_model else []
 
     # -------------------------------------------------------------- roots and scans
 
@@ -1202,7 +1342,23 @@ class WorkspaceModel(QObject):
 
     @Slot(str)
     def openPlaylist(self, _playlist_id: str) -> None:
-        self._set_message("Playlists become available in a later step.")
+        if self._playlists_model is None:
+            return
+        details = self._playlists_model.details(_playlist_id)
+        if not details:
+            return
+        self._playlists_model.refresh()
+        tab_id = "playlist:" + _playlist_id
+        group = self._groups[self._active_group]
+        self._ensure_tab(tab_id)["title"] = details["name"]
+        if tab_id not in group["tabs"]:
+            group["tabs"].append(tab_id)
+        group["active"] = tab_id
+        self._dirty_tabs.add(tab_id)
+        self._refresh_timer.start()
+        self.layoutChanged.emit()
+        self.selectionChanged.emit()
+        self._persist()
 
     @Slot()
     def openConvert(self) -> None:
@@ -1358,6 +1514,9 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, int)
     def resizeColumn(self, tab_id: str, key: str, width: int) -> None:
+        if tab_id.startswith("playlist:") and self._playlists_model is not None:
+            self._playlists_model.resizeColumn(key, width)
+            return
         if key not in _COLUMN_KEYS:
             return
         self._ensure_tab(tab_id)
@@ -1369,6 +1528,9 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, int)
     def moveColumn(self, tab_id: str, key: str, offset: int) -> None:
+        if tab_id.startswith("playlist:") and self._playlists_model is not None:
+            self._playlists_model.moveColumn(key, offset)
+            return
         if key not in _COLUMN_KEYS or offset not in {-1, 1}:
             return
         self._ensure_tab(tab_id)
@@ -1386,6 +1548,9 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, str, bool)
     def moveColumnRelative(self, tab_id: str, key: str, target_key: str, after: bool) -> None:
+        if tab_id.startswith("playlist:") and self._playlists_model is not None:
+            self._playlists_model.moveColumnRelative(key, target_key, after)
+            return
         if key not in _COLUMN_KEYS or target_key not in _COLUMN_KEYS or key == target_key:
             return
         self._ensure_tab(tab_id)
@@ -1536,6 +1701,33 @@ class WorkspaceModel(QObject):
     @Slot(str, str, list)
     def playTrack(self, track_id: str, source: str, rows: list | None = None) -> None:
         self._cancel_explorer_track_action()
+        if source.startswith("playlist:"):
+            model = self._track_models.get(source)
+            captured = rows if rows is not None else model.rows_snapshot() if model else []
+            chosen = next((r for r in captured if r.get("id") == track_id), None)
+            playable = [
+                dict(r) | {"id": r["trackId"]}
+                for r in captured
+                if r.get("available") and r.get("trackId")
+            ]
+            if chosen is None or not chosen.get("available"):
+                self._set_message("This track is unavailable. Locate a local file first.")
+                return
+            ids = [r["id"] for r in playable]
+            if self._player is not None:
+                detail = (
+                    self._playlists_model.details(source.partition(":")[2])
+                    if self._playlists_model
+                    else {}
+                )
+                self._player.playQueueWithRows(
+                    ids,
+                    ids.index(chosen["trackId"]),
+                    source,
+                    detail.get("name", "Playlist"),
+                    playable,
+                )
+            return
         supplied_rows = (
             [dict(row) for row in rows if isinstance(row, dict)] if rows is not None else None
         )
@@ -1680,11 +1872,12 @@ class WorkspaceModel(QObject):
 
     @Slot(list)
     def addToNewPlaylist(self, _track_ids: list) -> None:
-        self._set_message("Playlists become available in a later step.")
+        self.playlistCreationRequested.emit(self.localTrackIds(_track_ids))
 
     @Slot(list, str)
     def togglePlaylist(self, _track_ids: list, _playlist_id: str) -> None:
-        return
+        if self._playlists_model is not None:
+            self._playlists_model.toggle(_playlist_id, self.localTrackIds(_track_ids))
 
     @Slot()
     def addSelectionToConvert(self) -> None:
@@ -1724,8 +1917,8 @@ class WorkspaceModel(QObject):
                     "ref": ref,
                     "title": title,
                     "sortMode": "default",
-                    "sortKey": "fileCreatedAt",
-                    "sortAscending": False,
+                    "sortKey": "index" if kind == "playlist" else "fileCreatedAt",
+                    "sortAscending": kind == "playlist",
                     "view": "list",
                     "searchQuery": "",
                     "selectedIds": [],
@@ -1772,16 +1965,21 @@ class WorkspaceModel(QObject):
                 continue
             tab_ids = []
             for raw_tab in raw_group.get("tabs", []):
-                if not isinstance(raw_tab, dict) or raw_tab.get("kind") != "folder":
+                if not isinstance(raw_tab, dict) or raw_tab.get("kind") not in {
+                    "folder",
+                    "playlist",
+                }:
                     continue
                 ref = str(raw_tab.get("ref", ""))
-                try:
-                    _parse_folder_ref(ref)
-                except ValueError:
-                    continue
+                if raw_tab.get("kind") == "folder":
+                    try:
+                        _parse_folder_ref(ref)
+                    except ValueError:
+                        continue
                 tab_id = str(raw_tab.get("id", f"folder:{ref}"))
                 self._tab_states[tab_id] = dict(raw_tab)
-                self._set_default_sort(self._tab_states[tab_id])
+                if raw_tab.get("kind") == "folder":
+                    self._set_default_sort(self._tab_states[tab_id])
                 self._ensure_tab(tab_id)
                 tab_ids.append(tab_id)
             active = str(raw_group.get("active", ""))
@@ -1800,6 +1998,8 @@ class WorkspaceModel(QObject):
     def _refresh_library(
         self, root_id: str | None = None, changed_folders: set[str] | None = None
     ) -> None:
+        if self._playlists_model is not None:
+            self._playlists_model.refresh()
         self._revision += 1
         self.libraryChanged.emit()
         if root_id is None:
@@ -1853,13 +2053,13 @@ class WorkspaceModel(QObject):
             if model is None:
                 continue
             state = self._tab_state(tab_id)
-            if state.get("kind") != "folder":
+            if state.get("kind") not in {"folder", "playlist"}:
                 model.replace([])
                 continue
             self._track_request_keys.pop(tab_id, None)
             self._request_track_rows(
                 tab_id,
-                "folder",
+                str(state.get("kind", "folder")),
                 str(state.get("ref", "")),
                 str(state.get("sortKey", "fileCreatedAt")),
                 bool(state.get("sortAscending", False)),
@@ -1944,8 +2144,8 @@ class WorkspaceModel(QObject):
     @staticmethod
     def _set_default_sort(state: dict[str, Any]) -> None:
         state["sortMode"] = "default"
-        state["sortKey"] = "fileCreatedAt"
-        state["sortAscending"] = False
+        state["sortKey"] = "index" if state.get("kind") == "playlist" else "fileCreatedAt"
+        state["sortAscending"] = state.get("kind") == "playlist"
 
     def _persist(self) -> None:
         if self._session_closed:
@@ -2107,7 +2307,7 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
         )
     # Stable passes keep title and UUID ties ascending in either direction.
     present.sort(key=lambda item: (item[1], item[2]))
-    present.sort(key=lambda item: item[0], reverse=not ascending)
+    present.sort(key=lambda item: cast(Any, item[0]), reverse=not ascending)
     missing.sort(key=lambda row: (str(row.get("title", "")).casefold(), str(row.get("id", ""))))
     return [item[3] for item in present] + missing
 

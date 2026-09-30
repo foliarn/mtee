@@ -11,6 +11,29 @@ Rectangle {
     required property var workspace
     property int groupIndex: 0
     property bool selected: false
+    readonly property string localId: track.trackId !== undefined ? track.trackId : track.id
+    readonly property bool available: track.available !== false
+    property var dragTrackIds: typeof workspace.localTrackIds === "function" ? workspace.localTrackIds(workspace.selectedIds.indexOf(track.id) >= 0 ? workspace.selectedIds : [track.id]) : [track.id]
+    property string dragEntryId: track.entryId || ""
+    Item {
+        id: dragProxy
+        width: 1; height: 1
+        Drag.active: trackDrag.active
+        Drag.source: row
+        Drag.keys: ["mtee-tracks", "mtee-playlist-entry"]
+        Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
+    }
+    DragHandler {
+        id: trackDrag
+        target: null
+        acceptedButtons: Qt.LeftButton
+        enabled: row.available || row.dragEntryId.length > 0
+        onTranslationChanged: { dragProxy.x = centroid.position.x; dragProxy.y = centroid.position.y }
+        onActiveChanged: {
+            if (active) { dragProxy.x = centroid.position.x; dragProxy.y = centroid.position.y }
+            else dragProxy.Drag.drop()
+        }
+    }
     property bool playing: false
     property bool paused: false
     property bool current: false
@@ -26,6 +49,7 @@ Rectangle {
     signal playlistRequested(var anchor)
 
     height: Theme.rowHeight
+    opacity: available ? 1 : 0.55
     color: selected ? Theme.selection : hovered ? Theme.surface : "transparent"
     Accessible.name: row.track.title + (row.track.artist.length > 0 ? " — " + row.track.artist : "")
 
@@ -155,6 +179,7 @@ Rectangle {
 
             IconButton {
                 id: addButton
+                objectName: "trackAdd_" + row.track.id
                 anchors.verticalCenter: parent.verticalCenter
                 hoverBackground: false
                 icon: row.inPlaylist ? "check" : "add-playlist"
@@ -166,11 +191,27 @@ Rectangle {
                 onClicked: row.playlistRequested(addButton)
             }
 
+            TextButton {
+                visible: !row.available
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Locate"; kind: "ghost"
+                onClicked: row.workspace.playlistModel.requestUI("locate", row.track.entryId, [row.track.id])
+            }
+            IconButton {
+                objectName: "trackLike_" + row.track.id
+                visible: typeof row.workspace.toggleLike === "function" && row.available
+                anchors.verticalCenter: parent.verticalCenter
+                icon: row.workspace.revision >= 0 && row.workspace.isLiked(row.localId) ? "heart-filled" : "heart"
+                iconSize: 16
+                hoverBackground: false
+                tip: "Like track"
+                onClicked: row.workspace.toggleLike(row.localId)
+            }
             IconButton {
                 id: infoButton
                 objectName: "trackInfoButton"
                 anchors.verticalCenter: parent.verticalCenter
-                visible: row.hovered
+                visible: row.hovered && row.available
                 hoverBackground: false
                 icon: "info"
                 iconSize: 18
@@ -182,7 +223,7 @@ Rectangle {
                 id: playButton
                 objectName: "trackPlayButton"
                 anchors.verticalCenter: parent.verticalCenter
-                visible: row.hovered || (row.playing && !row.paused)
+                visible: row.available && (row.hovered || (row.playing && !row.paused))
                 hoverBackground: false
                 icon: row.playing && !row.paused ? (row.hovered ? "pause" : "play") : "play"
                 iconSize: 14

@@ -89,3 +89,9 @@ L'implémentation devra séparer playlists, dossiers virtuels, likes et liens au
 La recette inclura création, ajout/retrait, réordonnancement, redémarrage, dossiers imbriqués et prévention des cycles, épingles, likes, titres manquants selon la décision à venir, lecture et shuffle limités aux résultats visibles, import MTEE invalide/partiel, sauvegarde et rollback de migration, fenêtres étroites et conservation du comportement des dossiers audio.
 
 Aucun build Windows n'est demandé. À chaque étape implémentée : contrôles adaptés, parcours depuis les sources, suivi de l'ExecPlan, commit détaillé et push vérifié. L'état Git initial comporte déjà des modifications utilisateur de `.gitignore` et `AGENTS.md`, et des répertoires de skills non suivis ; ils ne doivent pas être inclus dans les commits du travail playlists.
+
+## Réalisation du 2026-09-30
+
+Revue approuvée explicitement par l’utilisateur (« parfait »). Le schéma 16 et le gateway Qt implémentent le périmètre local. `.mteeplaylist` est le JSON version 1 ; ZIP stocke le manifeste et l’audio sous `audio/`, sans réencodage. Les candidats provenant uniquement des tags restent ambigus ; seule une empreinte exacte unique associe automatiquement une source. Les morceaux aux tags insuffisants demandent la confirmation d’identité distincte avant un ajout susceptible de créer un doublon.
+
+Les entrées et pistes ont des UUID séparés. Les écritures UI sont ordonnées dans JobService, les transferts sont annulables et les imports ZIP inachevés repris par le menu + avec empreintes contrôlées. Le profil de colonnes/largeurs est propre aux playlists, le cache d’artwork distingue les URLs locales des URLs image provider. La recette et ses limites sont consignées dans [validation 34](../validation/34-playlists-locales.md).

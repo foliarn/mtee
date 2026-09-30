@@ -16,11 +16,11 @@ Play/Shuffle prennent un instantané des résultats visibles disponibles. Les ab
 - [x] 2026-09-30 — Séparer l'idée Spotify des travaux prévus.
 - [x] 2026-09-30 — Préparer une maquette QML isolée et ses scènes de revue.
 - [x] 2026-09-30 — Captures produites, interactions vérifiées hors écran et en fenêtre Windows native ; preuves de prototype consignées.
-- [ ] Présenter la revue 34.1 et consigner la validation explicite de la maquette.
-- [ ] Réaliser 34.2 : domaine, migration sauvegardée, dépôt, services et tests de persistance.
-- [ ] Réaliser 34.3 : modèles Qt, sidebar, pages, likes, menus et intégration du lecteur.
-- [ ] Réaliser 34.4 : échanges légers/ZIP, résolution, annulation et reprise.
-- [ ] Réaliser 34.5 : recette depuis les sources, contrôles, commit détaillé et push confirmé.
+- [x] 2026-09-30 — Revue 34.1 validée explicitement par l’utilisateur (« parfait »).
+- [x] 2026-09-30 — Réaliser 34.2 : domaine, migration sauvegardée, dépôt, services et tests de persistance.
+- [x] 2026-09-30 — Réaliser 34.3 : modèles Qt, sidebar, pages, likes, menus et intégration du lecteur.
+- [x] 2026-09-30 — Réaliser 34.4 : échanges légers/ZIP, résolution, annulation et reprise.
+- [x] 2026-09-30 — Réaliser 34.5 : recette depuis les sources et contrôles terminés ; commit/push en clôture de livraison, SHA et comparaison distante rapportés dans la conversation.
 
 ## Surprises & Discoveries
 
@@ -44,7 +44,7 @@ La capture hors écran sous Windows ne trouve pas les polices système : le lanc
 
 ## Outcomes & Retrospective
 
-Au début du plan, le cadrage est confirmé et la maquette est préparée pour revue. Les playlists fonctionnelles, la migration et les exports ne sont pas implémentés. La validation de maquette n'a pas encore été reçue. Les contrôles réellement terminés seront consignés dans `docs/validation/34-playlists-locales.md`, avec distinction entre prototype, backend et recette.
+La maquette a été approuvée (« parfait »). Les playlists locales fonctionnelles, la migration 16 sauvegardée, les likes, les dossiers et les échanges MTEE/ZIP sont implémentés. Les contrôles depuis les sources et les captures natives sont consignés dans `docs/validation/34-playlists-locales.md`. La recette est automatisée sur fixtures isolées ; elle ne constitue pas une écoute humaine ni une validation de distribution Windows. Les erreurs des contrôles globaux antérieures à cette étape sont documentées séparément.
 
 ## Contexte et prérequis
 
@@ -122,8 +122,8 @@ Après création des modules/tests aux jalons indiqués, exécuter :
     uv run ruff check .
     uv run ruff format --check .
     uv run pyright
-    uv run pytest tests/unit/test_playlist_identity.py tests/unit/test_playlist_order.py tests/integration/test_playlists_repository.py tests/integration/test_database_migrations.py tests/integration/test_playlist_exchange.py tests/ui/test_playlists_ui.py
-    uv run python -m mtee --data-dir .local/validation/34-playlists --smoke-test
+    uv run pytest tests/unit/test_playlist_identity.py tests/integration/test_playlists_repository.py tests/integration/test_database_migrations.py tests/integration/test_playlist_exchange.py tests/ui/test_playlists_ui.py
+    uv run python -m mtee --data-dir .local/validation/34-playlists-functional --smoke-test
     uv run python -m mtee --data-dir .local/validation/34-playlists
 
 Les futurs tests ne sont pas présentés comme existants avant leur création. Ajuster les chemins de modules/tests au code réel et consigner les adaptations. La dernière commande sert au parcours manuel avec données de test ; le smoke-test n'en tient pas lieu. Ajouter les tests de non-régression des modules touchés selon les changements, sans répétition systématique après des résultats inchangés.
@@ -133,3 +133,15 @@ Les futurs tests ne sont pas présentés comme existants avant leur création. A
 L'acceptation exige maquette approuvée, persistance au redémarrage, identité/order sans perte, fonctions visibles réellement branchées, écriture sur copies, import/export reproductibles et erreurs lisibles. Une absence de réponse à la revue suspend le backend au jalon 34.1 et laisse le dossier prêt. Une migration/applicative/échange en échec conserve l'état précédent ou expose précisément la partie achevée ; ne jamais substituer une suppression permanente de source à une opération indisponible.
 
 Le prototype ne teste ni le son, ni les migrations, ni les exports, ni le drag-and-drop réel. La recette native de l'application fonctionnelle reste à effectuer après implémentation. Aucun EXE n'est construit/validé sans demande explicite de distribution. Note de révision du 2026-09-30 : plan initial établi à partir des décisions de cadrage, périmètre local et dossier de revue distincts de l'intégration différée.
+
+## Résultats de réalisation du 2026-09-30
+
+Migration `016_playlists.sql` : ajout de tables sans transformation des tags/analyses existants, backup exact du schéma 15 et application idempotente vérifiés. Les UUID d’entrées restent distincts des morceaux locaux. Toutes les opérations du gateway Qt passent par une file FIFO de jobs ; la fermeture vide les petites écritures et annule les transferts avec journal de reprise.
+
+La vue réutilise les composants/jetons MTEE et possède un profil de colonnes séparé. Le pooling des délégués est désactivé pour les playlists après observation d’un délégué conservant un ancien modèle ; la virtualisation reste active. La recette native force le layout Qt après le changement de filtre avant de simuler un drag. Les autres vues conservent leur comportement de réutilisation.
+
+Le format léger version 1 est un manifeste UTF-8 avec couverture et SHA-256, sans chemins absolus. Le ZIP contient `playlist.mteeplaylist` et les sources exactes sous `audio/`. Seuils : manifeste 20 Mo, couverture importée 5 Mo, 100 000 entrées, archive 20 Go décompressés. Publication par création atomique sans remplacement ; reprise vérifiant les empreintes de fichiers déjà extraits avant toute continuation. Les candidats sur métadonnées seuls demandent un choix.
+
+35 tests ciblés (34 backend/persistance/non-régression et 1 parcours UI), recette Windows native et smoke-test depuis les sources terminés. Pyright ciblé est vert ; le contrôle global présente 34 erreurs contre 38 sur HEAD initial, sans nouveau diagnostic. Ruff ciblé est vert hors anciennes lignes de LibraryRepository ; Ruff global et format global ne sont pas verts avant cette étape. Deux anciens tests workspace/player échouent également sur un checkout isolé de HEAD initial ; aucun résultat global propre n’est revendiqué.
+
+Charge synthétique de 10 000 entrées absentes : création 0,162 s, lecture 0,051 s, remplacement du modèle Qt 0,026 s. Ce test ne mesure ni les accès à 10 000 fichiers réels ni le rendu complet sur toutes les machines. Packaging non lancé. Spotify reste exclu.

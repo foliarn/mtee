@@ -54,6 +54,11 @@ Window {
         onTriggered: root.ws.tick(0.25)
     }
 
+    Loader {
+        active: !shell.demoMode
+        sourceComponent: Component { PlaylistDialogs { workspace: root.ws } }
+    }
+
     TitleBar {
         id: titleBar
         anchors.top: parent.top
