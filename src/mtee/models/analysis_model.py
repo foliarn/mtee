@@ -23,6 +23,7 @@ class _AnalysisBridge(QObject):
 
     trackDone = Signal(str)
     notice = Signal(str)
+    conflict = Signal(object)
 
 
 class AnalysisModel(QObject):
@@ -30,6 +31,7 @@ class AnalysisModel(QObject):
 
     resultsChanged = Signal(list)
     noticeRaised = Signal(str)
+    conflictFound = Signal(object)
 
     def __init__(
         self,
@@ -49,6 +51,7 @@ class AnalysisModel(QObject):
         self._bridge = _AnalysisBridge(self)
         self._bridge.trackDone.connect(self._on_track_done, Qt.ConnectionType.QueuedConnection)
         self._bridge.notice.connect(self.noticeRaised, Qt.ConnectionType.QueuedConnection)
+        self._bridge.conflict.connect(self.conflictFound, Qt.ConnectionType.QueuedConnection)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(_REFRESH_INTERVAL_MS)
@@ -96,6 +99,7 @@ class AnalysisModel(QObject):
                 is_cancelled=lambda: context.is_cancelled,
                 report_progress=context.report_progress,
                 on_track_done=self._bridge.trackDone.emit,
+                on_conflict=self._bridge.conflict.emit,
             )
 
         self._jobs.submit(task, label=label)

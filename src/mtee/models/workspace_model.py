@@ -20,6 +20,7 @@ from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
+from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
 from mtee.persistence.library_repository import LibraryRepository
@@ -94,6 +95,7 @@ class WorkspaceModel(QObject):
         self._trash_model: TrashModel | None = None
         self._analysis_model: AnalysisModel | None = None
         self._analysis_settings: AnalysisSettingsModel | None = None
+        self._tag_conflicts: TagConflictsModel | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._shell_reveal = WindowsShellReveal()
@@ -416,6 +418,10 @@ class WorkspaceModel(QObject):
     def analysisSettings(self) -> QObject:
         return self._analysis_settings if self._analysis_settings is not None else self
 
+    @Property(QObject, constant=True)
+    def tagConflicts(self) -> QObject:
+        return self._tag_conflicts if self._tag_conflicts is not None else self
+
     @Property(list, notify=selectionChanged)
     def infoFieldsReadOnly(self) -> list[dict[str, str]]:
         ids = self.selected_ids_snapshot()
@@ -509,13 +515,24 @@ class WorkspaceModel(QObject):
         model.setParent(self)
         model.tracksRecycled.connect(self._on_tracks_recycled)
 
-    def attach_analysis(self, settings: AnalysisSettingsModel, model: AnalysisModel) -> None:
-        """Attach the analysis settings and the model that launches analysis jobs."""
+    def attach_analysis(
+        self,
+        settings: AnalysisSettingsModel,
+        model: AnalysisModel,
+        conflicts: TagConflictsModel,
+    ) -> None:
+        """Attach the analysis settings, the model that launches analysis jobs and the
+        list of tag conflicts those jobs leave for the user to resolve."""
         if self._analysis_model is not None:
             raise RuntimeError("An analysis model is already attached to this workspace.")
         self._analysis_settings = settings
         self._analysis_model = model
+        self._tag_conflicts = conflicts
         model.setParent(self)
+        conflicts.setParent(self)
+        model.conflictFound.connect(conflicts.add)
+        conflicts.noticeRaised.connect(self._set_message)
+        conflicts.resolved.connect(self._on_metadata_changed)
         model.resultsChanged.connect(self._on_analysis_results)
         model.noticeRaised.connect(self._set_message)
         settings.changed.connect(self._on_analysis_display_changed)
@@ -1797,6 +1814,8 @@ class WorkspaceModel(QObject):
         self._refresh_timer.start()
 
     def _refresh_models(self) -> None:
+        if not self._jobs.accepting:
+            return  # a refresh timer that fires after shutdown began has nothing to load
         if self._dirty_root_ids:
             self._dirty_root_ids.clear()
             self._request_folder_roots()

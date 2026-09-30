@@ -61,7 +61,35 @@ class VorbisCommentAdapter:
             return audio, self.reason_container
         return audio, ""
 
-    def capabilities(self, path: Any) -> dict[str, tuple[bool, str]]:
+    def alias_conflicts(self, path: Any, fields: Any) -> dict[str, tuple[str, ...]]:
+        """Return, per field, the tag names that make it unsafe to edit in place.
+
+        A field is in conflict when it exists under several names (``KEY`` and
+        ``INITIALKEY``) or holds several values under one name.
+        """
+        try:
+            audio, reason = self.inspect(path)
+        except Exception:
+            return {}
+        if reason or audio is None:
+            return {}
+        tags = audio.tags or {}
+        found: dict[str, tuple[str, ...]] = {}
+        for field in fields:
+            if field not in _ALIASES:
+                continue
+            keys = self._matching_keys(tags, field)
+            if len(keys) > 1:
+                found[field] = tuple(key.upper() for key in keys)
+            elif keys:
+                values = _as_values(tags[keys[0]])
+                if len(values) > 1:
+                    found[field] = (f"{keys[0].upper()} ({len(values)} values)",)
+        return found
+
+    def capabilities(
+        self, path: Any, *, replace_aliases: bool = False
+    ) -> dict[str, tuple[bool, str]]:
         if not self.supports_path(path):
             return self._disabled(self.reason_container)
         try:
@@ -71,7 +99,10 @@ class VorbisCommentAdapter:
         if reason or audio is None:
             return self._disabled(reason or self.reason_container)
         tags = audio.tags or {}
-        return {field: self._field_capability(tags, field) for field in EDITABLE_METADATA_FIELDS}
+        return {
+            field: self._field_capability(tags, field, replace_aliases)
+            for field in EDITABLE_METADATA_FIELDS
+        }
 
     def prepare(self, path: Any, patch: MetadataPatch) -> tuple[Any, VorbisPreservationSnapshot]:
         audio, reason = self.inspect(path)
@@ -83,18 +114,35 @@ class VorbisCommentAdapter:
         if tags is None:
             raise ValueError("Could not create the Vorbis comment table.")
         target_keys: dict[str, str] = {}
+        old_keys: dict[str, list[str]] = {}
         for field, _value in patch.changes:
-            editable, reason = self._field_capability(tags, field)
+            editable, reason = self._field_capability(tags, field, patch.replace_aliases)
             if not editable:
                 raise ValueError(reason)
-            target_keys[field] = self._resolve_key(tags, field)
+            old_keys[field] = self._matching_keys(tags, field)
+            # Replacing aliases stores the value under the first standard name.
+            target_keys[field] = (
+                _ALIASES[field][0] if patch.replace_aliases else self._resolve_key(tags, field)
+            )
         expected_changes = tuple(
-            (field, _preserve_track_total(value, tags.get(target_keys[field])))
+            (
+                field,
+                _preserve_track_total(
+                    value,
+                    tags.get(old_keys[field][0] if old_keys[field] else target_keys[field]),
+                ),
+            )
             if field == "track_number" and value is not None
             else (field, value)
             for field, value in patch.changes
         )
-        preserved = self._snapshot(audio, set(target_keys.values()), expected_changes)
+        touched = set(target_keys.values()).union(*old_keys.values())
+        preserved = self._snapshot(audio, touched, expected_changes)
+        if patch.replace_aliases:
+            for keys in old_keys.values():
+                for key in keys:
+                    if key in tags:
+                        del tags[key]
         for field, value in patch.changes:
             key = target_keys[field]
             if value is None:
@@ -131,7 +179,11 @@ class VorbisCommentAdapter:
                 raise ValueError(f"The {field} tag did not match the requested value.")
 
     @classmethod
-    def _field_capability(cls, tags: Any, field: str) -> tuple[bool, str]:
+    def _field_capability(
+        cls, tags: Any, field: str, replace_aliases: bool = False
+    ) -> tuple[bool, str]:
+        if replace_aliases:
+            return True, ""
         keys = cls._matching_keys(tags, field)
         if len(keys) > 1:
             return (

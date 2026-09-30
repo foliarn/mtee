@@ -164,6 +164,12 @@ class JobService(QObject):
         self._pool.start(_JobRunnable(self, context, task), priority)
         return job_id
 
+    @property
+    def accepting(self) -> bool:
+        """Return whether new jobs are still accepted (false once shutdown has begun)."""
+        with self._lock:
+            return self._accepting
+
     def cancel(self, job_id: JobId) -> None:
         """Request the cancellation of ``job_id``.
 

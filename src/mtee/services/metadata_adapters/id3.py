@@ -110,7 +110,9 @@ class Id3WaveAdapter:
         else:
             audio.save(v2_version=version)
 
-    def capabilities(self, path: Any) -> dict[str, tuple[bool, str]]:
+    def capabilities(
+        self, path: Any, *, replace_aliases: bool = False
+    ) -> dict[str, tuple[bool, str]]:
         if not self.supports_path(path):
             return {field: (False, self.reason_unverified) for field in EDITABLE_METADATA_FIELDS}
         audio: WAVE | None = None
