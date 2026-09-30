@@ -5,6 +5,7 @@ import wave
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from PySide6.QtCore import QMetaObject, QPoint, Qt, QUrl
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtQuick import QQuickWindow
@@ -18,6 +19,7 @@ from mtee.domain.tracks import SourceRevision
 from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.workspace_model import WorkspaceModel
+from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
 
 
@@ -33,10 +35,25 @@ def _click(root: QQuickWindow, name: str) -> None:
     )
 
 
-def test_create_add_like_search_visible_playback_and_reload(qapp, qtbot, tmp_path, monkeypatch):
+@pytest.mark.parametrize("early_schema_16", [False, True])
+def test_create_add_like_search_visible_playback_and_reload(
+    qapp, qtbot, tmp_path, monkeypatch, early_schema_16
+):
     backend = _UiPlayerBackend()
     monkeypatch.setattr("mtee.app.MpvBackend", lambda: backend)
     application = create_application(["mtee"])
+    if early_schema_16:
+        legacy_migrations = tmp_path / "schema-v16"
+        legacy_migrations.mkdir()
+        for migration in Database(tmp_path / "unused.sqlite3").migrations:
+            if migration.version <= 16:
+                sql = migration.read_sql()
+                if migration.version == 16:
+                    sql = sql.split("CREATE TABLE playlist_imports (")[0]
+                (legacy_migrations / migration.file_name).write_text(sql, encoding="utf-8")
+        database = Database(tmp_path / "data" / "mtee.sqlite3", migrations_dir=legacy_migrations)
+        database.migrate()
+        database.close()
     runtime = _build_runtime(application, AppOptions(data_dir=tmp_path / "data"))
     assert runtime is not None
     root = runtime.engine.rootObjects()[0]
