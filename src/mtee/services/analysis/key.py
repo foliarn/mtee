@@ -1,10 +1,16 @@
 """Key estimation from a pitch-class profile.
 
-The extractor accumulates a 36-bin profile (thirds of a semitone, ``A`` first).
-The bins are grouped into twelve pitch classes around the tuning that carries the
-most energy, so a recording tuned a few cents away from A = 440 Hz still lands on
-the right classes. The resulting chroma is correlated with the 24 rotations of
-two published major/minor key profiles; the best correlation names the key.
+The extractor accumulates two 36-bin profiles (thirds of a semitone, ``A`` first):
+one for the harmony and one for the bass line, which names the root of a track more
+reliably than the chords do. They are mixed, then the bins are grouped into twelve
+pitch classes around the tuning that carries the most energy, so a recording tuned a
+few cents away from A = 440 Hz still lands on the right classes. The resulting
+chroma is correlated with the 24 rotations of two published major/minor key
+profiles; the best correlation names the key.
+
+Weights and thresholds were chosen on a collection of tracks whose key had been
+tagged by other tools, on a plateau of settings rather than a single optimum; see
+``docs/validation/33-analyse-audio.md``.
 
 Profiles: Krumhansl and Kessler (1982) and Temperley (2005), values as printed in
 the literature. Their average is used because each errs on different relative
@@ -30,7 +36,12 @@ _MINOR_PROFILES = (
     np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]),
     np.array([5.0, 2.0, 3.5, 4.5, 2.0, 4.0, 2.0, 4.5, 3.5, 2.0, 1.5, 4.0]),
 )
-_MIN_CORRELATION = 0.45
+_MIN_CORRELATION = 0.35
+# Flat noise correlates with a key profile about as well as weak music does; what
+# tells them apart is how uneven the twelve pitch classes are (real tracks: 0.10
+# and above, white noise: 0.06 to 0.08).
+_MIN_CONTRAST = 0.09
+_BASS_WEIGHT = 0.4
 _MIN_ENERGY = 1.0
 
 
@@ -43,15 +54,22 @@ class KeyEstimate:
     margin: float
 
 
-def estimate_key(pitch_profile: np.ndarray) -> KeyEstimate | None:
-    """Return the key of a 36-bin pitch profile, or ``None`` without tonal evidence."""
+def estimate_key(
+    pitch_profile: np.ndarray, bass_profile: np.ndarray | None = None
+) -> KeyEstimate | None:
+    """Return the key of 36-bin pitch profiles, or ``None`` without tonal evidence."""
     profile = np.asarray(pitch_profile, dtype=np.float64)
     if profile.shape != (36,) or not np.isfinite(profile).all():
         return None
     if profile.sum() < _MIN_ENERGY:
         return None
-    chroma = _chroma(profile)
-    if chroma.std() < 1e-9:
+    mixed = profile / profile.sum()
+    if bass_profile is not None:
+        bass = np.asarray(bass_profile, dtype=np.float64)
+        if bass.shape == (36,) and np.isfinite(bass).all() and bass.sum() > 0:
+            mixed = mixed + _BASS_WEIGHT * bass / bass.sum()
+    chroma = _chroma(mixed)
+    if chroma.mean() <= 0 or chroma.std() / chroma.mean() < _MIN_CONTRAST:
         return None
 
     correlations: list[tuple[float, MusicalKey]] = []

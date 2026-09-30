@@ -112,7 +112,7 @@ class AudioAnalyzer:
             bpm = estimate.bpm if estimate is not None else None
         key: MusicalKey | None = None
         if tonality:
-            key_estimate = estimate_key(features.pitch_profile)
+            key_estimate = estimate_key(features.pitch_profile, features.bass_profile)
             key = key_estimate.key if key_estimate is not None else None
         return AnalysisOutcome(waveform, bpm, key)
 

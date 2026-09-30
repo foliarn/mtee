@@ -20,6 +20,8 @@ L'onglet **Analysis** des réglages choisit la notation de la tonalité (Camelot
 - [x] Interface : onglet Analysis, menus clic droit (liste, arbre, dossier), colonnes, inspecteur, Fullscreen.
 - [x] Tests unitaires, d'intégration (FFmpeg réel) et d'interface ; suite complète comparée à HEAD.
 - [x] Documentation, licence NumPy dans la spécification de packaging (sans build).
+- [x] Correctif du 2026-09-30 : le bouton de colonnes ne faisait rien (préférences ignorées côté QML) ; corrigé et testé (`8756ee7`).
+- [x] Correctif du 2026-09-30 : trop de morceaux sans tonalité ; méthode de tonalité revue et mesurée sur les tags de la bibliothèque de l'utilisateur, version d'analyse 2.
 - [ ] Recette souris/clavier sur la collection réelle de l'utilisateur : non réalisée.
 - [ ] Construction et vérification de l'EXE : non demandées, non réalisées (voir `AGENTS.md`).
 
@@ -30,6 +32,10 @@ Le gel de 2 s à 99 % ne venait pas seulement du calcul. Mesuré le 2026-09-30 a
 Le calcul Python de l'ancienne pyramide (niveaux successifs, cache compressé) coûtait en plus 0,07 s après le décodage pour 5 minutes et 0,42 s pour 30 minutes sur la machine de mesure ; il tenait l'interpréteur pendant tout le décodage. Le cache disque existait (108 fichiers observés) mais sa clé dépendait de la révision de la source (taille, date, génération) : la moindre écriture de tag ou nouvelle génération le rendait inutilisable. La cause exacte des recalculs à chaque écoute n'a pas été reproduite ; la nouvelle clé (identité du morceau + durée audio) supprime cette classe de causes.
 
 La première analyse de tempo (librosa, plan 09) donnait 117,45 BPM pour une fixture à 120 BPM. Le nouveau calcul retrouve les tempos synthétiques à quelques millièmes de BPM près sur 60 s et plus.
+
+Les préférences de colonnes arrivent en QML comme des séquences Qt pour lesquelles `Array.isArray` est faux : `TrackListView.qml` les ignorait et retombait sur les colonnes par défaut, si bien que le bouton de choix des colonnes ne changeait rien. Le test `test_column_selection` échouait déjà avant l'étape 33 et signalait ce défaut. Par ailleurs, un `QByteArray` vide arrive en QML comme un `ArrayBuffer` de longueur nulle que `Float32Array` refuse : c'était une régression de la première livraison, corrigée avec un test.
+
+Le premier réglage de la tonalité (seuil de corrélation 0,45, pondération en racine carrée) avait été validé sur des signaux synthétiques seulement. Sur 92 morceaux réels dont un autre outil avait écrit la tonalité, il ne renvoyait rien pour 43 d'entre eux et trouvait la tonalité exacte 24 fois. Voir `docs/validation/33-analyse-audio.md`.
 
 Deux tests d'interface utilisaient `QTest.qWait`, qui garde le verrou de l'interpréteur : les threads de travail étaient affamés et un test de 0,4 s prenait 20 s. Les attentes des nouveaux tests alternent `processEvents` et `time.sleep`.
 
@@ -45,6 +51,8 @@ Deux tests d'interface utilisaient `QTest.qWait`, qui garde le verrou de l'inter
 
 2026-09-30 — Claude, choix technique : NumPy seul, sans SciPy, librosa, Numba ni llvmlite. Les anciennes dépendances alourdissaient la distribution et le tempo librosa était imprécis. Décodage unique par le `MediaDecodeService` existant (22 050 Hz stéréo), traits accumulés en flux pour une mémoire bornée.
 
+2026-09-30 — Claude, correctif après essai de l'utilisateur : la tonalité est estimée à partir de pics pondérés à la puissance 1,5 avec prise en compte des harmoniques (bande 80–2 500 Hz) et d'un profil des basses (40–250 Hz, poids 0,4), avec un seuil de corrélation de 0,35 et un contraste minimal entre classes de hauteur. Les réglages ont été choisis sur un plateau mesuré sur les tags de 92 morceaux de la bibliothèque, sans gabarits appris. La version d'analyse passe à 2 ; la waveform garde sa propre version. Une estimation faible est renvoyée plutôt que rien : l'utilisateur préfère une valeur à corriger à l'absence de valeur.
+
 2026-09-30 — Claude, choix technique : la plage de BPM doit couvrir au moins une octave (`max ≥ 2 × min`) ; modifier l'une des bornes déplace l'autre. Sans cela, certains tempos n'auraient aucun représentant dans la plage. Quand deux représentants existent (plage plus large qu'une octave), le meilleur score l'emporte avec un léger a priori centré sur 120 BPM ; resserrer la plage lève l'ambiguïté demi/double tempo. Plage par défaut 70–180, 1 analyse en parallèle, 2 décimales, notation Camelot.
 
 2026-09-30 — Claude, choix technique : les résultats sont stockés dans des tables séparées des tags (`track_analysis`, `track_waveforms`, migration 015 ; 010 reste réservé à l'historique retiré). Une valeur éditée est marquée par un drapeau (`bpm_user_edited`, `key_user_edited`) posé par l'éditeur de métadonnées après une sauvegarde vérifiée ; l'affichage suit l'ordre édité (tag) > calculé > tag.
@@ -53,7 +61,7 @@ Deux tests d'interface utilisaient `QTest.qWait`, qui garde le verrou de l'inter
 
 ## Outcomes & Retrospective
 
-Livraison fonctionnelle depuis les sources. Le calcul est validé sur des signaux synthétiques uniquement : tempo à moins de 0,03 BPM sur des boucles de 40 s et plus, 24 tonalités reconnues, absence de valeur pour le silence, le bruit, les nappes sans rythme et les extraits trop courts. La précision sur de la vraie musique n'est pas mesurée. Limites connues : tempo instable non traité (le résultat est la valeur moyenne dominante, avec un écart mesuré de 0,04 BPM pour une dérive de 1,5 %), ambiguïté demi/double tempo tranchée par le score et la plage, accords ambigus majeur/mineur relatifs, **Undo** de l'éditeur de métadonnées qui ne retire pas le drapeau « édité », résultats non recalculés quand la plage change (il faut **Re-analyze**), aucun import de l'ancienne analyse conservée dans les tables 010.
+Livraison fonctionnelle depuis les sources. Le calcul est validé sur des signaux synthétiques uniquement : tempo à moins de 0,03 BPM sur des boucles de 40 s et plus, 24 tonalités reconnues, absence de valeur pour le silence, le bruit, les nappes sans rythme et les extraits trop courts. La précision sur de la vraie musique n'est pas mesurée. Correctif du 2026-09-30 : sur 92 morceaux réels avec une tonalité écrite par un autre outil, la méthode révisée ne renvoie rien pour 3 morceaux (43 avant), trouve la tonalité exacte pour 49 (24 avant) et une tonalité exacte, à une quinte ou relative pour 73 % des résultats. Limites connues : tempo instable non traité (le résultat est la valeur moyenne dominante, avec un écart mesuré de 0,04 BPM pour une dérive de 1,5 %), ambiguïté demi/double tempo tranchée par le score et la plage, accords ambigus majeur/mineur relatifs, **Undo** de l'éditeur de métadonnées qui ne retire pas le drapeau « édité », résultats non recalculés quand la plage change (il faut **Re-analyze**), aucun import de l'ancienne analyse conservée dans les tables 010.
 
 ## Contexte et prérequis
 

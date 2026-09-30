@@ -26,7 +26,26 @@ Ambiguïté demi/double tempo : pour une boucle « dnb » à 174 BPM et une bouc
 
 ### Tonalité (signaux synthétiques)
 
-Progressions d'accords I–IV–V–I en position fondamentale, 24 tonalités : 24/24 reconnues, avec et sans batterie par-dessus, et avec un désaccord de +30 cents et −40 cents. Le silence et le bruit ne donnent aucune tonalité. Une batterie seule donne une corrélation d'environ 0,4, sous le seuil de 0,45 dans les tests ; **une piste percussive plus riche peut cependant recevoir une tonalité faible**, par exemple un B mineur trouvé sur une boucle de batterie décodée à 44,1 kHz pendant la mesure de durées. Les profils sont ceux de la littérature (Krumhansl-Kessler 1982, Temperley 2005).
+Progressions d'accords I–IV–V–I en position fondamentale, 24 tonalités : 24/24 reconnues, avec et sans batterie par-dessus, et avec un désaccord de +30 cents et −40 cents. Le silence et le bruit blanc ne donnent aucune tonalité (le contraste entre les douze classes de hauteur est trop faible). Une batterie synthétique dont la grosse caisse a une hauteur fixe reçoit une tonalité, ce qui est un comportement voulu de l'attention portée aux basses ; une piste faite uniquement de percussions peut donc recevoir la hauteur de sa grosse caisse. Les profils de tonalité sont ceux de la littérature (Krumhansl-Kessler 1982, Temperley 2005).
+
+### Tonalité sur la collection réelle (correction du 2026-09-30)
+
+Après un premier essai, l'utilisateur a constaté que beaucoup de morceaux ne recevaient aucune tonalité, quel que soit le format : sur 194 morceaux analysés, 125 sans tonalité et aucun sans BPM. Le seuil de corrélation de la première version, réglé sur des signaux synthétiques propres, rejetait la musique réelle.
+
+Référentiel : 92 morceaux de la bibliothèque de l'utilisateur portent une tonalité écrite par un autre outil (Camelot ou classique, très majoritairement mineure : 86 mineures, 6 majeures). Ces tags servent de référence imparfaite, pas de vérité. Seul le décodage a été fait, en lecture seule ; aucun fichier ni tag n'a été modifié, et aucun titre n'est consigné ici.
+
+| Version | Aucune tonalité | Exacte | Quinte | Relative | Parallèle | Autre |
+|---|---|---|---|---|---|---|
+| première version (pondération racine carrée, 80–5 000 Hz, seuil 0,45) | 43 | 24 | 24 | 7 | 10 | 27 |
+| version 2 (pondération puissance 1,5, harmoniques, basses, 80–2 500 Hz, seuil 0,35) | 3 | 49 | 9 | 7 | 10 | 14 |
+
+Pour la première version, les colonnes détaillent la meilleure des 24 tonalités, seuil ignoré ; pour la version 2, elles détaillent les 89 résultats renvoyés par le code de production sur les morceaux entiers. « Quinte » et « relative » sont des voisins sur la roue Camelot (compatibles pour le mixage harmonique) ; « parallèle » a la même tonique avec l'autre mode. Le taux de tonalité exacte parmi les résultats renvoyés est de 55 % et 73 % sont exacts, à une quinte ou relatifs.
+
+Ce que l'exploration a montré, sur 200 s du milieu de chaque morceau (le score est une moyenne pondérée à la manière du concours MIREX : exacte 1, quinte 0,5, relative 0,3, parallèle 0,2) : la pondération des pics compte plus que tout (racine carrée : 0,50 de score MIREX ; puissance 1,5 à 2 : 0,58) ; limiter la bande à 2 500 Hz et ajouter la prise en compte des harmoniques inférieurs aident ; ajouter un profil des basses (fenêtre de 0,74 s, 40–250 Hz) avec un poids de 0,25 à 0,5 fait passer de 0,61 à 0,64–0,67, un poids de 1 ou plus dégrade. Ces réglages forment un plateau (beaucoup de combinaisons voisines donnent 0,60–0,62 avant les basses), pas un optimum isolé. La séparation harmonique/percussive par filtres médians améliore aussi, mais coûte plusieurs secondes par morceau ; elle n'est pas retenue. Des gabarits appris sur ces tags (validation croisée en laissant un morceau de côté) donnent 0,71 mais s'appuient sur une bibliothèque à 93 % mineure et n'ont pas été retenus : les profils publiés restent utilisés.
+
+La corrélation devient un indicateur de fiabilité : à 0,6 et plus, environ deux tiers des résultats sont exacts ; entre 0,5 et 0,6, un tiers ; sous 0,5, environ un cinquième. Elle n'est pas affichée dans l'interface.
+
+La version d'analyse passe à 2 : **Analyze** retraite les morceaux déjà analysés avec l'ancienne méthode (les valeurs éditées et les waveforms sont conservées). Non vérifié : la précision sur des bibliothèques d'un autre style, sur des tonalités majeures (6 exemples seulement), et l'exactitude des tags de référence eux-mêmes.
 
 ### Waveform : coût avant et après
 
@@ -73,4 +92,4 @@ Aucune capture n'est versionnée : le mode `offscreen` n'a pas de police et affi
 
 ## Limites connues
 
-Le drapeau « valeur éditée » n'est pas retiré par **Undo** de l'éditeur de métadonnées. Modifier la plage de BPM ne change pas les résultats déjà stockés : il faut **Re-analyze**. Les anciennes tables d'analyse de la migration 010 restent inertes. Le cache disque `waveforms` de l'ancienne version n'est plus lu et n'a pas été supprimé.
+Un peu plus d'un morceau sur deux de la bibliothèque de l'utilisateur reçoit la même tonalité qu'un autre outil, et près d'un sur cinq est à une quinte ou relatif : la tonalité est une aide, pas une vérité. Le drapeau « valeur éditée » n'est pas retiré par **Undo** de l'éditeur de métadonnées. Modifier la plage de BPM ne change pas les résultats déjà stockés : il faut **Re-analyze**. Les anciennes tables d'analyse de la migration 010 restent inertes. Le cache disque `waveforms` de l'ancienne version n'est plus lu et n'a pas été supprimé.

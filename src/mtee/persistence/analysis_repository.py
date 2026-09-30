@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 from mtee.domain.analysis import (
     ANALYSIS_ALGORITHM_VERSION,
+    WAVEFORM_ALGORITHM_VERSION,
     TrackAnalysis,
     durations_agree,
 )
@@ -131,7 +132,7 @@ class AnalysisRepository:
                     points.duration_us,
                     source_duration_us,
                     points.to_bytes(),
-                    ANALYSIS_ALGORITHM_VERSION,
+                    WAVEFORM_ALGORITHM_VERSION,
                     _now(),
                 ),
             )
@@ -149,7 +150,7 @@ class AnalysisRepository:
             )
             .fetchone()
         )
-        if row is None or int(row["algorithm_version"]) != ANALYSIS_ALGORITHM_VERSION:
+        if row is None or int(row["algorithm_version"]) != WAVEFORM_ALGORITHM_VERSION:
             return None
         if not durations_agree(row["source_duration_us"], current_duration_us):
             return None
