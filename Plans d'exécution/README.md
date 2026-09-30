@@ -10,6 +10,10 @@ Le [plan 98 — Playlists, glisser-déposer et Play/Pause](98-playlists-glisser-
 
 Le [plan 99 — File, commandes de lecture, navigation et désélection](99-controles-lecture-file-navigation.md) traduit exclusivement les features 9 à 13 de la page Notion « MTEE — fixes & idées / Segmentation » et les deux séries de réponses utilisateur du 1er octobre. La numérotation des features Notion est indépendante des anciens ExecPlans 09–13.
 
+## Refonte du Fullscreen player — préparation du 2026-10-01
+
+Le [plan 100 — Refonte du Fullscreen player et de sa waveform](100-plein-ecran-waveform.md) transcrit deux séries de réponses utilisateur. Il couvre la carte principale colorée d'après la pochette, la waveform RMS à barres avec survol et scrub audio, deux pages séparées par une transition sans état intermédiaire, et la page 2 (Artiste provisoire, Track details, Queue). La maquette 100.0 doit être validée avant le code ; la carte Queue dépend des interfaces de file du plan 99. Le numéro sert seulement à distinguer ce plan des précédents. Aucun build Windows n'est prévu.
+
 Il prépare l'ajout FIFO par clic droit, les doublons et ajouts conservés lors d'un changement de morceau, la file réordonnable par glisser-déposer et persistée avec courant/position restaurés en pause, Espace hors saisie, l'historique de toutes les pages par panneau via les boutons latéraux, Précédent à trois secondes et la désélection au clic dans le vide. Il repose sur le socle actuel et les playlists du plan 34. La revue de maquette de file précède son implémentation ; la préparation du plan n'est pas une autorisation de développement. Aucun build Windows n'est prévu.
 
 ## Playlists locales — 2026-09-30
