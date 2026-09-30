@@ -347,6 +347,8 @@ Après le push, faire `git fetch origin` et comparer `git rev-parse HEAD` à `gi
 - [x] 2026-10-01 — Réponses complémentaires Q1–Q4 consignées ; plan, contrats de file et matrice de recette finalisés.
 - [x] 2026-10-01 — Contrôles documentaires : UTF-8, structure PLANS.md, couverture F9–F13, 28 chemins existants, 14 chemins futurs explicitement décrits, lien d'index et `git diff --check` vérifiés. Aucun test applicatif exécuté.
 - [ ] 99.0 — Socle vérifié, maquette de file préparée et revue utilisateur obtenue.
+- [x] 2026-10-01 — Sous-étape 99.0 : maquette QML, lanceur, six captures et dossier de revue préparés ; rendu hors écran sans avertissement QML.
+- [ ] 2026-10-01 — Sous-étape 99.0 : validation utilisateur de la maquette attendue avant le backend.
 - [ ] 99.1 — Domaine et transitions de file implémentés et testés.
 - [ ] 99.2 — Persistance et restauration validées sur copies.
 - [ ] 99.3 — Menus et vues de file reliés et testés.
@@ -368,6 +370,8 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Les occurrences de playlist et les morceaux locaux n'ont pas systématiquement la même identité. La file avec doublons exige encore une identité d'occurrence indépendante. Une conversion ou une déduplication involontaire ferait perdre le comportement demandé.
 
+2026-10-01 — Le socle de tests est déjà imparfait avant les changements fonctionnels de 99 : `tests/unit/test_workspace_model.py::test_navigation_keeps_each_panel_selection_and_restores_it` échoue (`trackIds` vide au lieu de deux IDs) dans la passe de 15 tests unitaires. La passe initiale qui incluait `tests/ui/test_player_views.py` s'est interrompue sur une violation d'accès Windows pendant une écriture asynchrone de disposition. Ces résultats ne sont pas attribués à la maquette isolée.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur : `Add to queue` au clic droit, FIFO et lots, doublons, conservation, retrait et réordonnancement sans commande de vidage ; Espace hors écriture ; souris pour les pages ; Précédent à trois secondes avec lecture en sortie de pause ; vide désélectionnant le panneau actif et Info vide ; plan unique 99 dans le dépôt.
@@ -376,8 +380,12 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Codex : identité propre d'occurrence, persistance dédiée, writer séquentiel, checkpoint audio de cinq secondes et tests séparant domaine, service, Qt et backend natif. Les détails de représentation et les conventions d'ordonnancement sont explicités pour éviter à Luna de redéfinir la file. L'historique de pages reste en mémoire de session, sans nouvelle exigence de persistance après fermeture. La file audio, elle, est persistée comme demandé.
 
+2026-10-01 — Codex : le prototype 99.0 utilise les jetons `Theme` et les composants `AppMenu` existants, mais garde ses données dans QML. Cette séparation permet la revue sans anticiper le domaine de file ni toucher aux données utilisateur.
+
 ## Outcomes & Retrospective
 
-Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La maquette, le développement et la recette sont des travaux futurs distincts de cette préparation. Les contrôles documentaires ont réussi ; la preuve de publication est fournie dans le compte rendu. Aucune feature n'a été implémentée, aucun test applicatif exécuté et aucune distribution Windows construite pour cette préparation.
+Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La préparation documentaire initiale n'avait implémenté aucune feature ni exécuté de test applicatif. Pendant l'exécution de 99.0, la maquette et son dossier de revue ont été préparés ; le backend, la recette fonctionnelle et la distribution Windows restent non réalisés. La revue utilisateur est encore attendue.
 
 Révision du 2026-10-01 : rédaction après lecture des sources et deux séries de réponses utilisateur ; Q1–Q4 résolues, algorithmes de file et restauration définis, navigation de toutes les pages et matrice de recette ajoutées.
+
+Révision du 2026-10-01 : exécution du jalon 99.0 jusqu'à la revue. `docs/ux/mockups/Queue99Review.qml`, `scripts/review_queue_99.py`, six captures et `docs/ux/review-99-queue.md` créés. La validation utilisateur reste ouverte ; les jalons fonctionnels ne sont pas commencés. Prochaine action : recueillir la décision de revue, puis exécuter 99.1.
