@@ -56,7 +56,7 @@ class PlaylistsRepository:
 
     def create(
         self,
-        name: str,
+        name: str | None,
         folder: str = "",
         *,
         description: str = "",
@@ -75,11 +75,16 @@ class PlaylistsRepository:
                     raise LookupError("This import operation no longer exists.")
                 if previous[0]:
                     return str(previous[0])
+            if name is None:
+                count = connection.execute("SELECT COUNT(*) FROM playlists").fetchone()[0]
+                resolved_name = f"Untitled playlist {count + 1:02d}"
+            else:
+                resolved_name = playlist_name(name)
             connection.execute(
                 "INSERT INTO playlists(playlist_id,folder_id,name,description,cover_ref,ordinal,"
                 "updated_at_utc) VALUES(?,?,?,?,?,(SELECT COALESCE(MAX(ordinal),-1)+1 "
                 "FROM playlists),?)",
-                (identity, folder or None, playlist_name(name), description, cover, _now()),
+                (identity, folder or None, resolved_name, description, cover, _now()),
             )
             for index, entry in enumerate(entries or []):
                 connection.execute(

@@ -1068,7 +1068,7 @@ class DemoWorkspace(QObject):
     @Slot(list)
     def addToNewPlaylist(self, track_ids: list) -> None:
         playlist_id = f"new{self._next_playlist}"
-        name = f"New playlist {self._next_playlist}"
+        name = f"Untitled playlist {len(self._playlists) + 1:02d}"
         self._next_playlist += 1
         ids = [str(tid) for tid in track_ids if str(tid) in self._tracks]
         self._playlists[playlist_id] = {"id": playlist_id, "name": name, "tracks": ids}

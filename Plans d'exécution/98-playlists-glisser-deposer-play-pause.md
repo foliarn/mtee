@@ -39,11 +39,11 @@ Les captures sources montrent : trois actions de création/import séparées par
 - [x] 2026-10-01 — Rédiger le plan 98 et ses critères de recette pour Luna.
 - [x] 2026-10-01 — 98.0 : état du dépôt, schéma 017, plans 34/99 et tests relevés ; fixture synthétique définie pour 98.2.
 - [x] 2026-10-01 — 98.1 : maquette QML, lanceur et captures hors écran/native préparés et inspectés.
-- [ ] 98.1 — Validation explicite de la maquette par l'utilisateur avant le code fonctionnel.
-- [ ] 98.2 — Livrer la création immédiate, le menu compact et l'édition par titre/pochette.
-- [ ] 98.3 — Livrer le placement et les états de Play/Pause dans les listes.
-- [ ] 98.4 — Livrer le glisser-déposer avec retour visuel, lots et vue Artwork.
-- [ ] 98.5 — Effectuer la recette intégrée depuis les sources, documenter les preuves, committer et pousser.
+- [x] 2026-10-01 — 98.1 : maquette révisée explicitement validée par l'utilisateur (« Oui »).
+- [x] 2026-10-01 — 98.2 : création immédiate, menu compact, édition par titre et pochette livrés.
+- [x] 2026-10-01 — 98.3 : Play/Pause à gauche des pochettes, états de lecture et géométrie vérifiés.
+- [x] 2026-10-01 — 98.4 : glisser-déposer List/Artwork, lots, aperçu et insertions implémentés.
+- [ ] 98.5 — Recette documentée ; commit et push à terminer. Les cas sans preuve directe restent identifiés dans le rapport.
 
 ## Surprises & Discoveries
 
@@ -67,6 +67,10 @@ Le graphe code-review-graph a été actualisé puis interrogé. La recherche gra
 
 2026-10-01 — Retour utilisateur sur 98.1 : remplacer le mot Play par le pictogramme MTEE ; répartir `PLAYLIST`, titre, description et créateur sur la hauteur de la pochette ; placer Play/Shuffle sous celle-ci, alignés avec Search/List/Artwork. Maquette et captures corrigées, nouvelle validation attendue.
 
+2026-10-01 — L'utilisateur a validé cette maquette révisée. L'implémentation conserve les commandes Play/Shuffle sous la pochette et l'icône MTEE. Les gestes réels de déplacement ont révélé que la sélection peut changer lors d'un geste refusé sur une vue triée ; le test restaure explicitement la sélection avant le geste Artwork. Le dépôt de lots fonctionne avec un objet `Drag` commun indépendant des delegates recyclés.
+
+2026-10-01 — 45 tests ciblés passent. Deux tests supplémentaires de navigation et de recherche échouent car leur liste de dossier est vide ; l'origine de cet état n'est pas établie. Ruff ciblé passe ; les contrôles globaux Ruff/Pyright gardent des erreurs dans des fichiers hors de ce changement. La recette native et les limites par cas sont consignées dans le rapport de validation.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur — Limiter les travaux aux features Notion 2, 3 et 4, avec le bonus d'édition par titre et de survol de pochette. Livrer le document dans `Plans d'exécution/`, numéro 98.
@@ -81,11 +85,15 @@ Le graphe code-review-graph a été actualisé puis interrogé. La recherche gra
 
 2026-10-01 — Utilisateur, revue 98.1 — Exiger l'icône Play classique de l'application et un en-tête dont les textes sont distribués du haut au bas de la pochette, avec les commandes sous la pochette alignées sur les filtres et les vues.
 
+2026-10-01 — Codex, exécution 98.2–98.4 — Calculer `Untitled playlist NN` dans la transaction SQLite. Une création avec morceaux emprunte la file de jobs et restaure son contexte d'ambiguïté par job. Le réordonnancement reçoit les entry_id dans l'ordre visible et la version de départ ; une permutation sans changement n'écrit pas. Un objet QML de déplacement commun porte l'aperçu et survit au recyclage d'une ligne, tandis que les cibles contrôlent localement leur compatibilité.
+
 ## Outcomes & Retrospective
 
 Le périmètre et les cas de numérotation sont clarifiés. Le présent document prépare l'exécution ; les fonctionnalités, la maquette et la recette restent à réaliser. La validation des anciennes maquettes du plan 34 ne valide pas automatiquement la nouvelle disposition de 98. Les contrôles documentaires et la publication de cette préparation seront rapportés dans le compte rendu ; les preuves applicatives futures iront dans `docs/validation/98-playlists-glisser-deposer-play-pause.md`.
 
 2026-10-01 — La maquette 98.1 et son [dossier de revue](../docs/ux/review-98-playlists.md) sont prêts. Les comportements applicatifs 98.2–98.5 et A01–A24 restent non exécutés tant que la revue produit n'est pas explicitement validée. Aucun build d'EXE ni test libmpv n'a été effectué.
+
+2026-10-01 — La maquette révisée est validée et les fonctions 98.2–98.4 sont implémentées. Le [rapport de validation](../docs/validation/98-playlists-glisser-deposer-play-pause.md) distingue les gestes Qt testés, les captures natives, la lecture libmpv ponctuelle et les cas non exercés de bout en bout. Aucun EXE n'a été construit.
 
 ## Prérequis, limites et ordre de travail
 

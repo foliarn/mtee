@@ -14,14 +14,15 @@ Item {
         id: header
         width: parent.width
         title: "Playlists"
-        IconButton { id: plus; icon: "plus"; iconSize: 16; width: 26; height: 26; tip: "Create or import playlist"; onClicked: creation.popup(plus, 0, plus.height) }
+        IconButton { id: plus; objectName: "playlistsPlusButton"; icon: "plus"; iconSize: 16; width: 26; height: 26; tip: "Create or import playlist"; onClicked: creation.popup(plus, 0, plus.height) }
     }
     AppMenu {
         id: creation
-        AppMenuItem { text: "New playlist"; onTriggered: pane.workspace.addToNewPlaylist([]) }
-        AppMenuItem { text: "New folder"; visible: pane.live; onTriggered: pane.playlistsModel.requestUI("folder", "", []) }
-        AppMenuItem { text: "Resume interrupted import…"; visible: pane.live && pane.playlistsModel.pendingImports.length > 0; onTriggered: pane.playlistsModel.requestUI("resume", "", []) }
-        AppMenuItem { text: "Import playlist…"; visible: pane.live; onTriggered: pane.playlistsModel.requestUI("import", "", []) }
+        objectName: "playlistCreationMenu"
+        AppMenuItem { objectName: "newPlaylistMenuItem"; text: "New playlist"; onTriggered: pane.workspace.addToNewPlaylist([]) }
+        AppMenuItem { objectName: "newFolderMenuItem"; text: "New folder"; visible: pane.live; onTriggered: pane.playlistsModel.requestUI("folder", "", []) }
+        AppMenuItem { objectName: "resumeImportMenuItem"; text: "Resume interrupted import…"; visible: pane.live && pane.playlistsModel.pendingImports.length > 0; height: visible ? 28 : 0; implicitHeight: visible ? 28 : 0; onTriggered: pane.playlistsModel.requestUI("resume", "", []) }
+        AppMenuItem { objectName: "importPlaylistMenuItem"; text: "Import playlist…"; visible: pane.live; onTriggered: pane.playlistsModel.requestUI("import", "", []) }
     }
     ListView {
         id: tree
@@ -41,10 +42,13 @@ Item {
             required property var modelData
             readonly property bool folder: modelData.kind === "folder"
             readonly property bool current: !folder && pane.activePlaylist === modelData.id
+            property bool trackDropActive: false
             property string nodeId: modelData.id
             property bool nodeIsFolder: folder
             width: ListView.view.width; height: folder ? 40 : 56
             color: drop.containsDrag ? Theme.selection : current ? Theme.selection : hit.containsMouse ? Theme.surface : "transparent"
+            border.width: trackDropActive ? 2 : 0
+            border.color: Theme.primary
             Item {
                 id: nodeProxy
                 width: 1; height: 1
@@ -76,9 +80,15 @@ Item {
             }
             DropArea {
                 id: drop; anchors.fill: parent; keys: ["mtee-playlist-node", "mtee-tracks"]
+                onEntered: event => {
+                    entry.trackDropActive = !!(pane.live && event.source && event.source.dragCanAdd
+                        && !entry.folder && entry.nodeId !== "liked")
+                }
+                onExited: entry.trackDropActive = false
                 onDropped: event => {
+                    entry.trackDropActive = false
                     if (!event.source || !pane.live) return
-                    if (event.source.dragTrackIds !== undefined && !entry.folder && entry.nodeId !== "liked") pane.playlistsModel.add(entry.nodeId, event.source.dragTrackIds)
+                    if (event.source.dragCanAdd && !entry.folder && entry.nodeId !== "liked") pane.playlistsModel.add(entry.nodeId, event.source.dragTrackIds)
                     else if (event.source.nodeId !== undefined && entry.nodeId !== "liked") pane.playlistsModel.move(event.source.nodeId, entry.folder ? entry.nodeId : entry.modelData.folder || "", event.source.nodeIsFolder, entry.folder ? "" : entry.nodeId)
                 }
             }
@@ -90,7 +100,7 @@ Item {
         AppMenuItem { text: pane.contextEntry.pinned ? "Unpin" : "Pin playlist"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.pin(pane.contextEntry.id, !pane.contextEntry.pinned) }
         AppMenuItem { text: "Create a copy"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.duplicate(pane.contextEntry.id) }
         AppMenuItem { text: "Export playlist…"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.requestUI("export", pane.contextEntry.id, []) }
-        AppMenuItem { text: "New playlist here"; visible: pane.contextEntry.kind === "folder"; onTriggered: pane.playlistsModel.requestUI("create", pane.contextEntry.id, []) }
+        AppMenuItem { text: "New playlist here"; visible: pane.contextEntry.kind === "folder"; onTriggered: pane.playlistsModel.createUntitled(pane.contextEntry.id, []) }
         AppMenuItem { text: "New subfolder"; visible: pane.contextEntry.kind === "folder"; onTriggered: pane.playlistsModel.requestUI("folder", pane.contextEntry.id, []) }
         AppMenuItem { text: "Rename folder"; visible: pane.contextEntry.kind === "folder"; onTriggered: pane.playlistsModel.requestUI("renameFolder", pane.contextEntry.id, []) }
         AppMenuItem { text: "Move to folder…"; onTriggered: pane.playlistsModel.requestUI(pane.contextEntry.kind === "folder" ? "moveFolder" : "move", pane.contextEntry.id, []) }

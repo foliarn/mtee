@@ -13,25 +13,40 @@ Rectangle {
     property bool selected: false
     readonly property string localId: track.trackId !== undefined ? track.trackId : track.id
     readonly property bool available: track.available !== false
-    property var dragTrackIds: typeof workspace.localTrackIds === "function" ? workspace.localTrackIds(workspace.selectedIds.indexOf(track.id) >= 0 ? workspace.selectedIds : [track.id]) : [track.id]
+    property var dragTrackIds: []
+    property var dragEntryIds: []
+    property string dragSource: ""
+    property int dragVersion: -1
+    property bool dragCanAdd: false
+    property bool dragPrepared: false
+    property bool dragCancelled: false
     property string dragEntryId: track.entryId || ""
-    Item {
-        id: dragProxy
-        width: 1; height: 1
-        Drag.active: trackDrag.active
-        Drag.source: row
-        Drag.keys: ["mtee-tracks", "mtee-playlist-entry"]
-        Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
+    signal dragStarted()
+    signal dragMoved(real x, real y)
+    signal dragFinished()
+    Component.onDestruction: {
+        if (dragPrepared) {
+            dragCancelled = true
+            dragFinished()
+        }
     }
     DragHandler {
         id: trackDrag
         target: null
         acceptedButtons: Qt.LeftButton
         enabled: row.available || row.dragEntryId.length > 0
-        onTranslationChanged: { dragProxy.x = centroid.position.x; dragProxy.y = centroid.position.y }
+        onTranslationChanged: {
+            if (active) row.dragMoved(centroid.position.x, centroid.position.y)
+        }
         onActiveChanged: {
-            if (active) { dragProxy.x = centroid.position.x; dragProxy.y = centroid.position.y }
-            else dragProxy.Drag.drop()
+            if (active) {
+                row.dragCancelled = false
+                row.dragStarted()
+                row.dragMoved(centroid.position.x, centroid.position.y)
+            } else {
+                row.dragFinished()
+                row.dragPrepared = false
+            }
         }
     }
     property bool playing: false
@@ -75,9 +90,25 @@ Rectangle {
         id: rowHover
     }
 
+    IconButton {
+        id: playButton
+        objectName: "trackPlayButton"
+        x: row.columns.padding
+        anchors.verticalCenter: parent.verticalCenter
+        width: 32; height: 32
+        visible: row.available && (row.hovered || row.playing)
+        hoverBackground: false
+        icon: row.playing && !row.paused ? "pause" : "play"
+        iconSize: 14
+        iconColor: row.playing ? Theme.primary : Theme.textPrimary
+        hoverColor: row.playing ? Theme.primary : Theme.textPrimary
+        tip: row.playing && !row.paused ? "Pause" : "Play"
+        onClicked: row.playing ? row.toggleRequested() : row.activated()
+    }
+
     Row {
         id: rowCells
-        x: row.columns.padding
+        x: row.columns.padding + row.columns.playSlot + row.columns.gap
         height: parent.height
         spacing: row.columns.gap
 
@@ -201,7 +232,8 @@ Rectangle {
                 objectName: "trackLike_" + row.track.id
                 visible: typeof row.workspace.toggleLike === "function" && row.available
                 anchors.verticalCenter: parent.verticalCenter
-                icon: row.workspace.revision >= 0 && row.workspace.isLiked(row.localId) ? "heart-filled" : "heart"
+                icon: row.workspace.revision >= 0 && typeof row.workspace.isLiked === "function"
+                    && row.workspace.isLiked(row.localId) ? "heart-filled" : "heart"
                 iconSize: 16
                 hoverBackground: false
                 tip: "Like track"
@@ -219,19 +251,6 @@ Rectangle {
                 onClicked: row.infoRequested()
             }
 
-            IconButton {
-                id: playButton
-                objectName: "trackPlayButton"
-                anchors.verticalCenter: parent.verticalCenter
-                visible: row.available && (row.hovered || (row.playing && !row.paused))
-                hoverBackground: false
-                icon: row.playing && !row.paused ? (row.hovered ? "pause" : "play") : "play"
-                iconSize: 14
-                iconColor: row.playing ? Theme.primary : Theme.textPrimary
-                hoverColor: row.playing ? Theme.primary : Theme.textPrimary
-                tip: row.playing && !row.paused ? "Pause" : "Play"
-                onClicked: row.playing ? row.toggleRequested() : row.activated()
-            }
         }
     }
 

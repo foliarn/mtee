@@ -239,6 +239,7 @@ class PlaylistsModel(QObject):
         label: str = "Update playlists",
         event: str = "",
         visible: bool = False,
+        ambiguity_context: dict[str, Any] | None = None,
     ) -> None:
         def task(context: JobContext) -> None:
             try:
@@ -248,7 +249,11 @@ class PlaylistsModel(QObject):
                     state = self._snapshot()
                     self.resultReady.emit(state, {"event": event, "value": result}, None)
             except AmbiguousPlaylistAddError as error:
-                self.resultReady.emit(None, error.track_ids, str(error))
+                self.resultReady.emit(
+                    None,
+                    {"ambiguity": ambiguity_context or {}, "trackIds": error.track_ids},
+                    str(error),
+                )
             except JobCancelledError:
                 self.resultReady.emit(
                     None,
@@ -288,8 +293,8 @@ class PlaylistsModel(QObject):
     def _receive(self, state: object, result: object, error: object) -> None:
         if error is not None:
             self._import_committing = False
-            if isinstance(result, list):
-                self._ambiguity["trackIds"] = result
+            if isinstance(result, dict) and "ambiguity" in result:
+                self._ambiguity = dict(result["ambiguity"]) | {"trackIds": result["trackIds"]}
                 self.changed.emit()
             self.noticeRaised.emit(str(error))
             if isinstance(result, dict) and result.get("event") == "import":
@@ -346,25 +351,38 @@ class PlaylistsModel(QObject):
     def create(
         self, name: str, folder: str, track_ids: list, *, confirm_unknown: bool = False
     ) -> None:
-        self._ambiguity = {"action": "create", "name": name, "folder": folder}
+        self._create_playlist(name, folder, track_ids, confirm_unknown=confirm_unknown)
+
+    @Slot(str, list)
+    def createUntitled(self, folder: str, track_ids: list) -> None:
+        self._create_playlist(None, folder, track_ids)
+
+    def _create_playlist(
+        self, name: str | None, folder: str, track_ids: list, *, confirm_unknown: bool = False
+    ) -> None:
+        ids = [str(identity) for identity in track_ids]
+        ambiguity = {"action": "create", "name": name, "folder": folder}
 
         def create(_context: JobContext) -> str:
             identity = self.repository.create(name, folder)
             try:
                 self.service.add(
-                    identity, [str(i) for i in track_ids], confirm_unknown=confirm_unknown
+                    identity, ids, confirm_unknown=confirm_unknown
                 )
             except Exception:
                 self.repository.delete(identity)
                 raise
             return identity
 
-        self.run(create, event="created")
+        self.run(create, event="created", ambiguity_context=ambiguity)
 
     @Slot(str, list)
     def toggle(self, identity: str, track_ids: list) -> None:
-        self._ambiguity = {"playlistId": identity}
-        self.run(lambda _c: self.service.toggle(identity, [str(i) for i in track_ids]))
+        ids = [str(i) for i in track_ids]
+        self.run(
+            lambda _c: self.service.toggle(identity, ids),
+            ambiguity_context={"playlistId": identity},
+        )
 
     @Slot(bool)
     def confirmAmbiguity(self, confirmed: bool) -> None:
@@ -373,7 +391,7 @@ class PlaylistsModel(QObject):
         self.changed.emit()
         if confirmed and pending.get("trackIds"):
             if pending.get("action") == "create":
-                self.create(
+                self._create_playlist(
                     pending["name"], pending["folder"], pending["trackIds"], confirm_unknown=True
                 )
             elif pending.get("playlistId"):
@@ -617,8 +635,11 @@ class PlaylistsModel(QObject):
 
     @Slot(str, list)
     def add(self, identity: str, track_ids: list) -> None:
-        self._ambiguity = {"playlistId": identity, "action": "add"}
-        self.run(lambda _c: self.service.add(identity, [str(i) for i in track_ids]))
+        ids = [str(i) for i in track_ids]
+        self.run(
+            lambda _c: self.service.add(identity, ids),
+            ambiguity_context={"playlistId": identity, "action": "add"},
+        )
 
     @Property(list, notify=changed)
     def pendingImports(self) -> list[dict[str, Any]]:
