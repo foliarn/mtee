@@ -37,8 +37,9 @@ Les captures sources montrent : trois actions de création/import séparées par
 - [x] 2026-10-01 — Lire les deux pages Notion, inspecter les six captures pertinentes et recueillir les réponses utilisateur.
 - [x] 2026-10-01 — Vérifier les sources, les tests pertinents, les contrats de persistance et les limites du glisser-déposer actuel.
 - [x] 2026-10-01 — Rédiger le plan 98 et ses critères de recette pour Luna.
-- [ ] 98.0 — Revérifier l'état du dépôt et préparer les données de recette isolées.
-- [ ] 98.1 — Préparer puis faire valider la maquette QML ciblée.
+- [x] 2026-10-01 — 98.0 : état du dépôt, schéma 017, plans 34/99 et tests relevés ; fixture synthétique définie pour 98.2.
+- [x] 2026-10-01 — 98.1 : maquette QML, lanceur et captures hors écran/native préparés et inspectés.
+- [ ] 98.1 — Validation explicite de la maquette par l'utilisateur avant le code fonctionnel.
 - [ ] 98.2 — Livrer la création immédiate, le menu compact et l'édition par titre/pochette.
 - [ ] 98.3 — Livrer le placement et les états de Play/Pause dans les listes.
 - [ ] 98.4 — Livrer le glisser-déposer avec retour visuel, lots et vue Artwork.
@@ -60,6 +61,10 @@ Le nom de playlist n'est pas unique en base : la migration 016 utilise `playlist
 
 Le graphe code-review-graph a été actualisé puis interrogé. La recherche graphify a retrouvé les modèles mais contient aussi des informations historiques ; elle ne prouve pas les comportements QML. Les constats ci-dessus viennent des fichiers lus. Aucun parcours interactif ni test applicatif n'a été exécuté pendant cette préparation documentaire.
 
+2026-10-01 — Exécution 98.0 : HEAD `189dd1f` sur `main`, aligné sur `origin/main` au début ; `.gitignore`, `AGENTS.md`, `.agents/`, `.codex/` et `skills-lock.json` portent toujours des travaux extérieurs. Le schéma le plus récent est `017_playlist_imports_compatibility.sql`. Les tests nommés par 98 existent, sauf les nouveaux tests `*_98.py` à créer aux jalons prévus. Le plan 34 est achevé ; la maquette du plan 99 attend aussi une validation. Le graphe a été remis à jour puis la source ciblée a été relue : le menu Resume reste une entrée masquée de hauteur implicite, la création passe par le formulaire et `TrackRow` choisit encore l'icône selon le survol.
+
+2026-10-01 — Exécution 98.1 : douze scènes documentaires ont chargé et produit des captures sans avertissement QML. La revue visuelle initiale a montré des glyphes manquants dans les icônes Unicode et une barre de lecture de largeur nulle ; ces défauts ont été corrigés dans la maquette puis les captures concernées ont été refaites. Une capture native Windows a été produite. La maquette ne représente pas encore une interaction de drag réelle ; cette vérification appartient à 98.4.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur — Limiter les travaux aux features Notion 2, 3 et 4, avec le bonus d'édition par titre et de survol de pochette. Livrer le document dans `Plans d'exécution/`, numéro 98.
@@ -70,9 +75,13 @@ Le graphe code-review-graph a été actualisé puis interrogé. La recherche gra
 
 2026-10-01 — Codex, décisions techniques de planification — Calculer le nom dans la transaction d'insertion ; conserver les noms explicites d'import/duplication ; utiliser les identifiants d'entrée pour l'ordre et les identifiants de morceau pour l'ajout. Un état de déplacement temporaire commun à la fenêtre porte les indicateurs, sans écriture de fichier ni nouvelle dépendance. Les choix de géométrie indiqués plus bas sont des propositions techniques à vérifier dans la maquette, pas des exigences supplémentaires de l'utilisateur.
 
+2026-10-01 — Codex, exécution 98.1 — Réutiliser `Theme`, `Icon`, `CoverArt` et `PlaylistCover` pour la maquette isolée ; montrer la mosaïque avec quatre motifs fictifs et réserver 32 px avant les pochettes. Le lanceur fournit les scènes demandées plus les variantes Resume et pause. La fixture de 98.2 comportera six WAV synthétiques de plusieurs secondes, tags distincts, couvertures variées, un titre long, des dossiers virtuels et une référence absente ; son script refusera un dossier de données non vide.
+
 ## Outcomes & Retrospective
 
 Le périmètre et les cas de numérotation sont clarifiés. Le présent document prépare l'exécution ; les fonctionnalités, la maquette et la recette restent à réaliser. La validation des anciennes maquettes du plan 34 ne valide pas automatiquement la nouvelle disposition de 98. Les contrôles documentaires et la publication de cette préparation seront rapportés dans le compte rendu ; les preuves applicatives futures iront dans `docs/validation/98-playlists-glisser-deposer-play-pause.md`.
+
+2026-10-01 — La maquette 98.1 et son [dossier de revue](../docs/ux/review-98-playlists.md) sont prêts. Les comportements applicatifs 98.2–98.5 et A01–A24 restent non exécutés tant que la revue produit n'est pas explicitement validée. Aucun build d'EXE ni test libmpv n'a été effectué.
 
 ## Prérequis, limites et ordre de travail
 
