@@ -60,8 +60,9 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         15,
         16,
         17,
+        18,
     ]
-    assert database.schema_version() == 17
+    assert database.schema_version() == 18
     tables = {
         str(row["name"])
         for row in database.connection().execute(
@@ -74,6 +75,7 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         "file_copy_operations",
         "track_analysis",
         "track_waveforms",
+        "playback_session",
     } <= tables
     operation_columns = {
         str(row[1]) for row in database.connection().execute("PRAGMA table_info(file_operations)")
@@ -107,6 +109,7 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
         15,
         16,
         17,
+        18,
     ]
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     backups = list(tmp_path.glob("mtee.sqlite3.v4.*.backup"))
@@ -231,8 +234,17 @@ def test_a_database_with_the_retired_analysis_migration_is_upgraded_and_preserve
     legacy.close()
 
     upgraded = Database(path)
-    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14, 15, 16, 17]
-    assert upgraded.schema_version() == 17
+    assert [migration.version for migration in upgraded.migrate()] == [
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+    ]
+    assert upgraded.schema_version() == 18
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     assert (
         upgraded.connection()
@@ -267,7 +279,7 @@ def test_an_unknown_retired_migration_remains_refused(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedMigrationHistoryError, match="unknown or unsupported"):
         database.migrate()
-    assert database.schema_version() == 17
+    assert database.schema_version() == 18
     database.close()
 
 
@@ -300,7 +312,7 @@ def test_playlist_upgrade_keeps_v15_data_and_an_exact_backup(tmp_path: Path) -> 
     original.close()
     upgraded = Database(path)
     try:
-        assert [m.version for m in upgraded.migrate()] == [16, 17]
+        assert [m.version for m in upgraded.migrate()] == [16, 17, 18]
         assert upgraded.migrate() == []
         assert SettingsRepository(upgraded).get("existing") == "unchanged"
         assert (
@@ -363,8 +375,8 @@ def test_schema_16_import_journal_upgrade_preserves_playlists_and_backup(
 
     upgraded = Database(path)
     try:
-        assert [m.version for m in upgraded.migrate()] == [17]
-        assert upgraded.schema_version() == 17
+        assert [m.version for m in upgraded.migrate()] == [17, 18]
+        assert upgraded.schema_version() == 18
         assert upgraded.migrate() == []
         repository = PlaylistsRepository(upgraded)
         assert repository.entries(identity) == before

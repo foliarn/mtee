@@ -29,7 +29,14 @@ class QueueEntry:
         source_title: str = "",
         snapshot: dict[str, Any] | None = None,
     ) -> QueueEntry:
-        return cls(str(uuid4()), track_id, origin, source, source_title, snapshot)
+        return cls(
+            str(uuid4()),
+            track_id,
+            origin,
+            source,
+            source_title,
+            dict(snapshot) if snapshot is not None else None,
+        )
 
 
 @dataclass(frozen=True, slots=True)
