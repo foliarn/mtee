@@ -483,22 +483,43 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, str)
     def reorderPlaylistBefore(self, source: str, entry: str, before: str) -> None:
+        version = (
+            self._playlists_model.details(source.partition(":")[2]).get("version", -1)
+            if self._playlists_model is not None
+            else -1
+        )
+        self.reorderPlaylistEntries(source, [entry], before, version)
+
+    @Slot(str, list, str, int)
+    def reorderPlaylistEntries(
+        self, source: str, entry_ids: list, before: str, expected_version: int
+    ) -> None:
+        from mtee.domain.playlists import reorder_entries
+
         state = self._tab_state(source)
         if state.get("searchQuery") or state.get("sortKey") != "index":
             self._set_message("Switch to Custom order and clear search before reordering.")
             return
         model = self._track_models.get(source)
-        if model is None or self._playlists_model is None or source == "playlist:liked":
+        if (
+            model is None
+            or self._playlists_model is None
+            or not source.startswith("playlist:")
+            or source == "playlist:liked"
+        ):
             return
         entries = model.track_ids_snapshot()
-        if entry not in entries or before not in entries or entry == before:
-            return
-        entries.remove(entry)
-        entries.insert(entries.index(before), entry)
         identity = source.partition(":")[2]
-        self._playlists_model.reorder(
-            identity, entries, self._playlists_model.details(identity).get("version", -1)
-        )
+        if self._playlists_model.details(identity).get("version", -1) != expected_version:
+            self._set_message("This playlist changed. Refresh before reordering.")
+            return
+        try:
+            next_entries = reorder_entries(entries, [str(i) for i in entry_ids], before)
+        except ValueError as error:
+            self._set_message(str(error))
+            return
+        if next_entries != entries:
+            self._playlists_model.reorder(identity, next_entries, expected_version)
 
     @Slot(str)
     def customPlaylistOrder(self, tab_id: str) -> None:
@@ -1872,7 +1893,8 @@ class WorkspaceModel(QObject):
 
     @Slot(list)
     def addToNewPlaylist(self, _track_ids: list) -> None:
-        self.playlistCreationRequested.emit(self.localTrackIds(_track_ids))
+        if self._playlists_model is not None:
+            self._playlists_model.createUntitled("", self.localTrackIds(_track_ids))
 
     @Slot(list, str)
     def togglePlaylist(self, _track_ids: list, _playlist_id: str) -> None:

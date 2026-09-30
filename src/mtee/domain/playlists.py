@@ -56,3 +56,19 @@ def playlist_name(value: str) -> str:
     if not name or len(name) > 240:
         raise ValueError("Use a name between 1 and 240 characters.")
     return name
+
+
+def reorder_entries(order: list[str], moving: list[str], before: str = "") -> list[str]:
+    """Move a selected block in source order before an entry, or to the end."""
+    if len(order) != len(set(order)) or len(moving) != len(set(moving)):
+        raise ValueError("Playlist entry IDs must be unique.")
+    known = set(order)
+    if not moving or not set(moving) <= known or (before and before not in known):
+        raise ValueError("The playlist entries changed. Refresh before reordering.")
+    if before in moving:
+        return list(order)
+    chosen = set(moving)
+    block = [entry for entry in order if entry in chosen]
+    remaining = [entry for entry in order if entry not in chosen]
+    destination = remaining.index(before) if before else len(remaining)
+    return remaining[:destination] + block + remaining[destination:]

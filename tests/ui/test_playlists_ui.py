@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from PySide6.QtCore import QMetaObject, QPoint, Qt, QUrl
+from PySide6.QtCore import QMetaObject, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtQuick import QQuickWindow
 from PySide6.QtTest import QTest
@@ -91,13 +91,17 @@ def test_create_add_like_search_visible_playback_and_reload(
                 )
             )
         workspace.addToNewPlaylist(identities)
+        qtbot.waitUntil(lambda: len(playlists._playlists) == 1, timeout=5000)
+        identity = playlists._playlists[0]["id"]
+        assert playlists._playlists[0]["name"] == "Untitled playlist 01"
+        qtbot.waitUntil(lambda: _find(root, "playlistPlay") is not None, timeout=5000)
+        playlists.requestUI("edit", identity, [])
         qtbot.waitUntil(lambda: _visible(root, "playlistNameInput"))
         field = _find(root, "playlistNameInput")
         assert field is not None
         field.setProperty("text", "Night drive")
         _click(root, "playlistFormSave")
-        qtbot.waitUntil(lambda: len(playlists._playlists) == 1, timeout=5000)
-        identity = playlists._playlists[0]["id"]
+        qtbot.waitUntil(lambda: playlists._playlists[0]["name"] == "Night drive")
         workspace.setActivity("playlists")
         qtbot.waitUntil(lambda: _find(root, "playlistPlay") is not None, timeout=5000)
         tab_id = "playlist:" + identity
@@ -139,6 +143,19 @@ def test_create_add_like_search_visible_playback_and_reload(
         qtbot.waitUntil(lambda: workspace.playingId == identities[0], timeout=5000)
         assert runtime.player_service is not None
         assert [r["id"] for r in runtime.player_service.queue_rows()] == [identities[0]]
+        row_play = _find(root, "trackPlayButton")
+        assert row_play is not None and row_play.isVisible()
+        assert row_play.property("icon") == "pause"
+        queue_before = [r["id"] for r in runtime.player_service.queue_rows()]
+        _click(root, "trackPlayButton")
+        qtbot.waitUntil(lambda: not workspace.isPlaying)
+        assert row_play.isVisible() and row_play.property("icon") == "play"
+        if capture:
+            assert root.grabWindow().save(str(Path(capture) / "playlist-paused.png"))
+        _click(root, "trackPlayButton")
+        qtbot.waitUntil(lambda: workspace.isPlaying)
+        assert row_play.property("icon") == "pause"
+        assert [r["id"] for r in runtime.player_service.queue_rows()] == queue_before
         _click(root, "playlistSearchButton")
         assert str(field.property("text")).casefold() == "northline"
         playlists.create("Archive", "", [])
@@ -182,6 +199,9 @@ def test_create_add_like_search_visible_playback_and_reload(
         for step in range(1, 21):
             point = start + (end - start) * (step / 20)
             QTest.mouseMove(root, QPoint(round(point.x()), round(point.y())), 10)
+        preview = _find(root, "trackDragPreview")
+        assert preview is not None and preview.isVisible()
+        assert target_item.property("trackDropActive") is True
         QTest.mouseRelease(
             root, Qt.MouseButton.LeftButton, pos=QPoint(round(end.x()), round(end.y()))
         )
@@ -205,13 +225,17 @@ def test_create_add_like_search_visible_playback_and_reload(
         second_row = _find(root, "trackRow_2")
         assert first_row is not None and second_row is not None
         start = second_row.mapToScene(second_row.boundingRect().center())
-        end = first_row.mapToScene(first_row.boundingRect().center())
+        end = first_row.mapToScene(QPointF(first_row.width() / 2, first_row.height() / 4))
         QTest.mousePress(
             root, Qt.MouseButton.LeftButton, pos=QPoint(round(start.x()), round(start.y()))
         )
         for step in range(1, 11):
             point = start + (end - start) * (step / 10)
             QTest.mouseMove(root, QPoint(round(point.x()), round(point.y())), 15)
+        preview = _find(root, "trackDragPreview")
+        assert preview is not None and preview.isVisible()
+        view = _find(root, "trackListView")
+        assert view is not None and view.property("dropBefore") == entries[0]
         QTest.mouseRelease(
             root, Qt.MouseButton.LeftButton, pos=QPoint(round(end.x()), round(end.y()))
         )

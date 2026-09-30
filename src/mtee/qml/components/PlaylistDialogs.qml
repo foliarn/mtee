@@ -16,6 +16,7 @@ Item {
     property bool completeExport: false
     function show(mode, target, selected) {
         action = mode; identity = target; tracks = selected
+        if (mode === "create") { model.createUntitled(target, selected); return }
         if (mode === "cover") { cover.open(); return }
         if (mode === "import") { importer.open(); return }
         if (mode === "locate") {
@@ -35,7 +36,7 @@ Item {
     }
     Connections {
         target: dialogs.workspace
-        function onPlaylistCreationRequested(ids) { dialogs.show("create", "", ids) }
+        function onPlaylistCreationRequested(ids) { dialogs.model.createUntitled("", ids) }
     }
     Connections {
         target: dialogs.model

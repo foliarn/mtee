@@ -71,6 +71,33 @@ def test_music_duplicates_versions_likes_and_reopen(collection) -> None:
         reopened.close()
 
 
+def test_untitled_name_uses_current_playlist_count_and_allows_namesakes(collection) -> None:
+    database, _library, repository, _service, _ids = collection
+    assert repository.playlist(repository.create(None))["name"] == "Untitled playlist 01"
+    folder = repository.create_folder("Sets")
+    for index in range(2, 35):
+        repository.create(
+            "Untitled playlist 34" if index == 34 else f"Named {index}",
+            folder if index % 2 else "",
+        )
+    repository.like(_ids[0], True)
+    repository.delete(repository.playlists()[0]["playlist_id"])
+    namesake = next(
+        p["playlist_id"] for p in repository.playlists() if p["name"] == "Untitled playlist 34"
+    )
+    created = repository.create(None)
+    assert created != namesake
+    assert repository.playlist(created)["name"] == "Untitled playlist 34"
+    repository.delete(namesake)
+    another = repository.create(None)
+    assert repository.playlist(another)["name"] == "Untitled playlist 34"
+    reopened = Database(database.path)
+    try:
+        assert PlaylistsRepository(reopened).playlist(another)["name"] == "Untitled playlist 34"
+    finally:
+        reopened.close()
+
+
 def test_reorder_is_atomic_and_rejects_a_stale_version(collection) -> None:
     _database, _library, repository, service, ids = collection
     playlist = repository.create("Order")

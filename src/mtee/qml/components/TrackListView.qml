@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls.Basic
 import Mtee
 
@@ -18,6 +19,16 @@ FocusScope {
     property string dropTargetKey: ""
     property bool dropAfterTarget: false
     property bool columnDragCancelled: false
+    property bool trackDragActive: false
+    property var trackDragSource: null
+    property string dragTitle: ""
+    property string dragArtist: ""
+    property int dragCount: 0
+    property real dragX: 0
+    property real dragY: 0
+    property string dropBefore: ""
+    property int dropIndex: -1
+    property bool trackDropAfter: false
 
     readonly property string source: tab.kind + ":" + tab.ref
     readonly property bool modelBacked: typeof workspace.trackModelForTab === "function"
@@ -41,6 +52,7 @@ FocusScope {
     readonly property var columns: {
         const padding = width < 600 ? 12 : 24
         const gap = width < 600 ? 10 : 16
+        const playSlot = 32
         const actions = 140
         const fallbackOptions = [
             { key: "title", label: "Title" },
@@ -91,7 +103,7 @@ FocusScope {
             fixedWidth += local || stored || baseWidths[key]
         }
         const titleStored = Number(view.localColumnWidths.title || storedWidths.title || 0)
-        const titleWidth = titleStored || Math.max(140, width - 2 * padding - actions - gap * keys.length - fixedWidth)
+        const titleWidth = titleStored || Math.max(140, width - 2 * padding - playSlot - actions - gap * (keys.length + 1) - fixedWidth)
         const items = keys.map((key) => {
             const local = Number(view.localColumnWidths[key] || 0)
             const stored = Number(storedWidths[key] || 0)
@@ -105,9 +117,9 @@ FocusScope {
         let itemWidth = 0
         for (const item of items)
             itemWidth += item.width
-        const totalWidth = 2 * padding + actions + gap * keys.length + itemWidth
+        const totalWidth = 2 * padding + playSlot + actions + gap * (keys.length + 1) + itemWidth
         return {
-            "padding": padding, "gap": gap, "actions": actions,
+            "padding": padding, "gap": gap, "playSlot": playSlot, "actions": actions,
             "items": items, "keys": keys, "totalWidth": totalWidth,
             "showArtwork": preferences.showArtwork !== false
         }
@@ -184,7 +196,125 @@ FocusScope {
         playlistMenu.popup(anchor, 0, anchor.height)
     }
 
+    function selectedDragIds(trackId) {
+        const selected = workspace.selectedIds.indexOf(trackId) >= 0 ? workspace.selectedIds : [trackId]
+        return Array.from(view.orderedIds).filter(id => selected.indexOf(id) >= 0)
+    }
+
+    function prepareTrackDrag(item, track) {
+        const ids = selectedDragIds(track.id)
+        const snapshot = view.modelBacked ? Array.from(view.trackModel.rows) : Array.from(view.rows)
+        const chosen = snapshot.filter(row => ids.indexOf(row.id) >= 0)
+        item.dragEntryIds = chosen.map(row => row.entryId || "").filter(Boolean)
+        item.dragTrackIds = chosen.map(row => view.isPlaylist ? row.trackId : row.id).filter(Boolean)
+        item.dragCanAdd = item.dragTrackIds.length === chosen.length && chosen.every(row => row.available !== false)
+        item.dragSource = view.source
+        item.dragVersion = view.isPlaylist ? Number(view.workspace.playlistModel.details(view.tab.ref).version) : -1
+        item.dragPrepared = true
+        dragSession.dragTrackIds = item.dragTrackIds
+        dragSession.dragEntryIds = item.dragEntryIds
+        dragSession.dragCanAdd = item.dragCanAdd
+        dragSession.dragSource = item.dragSource
+        dragSession.dragVersion = item.dragVersion
+        view.trackDragSource = item
+        view.trackDragActive = true
+        view.dragCount = chosen.length
+        view.dragTitle = chosen.length ? chosen[0].title : track.title
+        view.dragArtist = chosen.length ? chosen[0].artist : track.artist
+    }
+
+    function moveTrackDrag(item, x, y) {
+        const point = item.mapToItem(view, x, y)
+        view.dragX = point.x
+        view.dragY = point.y
+    }
+
+    function endTrackDrag() {
+        view.trackDragActive = false
+        view.trackDragSource = null
+        view.dropIndex = -1
+        view.dropBefore = ""
+    }
+    function finishTrackDrag(item) {
+        if (view.trackDragActive) {
+            if (item && item.dragCancelled) dragSession.Drag.cancel()
+            else dragSession.Drag.drop()
+        }
+        view.endTrackDrag()
+    }
+    function cancelTrackDrag() {
+        if (view.trackDragSource) view.trackDragSource.dragCancelled = true
+        if (view.trackDragActive) dragSession.Drag.cancel()
+        view.endTrackDrag()
+    }
+
+    Component.onDestruction: cancelTrackDrag()
+    Connections {
+        target: view.Window.window
+        function onActiveChanged() {
+            if (!view.Window.window.active) view.cancelTrackDrag()
+        }
+    }
+    Timer {
+        interval: 35
+        repeat: true
+        running: view.trackDragActive
+        onTriggered: {
+            const scroller = view.artwork ? grid : list
+            const point = view.mapToItem(scroller, view.dragX, view.dragY)
+            if (point.y < 28 && point.y >= -12)
+                scroller.contentY = Math.max(0, scroller.contentY - 12)
+            else if (point.y > scroller.height - 28 && point.y <= scroller.height + 12)
+                scroller.contentY = Math.min(Math.max(0, scroller.contentHeight - scroller.height), scroller.contentY + 12)
+        }
+    }
+
+    function canReorderDrag(item) {
+        return item && view.isPlaylist && view.tab.ref !== "liked"
+            && item.dragSource === view.source && item.dragEntryIds.length > 0
+            && !view.tab.searchQuery && view.tab.sortKey === "index"
+    }
+
+    function setDropBoundary(index, after) {
+        view.dropIndex = index
+        view.trackDropAfter = after
+        view.dropBefore = after ? (index + 1 < view.orderedIds.length ? view.orderedIds[index + 1] : "") : view.orderedIds[index]
+    }
+
+    TrackDragPreview {
+        id: dragPreview
+        parent: Overlay.overlay
+        visible: view.trackDragActive
+        trackTitle: view.dragTitle
+        artist: view.dragArtist
+        count: view.dragCount
+        readonly property var pointer: view.mapToItem(parent, view.dragX, view.dragY)
+        x: Math.max(8, Math.min(parent.width - width - 8, pointer.x + 16))
+        y: Math.max(8, Math.min(parent.height - height - 8, pointer.y + 16))
+    }
+    Item {
+        id: dragSession
+        parent: Overlay.overlay
+        width: 1; height: 1
+        readonly property var pointer: view.mapToItem(parent, view.dragX, view.dragY)
+        x: pointer.x; y: pointer.y
+        property var dragTrackIds: []
+        property var dragEntryIds: []
+        property string dragSource: ""
+        property int dragVersion: -1
+        property bool dragCanAdd: false
+        Drag.active: view.trackDragActive
+        Drag.source: dragSession
+        Drag.keys: ["mtee-tracks", "mtee-playlist-entry"]
+        Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
+    }
+
     Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Escape && view.trackDragActive) {
+            view.cancelTrackDrag()
+            event.accepted = true
+            return
+        }
         if (event.key === Qt.Key_Escape && view.draggedColumnKey.length > 0) {
             view.columnDragCancelled = true
             view.dropTargetKey = ""
@@ -425,6 +555,8 @@ FocusScope {
             height: parent.height
             spacing: view.columns.gap
 
+            Item { width: view.columns.playSlot; height: parent.height }
+
             Repeater {
                 model: view.columns.items
                 HeaderCell {
@@ -477,7 +609,31 @@ FocusScope {
                 highlightFollowsCurrentItem: false
                 keyNavigationEnabled: false
                 model: view.trackModel
-                footer: Item { width: 1; height: view.bottomInset + 8 }
+                footer: Item {
+                    width: list.width; height: view.bottomInset + 28
+                    Rectangle {
+                        anchors.top: parent.top; width: parent.width; height: 3
+                        color: Theme.primary
+                        visible: view.dropIndex === view.orderedIds.length && view.trackDragActive
+                    }
+                    DropArea {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.top: parent.top; height: 28
+                        keys: ["mtee-playlist-entry"]
+                        onEntered: drag => {
+                            if (view.canReorderDrag(drag.source)) {
+                                view.dropIndex = view.orderedIds.length
+                                view.dropBefore = ""
+                            }
+                        }
+                        onExited: if (view.dropIndex === view.orderedIds.length) view.dropIndex = -1
+                        onDropped: drop => {
+                            if (view.canReorderDrag(drop.source))
+                                view.workspace.reorderPlaylistEntries(view.source, drop.source.dragEntryIds, "", drop.source.dragVersion)
+                            view.dropIndex = -1
+                        }
+                    }
+                }
                 ScrollBar.vertical: ThinScrollBar {}
 
                 WheelScrollHandler {
@@ -500,12 +656,30 @@ FocusScope {
                     paused: !view.workspace.isPlaying
                     current: view.activeFocus && list.currentIndex === index
                     inPlaylist: view.workspace.playlistsContaining(modelData.trackId || modelData.id, view.workspace.revision).length > 0
+                    onDragStarted: view.prepareTrackDrag(trackRow, modelData)
+                    onDragMoved: (x, y) => view.moveTrackDrag(trackRow, x, y)
+                    onDragFinished: view.finishTrackDrag(trackRow)
+                    Rectangle {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        y: view.trackDropAfter ? parent.height - 3 : 0
+                        height: 3; color: Theme.primary
+                        visible: view.dropIndex === trackRow.index && view.trackDragActive
+                    }
                     DropArea {
                         anchors.fill: parent
                         keys: ["mtee-playlist-entry"]
                         enabled: view.isPlaylist && view.tab.ref !== "liked"
+                        onEntered: drag => {
+                            if (view.canReorderDrag(drag.source)) view.setDropBoundary(trackRow.index, drag.y >= height / 2)
+                        }
+                        onPositionChanged: drag => {
+                            if (view.canReorderDrag(drag.source)) view.setDropBoundary(trackRow.index, drag.y >= height / 2)
+                        }
+                        onExited: if (view.dropIndex === trackRow.index) view.dropIndex = -1
                         onDropped: drop => {
-                            if (drop.source && drop.source.dragEntryId) view.workspace.reorderPlaylistBefore(view.source, drop.source.dragEntryId, trackRow.modelData.entryId)
+                            if (view.canReorderDrag(drop.source))
+                                view.workspace.reorderPlaylistEntries(view.source, drop.source.dragEntryIds, view.dropBefore, drop.source.dragVersion)
+                            view.dropIndex = -1
                         }
                     }
                     onPressed: (event) => view.press(index, event)
@@ -543,7 +717,31 @@ FocusScope {
         boundsBehavior: Flickable.StopAtBounds
         reuseItems: !view.isPlaylist
         model: view.artwork ? view.trackModel : []
-        footer: Item { width: 1; height: view.bottomInset + 8 }
+        footer: Item {
+            width: grid.width; height: view.bottomInset + 28
+            Rectangle {
+                anchors.top: parent.top; width: parent.width; height: 3
+                color: Theme.primary
+                visible: view.dropIndex === view.orderedIds.length && view.trackDragActive
+            }
+            DropArea {
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.top: parent.top; height: 28
+                keys: ["mtee-playlist-entry"]
+                onEntered: drag => {
+                    if (view.canReorderDrag(drag.source)) {
+                        view.dropIndex = view.orderedIds.length
+                        view.dropBefore = ""
+                    }
+                }
+                onExited: if (view.dropIndex === view.orderedIds.length) view.dropIndex = -1
+                onDropped: drop => {
+                    if (view.canReorderDrag(drop.source))
+                        view.workspace.reorderPlaylistEntries(view.source, drop.source.dragEntryIds, "", drop.source.dragVersion)
+                    view.dropIndex = -1
+                }
+            }
+        }
         ScrollBar.vertical: ThinScrollBar {}
 
         WheelScrollHandler {
@@ -552,15 +750,69 @@ FocusScope {
 
         delegate: Rectangle {
             id: tile
+            objectName: "trackTile_" + (index + 1)
             required property var modelData
             required property int index
             readonly property bool selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
             readonly property bool playing: view.workspace.playingId === (modelData.trackId || modelData.id)
+            property var dragTrackIds: []
+            property var dragEntryIds: []
+            property string dragSource: ""
+            property int dragVersion: -1
+            property bool dragCanAdd: false
+            property bool dragPrepared: false
+            property bool dragCancelled: false
+            Component.onDestruction: {
+                dragCancelled = true
+                if (view.trackDragSource === tile) view.cancelTrackDrag()
+            }
+            DragHandler {
+                id: tileDrag
+                target: null
+                acceptedButtons: Qt.LeftButton
+                enabled: tile.modelData.available !== false || !!tile.modelData.entryId
+                onTranslationChanged: {
+                    if (active) view.moveTrackDrag(tile, centroid.position.x, centroid.position.y)
+                }
+                onActiveChanged: {
+                    if (active) {
+                        tile.dragCancelled = false
+                        view.prepareTrackDrag(tile, tile.modelData)
+                        view.moveTrackDrag(tile, centroid.position.x, centroid.position.y)
+                    } else {
+                        view.finishTrackDrag(tile)
+                        tile.dragPrepared = false
+                    }
+                }
+            }
 
             width: grid.cellWidth
             height: grid.cellHeight
             opacity: tile.modelData.available === false ? 0.55 : 1
             color: selected ? Theme.selection : tileMouse.containsMouse ? Theme.surface : "transparent"
+
+            Rectangle {
+                x: view.trackDropAfter ? parent.width - 3 : 0
+                width: 3; height: parent.height; color: Theme.primary
+                visible: view.dropIndex === tile.index && view.trackDragActive
+            }
+            DropArea {
+                anchors.fill: parent
+                keys: ["mtee-playlist-entry"]
+                enabled: view.isPlaylist && view.tab.ref !== "liked"
+                onEntered: drag => {
+                    if (view.canReorderDrag(drag.source)) view.setDropBoundary(tile.index, drag.x >= width / 2)
+                }
+                onPositionChanged: drag => {
+                    if (view.canReorderDrag(drag.source)) view.setDropBoundary(tile.index, drag.x >= width / 2)
+                }
+                onExited: if (view.dropIndex === tile.index) view.dropIndex = -1
+                onDropped: drop => {
+                    if (view.canReorderDrag(drop.source))
+                        view.workspace.reorderPlaylistEntries(view.source, drop.source.dragEntryIds, view.dropBefore, drop.source.dragVersion)
+                    view.dropIndex = -1
+                }
+            }
 
             CoverArt {
                 id: art

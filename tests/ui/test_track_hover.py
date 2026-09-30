@@ -53,8 +53,11 @@ def test_hover_stays_active_across_track_actions(qapp, tmp_path) -> None:
         row = _find(root, "trackRow_1")
         assert row is not None
         play = _find_within(row, "trackPlayButton")
+        cover = _find_within(row, "coverArtworkImage")
         info = _find_within(row, "trackInfoButton")
-        assert play is not None and info is not None
+        assert play is not None and info is not None and cover is not None
+        cover_x = cover.mapToScene(cover.boundingRect().center()).x()
+        assert play.mapToScene(play.boundingRect().center()).x() < cover_x
         assert not info.isVisible()
         QTest.mouseMove(root, _point(play))
         QTest.qWait(80)
@@ -75,6 +78,16 @@ def test_hover_stays_active_across_track_actions(qapp, tmp_path) -> None:
         QCoreApplication.processEvents()
         assert workspace.playingId
         assert workspace.playingId != previous_track
+        assert play.property("icon") == "pause"
+        QTest.mouseMove(root, _point(info), 50)
+        QCoreApplication.processEvents()
+        assert play.isVisible()
+        assert play.property("icon") == "pause"
+        workspace.togglePlay()
+        QCoreApplication.processEvents()
+        assert play.isVisible()
+        assert play.property("icon") == "play"
+        assert cover.mapToScene(cover.boundingRect().center()).x() == cover_x
     finally:
         runtime.jobs.shutdown()
         for item in runtime.engine.rootObjects():

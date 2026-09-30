@@ -19,6 +19,10 @@ Popup {
     padding: 16
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    Connections {
+        target: typeof menu.workspace.playlistModel !== "undefined" ? menu.workspace.playlistModel : null
+        function onPlaylistCreated() { menu.close() }
+    }
     background: Rectangle { color: Theme.surface; radius: 8; border.color: Theme.separator }
     function popup(anchor, offsetX, offsetY) {
         localIds = typeof workspace.localTrackIds === "function" ? workspace.localTrackIds(trackIds) : trackIds
