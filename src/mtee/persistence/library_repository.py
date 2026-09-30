@@ -852,6 +852,7 @@ def _track_dict(
         "rootId": root_id,
         "relativePath": relative,
         "title": title,
+        "identityUncertain": not bool(values.title and values.artist),
         "artist": artist,
         "album": album,
         "genre": genre,

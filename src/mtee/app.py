@@ -29,6 +29,7 @@ from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.models.jobs_model import JobsListModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
+from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.shell_controller import ShellController
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.trash_model import TrashModel
@@ -39,6 +40,7 @@ from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
+from mtee.persistence.playlists_repository import PlaylistsRepository
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
@@ -54,6 +56,8 @@ from mtee.services.metadata_writer import MetadataEditService
 from mtee.services.mpv_backend import MpvBackend
 from mtee.services.player_backend import PlayerBackendError
 from mtee.services.player_service import PlayerService
+from mtee.services.playlist_exchange import PlaylistExchange
+from mtee.services.playlist_service import PlaylistService
 from mtee.services.trash_service import TrashService
 
 __all__ = ["EXIT_OK", "create_application", "main", "run"]
@@ -151,10 +155,8 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     player_service = None
     workspace: QObject | None = None
     if options.demo:
-        workspace: QObject = DemoWorkspace(options.scenario)
-        workspace.attach_analysis_settings(
-            analysis_settings, TagConflictsModel(parent=application)
-        )
+        workspace = DemoWorkspace(options.scenario)
+        workspace.attach_analysis_settings(analysis_settings, TagConflictsModel(parent=application))
     else:
         library = LibraryRepository(database)
         analysis_repository = AnalysisRepository(database)
@@ -183,6 +185,15 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             jobs=jobs,
             player=player_model,
         )
+        playlist_service = PlaylistService(PlaylistsRepository(database), library)
+        playlists_model = PlaylistsModel(
+            playlist_service, settings, jobs, paths.database_path.parent
+        )
+        playlists_model.exchange = PlaylistExchange(
+            playlist_service, file_access, paths.database_path.parent
+        )
+        playlists_model.refresh()
+        workspace.attach_playlists(playlists_model)
         metadata_writer = MetadataEditService(
             library,
             MetadataHistoryRepository(database),
@@ -293,6 +304,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
 def _shutdown(runtime: _Runtime) -> None:
     """Stop the background work and close the storage before leaving."""
     if isinstance(runtime.workspace, WorkspaceModel):
+        playlist_model = runtime.workspace.playlistModel
+        if isinstance(playlist_model, PlaylistsModel):
+            playlist_model.flush_pending()
         runtime.workspace.flush_session()
     runtime.jobs.begin_shutdown()
     runtime.frame.detach()

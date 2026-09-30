@@ -58,8 +58,9 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         13,
         14,
         15,
+        16,
     ]
-    assert database.schema_version() == 15
+    assert database.schema_version() == 16
     tables = {
         str(row["name"])
         for row in database.connection().execute(
@@ -92,7 +93,7 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
     original.close()
 
     upgraded = Database(path)
-    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 11, 12, 13, 14, 15]
+    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16]
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     backups = list(tmp_path.glob("mtee.sqlite3.v4.*.backup"))
     assert len(backups) == 1
@@ -216,8 +217,8 @@ def test_a_database_with_the_retired_analysis_migration_is_upgraded_and_preserve
     legacy.close()
 
     upgraded = Database(path)
-    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14, 15]
-    assert upgraded.schema_version() == 15
+    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14, 15, 16]
+    assert upgraded.schema_version() == 16
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     assert (
         upgraded.connection()
@@ -252,7 +253,7 @@ def test_an_unknown_retired_migration_remains_refused(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedMigrationHistoryError, match="unknown or unsupported"):
         database.migrate()
-    assert database.schema_version() == 15
+    assert database.schema_version() == 16
     database.close()
 
 
@@ -263,3 +264,42 @@ def test_a_migration_file_with_an_unexpected_name_is_reported(tmp_path: Path) ->
 
     with pytest.raises(DatabaseError):
         database.migrate()
+
+
+def test_playlist_upgrade_keeps_v15_data_and_an_exact_backup(tmp_path: Path) -> None:
+    old_migrations = tmp_path / "v15"
+    old_migrations.mkdir()
+    for migration in Database(tmp_path / "unused.sqlite3").migrations:
+        if migration.version <= 15:
+            shutil.copyfile(migration.path, old_migrations / migration.file_name)
+    path = tmp_path / "upgrade.sqlite3"
+    original = Database(path, migrations_dir=old_migrations)
+    original.migrate()
+    original.connection().execute("INSERT INTO tracks VALUES('kept-track')")
+    original.connection().execute(
+        "INSERT INTO track_locations(path_key,track_id,path,size_bytes,mtime_ns,"
+        "status,metadata_json) "
+        "VALUES('key','kept-track','fixture.wav',1,1,'readable',?)",
+        ('{"unknown-tag":"kept","title":["Song"]}',),
+    )
+    SettingsRepository(original).set("existing", "unchanged")
+    original.close()
+    upgraded = Database(path)
+    try:
+        assert [m.version for m in upgraded.migrate()] == [16]
+        assert upgraded.migrate() == []
+        assert SettingsRepository(upgraded).get("existing") == "unchanged"
+        assert (
+            upgraded.connection()
+            .execute("SELECT metadata_json FROM track_locations WHERE track_id='kept-track'")
+            .fetchone()[0]
+            == '{"unknown-tag":"kept","title":["Song"]}'
+        )
+        with sqlite3.connect(next(tmp_path.glob("upgrade.sqlite3.v15.*.backup"))) as backup:
+            assert backup.execute("PRAGMA user_version").fetchone()[0] == 15
+            assert backup.execute("SELECT track_id FROM tracks").fetchone()[0] == "kept-track"
+            assert not backup.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='playlists'"
+            ).fetchone()
+    finally:
+        upgraded.close()

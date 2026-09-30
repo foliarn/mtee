@@ -42,6 +42,21 @@ Rectangle {
                 font.weight: Font.Bold
             }
 
+            Column {
+                visible: settings.page === "general" && typeof settings.workspace.playlistModel !== "undefined"
+                width: parent.width
+                spacing: 8
+                Text { text: "Playlist creator name"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 16 }
+                TextField {
+                    objectName: "playlistCreatorInput"
+                    width: Math.min(340, parent.width); height: 36
+                    text: typeof settings.workspace.playlistModel !== "undefined" ? settings.workspace.playlistModel.creator : ""
+                    color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 16
+                    onEditingFinished: if (typeof settings.workspace.playlistModel !== "undefined") settings.workspace.playlistModel.setCreator(text)
+                    background: Rectangle { color: Theme.surface; border.color: parent.activeFocus ? Theme.focus : Theme.separator }
+                }
+            }
+
             Row {
                 objectName: "settingsTabs"
                 height: Theme.tabHeight

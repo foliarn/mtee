@@ -26,6 +26,9 @@ FocusScope {
         ? workspace.trackModelForTab(tab.id, tab.kind, tab.ref, tab.sortKey, tab.sortAscending)
         : rows
     readonly property var orderedIds: modelBacked ? trackModel.trackIds : rows.map((track) => track.id)
+    readonly property bool isPlaylist: tab.kind === "playlist" && modelBacked
+    property bool playlistSearchOpen: false
+    readonly property var playlistOptions: ["title", "artist", "album", "bpm", "key", "duration"]
     readonly property bool artwork: tab.view === "artwork"
 
     // Lists handed over by Python reach QML as Qt sequences, for which
@@ -38,7 +41,7 @@ FocusScope {
     readonly property var columns: {
         const padding = width < 600 ? 12 : 24
         const gap = width < 600 ? 10 : 16
-        const actions = 104
+        const actions = 140
         const fallbackOptions = [
             { key: "title", label: "Title" },
             { key: "artist", label: "Artist" },
@@ -53,7 +56,7 @@ FocusScope {
             { key: "fileCreatedAt", label: "Date created" },
             { key: "fileModifiedAt", label: "Date modified" }
         ]
-        const options = view.workspace.columnOptions || fallbackOptions
+        const options = (view.workspace.columnOptions || fallbackOptions).filter(o => !view.isPlaylist || view.playlistOptions.indexOf(o.key) >= 0)
         const defaults = options.length > 0
             ? options.map((option) => option.key)
             : ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename", "bitrate", "fileCreatedAt", "fileModifiedAt"]
@@ -67,7 +70,7 @@ FocusScope {
             widths: baseWidths,
             showArtwork: true
         }
-        const preferences = view.workspace.columnPreferences || fallbackPreferences
+        const preferences = view.isPlaylist ? view.workspace.playlistModel.columns : (view.workspace.columnPreferences || fallbackPreferences)
         const configuredOrder = view.asArray(preferences.order) || defaults
         const order = configuredOrder.filter((key, index) => defaults.indexOf(key) >= 0 && configuredOrder.indexOf(key) === index)
         for (const key of defaults) {
@@ -218,7 +221,7 @@ FocusScope {
     Item {
         id: heading
         width: parent.width
-        height: 92
+        height: view.isPlaylist ? (width < 800 ? 286 : 330) : 92
 
         MouseArea {
             anchors.fill: parent
@@ -227,7 +230,13 @@ FocusScope {
             onClicked: view.forceActiveFocus()
         }
 
+        Loader {
+            anchors.fill: parent
+            active: view.isPlaylist
+            sourceComponent: Component { PlaylistHeader { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel } }
+        }
         Column {
+            visible: !view.isPlaylist
             x: view.columns.padding
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 14
@@ -263,9 +272,32 @@ FocusScope {
             anchors.right: parent.right
             anchors.rightMargin: view.columns.padding - 6
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 14
+            anchors.bottomMargin: view.isPlaylist ? 28 : 14
             spacing: 2
 
+            TextField {
+                id: playlistSearch
+                objectName: "playlistSearchField"
+                visible: view.isPlaylist
+                width: view.playlistSearchOpen ? Math.min(220, view.width * 0.25) : 0
+                height: 28
+                opacity: view.playlistSearchOpen ? 1 : 0
+                clip: true
+                placeholderText: "Search this playlist"
+                text: view.tab.searchQuery || ""
+                color: Theme.textPrimary; placeholderTextColor: Theme.textMuted
+                font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                onTextEdited: view.workspace.setSearch(view.tab.id, text)
+                Behavior on width { NumberAnimation { duration: 190; easing.type: Easing.OutExpo } }
+                background: Rectangle { color: Theme.surface; border.color: playlistSearch.activeFocus ? Theme.focus : Theme.separator }
+            }
+            IconButton {
+                visible: view.isPlaylist
+                objectName: "playlistSearchButton"
+                icon: "search"; iconSize: 18; tip: "Search playlist"
+                active: view.playlistSearchOpen || (view.tab.searchQuery || "").length > 0
+                onClicked: { view.playlistSearchOpen = !view.playlistSearchOpen; if (view.playlistSearchOpen) playlistSearch.forceActiveFocus() }
+            }
             IconButton {
                 icon: "list"
                 iconSize: 18
@@ -298,9 +330,10 @@ FocusScope {
             objectName: "columnChooserMenu"
 
             AppMenuItem { text: "COLUMNS"; enabled: false }
+            AppMenuItem { text: "Custom order"; visible: view.isPlaylist; onTriggered: view.workspace.customPlaylistOrder(view.tab.id) }
 
             Instantiator {
-                model: view.workspace.columnOptions
+                model: view.workspace.columnOptions.filter(o => !view.isPlaylist || view.playlistOptions.indexOf(o.key) >= 0)
                 delegate: AppMenuItem {
                     required property var modelData
                     objectName: "columnOption_" + modelData.key
@@ -308,8 +341,17 @@ FocusScope {
                     checkable: true
                     checked: view.columns.keys.indexOf(modelData.key) >= 0
                     mark: checked
-                    enabled: checked || view.columns.keys.length > 1
-                    onTriggered: view.workspace.toggleColumn(view.tab.id, modelData.key)
+                    enabled: view.isPlaylist ? (!checked || view.columns.keys.length > 1) : checked || view.columns.keys.length > 1
+                    onTriggered: {
+                        if (view.isPlaylist) {
+                            const prefs = Object.assign({}, view.workspace.playlistModel.columns)
+                            let hidden = Array.from(prefs.hidden)
+                            if (hidden.indexOf(modelData.key) >= 0) hidden = hidden.filter(k => k !== modelData.key)
+                            else if (hidden.length < 5) hidden.push(modelData.key)
+                            prefs.hidden = hidden
+                            view.workspace.playlistModel.setColumns(prefs)
+                        } else view.workspace.toggleColumn(view.tab.id, modelData.key)
+                    }
                 }
                 onObjectAdded: (index, object) => columnMenu.insertItem(index + 1, object)
                 onObjectRemoved: (index, object) => columnMenu.removeItem(object)
@@ -322,14 +364,20 @@ FocusScope {
                 checkable: true
                 checked: view.columns.showArtwork
                 mark: checked
-                onTriggered: view.workspace.setShowArtwork(!checked)
+                onTriggered: {
+                    if (view.isPlaylist) {
+                        const prefs = Object.assign({}, view.workspace.playlistModel.columns)
+                        prefs.showArtwork = !checked
+                        view.workspace.playlistModel.setColumns(prefs)
+                    } else view.workspace.setShowArtwork(!checked)
+                }
             }
 
             AppMenuItem {
                 text: "Reset columns"
                 onTriggered: {
                     view.localColumnWidths = ({})
-                    view.workspace.resetColumns()
+                    if (view.isPlaylist) view.workspace.playlistModel.resetColumns(); else view.workspace.resetColumns()
                 }
             }
         }
@@ -337,7 +385,7 @@ FocusScope {
         TextField {
             objectName: "folderSearchField"
             id: folderSearchField
-            visible: view.modelBacked
+            visible: view.modelBacked && !view.isPlaylist
             anchors.top: parent.top
             anchors.topMargin: 14
             anchors.right: parent.right
@@ -424,7 +472,7 @@ FocusScope {
                 anchors.fill: parent
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                reuseItems: true
+                reuseItems: !view.isPlaylist
                 currentIndex: -1
                 highlightFollowsCurrentItem: false
                 keyNavigationEnabled: false
@@ -448,10 +496,18 @@ FocusScope {
                     groupIndex: view.groupIndex
                     separateArtist: view.modelBacked
                     selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
-                    playing: view.workspace.playingId === modelData.id
+                    playing: view.workspace.playingId === (modelData.trackId || modelData.id)
                     paused: !view.workspace.isPlaying
                     current: view.activeFocus && list.currentIndex === index
-                    inPlaylist: view.workspace.playlistsContaining(modelData.id, view.workspace.revision).length > 0
+                    inPlaylist: view.workspace.playlistsContaining(modelData.trackId || modelData.id, view.workspace.revision).length > 0
+                    DropArea {
+                        anchors.fill: parent
+                        keys: ["mtee-playlist-entry"]
+                        enabled: view.isPlaylist && view.tab.ref !== "liked"
+                        onDropped: drop => {
+                            if (drop.source && drop.source.dragEntryId) view.workspace.reorderPlaylistBefore(view.source, drop.source.dragEntryId, trackRow.modelData.entryId)
+                        }
+                    }
                     onPressed: (event) => view.press(index, event)
                     onActivated: view.play(index)
                     onToggleRequested: view.workspace.togglePlay()
@@ -462,7 +518,7 @@ FocusScope {
                     onPlaylistRequested: (anchor) => view.openPlaylistMenu(anchor, modelData.id)
                     onContextRequested: (x, y) => {
                         contextMenu.trackId = modelData.id
-                        contextMenu.folderId = modelData.folder
+                        contextMenu.folderId = modelData.folder || ""
                         contextMenu.trackIds = view.workspace.selectedIds
                         contextMenu.popup(trackRow, x, y)
                     }
@@ -485,7 +541,7 @@ FocusScope {
         cellHeight: cellWidth + 58
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        reuseItems: true
+        reuseItems: !view.isPlaylist
         model: view.artwork ? view.trackModel : []
         footer: Item { width: 1; height: view.bottomInset + 8 }
         ScrollBar.vertical: ThinScrollBar {}
@@ -499,10 +555,11 @@ FocusScope {
             required property var modelData
             required property int index
             readonly property bool selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
-            readonly property bool playing: view.workspace.playingId === modelData.id
+            readonly property bool playing: view.workspace.playingId === (modelData.trackId || modelData.id)
 
             width: grid.cellWidth
             height: grid.cellHeight
+            opacity: tile.modelData.available === false ? 0.55 : 1
             color: selected ? Theme.selection : tileMouse.containsMouse ? Theme.surface : "transparent"
 
             CoverArt {
@@ -541,6 +598,14 @@ FocusScope {
                 }
             }
 
+            Row {
+                z: 2
+                anchors.top: parent.top; anchors.topMargin: 12
+                anchors.right: parent.right; anchors.rightMargin: 12
+                IconButton { visible: typeof view.workspace.toggleLike === "function" && tile.modelData.available !== false; icon: view.workspace.revision >= 0 && typeof view.workspace.isLiked === "function" && view.workspace.isLiked(tile.modelData.trackId || tile.modelData.id) ? "heart-filled" : "heart"; iconSize: 16; tip: "Like track"; onClicked: view.workspace.toggleLike(tile.modelData.trackId || tile.modelData.id) }
+                IconButton { visible: tile.modelData.available !== false; icon: "add-playlist"; iconSize: 18; tip: "Add to playlist"; onClicked: view.openPlaylistMenu(this, tile.modelData.id) }
+                TextButton { visible: tile.modelData.available === false && view.isPlaylist; text: "Locate"; onClicked: view.workspace.playlistModel.requestUI("locate", tile.modelData.entryId, [tile.modelData.id]) }
+            }
             MouseArea {
                 id: tileMouse
                 anchors.fill: parent

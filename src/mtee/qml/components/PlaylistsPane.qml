@@ -2,97 +2,99 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Mtee
 
-// Invented playlists; their real behaviour arrives with plan 10.
 Item {
     id: pane
-
     required property var workspace
-    readonly property string activePlaylist: {
-        const groups = workspace.groups
-        if (groups.length === 0)
-            return ""
-        const parts = groups[workspace.activeGroup].active.split(":")
-        return parts[0] === "playlist" ? parts[1] : ""
-    }
-
+    readonly property bool live: typeof workspace.playlistModel !== "undefined"
+    readonly property var playlistsModel: live ? workspace.playlistModel : null
+    readonly property string activePlaylist: workspace.groups.length ? workspace.groups[workspace.activeGroup].active.split(":")[1] || "" : ""
+    property var contextEntry: ({})
     objectName: "playlistsPane"
-
     PaneHeader {
         id: header
         width: parent.width
         title: "Playlists"
-
-        IconButton {
-            icon: "plus"
-            iconSize: 16
-            width: 26
-            height: 26
-            tip: "New playlist"
-            onClicked: pane.workspace.addToNewPlaylist([])
-        }
+        IconButton { id: plus; icon: "plus"; iconSize: 16; width: 26; height: 26; tip: "Create or import playlist"; onClicked: creation.popup(plus, 0, plus.height) }
     }
-
+    AppMenu {
+        id: creation
+        AppMenuItem { text: "New playlist"; onTriggered: pane.workspace.addToNewPlaylist([]) }
+        AppMenuItem { text: "New folder"; visible: pane.live; onTriggered: pane.playlistsModel.requestUI("folder", "", []) }
+        AppMenuItem { text: "Resume interrupted import…"; visible: pane.live && pane.playlistsModel.pendingImports.length > 0; onTriggered: pane.playlistsModel.requestUI("resume", "", []) }
+        AppMenuItem { text: "Import playlist…"; visible: pane.live; onTriggered: pane.playlistsModel.requestUI("import", "", []) }
+    }
     ListView {
-        anchors.top: header.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        id: tree
+        anchors.top: header.bottom; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        model: pane.workspace.playlists
+        model: pane.live ? pane.playlistsModel.tree : pane.workspace.playlists
         ScrollBar.vertical: ThinScrollBar {}
-
+        DropArea {
+            anchors.fill: parent
+            keys: ["mtee-playlist-node"]
+            onDropped: drop => { if (drop.source) pane.playlistsModel.move(drop.source.nodeId, "", drop.source.nodeIsFolder, "") }
+        }
         delegate: Rectangle {
             id: entry
+            objectName: "playlistNode_" + modelData.id
             required property var modelData
-            readonly property bool current: pane.activePlaylist === modelData.id
-
-            width: ListView.view.width
-            height: 56
-            color: current ? Theme.selection : entryMouse.containsMouse ? Theme.surface : "transparent"
-
-            CoverArt {
-                id: art
-                x: 16
-                anchors.verticalCenter: parent.verticalCenter
-                width: 40
-                height: 40
-                pattern: entry.modelData.cover
+            readonly property bool folder: modelData.kind === "folder"
+            readonly property bool current: !folder && pane.activePlaylist === modelData.id
+            property string nodeId: modelData.id
+            property bool nodeIsFolder: folder
+            width: ListView.view.width; height: folder ? 40 : 56
+            color: drop.containsDrag ? Theme.selection : current ? Theme.selection : hit.containsMouse ? Theme.surface : "transparent"
+            Item {
+                id: nodeProxy
+                width: 1; height: 1
+                Drag.active: nodeDrag.active; Drag.source: entry
+                Drag.keys: ["mtee-playlist-node"]; Drag.supportedActions: Qt.MoveAction
             }
-
+            DragHandler {
+                id: nodeDrag; target: null; enabled: pane.live && entry.nodeId !== "liked"
+                onTranslationChanged: { nodeProxy.x = centroid.position.x; nodeProxy.y = centroid.position.y }
+                onActiveChanged: { if (active) { nodeProxy.x = centroid.position.x; nodeProxy.y = centroid.position.y } else nodeProxy.Drag.drop() }
+            }
+            Icon { id: folderIcon; visible: entry.folder; x: 14 + (entry.modelData.depth || 0) * 16; anchors.verticalCenter: parent.verticalCenter; name: entry.modelData.expanded ? "chevron-down" : "chevron-right"; size: 14; color: Theme.textSecondary }
+            PlaylistCover { id: art; visible: !entry.folder; x: 14 + (entry.modelData.depth || 0) * 16; anchors.verticalCenter: parent.verticalCenter; width: 40; height: 40; source: entry.modelData.coverUrl || ""; covers: entry.modelData.covers || [] }
             Column {
-                anchors.left: art.right
-                anchors.leftMargin: 12
-                anchors.right: parent.right
-                anchors.rightMargin: 12
+                x: entry.folder ? folderIcon.x + 24 : art.x + 52
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
-
-                Text {
-                    width: parent.width
-                    text: entry.modelData.name
-                    elide: Text.ElideRight
-                    color: entry.current ? Theme.primary : Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeBody
-                }
-
-                Text {
-                    width: parent.width
-                    text: "Playlist · " + entry.modelData.summary
-                    elide: Text.ElideRight
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
+                width: parent.width - x - 32; spacing: 3
+                Text { width: parent.width; text: entry.modelData.name; elide: Text.ElideRight; color: entry.current ? Theme.primary : Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 15 }
+                Text { visible: !entry.folder; width: parent.width; text: entry.modelData.summary || ""; elide: Text.ElideRight; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+            }
+            Icon { visible: entry.modelData.pinned || false; anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; name: "pin"; size: 14; color: Theme.primary }
+            MouseArea {
+                id: hit; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onClicked: event => {
+                    if (event.button === Qt.RightButton && entry.modelData.id !== "liked") { pane.contextEntry = entry.modelData; context.popup(entry, event.x, event.y) }
+                    else if (entry.folder) pane.playlistsModel.toggleFolder(entry.modelData.id)
+                    else pane.workspace.openPlaylist(entry.modelData.id)
                 }
             }
-
-            MouseArea {
-                id: entryMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                onClicked: pane.workspace.openPlaylist(entry.modelData.id)
+            DropArea {
+                id: drop; anchors.fill: parent; keys: ["mtee-playlist-node", "mtee-tracks"]
+                onDropped: event => {
+                    if (!event.source || !pane.live) return
+                    if (event.source.dragTrackIds !== undefined && !entry.folder && entry.nodeId !== "liked") pane.playlistsModel.add(entry.nodeId, event.source.dragTrackIds)
+                    else if (event.source.nodeId !== undefined && entry.nodeId !== "liked") pane.playlistsModel.move(event.source.nodeId, entry.folder ? entry.nodeId : entry.modelData.folder || "", event.source.nodeIsFolder, entry.folder ? "" : entry.nodeId)
+                }
             }
         }
+    }
+    AppMenu {
+        id: context
+        AppMenuItem { text: "Edit playlist"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.requestUI("edit", pane.contextEntry.id, []) }
+        AppMenuItem { text: pane.contextEntry.pinned ? "Unpin" : "Pin playlist"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.pin(pane.contextEntry.id, !pane.contextEntry.pinned) }
+        AppMenuItem { text: "Create a copy"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.duplicate(pane.contextEntry.id) }
+        AppMenuItem { text: "Export playlist…"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.requestUI("export", pane.contextEntry.id, []) }
+        AppMenuItem { text: "New playlist here"; visible: pane.contextEntry.kind === "folder"; onTriggered: pane.playlistsModel.requestUI("create", pane.contextEntry.id, []) }
+        AppMenuItem { text: "New subfolder"; visible: pane.contextEntry.kind === "folder"; onTriggered: pane.playlistsModel.requestUI("folder", pane.contextEntry.id, []) }
+        AppMenuItem { text: "Rename folder"; visible: pane.contextEntry.kind === "folder"; onTriggered: pane.playlistsModel.requestUI("renameFolder", pane.contextEntry.id, []) }
+        AppMenuItem { text: "Move to folder…"; onTriggered: pane.playlistsModel.requestUI(pane.contextEntry.kind === "folder" ? "moveFolder" : "move", pane.contextEntry.id, []) }
+        AppMenuSeparator {}
+        AppMenuItem { text: "Delete"; onTriggered: pane.playlistsModel.requestUI(pane.contextEntry.kind === "folder" ? "deleteFolder" : "delete", pane.contextEntry.id, []) }
     }
 }
