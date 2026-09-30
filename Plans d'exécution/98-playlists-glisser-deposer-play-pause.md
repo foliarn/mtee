@@ -43,7 +43,7 @@ Les captures sources montrent : trois actions de création/import séparées par
 - [x] 2026-10-01 — 98.2 : création immédiate, menu compact, édition par titre et pochette livrés.
 - [x] 2026-10-01 — 98.3 : Play/Pause à gauche des pochettes, états de lecture et géométrie vérifiés.
 - [x] 2026-10-01 — 98.4 : glisser-déposer List/Artwork, lots, aperçu et insertions implémentés.
-- [ ] 98.5 — Recette documentée ; commit et push à terminer. Les cas sans preuve directe restent identifiés dans le rapport.
+- [x] 2026-10-01 — 98.5 : contrôles et limites de recette documentés ; commit `6a0ccf7` poussé sur `origin/main` et HEAD distant vérifié. Les cas sans preuve directe restent identifiés dans le rapport.
 
 ## Surprises & Discoveries
 
@@ -94,6 +94,8 @@ Le périmètre et les cas de numérotation sont clarifiés. Le présent document
 2026-10-01 — La maquette 98.1 et son [dossier de revue](../docs/ux/review-98-playlists.md) sont prêts. Les comportements applicatifs 98.2–98.5 et A01–A24 restent non exécutés tant que la revue produit n'est pas explicitement validée. Aucun build d'EXE ni test libmpv n'a été effectué.
 
 2026-10-01 — La maquette révisée est validée et les fonctions 98.2–98.4 sont implémentées. Le [rapport de validation](../docs/validation/98-playlists-glisser-deposer-play-pause.md) distingue les gestes Qt testés, les captures natives, la lecture libmpv ponctuelle et les cas non exercés de bout en bout. Aucun EXE n'a été construit.
+
+2026-10-01 — Le commit fonctionnel `6a0ccf7` est publié sur `origin/main` ; le fetch de vérification donne le même HEAD. La livraison du code du plan 98 est terminée, mais la recette interactive A01–A24 n'est que partielle et les deux échecs de tests hors suite ciblée restent ouverts. Ne pas présenter ces points comme validés.
 
 ## Prérequis, limites et ordre de travail
 

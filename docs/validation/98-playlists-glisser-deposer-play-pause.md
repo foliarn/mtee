@@ -40,7 +40,7 @@ La fixture contient six WAV de 18 secondes, deux pochettes, plusieurs dossiers, 
 | A15 | Automatisé pour List et cible sidebar ; Artwork testé comme source de réordonnancement. Traversée Artwork vers sidebar non vérifiée directement. |
 | A16 | Automatisé : lot de deux en ordre de clic inverse, aperçu du premier visible ; lot de trois non testé directement. |
 | A17 | Partiel : insertion List, insertion Artwork après dernier et persistance testées ; toutes les frontières de rangée ne le sont pas. |
-| A18 | Automatisé : permutation pure de lot non contigu et absence d'écriture sur ordre identique. |
+| A18 | Automatisé pour la permutation pure d'un lot non contigu ; la branche sans écriture sur ordre identique est vérifiée dans le code, sans assertion de base dédiée. |
 | A19 | Automatisé pour vue triée ; autres cibles incompatibles contrôlées en source et par leurs conditions de drop. |
 | A20 | Automatisé pour Échap ; perte d'activation, sortie de fenêtre et fermeture d'onglet non rejouées directement. |
 | A21 | Partiel : version initiale transmise et refus de version périmée dans le modèle ; suppression concurrente pendant un geste non rejouée. |
