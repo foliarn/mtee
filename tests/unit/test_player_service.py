@@ -349,3 +349,81 @@ def test_explicit_stop_releases_exclusive_access_and_closes_one_backend(
     assert len(backend.loads) == 1
     service.close()
     assert backend.closed
+
+
+def test_manual_entries_survive_context_change_and_are_consumed_once(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=5)
+    service.play_queue(ids[:3], source="folder:first")
+    _wait_playing(qtbot, service)
+    before_loads = len(backend.loads)
+    first, second = service.enqueue_tracks([ids[4], ids[4]], tracks=[tracks[ids[4]]])
+    assert first != second
+    assert [row["entryId"] for row in service.up_next()[:2]] == [first, second]
+    assert len(backend.loads) == before_loads
+    assert service.state.position_us == 0
+
+    service.play_queue(ids[2:4], start_index=0, source="folder:second")
+    _wait_playing(qtbot, service)
+    assert [row["entryId"] for row in service.up_next()[:2]] == [first, second]
+    service.next()
+    _wait_playing(qtbot, service)
+    assert service.queue_state.current is not None
+    assert service.queue_state.current.entry_id == first
+    assert service.state.current_entry_id == first
+    service.next()
+    _wait_playing(qtbot, service)
+    assert service.queue_state.current is not None
+    assert service.queue_state.current.entry_id == second
+    assert [row["id"] for row in service.up_next()] == [ids[3]]
+    service.close()
+
+
+def test_editing_upcoming_by_occurrence_does_not_reload_current(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=4)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    a, b = service.enqueue_tracks([ids[3], ids[3]])
+    initial_session = service.state.session_id
+    initial_loads = len(backend.loads)
+    assert service.move_queue_entry(b, a)
+    assert service.remove_queue_entry(a)
+    assert not service.remove_queue_entry(a)
+    assert service.state.session_id == initial_session
+    assert len(backend.loads) == initial_loads
+    assert next(row["entryId"] for row in service.up_next()) == b
+    service.close()
+
+
+def test_repeat_one_keeps_manual_pending_until_mode_changes(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=2)
+    service.play_queue(ids[:1])
+    _wait_playing(qtbot, service)
+    manual_entry = service.enqueue_tracks(ids[1:])[0]
+    service.cycle_repeat()
+    service.cycle_repeat()
+    assert service.state.repeat == "one"
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == 2)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[0]
+    assert service.up_next()[0]["entryId"] == manual_entry
+    service.cycle_repeat()
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: service.state.current_id == ids[1])
+    assert service.state.current_entry_id == manual_entry
+    service.close()
+
+
+def test_enqueue_without_current_waits_for_explicit_play(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    entry_id = service.enqueue_tracks(ids)[0]
+    assert service.state.current_id == ""
+    assert not backend.loads
+    service.toggle_play()
+    _wait_playing(qtbot, service)
+    assert service.state.current_entry_id == entry_id
+    service.close()

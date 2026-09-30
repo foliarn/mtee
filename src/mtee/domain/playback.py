@@ -24,6 +24,7 @@ class PlaybackState:
     status: PlaybackStatus = PlaybackStatus.IDLE
     track_ids: tuple[str, ...] = ()
     current_id: str = ""
+    current_entry_id: str = ""
     current_index: int = -1
     position_us: int = 0
     duration_us: int | None = None
