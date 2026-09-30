@@ -2,6 +2,14 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Playlists locales — 2026-09-30
+
+Demande explicite de playlists fonctionnelles avec persistance, dossiers imbriqués, épingles, likes locaux, pochette/mosaïque, ordre manuel et import/export léger ou ZIP avec audio. Les décisions sont consignées dans `docs/decisions/34-playlists.md`. La maquette est préparée pour revue ; les services, modèles et migration restent à implémenter après sa validation. Ce périmètre n'active ni tags sémantiques, ni vues intelligentes, ni les autres fonctions de l'ancien plan 10. L'intégration Spotify est reportée par l'utilisateur et conservée uniquement dans `docs/ideas/spotify-playlists.md`.
+
+| Plan | Catégorie et dépendances |
+|---|---|
+| [34 — Playlists locales](34-playlists-locales.md) | Revue QML, migration sauvegardée, backend local, modèles Qt, interface et échanges ; après le socle actuel et validation de la nouvelle maquette, sans attendre une revue de vocabulaire de tags |
+
 ## Analyse audio — 2026-09-30
 
 Demande explicite de l'utilisateur : réintroduire l'analyse pour le BPM, la tonalité et la waveform, avec stockage permanent, un onglet de réglages et un lancement par clic droit. Le périmètre est limité à ces trois valeurs ; les silences, la loudness et les tags sémantiques restent hors périmètre.

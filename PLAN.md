@@ -1,6 +1,18 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum playlists locales — 2026-09-30
+
+La demande explicite réactive les playlists manuelles locales sur le socle actuel, indépendamment de la taxonomie et des vues intelligentes de l'ancienne étape 10. Les décisions sont consignées dans `docs/decisions/34-playlists.md` et l'implémentation dans le [plan 34](Plans%20d'ex%C3%A9cution/34-playlists-locales.md). Une nouvelle maquette QML est soumise à validation avant le backend et sa migration SQLite ; le cadrage ne constitue pas cette validation.
+
+Le nouvel en-tête concerne les playlists uniquement : grande pochette carrée (image locale ou mosaïque par défaut), titre, description, créateur commun aux réglages et durée sans taille ; Play/Shuffle sous la pochette, Search/List/Artwork/Choose columns alignés à droite et recherche déployée vers la gauche. Les playlists ont leur propre profil de colonnes commun : Title, Artist, Album, BPM, Key, Duration. Les pages et colonnes de dossiers audio restent indépendantes.
+
+La sidebar propose création/import, dossiers imbriqués, épingles et `Liked tracks` propres à MTEE. Les morceaux sont ajoutables via sélection/menu, glisser-déposer et `+`, avec un cœur séparé. Chaque clic dans le menu ajoute/retire immédiatement et le menu reste ouvert. Pas de doublon musical : comparer titre, artistes et version sans casse/accents, distinguer remix/live et demander un choix lorsque les données sont insuffisantes. Ordre manuel par défaut, tris temporaires, Play/Shuffle limités aux résultats visibles disponibles. Les fichiers introuvables gardent une ligne grisée et sont résolubles manuellement.
+
+La duplication de playlist est permise ; sa suppression demande confirmation et conserve l'audio. Un dossier n'est supprimable que s'il est entièrement vide, sous-dossiers compris. Le format léger `.mteeplaylist` sert à la sauvegarde et au transfert vers un PC possédant les mêmes fichiers ; un ZIP inclut les fichiers audio. L'import ZIP demande une destination, extrait sans écrasement, ajoute le dossier à la bibliothèque puis restaure la playlist. Les correspondances certaines sont automatiques et les ambiguïtés nécessitent un choix.
+
+Spotify est explicitement reporté à une autre fois : l'idée est conservée dans `docs/ideas/spotify-playlists.md` et ne fait pas partie des travaux de cette livraison. Ce périmètre ne réactive pas Shovel. Les tests, la recette depuis les sources et la publication suivent `PLANS.md`, sans build Windows automatique.
+
 ## Addendum capture SoundCloud — 2026-09-29
 
 L’utilisateur demande une extension Chrome qui repère sur SoundCloud les téléchargements gratuits, remplit les formulaires des passerelles Droploud, Hypeddit et Bandcamp avec des informations gérées dans l’extension, puis enregistre les fichiers dans `Downloads/Songs`, archives `.zip` extraites. Après chaque téléchargement réussi, elle like, reposte et commente le morceau avec un texte choisi dans sa propre liste, même si la passerelle ne l’exige pas, pour soutenir les artistes. Les envois groupés sont possibles depuis les playlists, pas depuis les likes. La série [29–32](Plans%20d'ex%C3%A9cution/README.md) détaille ce travail.
