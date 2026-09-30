@@ -2,6 +2,10 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Playlists et interactions des morceaux — préparation du 2026-10-01
+
+Le [plan 98 — Playlists, glisser-déposer et Play/Pause](98-playlists-glisser-deposer-play-pause.md) couvre uniquement les features Notion 2, 3 et 4 et le bonus d'édition par titre/survol de pochette. Il précise la création immédiate avec un nom fondé sur le nombre de playlists présentes, les indicateurs et le réordonnancement par lots dans List/Artwork, et le bouton Play/Pause à gauche des pochettes, hors file d'attente. Les décisions utilisateur, les fichiers à modifier, les jalons, les tests et 24 cas de recette sont inclus pour Luna. La préparation est documentaire ; la maquette ciblée reste à préparer et valider avant le code fonctionnel. Aucun build Windows n'est prévu.
+
 ## Contrôles de lecture et navigation — préparation du 2026-10-01
 
 Le [plan 99 — File, commandes de lecture, navigation et désélection](99-controles-lecture-file-navigation.md) traduit exclusivement les features 9 à 13 de la page Notion « MTEE — fixes & idées / Segmentation » et les deux séries de réponses utilisateur du 1er octobre. La numérotation des features Notion est indépendante des anciens ExecPlans 09–13.
