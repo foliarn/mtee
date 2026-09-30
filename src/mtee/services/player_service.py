@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import logging
-import random
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
 from mtee.domain.playback import PlaybackState, PlaybackStatus
+from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.player_backend import BackendEvent, PlayerBackend
@@ -50,7 +50,7 @@ class PlayerService(QObject):
         self._backend = backend
         self._backend_error = backend_error
         self._state = PlaybackState()
-        self._base_ids: tuple[str, ...] = ()
+        self._queue = QueueState()
         self._track_rows: dict[str, dict[str, Any]] = {}
         self._read_contexts: dict[int, AbstractContextManager] = {}
         self._read_track_ids: dict[int, str] = {}
@@ -75,6 +75,10 @@ class PlayerService(QObject):
         return self._state
 
     @property
+    def queue_state(self) -> QueueState:
+        return self._queue
+
+    @property
     def current_track(self) -> dict[str, Any]:
         return dict(self._track_rows.get(self._state.current_id, {}))
 
@@ -97,13 +101,23 @@ class PlayerService(QObject):
 
     def queue_rows(self) -> list[dict[str, Any]]:
         rows = []
-        for index, track_id in enumerate(self._state.track_ids):
+        entries = (
+            *self._queue.past,
+            *((self._queue.current,) if self._queue.current else ()),
+            *self._queue.upcoming,
+        )
+        for index, entry in enumerate(entries):
+            track_id = entry.track_id
             track = dict(self._track_rows.get(track_id, {}))
             rows.append(
                 {
                     **track,
                     "id": track_id,
-                    "current": index == self._state.current_index,
+                    "trackId": track_id,
+                    "entryId": entry.entry_id,
+                    "origin": entry.origin,
+                    "revision": self._queue.revision,
+                    "current": self._queue.current is entry,
                     "available": _available(track),
                     "index": index,
                 }
@@ -111,7 +125,7 @@ class PlayerService(QObject):
         return rows
 
     def up_next(self) -> list[dict[str, Any]]:
-        start = max(0, self._state.current_index + 1)
+        start = len(self._queue.past) + (1 if self._queue.current else 0)
         return [dict(row) for row in self.queue_rows()[start:]]
 
     def history_rows(self) -> list[dict[str, Any]]:
@@ -134,7 +148,6 @@ class PlayerService(QObject):
         ids = tuple(str(track_id) for track_id in track_ids)
         if not ids or not 0 <= start_index < len(ids):
             return
-        self._base_ids = ids
         if tracks is not None:
             for track in tracks:
                 track_id = str(track.get("id", ""))
@@ -146,13 +159,104 @@ class PlayerService(QObject):
                     row = self._resolver(track_id)
                     if row:
                         self._track_rows[track_id] = dict(row)
-        self._open_index(
-            start_index,
-            track_ids=ids,
-            source=source,
-            source_title=source_title,
+        entries = [
+            QueueEntry.create(
+                track_id,
+                "context",
+                source=source,
+                source_title=source_title,
+                snapshot=self._track_rows.get(track_id),
+            )
+            for track_id in ids
+        ]
+        self._queue = self._queue.start_context(
+            entries, start_index, source=source, source_title=source_title
         )
+        self._open_queue_current()
         self._trim_track_rows()
+
+    def enqueue_tracks(
+        self,
+        track_ids: list[str] | tuple[str, ...],
+        *,
+        source: str = "",
+        source_title: str = "",
+        tracks: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, ...]:
+        rows = {str(row.get("id", "")): dict(row) for row in tracks or []}
+        entries = []
+        for track_id in track_ids:
+            identity = str(track_id)
+            snapshot = rows.get(identity) or self._track_rows.get(identity)
+            if snapshot is None:
+                with suppress(Exception):
+                    snapshot = self._resolver(identity)
+            if snapshot:
+                self._track_rows[identity] = dict(snapshot)
+            entries.append(
+                QueueEntry.create(
+                    identity,
+                    "manual",
+                    source=source,
+                    source_title=source_title,
+                    snapshot=dict(snapshot) if snapshot else None,
+                )
+            )
+        if entries:
+            self._queue = self._queue.enqueue(entries)
+            self._sync_queue_projection()
+        return tuple(entry.entry_id for entry in entries)
+
+    def remove_queue_entry(self, entry_id: str) -> bool:
+        changed = self._queue.remove(entry_id)
+        if changed is self._queue:
+            return False
+        self._queue = changed
+        self._sync_queue_projection()
+        return True
+
+    def move_queue_entry(self, entry_id: str, before_entry_id: str | None) -> bool:
+        changed = self._queue.move(entry_id, before_entry_id)
+        if changed is self._queue:
+            return False
+        self._queue = changed
+        self._sync_queue_projection()
+        return True
+
+    def play_entry(self, entry_id: str) -> bool:
+        changed = self._queue.play_entry(entry_id)
+        if changed is self._queue:
+            return False
+        self._queue = changed
+        self._open_queue_current()
+        return True
+
+    def _queue_track_ids(self) -> tuple[str, ...]:
+        entries = (
+            *self._queue.past,
+            *((self._queue.current,) if self._queue.current else ()),
+            *self._queue.upcoming,
+        )
+        return tuple(entry.track_id for entry in entries)
+
+    def _sync_queue_projection(self) -> None:
+        self._publish(
+            track_ids=self._queue_track_ids(),
+            current_index=len(self._queue.past) if self._queue.current else -1,
+            shuffle=self._queue.shuffle,
+            repeat=self._queue.repeat,
+        )
+        self.queueChanged.emit()
+
+    def _open_queue_current(self) -> None:
+        if self._queue.current is None:
+            return
+        self._open_index(
+            len(self._queue.past),
+            track_ids=self._queue_track_ids(),
+            source=self._queue.current.source or self._queue.source,
+            source_title=self._queue.current.source_title or self._queue.source_title,
+        )
 
     @Slot()
     def toggle_play(self) -> None:
@@ -167,6 +271,9 @@ class PlayerService(QObject):
                 self.pause()
         elif self._state.status in (PlaybackStatus.ERROR, PlaybackStatus.ENDED):
             self.retry()
+        elif self._queue.current is None and self._queue.upcoming:
+            self._queue = self._queue.next()
+            self._open_queue_current()
 
     @Slot()
     def pause(self) -> None:
@@ -210,26 +317,37 @@ class PlayerService(QObject):
 
     @Slot()
     def next(self) -> None:
-        if not self._state.track_ids:
+        if self._queue.current is None and not self._queue.upcoming:
             return
-        next_index = self._state.current_index + 1
-        if next_index < len(self._state.track_ids):
-            self._open_index(next_index)
+        if self._queue.upcoming:
+            self._queue = self._queue.next()
+            self._open_queue_current()
         else:
             self._finish(stop_backend=True)
 
     @Slot(int)
     def play_index(self, index: int) -> None:
         """Play an existing row without capturing or rebuilding the queue."""
-        self._open_index(int(index))
+        target = int(index)
+        current_index = len(self._queue.past)
+        if target == current_index and self._queue.current:
+            self._open_queue_current()
+        elif target > current_index:
+            offset = target - current_index - (1 if self._queue.current else 0)
+            if 0 <= offset < len(self._queue.upcoming):
+                self.play_entry(self._queue.upcoming[offset].entry_id)
+        elif 0 <= target < current_index:
+            while len(self._queue.past) > target:
+                self._queue = self._queue.previous()
+            self._open_queue_current()
 
     @Slot()
     def previous(self) -> None:
-        if not self._state.track_ids:
+        if self._queue.current is None:
             return
-        previous_index = self._state.current_index - 1
-        if previous_index >= 0:
-            self._open_index(previous_index)
+        if self._queue.past:
+            self._queue = self._queue.previous()
+            self._open_queue_current()
         else:
             self.seek(0)
 
@@ -277,25 +395,17 @@ class PlayerService(QObject):
 
     @Slot()
     def toggle_shuffle(self) -> None:
-        enabled = not self._state.shuffle
-        ids = list(self._state.track_ids)
-        current_index = self._state.current_index
-        if enabled:
-            remaining = ids[self._state.current_index + 1 :]
-            random.shuffle(remaining)
-            ids = ids[: self._state.current_index + 1] + remaining
-        else:
-            current = self._state.current_id
-            base_index = self._base_ids.index(current) if current in self._base_ids else 0
-            ids = list(self._base_ids)
-            current_index = base_index
-        self._publish(track_ids=tuple(ids), current_index=current_index, shuffle=enabled)
-        self.queueChanged.emit()
+        self._queue = self._queue.set_shuffle(not self._queue.shuffle)
+        self._sync_queue_projection()
 
     @Slot()
     def cycle_repeat(self) -> None:
-        value = {"off": "all", "all": "one", "one": "off"}[self._state.repeat]
-        self._publish(repeat=value)
+        value = cast(
+            Literal["off", "one", "all"],
+            {"off": "all", "all": "one", "one": "off"}[self._state.repeat],
+        )
+        self._queue = self._queue.set_repeat(value)
+        self._sync_queue_projection()
 
     @Slot()
     def retry(self) -> None:
@@ -314,6 +424,7 @@ class PlayerService(QObject):
             status=PlaybackStatus.IDLE,
             session_id=next_session,
             current_id="",
+            current_entry_id="",
             current_index=-1,
             position_us=0,
             duration_us=None,
@@ -352,14 +463,15 @@ class PlayerService(QObject):
         source: str | None = None,
         source_title: str | None = None,
     ) -> None:
-        ids = track_ids or self._state.track_ids or self._base_ids
+        ids = track_ids or self._state.track_ids
         if not 0 <= index < len(ids):
             return
         self._pause_requested_session_id = None
         self._expected_pause_state = False
         track_id = ids[index]
         previous_id = self._state.current_id
-        if previous_id and previous_id != track_id:
+        next_entry_id = self._queue.current.entry_id if self._queue.current else ""
+        if previous_id and self._state.current_entry_id != next_entry_id:
             self._history_ids.append(previous_id)
             del self._history_ids[:-20]
         session_id = self._state.session_id + 1
@@ -370,6 +482,7 @@ class PlayerService(QObject):
             status=PlaybackStatus.LOADING,
             track_ids=tuple(ids),
             current_id=track_id,
+            current_entry_id=next_entry_id,
             current_index=index,
             position_us=0,
             duration_us=_duration_us(self._track_rows.get(track_id, {})),
@@ -514,10 +627,12 @@ class PlayerService(QObject):
     def _on_eof(self) -> None:
         if self._state.repeat == "one":
             self._open_index(self._state.current_index)
-        elif self._state.current_index + 1 < len(self._state.track_ids):
-            self._open_index(self._state.current_index + 1)
-        elif self._state.repeat == "all" and self._state.track_ids:
-            self._open_index(0)
+        elif self._queue.upcoming:
+            self._queue = self._queue.next()
+            self._open_queue_current()
+        elif self._state.repeat == "all" and self._queue.context_order:
+            self._queue = self._queue.repeat_all()
+            self._open_queue_current()
         else:
             self._finish()
 

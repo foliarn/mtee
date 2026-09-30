@@ -49,6 +49,14 @@ class PlayerModel(QObject):
     def playing_id_value(self) -> str:
         return self._service.state.current_id
 
+    @Property(str, notify=playbackChanged)
+    def currentEntryId(self) -> str:
+        return self._service.state.current_entry_id
+
+    @Property(int, notify=playbackChanged)
+    def queueRevision(self) -> int:
+        return self._service.queue_state.revision
+
     @Property(dict, notify=playbackChanged)
     def playingTrack(self) -> dict[str, Any]:
         return self.playing_track_value()
@@ -247,6 +255,18 @@ class PlayerModel(QObject):
     @Slot(int)
     def playIndex(self, index: int) -> None:
         self._service.play_index(int(index))
+
+    @Slot(str, result=bool)
+    def playEntry(self, entry_id: str) -> bool:
+        return self._service.play_entry(entry_id)
+
+    @Slot(str, result=bool)
+    def removeQueueEntry(self, entry_id: str) -> bool:
+        return self._service.remove_queue_entry(entry_id)
+
+    @Slot(str, str, result=bool)
+    def moveQueueEntry(self, entry_id: str, before_entry_id: str) -> bool:
+        return self._service.move_queue_entry(entry_id, before_entry_id or None)
 
     @Slot()
     def togglePlay(self) -> None:

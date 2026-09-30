@@ -346,10 +346,11 @@ Après le push, faire `git fetch origin` et comparer `git rev-parse HEAD` à `gi
 - [x] 2026-10-01 — Graphe consulté et actualisé, sources et tests pertinents inspectés.
 - [x] 2026-10-01 — Réponses complémentaires Q1–Q4 consignées ; plan, contrats de file et matrice de recette finalisés.
 - [x] 2026-10-01 — Contrôles documentaires : UTF-8, structure PLANS.md, couverture F9–F13, 28 chemins existants, 14 chemins futurs explicitement décrits, lien d'index et `git diff --check` vérifiés. Aucun test applicatif exécuté.
-- [ ] 99.0 — Socle vérifié, maquette de file préparée et revue utilisateur obtenue.
+- [x] 2026-10-01 — 99.0 : socle inspecté, maquette préparée et revue utilisateur obtenue dans le chat (« Oui go »).
 - [x] 2026-10-01 — Sous-étape 99.0 : maquette QML, lanceur, six captures et dossier de revue préparés ; rendu hors écran sans avertissement QML.
-- [ ] 2026-10-01 — Sous-étape 99.0 : validation utilisateur de la maquette attendue avant le backend.
-- [ ] 99.1 — Domaine et transitions de file implémentés et testés.
+- [x] 2026-10-01 — Sous-étape 99.0 : validation utilisateur de la maquette reçue avant le backend.
+- [x] 2026-10-01 — 99.1 : domaine d'occurrences, service et façade Qt reliés ; 22 tests ciblés passés, Ruff et Pyright ciblés verts.
+- [x] 99.1 — Domaine et transitions de file implémentés et testés.
 - [ ] 99.2 — Persistance et restauration validées sur copies.
 - [ ] 99.3 — Menus et vues de file reliés et testés.
 - [ ] 99.4 — Précédent validé aux bornes et en pause.
@@ -372,6 +373,8 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Le socle de tests est déjà imparfait avant les changements fonctionnels de 99 : `tests/unit/test_workspace_model.py::test_navigation_keeps_each_panel_selection_and_restores_it` échoue (`trackIds` vide au lieu de deux IDs) dans la passe de 15 tests unitaires. La passe initiale qui incluait `tests/ui/test_player_views.py` s'est interrompue sur une violation d'accès Windows pendant une écriture asynchrone de disposition. Ces résultats ne sont pas attribués à la maquette isolée.
 
+2026-10-01 — Avant l'intégration 99.1, la branche `main` contient de nouveaux commits indépendants pour les plans 98 et 100. Le travail 99 se base sur ce HEAD et ne modifie pas leurs fichiers. Le graphe étant construit sur un SHA précédent, ses résultats ont été vérifiés dans les sources.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur : `Add to queue` au clic droit, FIFO et lots, doublons, conservation, retrait et réordonnancement sans commande de vidage ; Espace hors écriture ; souris pour les pages ; Précédent à trois secondes avec lecture en sortie de pause ; vide désélectionnant le panneau actif et Info vide ; plan unique 99 dans le dépôt.
@@ -382,10 +385,16 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Codex : le prototype 99.0 utilise les jetons `Theme` et les composants `AppMenu` existants, mais garde ses données dans QML. Cette séparation permet la revue sans anticiper le domaine de file ni toucher aux données utilisateur.
 
+2026-10-01 — Utilisateur : « Oui go » après présentation de la maquette 99.0 ; la revue visuelle est validée et le développement peut avancer.
+
+2026-10-01 — Codex : `QueueState` garde une identité d'occurrence pour les transitions et projette `PlaybackState.track_ids` pour les anciens appelants. La source et les lignes de rendu restent résolues par le service au chargement ; le domaine n'ouvre aucun fichier. Les opérations QML ciblent `entry_id` via la façade Qt.
+
 ## Outcomes & Retrospective
 
-Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La préparation documentaire initiale n'avait implémenté aucune feature ni exécuté de test applicatif. Pendant l'exécution de 99.0, la maquette et son dossier de revue ont été préparés ; le backend, la recette fonctionnelle et la distribution Windows restent non réalisés. La revue utilisateur est encore attendue.
+Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La maquette 99.0 a été approuvée ; le domaine et les transitions de service 99.1 sont implémentés et testés. La persistance, les commandes UI, la recette intégrée et la distribution Windows restent non réalisées à ce stade.
 
 Révision du 2026-10-01 : rédaction après lecture des sources et deux séries de réponses utilisateur ; Q1–Q4 résolues, algorithmes de file et restauration définis, navigation de toutes les pages et matrice de recette ajoutées.
 
 Révision du 2026-10-01 : exécution du jalon 99.0 jusqu'à la revue. `docs/ux/mockups/Queue99Review.qml`, `scripts/review_queue_99.py`, six captures et `docs/ux/review-99-queue.md` créés. La validation utilisateur reste ouverte ; les jalons fonctionnels ne sont pas commencés. Prochaine action : recueillir la décision de revue, puis exécuter 99.1.
+
+Révision du 2026-10-01 : approbation de la maquette reçue ; 99.1 implémenté dans le domaine, le service et la façade Qt, avec transitions et tests ciblés. Prochaine étape : 99.2, persistance et restauration en pause.
