@@ -117,13 +117,18 @@ Item {
             }
 
             Text {
+                readonly property var operations: info.recoveryForSelection()
+
                 width: body.width
-                visible: info.recoveryForSelection().length > 0
-                text: info.recoveryForSelection().some(function(operation) {
-                    return operation.situation === "inspection_failed"
-                })
+                visible: operations.length > 0
+                // The text is evaluated even while the message is hidden, so an empty
+                // list must give an empty text rather than read its first element.
+                text: operations.length === 0 ? ""
+                    : operations.some(function(operation) {
+                        return operation.situation === "inspection_failed"
+                    })
                     ? "MTEE could not inspect a previous tag save. Review its recovery files before editing."
-                    : "A previous tag save for " + info.recoveryForSelection()[0].fileName
+                    : "A previous tag save for " + operations[0].fileName
                         + " needs recovery. Its source and recovery files were kept."
                 color: Theme.danger
                 wrapMode: Text.WordWrap
