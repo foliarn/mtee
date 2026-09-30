@@ -65,6 +65,8 @@ Le graphe code-review-graph a été actualisé puis interrogé. La recherche gra
 
 2026-10-01 — Exécution 98.1 : douze scènes documentaires ont chargé et produit des captures sans avertissement QML. La revue visuelle initiale a montré des glyphes manquants dans les icônes Unicode et une barre de lecture de largeur nulle ; ces défauts ont été corrigés dans la maquette puis les captures concernées ont été refaites. Une capture native Windows a été produite. La maquette ne représente pas encore une interaction de drag réelle ; cette vérification appartient à 98.4.
 
+2026-10-01 — Retour utilisateur sur 98.1 : remplacer le mot Play par le pictogramme MTEE ; répartir `PLAYLIST`, titre, description et créateur sur la hauteur de la pochette ; placer Play/Shuffle sous celle-ci, alignés avec Search/List/Artwork. Maquette et captures corrigées, nouvelle validation attendue.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur — Limiter les travaux aux features Notion 2, 3 et 4, avec le bonus d'édition par titre et de survol de pochette. Livrer le document dans `Plans d'exécution/`, numéro 98.
@@ -76,6 +78,8 @@ Le graphe code-review-graph a été actualisé puis interrogé. La recherche gra
 2026-10-01 — Codex, décisions techniques de planification — Calculer le nom dans la transaction d'insertion ; conserver les noms explicites d'import/duplication ; utiliser les identifiants d'entrée pour l'ordre et les identifiants de morceau pour l'ajout. Un état de déplacement temporaire commun à la fenêtre porte les indicateurs, sans écriture de fichier ni nouvelle dépendance. Les choix de géométrie indiqués plus bas sont des propositions techniques à vérifier dans la maquette, pas des exigences supplémentaires de l'utilisateur.
 
 2026-10-01 — Codex, exécution 98.1 — Réutiliser `Theme`, `Icon`, `CoverArt` et `PlaylistCover` pour la maquette isolée ; montrer la mosaïque avec quatre motifs fictifs et réserver 32 px avant les pochettes. Le lanceur fournit les scènes demandées plus les variantes Resume et pause. La fixture de 98.2 comportera six WAV synthétiques de plusieurs secondes, tags distincts, couvertures variées, un titre long, des dossiers virtuels et une référence absente ; son script refusera un dossier de données non vide.
+
+2026-10-01 — Utilisateur, revue 98.1 — Exiger l'icône Play classique de l'application et un en-tête dont les textes sont distribués du haut au bas de la pochette, avec les commandes sous la pochette alignées sur les filtres et les vues.
 
 ## Outcomes & Retrospective
 

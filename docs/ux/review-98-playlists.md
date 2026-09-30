@@ -21,6 +21,10 @@ Le lanceur accepte `--scene`, `--width`, `--height` et `--output`. Les dimension
 
 La [grille Artwork à 880 × 600](playlists-98-2026-10-01/insert-artwork-880x600.png) illustre le retour à la ligne et le trait d'insertion vertical. La carte sous l'étiquette reste lisible après disparition du proxy ; pendant le geste, l'étiquette montre le lot sans déplacer les cartes.
 
+## Révision après retour utilisateur — 2026-10-01
+
+Le bouton sous la pochette utilise maintenant l'icône Play SVG de MTEE au lieu du mot « Play ». Le mot `PLAYLIST` commence au bord supérieur de la grande pochette, le titre occupe sa zone centrale, la description se place sous le titre et le créateur reste près du bas avec une marge de 10 px. Play et Shuffle sont sous la pochette ; Search, List, Artwork et Choose columns occupent la même ligne à droite, y compris à 880 px. Les douze scènes et les deux captures à 880 × 600 ont été régénérées après cette révision, ainsi que la capture Windows native.
+
 ## Vérifications et limites
 
 Les douze scènes ont chargé sans avertissement QML et leurs captures hors écran ont été produites le 2026-10-01. La capture native `playback-states-native-1440x900.png` a aussi été produite sous Windows. Les premières captures ont révélé des glyphes manquants et un lecteur bas de page de largeur nulle ; la maquette a été corrigée avec les icônes MTEE et une largeur explicite, puis les scènes concernées ont été recapturées. Les captures ont été inspectées pour la lisibilité, les bordures, le placement et la taille minimale.

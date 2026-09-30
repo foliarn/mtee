@@ -124,7 +124,7 @@ ApplicationWindow {
         Item {
             id: heading
             x: root.compact ? 22 : 34; y: 76
-            width: parent.width - x - 24; height: root.compact ? 172 : 198
+            width: parent.width - x - 24; height: largeCover.height
             PlaylistCover { id: largeCover; x: 0; y: 0; width: root.compact ? 152 : 190; height: width; covers: [] }
             Grid {
                 anchors.fill: largeCover; columns: 2
@@ -135,31 +135,49 @@ ApplicationWindow {
                 Text { anchors.centerIn: parent; text: "Change cover"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 14; font.bold: true }
             }
             MouseArea { anchors.fill: largeCover; hoverEnabled: true; onEntered: root.coverHovered = true; onExited: root.coverHovered = false; onClicked: root.coverHovered = true }
-            Column {
-                x: largeCover.width + 28; y: 5; width: parent.width - x; spacing: 11
-                Text { text: "PLAYLIST"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true }
+            Item {
+                x: largeCover.width + 28; y: 0; width: parent.width - x; height: largeCover.height
+                Text { y: 0; text: "PLAYLIST"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true }
                 Text {
-                    id: titleText; width: parent.width; text: scene === "creation-opened" ? "Untitled playlist 12" : "Night drive"
+                    id: titleText; y: root.compact ? 38 : 54; width: parent.width; text: scene === "creation-opened" ? "Untitled playlist 12" : "Night drive"
                     elide: Text.ElideRight; color: Theme.textPrimary; font.family: Theme.fontFamily
                     font.pixelSize: root.compact ? 30 : 40; font.bold: true
                     MouseArea { anchors.fill: parent; onClicked: root.editing = true }
                 }
-                Text { width: parent.width; text: "Late journeys and bright horizons."; elide: Text.ElideRight; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 14 }
-                Text { text: "5 titles  ·  24 min  ·  You"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: 12 }
-                Row {
-                    spacing: 10
-                    Rectangle { width: 72; height: 34; color: Theme.primary; Text { anchors.centerIn: parent; text: "Play"; color: Theme.textOnColor; font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true } }
-                    Rectangle { width: 80; height: 34; color: Theme.surface; Text { anchors.centerIn: parent; text: "Shuffle"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 } }
+                Text { y: root.compact ? 99 : 131; width: parent.width; text: "Late journeys and bright horizons."; elide: Text.ElideRight; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 14 }
+                Text { anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "You  ·  5 titles  ·  24 min"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: 12 }
+            }
+        }
+        Item {
+            id: toolbar
+            x: heading.x; y: heading.y + heading.height + 18
+            width: heading.width; height: 36
+            Row {
+                x: 0; spacing: 10
+                Rectangle {
+                    width: 72; height: 36; color: Theme.primary
+                    Icon { anchors.centerIn: parent; name: "play"; color: Theme.textOnColor; size: 18 }
                 }
+                Rectangle {
+                    width: 80; height: 36; color: Theme.surface
+                    Text { anchors.centerIn: parent; text: "Shuffle"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                }
+            }
+            Row {
+                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: root.compact ? 8 : 13
+                Text { text: "Search"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                Text { text: "List"; color: root.artwork ? Theme.textSecondary : Theme.primary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                Text { text: "Artwork"; color: root.artwork ? Theme.primary : Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                Text { text: "Choose columns"; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 12 }
             }
         }
         Text {
-            x: heading.x; y: heading.y + heading.height + 14
+            x: heading.x; y: toolbar.y + toolbar.height + 12
             text: root.caption(); color: Theme.primary; font.family: Theme.fontFamily; font.pixelSize: 12
         }
         Rectangle {
             id: listArea
-            x: heading.x; y: heading.y + heading.height + 45
+            x: heading.x; y: toolbar.y + toolbar.height + 42
             width: parent.width - x - 24; height: parent.height - y - 22
             color: "transparent"
             Text { x: 0; y: 0; text: root.artwork ? "ARTWORK" : "CUSTOM ORDER"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true }
