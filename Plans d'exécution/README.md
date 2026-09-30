@@ -2,6 +2,12 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Contrôles de lecture et navigation — préparation du 2026-10-01
+
+Le [plan 99 — File, commandes de lecture, navigation et désélection](99-controles-lecture-file-navigation.md) traduit exclusivement les features 9 à 13 de la page Notion « MTEE — fixes & idées / Segmentation » et les deux séries de réponses utilisateur du 1er octobre. La numérotation des features Notion est indépendante des anciens ExecPlans 09–13.
+
+Il prépare l'ajout FIFO par clic droit, les doublons et ajouts conservés lors d'un changement de morceau, la file réordonnable par glisser-déposer et persistée avec courant/position restaurés en pause, Espace hors saisie, l'historique de toutes les pages par panneau via les boutons latéraux, Précédent à trois secondes et la désélection au clic dans le vide. Il repose sur le socle actuel et les playlists du plan 34. La revue de maquette de file précède son implémentation ; la préparation du plan n'est pas une autorisation de développement. Aucun build Windows n'est prévu.
+
 ## Playlists locales — 2026-09-30
 
 Demande explicite de playlists fonctionnelles avec persistance, dossiers imbriqués, épingles, likes locaux, pochette/mosaïque, ordre manuel et import/export léger ou ZIP avec audio. Les décisions sont consignées dans `docs/decisions/34-playlists.md`. La maquette est préparée pour revue ; les services, modèles et migration restent à implémenter après sa validation. Ce périmètre n'active ni tags sémantiques, ni vues intelligentes, ni les autres fonctions de l'ancien plan 10. L'intégration Spotify est reportée par l'utilisateur et conservée uniquement dans `docs/ideas/spotify-playlists.md`.
