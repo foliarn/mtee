@@ -1,0 +1,93 @@
+"""Playback schema and JSON session tests use only temporary SQLite files."""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from mtee.domain.playback_queue import QueueEntry, QueueState
+from mtee.persistence.database import MIGRATIONS_DIR, Database
+from mtee.persistence.playback_repository import (
+    PlaybackRepository,
+    PlaybackSession,
+    PlaybackSessionError,
+)
+
+
+def _session() -> PlaybackSession:
+    first = QueueEntry.create("track-1", "context", snapshot={"title": "First"})
+    duplicate_a = QueueEntry.create("track-9", "manual", snapshot={"title": "Nine"})
+    duplicate_b = QueueEntry.create("track-9", "manual", snapshot={"title": "Nine"})
+    queue = QueueState().start_context([first], 0).enqueue([duplicate_a, duplicate_b])
+    return PlaybackSession(queue, position_us=2_345_678, write_sequence=1)
+
+
+def test_repository_round_trip_rejects_stale_writer_and_invalid_json(tmp_path: Path) -> None:
+    database = Database(tmp_path / "session.sqlite3")
+    database.migrate()
+    repository = PlaybackRepository(database)
+    session = _session()
+    assert repository.save(session)
+    loaded = repository.load()
+    assert loaded is not None
+    assert loaded.position_us == 2_345_678
+    assert loaded.queue.current is not None
+    assert loaded.queue.current.entry_id == session.queue.current.entry_id
+    assert [entry.track_id for entry in loaded.queue.upcoming] == ["track-9", "track-9"]
+    assert len({entry.entry_id for entry in loaded.queue.upcoming}) == 2
+    assert not repository.save(session)
+    assert repository.load() == loaded
+
+    malformed = {"version": 99, "write_sequence": 2}
+    with database.transaction() as connection:
+        connection.execute(
+            "UPDATE playback_session SET value_json=? WHERE session_id='main'",
+            (json.dumps(malformed),),
+        )
+    with pytest.raises(PlaybackSessionError, match="version"):
+        repository.load()
+    database.close()
+
+
+def test_migration_from_17_keeps_data_and_creates_consistent_backup(tmp_path: Path) -> None:
+    old_migrations = tmp_path / "old-migrations"
+    old_migrations.mkdir()
+    for source in MIGRATIONS_DIR.glob("*.sql"):
+        if int(source.name[:3]) <= 17:
+            shutil.copy2(source, old_migrations / source.name)
+    path = tmp_path / "existing.sqlite3"
+    old_database = Database(path, migrations_dir=old_migrations)
+    old_database.migrate()
+    with old_database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO settings(key, value, updated_at_utc) VALUES (?, ?, ?)",
+            ("queue-test-marker", '"preserved"', "2026-10-01T00:00:00Z"),
+        )
+    old_database.close()
+
+    database = Database(path)
+    applied = database.migrate()
+    assert [migration.version for migration in applied] == [18]
+    assert database.schema_version() == 18
+    assert (
+        database.connection()
+        .execute("SELECT value FROM settings WHERE key='queue-test-marker'")
+        .fetchone()[0]
+        == '"preserved"'
+    )
+    backups = list(tmp_path.glob("existing.sqlite3.v17.*.backup"))
+    assert len(backups) == 1
+    backup = Database(backups[0], migrations_dir=old_migrations)
+    assert backup.schema_version() == 17
+    assert (
+        backup.connection()
+        .execute("SELECT value FROM settings WHERE key='queue-test-marker'")
+        .fetchone()[0]
+        == '"preserved"'
+    )
+    backup.close()
+    assert database.migrate() == []
+    database.close()

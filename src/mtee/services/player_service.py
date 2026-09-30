@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +16,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from mtee.domain.playback import PlaybackState, PlaybackStatus
 from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
+from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.player_backend import BackendEvent, PlayerBackend
 
@@ -34,6 +37,7 @@ class PlayerService(QObject):
     positionChanged = Signal()
     queueChanged = Signal()
     trackAccessReleased = Signal(str)
+    sessionSaveFailed = Signal(str)
 
     def __init__(
         self,
@@ -57,9 +61,17 @@ class PlayerService(QObject):
         self._history_ids: list[str] = []
         self._unmuted_volume = self._state.volume
         self._pending_seek_us: int | None = None
+        self._pending_seek_started = 0.0
         self._pause_requested_session_id: int | None = None
         self._expected_pause_state: bool | None = None
         self._closed = False
+        self._session_repository: PlaybackRepository | None = None
+        self._save_executor: ThreadPoolExecutor | None = None
+        self._save_futures: list[Future[bool]] = []
+        self._save_sequence = 0
+        self._last_checkpoint = time.monotonic()
+        self._restore_seek: tuple[int, int] | None = None
+        self.sessionSaveFailed.connect(self._on_session_save_failed)
         self._bridge = _BackendEventBridge(self)
         self._bridge.eventReceived.connect(
             self._handle_backend_event, Qt.ConnectionType.QueuedConnection
@@ -77,6 +89,64 @@ class PlayerService(QObject):
     @property
     def queue_state(self) -> QueueState:
         return self._queue
+
+    def attach_session(
+        self, repository: PlaybackRepository, session: PlaybackSession | None
+    ) -> None:
+        """Begin ordered saves and restore the optional last session in pause."""
+        if self._session_repository is not None:
+            raise RuntimeError("A playback repository is already attached")
+        self._session_repository = repository
+        self._save_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mtee-playback")
+        if session is None:
+            return
+        self._save_sequence = session.write_sequence
+        self._queue = session.queue
+        for entry in (
+            *session.queue.past,
+            *((session.queue.current,) if session.queue.current else ()),
+            *session.queue.upcoming,
+        ):
+            if entry.snapshot and entry.track_id not in self._track_rows:
+                self._track_rows[entry.track_id] = dict(entry.snapshot)
+        self._sync_queue_projection()
+        if self._queue.current is not None:
+            self._open_queue_current(initially_paused=True, restore_position_us=session.position_us)
+
+    def _schedule_session_save(self) -> None:
+        if self._session_repository is None or self._save_executor is None or self._closed:
+            return
+        self._save_sequence += 1
+        snapshot = PlaybackSession(
+            self._queue, max(0, self._state.position_us), self._save_sequence
+        )
+        future = self._save_executor.submit(self._session_repository.save, snapshot)
+        self._save_futures.append(future)
+        future.add_done_callback(self._report_save_result)
+
+    def _report_save_result(self, future: Future[bool]) -> None:
+        error = future.exception()
+        if error is not None:
+            self.sessionSaveFailed.emit(str(error))
+
+    @Slot(str)
+    def _on_session_save_failed(self, message: str) -> None:
+        self._publish(error_message=f"Could not save playback session: {message}")
+
+    def flush_session(self) -> None:
+        """Persist the effective final position before native player teardown."""
+        if self._session_repository is None or self._save_executor is None:
+            return
+        if self._state.current_id and self._backend is not None:
+            with suppress(Exception):
+                position = self._backend.position_us()
+                if position is not None:
+                    self._publish(position_us=max(0, int(position)))
+        self._schedule_session_save()
+        futures = self._save_futures
+        self._save_futures = []
+        for future in futures:
+            future.result()
 
     @property
     def current_track(self) -> dict[str, Any]:
@@ -205,6 +275,7 @@ class PlayerService(QObject):
         if entries:
             self._queue = self._queue.enqueue(entries)
             self._sync_queue_projection()
+            self._schedule_session_save()
         return tuple(entry.entry_id for entry in entries)
 
     def remove_queue_entry(self, entry_id: str) -> bool:
@@ -213,6 +284,7 @@ class PlayerService(QObject):
             return False
         self._queue = changed
         self._sync_queue_projection()
+        self._schedule_session_save()
         return True
 
     def move_queue_entry(self, entry_id: str, before_entry_id: str | None) -> bool:
@@ -221,6 +293,7 @@ class PlayerService(QObject):
             return False
         self._queue = changed
         self._sync_queue_projection()
+        self._schedule_session_save()
         return True
 
     def play_entry(self, entry_id: str) -> bool:
@@ -248,7 +321,9 @@ class PlayerService(QObject):
         )
         self.queueChanged.emit()
 
-    def _open_queue_current(self) -> None:
+    def _open_queue_current(
+        self, *, initially_paused: bool = False, restore_position_us: int = 0
+    ) -> None:
         if self._queue.current is None:
             return
         self._open_index(
@@ -256,6 +331,8 @@ class PlayerService(QObject):
             track_ids=self._queue_track_ids(),
             source=self._queue.current.source or self._queue.source,
             source_title=self._queue.current.source_title or self._queue.source_title,
+            initially_paused=initially_paused,
+            restore_position_us=restore_position_us,
         )
 
     @Slot()
@@ -295,6 +372,8 @@ class PlayerService(QObject):
             self._expected_pause_state = True
             self._backend.set_paused(True)
             self._publish(status=PlaybackStatus.PAUSED)
+            self._poll_position()
+            self._schedule_session_save()
         except Exception as error:
             self._fail(str(error))
 
@@ -312,6 +391,7 @@ class PlayerService(QObject):
             self._expected_pause_state = False
             self._backend.set_paused(False)
             self._publish(status=PlaybackStatus.PLAYING)
+            self._schedule_session_save()
         except Exception as error:
             self._fail(str(error))
 
@@ -364,6 +444,7 @@ class PlayerService(QObject):
         try:
             self._backend.seek(target)
             self._pending_seek_us = target
+            self._pending_seek_started = time.monotonic()
             self._publish(seeking=True)
         except Exception as error:
             self._fail(str(error))
@@ -397,6 +478,7 @@ class PlayerService(QObject):
     def toggle_shuffle(self) -> None:
         self._queue = self._queue.set_shuffle(not self._queue.shuffle)
         self._sync_queue_projection()
+        self._schedule_session_save()
 
     @Slot()
     def cycle_repeat(self) -> None:
@@ -406,6 +488,7 @@ class PlayerService(QObject):
         )
         self._queue = self._queue.set_repeat(value)
         self._sync_queue_projection()
+        self._schedule_session_save()
 
     @Slot()
     def retry(self) -> None:
@@ -445,7 +528,14 @@ class PlayerService(QObject):
     def close(self) -> None:
         if self._closed:
             return
+        flush_error: Exception | None = None
+        try:
+            self.flush_session()
+        except Exception as error:
+            flush_error = error
         self._closed = True
+        if self._save_executor is not None:
+            self._save_executor.shutdown(wait=True)
         self._position_timer.stop()
         self.stop_and_release()
         if self._backend is not None:
@@ -454,6 +544,8 @@ class PlayerService(QObject):
         # A successful backend close is the confirmation that native file handles
         # are gone. On failure, retain every lease rather than report a false release.
         self._release_read_lease()
+        if flush_error is not None:
+            raise flush_error
 
     def _open_index(
         self,
@@ -462,12 +554,15 @@ class PlayerService(QObject):
         track_ids: tuple[str, ...] | None = None,
         source: str | None = None,
         source_title: str | None = None,
+        initially_paused: bool = False,
+        restore_position_us: int = 0,
     ) -> None:
         ids = track_ids or self._state.track_ids
         if not 0 <= index < len(ids):
             return
         self._pause_requested_session_id = None
-        self._expected_pause_state = False
+        self._expected_pause_state = initially_paused
+        self._restore_seek = None
         track_id = ids[index]
         previous_id = self._state.current_id
         next_entry_id = self._queue.current.entry_id if self._queue.current else ""
@@ -475,6 +570,9 @@ class PlayerService(QObject):
             self._history_ids.append(previous_id)
             del self._history_ids[:-20]
         session_id = self._state.session_id + 1
+        if initially_paused:
+            self._pause_requested_session_id = session_id
+            self._restore_seek = (session_id, max(0, restore_position_us))
         _LOGGER.debug("Playback request session=%s track=%s", session_id, track_id)
         current_source = self._state.source if source is None else source
         current_title = self._state.source_title if source_title is None else source_title
@@ -499,6 +597,8 @@ class PlayerService(QObject):
         )
         self.queueChanged.emit()
         self._pending_seek_us = None
+        if not initially_paused:
+            self._schedule_session_save()
         if self._backend is not None and previous_id:
             try:
                 self._backend.stop()
@@ -527,7 +627,7 @@ class PlayerService(QObject):
             # An explicit activation means "play this track". Reset the native
             # pause property here, once, before load so a previous track's pause
             # cannot leak into the new session.
-            self._backend.set_paused(False)
+            self._backend.set_paused(initially_paused)
             self._backend.load(path, session_id)
             _LOGGER.debug("Playback load command sent session=%s track=%s", session_id, track_id)
         except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
@@ -575,6 +675,7 @@ class PlayerService(QObject):
                 error_message="",
             )
             self._position_timer.start()
+            self._apply_restore_seek()
         elif event.name == "eof":
             self._release_read_lease(event.session_id)
             self._on_eof()
@@ -594,8 +695,10 @@ class PlayerService(QObject):
         elif event.name == "duration":
             value = event.value if isinstance(event.value, int) else None
             self._publish(duration_us=max(0, value) if value is not None else None)
+            self._apply_restore_seek()
         elif event.name == "seekable":
             self._publish(seekable=bool(event.value))
+            self._apply_restore_seek()
         elif event.name == "codec":
             self._publish(codec=str(event.value or ""))
         elif event.name == "sample-rate":
@@ -619,10 +722,41 @@ class PlayerService(QObject):
         if self._state.duration_us is not None:
             position = min(position, self._state.duration_us)
         seeking = self._state.seeking
-        if self._pending_seek_us is not None and abs(position - self._pending_seek_us) <= 300_000:
-            self._pending_seek_us = None
-            seeking = False
+        if self._pending_seek_us is not None:
+            if abs(position - self._pending_seek_us) <= 300_000:
+                self._pending_seek_us = None
+                seeking = False
+            elif time.monotonic() - self._pending_seek_started < 2:
+                return
+            else:
+                self._pending_seek_us = None
+                seeking = False
         self._publish(position_us=max(0, position), seeking=seeking)
+        if (
+            self._state.status is PlaybackStatus.PLAYING
+            and time.monotonic() - self._last_checkpoint >= 5
+        ):
+            self._last_checkpoint = time.monotonic()
+            self._schedule_session_save()
+
+    def _apply_restore_seek(self) -> None:
+        pending = self._restore_seek
+        if pending is None or pending[0] != self._state.session_id:
+            return
+        if self._state.status is not PlaybackStatus.PAUSED or not self._state.seekable:
+            return
+        duration = self._state.duration_us
+        if duration is None or self._backend is None:
+            return
+        target = min(pending[1], duration)
+        try:
+            self._backend.seek(target)
+            self._pending_seek_us = target
+            self._pending_seek_started = time.monotonic()
+            self._restore_seek = None
+            self._publish(position_us=target, seeking=True)
+        except Exception as error:
+            self._fail(str(error))
 
     def _on_eof(self) -> None:
         if self._state.repeat == "one":
@@ -657,6 +791,7 @@ class PlayerService(QObject):
     def _fail(self, message: str, *, source_closed: bool = False) -> None:
         self._position_timer.stop()
         self._pending_seek_us = None
+        self._restore_seek = None
         self._pause_requested_session_id = None
         self._expected_pause_state = None
         self._publish(

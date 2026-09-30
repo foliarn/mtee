@@ -40,6 +40,10 @@ from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
+from mtee.persistence.playback_repository import (
+    PlaybackRepository,
+    PlaybackSessionError,
+)
 from mtee.persistence.playlists_repository import PlaylistsRepository
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.trash_repository import TrashRepository
@@ -175,6 +179,13 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             backend_error=backend_error,
             parent=application,
         )
+        playback_repository = PlaybackRepository(database)
+        try:
+            saved_playback = playback_repository.load()
+        except PlaybackSessionError as error:
+            _report(str(error))
+            saved_playback = None
+        player_service.attach_session(playback_repository, saved_playback)
         waveform_model = WaveformModel(
             player_service, library, jobs, file_access, analysis_repository, application
         )

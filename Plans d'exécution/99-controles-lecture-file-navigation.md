@@ -351,7 +351,8 @@ Après le push, faire `git fetch origin` et comparer `git rev-parse HEAD` à `gi
 - [x] 2026-10-01 — Sous-étape 99.0 : validation utilisateur de la maquette reçue avant le backend.
 - [x] 2026-10-01 — 99.1 : domaine d'occurrences, service et façade Qt reliés ; 22 tests ciblés passés, Ruff et Pyright ciblés verts.
 - [x] 99.1 — Domaine et transitions de file implémentés et testés.
-- [ ] 99.2 — Persistance et restauration validées sur copies.
+- [x] 2026-10-01 — 99.2 : migration 018, sauvegarde séquentielle et restauration en pause sur deux instances testées sur copies ; 18 tests ciblés de migration/session passés.
+- [x] 99.2 — Persistance et restauration validées sur copies.
 - [ ] 99.3 — Menus et vues de file reliés et testés.
 - [ ] 99.4 — Précédent validé aux bornes et en pause.
 - [ ] 99.5 — Espace validé selon le focus et sur backend.
@@ -375,6 +376,8 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Avant l'intégration 99.1, la branche `main` contient de nouveaux commits indépendants pour les plans 98 et 100. Le travail 99 se base sur ce HEAD et ne modifie pas leurs fichiers. Le graphe étant construit sur un SHA précédent, ses résultats ont été vérifiés dans les sources.
 
+2026-10-01 — Le contrôle natif `test_mpv_playback.py` a produit un diagnostic fatal Windows `0xe24c4a02` au `MpvBackend.close()` tout en terminant avec un code de sortie zéro. Ce signal ne permet pas de déclarer la recette audio native validée ; il sera repris à la recette intégrée. Le smoke-test applicatif depuis les sources avec `.local/validation/99` a quitté avec code zéro.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur : `Add to queue` au clic droit, FIFO et lots, doublons, conservation, retrait et réordonnancement sans commande de vidage ; Espace hors écriture ; souris pour les pages ; Précédent à trois secondes avec lecture en sortie de pause ; vide désélectionnant le panneau actif et Info vide ; plan unique 99 dans le dépôt.
@@ -389,12 +392,16 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Codex : `QueueState` garde une identité d'occurrence pour les transitions et projette `PlaybackState.track_ids` pour les anciens appelants. La source et les lignes de rendu restent résolues par le service au chargement ; le domaine n'ouvre aucun fichier. Les opérations QML ciblent `entry_id` via la façade Qt.
 
+2026-10-01 — Codex : migration 018 dédiée, JSON versionné avec validation stricte et séquence d'écriture ; un seul worker persiste les snapshots. La fermeture vide les écritures avant l'arrêt du backend, y compris lorsque la sauvegarde échoue. La restauration envoie Pause au backend avant Load, puis borne la position une fois la durée et Seekable connus ; une nouvelle session invalide le seek différé.
+
 ## Outcomes & Retrospective
 
-Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La maquette 99.0 a été approuvée ; le domaine et les transitions de service 99.1 sont implémentés et testés. La persistance, les commandes UI, la recette intégrée et la distribution Windows restent non réalisées à ce stade.
+Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La maquette 99.0 a été approuvée ; le domaine et les transitions de service 99.1, puis la persistance 99.2, sont implémentés et testés. Les commandes UI et la recette intégrée restent non réalisées à ce stade. Aucune distribution Windows n'est demandée.
 
 Révision du 2026-10-01 : rédaction après lecture des sources et deux séries de réponses utilisateur ; Q1–Q4 résolues, algorithmes de file et restauration définis, navigation de toutes les pages et matrice de recette ajoutées.
 
 Révision du 2026-10-01 : exécution du jalon 99.0 jusqu'à la revue. `docs/ux/mockups/Queue99Review.qml`, `scripts/review_queue_99.py`, six captures et `docs/ux/review-99-queue.md` créés. La validation utilisateur reste ouverte ; les jalons fonctionnels ne sont pas commencés. Prochaine action : recueillir la décision de revue, puis exécuter 99.1.
 
 Révision du 2026-10-01 : approbation de la maquette reçue ; 99.1 implémenté dans le domaine, le service et la façade Qt, avec transitions et tests ciblés. Prochaine étape : 99.2, persistance et restauration en pause.
+
+Révision du 2026-10-01 : 99.2 implémenté avec migration, dépôt, writer et chargement en pause. Prochaine étape : 99.3, menus et file visible ; la validation native complète reste réservée à 99.8.
