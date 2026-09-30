@@ -144,6 +144,22 @@ def test_the_current_check_uses_version_and_audio_length(database: Database) -> 
     assert not flagged_only.is_current(flagged_only.get("t2"), 1)
 
 
+def test_an_older_analysis_is_analyzed_again_but_its_waveform_is_kept(database: Database) -> None:
+    _add_track(database, "t1")
+    repository = AnalysisRepository(database)
+    saved = repository.save_result("t1", bpm=120.0, key=None, source_duration_us=5_000_000)
+    repository.save_waveform("t1", _points(), 5_000_000)
+    assert repository.is_current(saved, 5_000_000)
+
+    with database.transaction() as connection:  # what a result of the previous version looks like
+        connection.execute(
+            "UPDATE track_analysis SET algorithm_version = ?", (ANALYSIS_ALGORITHM_VERSION - 1,)
+        )
+    older = repository.get("t1")
+    assert not repository.is_current(older, 5_000_000)
+    assert repository.load_waveform("t1", 5_000_000) == _points()
+
+
 def test_removing_a_track_removes_its_results(database: Database) -> None:
     _add_track(database, "t1")
     repository = AnalysisRepository(database)

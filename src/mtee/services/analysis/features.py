@@ -5,7 +5,8 @@ memory. Three feature families are accumulated side by side:
 
 * min/max amplitude bins of 20 ms, the basis of the stored waveform;
 * an onset-strength envelope (log-compressed spectral flux), used for tempo;
-* a 36-bin pitch-class profile from spectral peaks, used for the key.
+* two 36-bin pitch-class profiles from spectral peaks (the harmony, and the bass
+  line seen through a longer window), used for the key.
 
 Every step is vectorised NumPy, so the heavy work releases the interpreter lock
 between blocks and the graphical thread keeps its frame rate.
@@ -18,8 +19,6 @@ from dataclasses import dataclass
 import numpy as np
 
 __all__ = [
-    "CHROMA_FFT",
-    "CHROMA_HOP",
     "ENVELOPE_RATE",
     "ONSET_FFT",
     "ONSET_HOP",
@@ -33,14 +32,18 @@ SAMPLE_RATE = 22_050
 ONSET_FFT = 1024
 ONSET_HOP = 256
 ENVELOPE_RATE = SAMPLE_RATE / ONSET_HOP
-CHROMA_FFT = 4096
-CHROMA_HOP = 2048
 WAVEFORM_BIN_FRAMES = 441  # 20 ms at 22 050 Hz
 
-_CHROMA_LOW_HZ = 80.0
-_CHROMA_HIGH_HZ = 5_000.0
 _CHROMA_BINS_PER_SEMITONE = 3
 _REFERENCE_A_HZ = 440.0
+# Peaks are weighted by their strength relative to the loudest peak of their frame,
+# raised to this power: a power above 1 lets the tonal peaks outvote the noise floor
+# and the percussion, which a square root (the first version) did not.
+_PEAK_POWER = 1.5
+_PEAK_FLOOR = 0.05
+# Each peak also supports the fundamental it may be a harmonic of (its octave and the
+# fifth below it), with this decay per harmonic.
+_HARMONIC_DECAY = 0.8
 _ONSET_GAIN = 40.0
 _ONSET_BAND_COUNT = 28
 
@@ -54,6 +57,7 @@ class AudioFeatures:
     waveform_high: np.ndarray
     onset_envelope: np.ndarray
     pitch_profile: np.ndarray
+    bass_profile: np.ndarray
 
     @property
     def duration_us(self) -> int:
@@ -90,6 +94,70 @@ def _onset_band_matrix() -> np.ndarray:
     return matrix
 
 
+@dataclass(frozen=True, slots=True)
+class _PitchBand:
+    """One spectral view feeding a pitch-class profile."""
+
+    n_fft: int
+    hop: int
+    low_hz: float
+    high_hz: float
+    harmonics: int
+
+
+# The harmony: 186 ms windows over the range where chords and melodies live.
+_HARMONY_BAND = _PitchBand(4096, 2048, 80.0, 2_500.0, harmonics=2)
+# The bass line: 0.74 s windows resolve the semitones of the lowest notes.
+_BASS_BAND = _PitchBand(16384, 8192, 40.0, 250.0, harmonics=0)
+
+
+class _PitchAccumulator:
+    """Sum the pitch classes of the spectral peaks of a stream into 36 bins (A first)."""
+
+    def __init__(self, band: _PitchBand) -> None:
+        self._band = band
+        self._framer = _Framer(band.n_fft, band.hop)
+        self._window = np.hanning(band.n_fft).astype(np.float32)
+        frequencies = np.fft.rfftfreq(band.n_fft, 1.0 / SAMPLE_RATE)
+        self._first = int(np.searchsorted(frequencies, band.low_hz))
+        self._last = int(np.searchsorted(frequencies, band.high_hz))
+        self._hertz_per_bin = SAMPLE_RATE / band.n_fft
+        self.profile = np.zeros(12 * _CHROMA_BINS_PER_SEMITONE, dtype=np.float64)
+
+    def add(self, mono: np.ndarray) -> None:
+        frames = self._framer.push(mono)
+        if frames is None:
+            return
+        magnitude = np.abs(np.fft.rfft(frames * self._window, axis=1)).astype(np.float32)
+        first, last = self._first, self._last
+        band = magnitude[:, first - 1 : last + 1]
+        centre = band[:, 1:-1]
+        peaks = (centre > band[:, :-2]) & (centre >= band[:, 2:])
+        loudest = centre.max(axis=1, keepdims=True)
+        peaks &= centre > loudest * _PEAK_FLOOR
+        rows, columns = np.nonzero(peaks)
+        if rows.size == 0:
+            return
+        left = band[rows, columns]
+        middle = band[rows, columns + 1]
+        right = band[rows, columns + 2]
+        denominator = left - 2.0 * middle + right
+        offset = np.where(
+            np.abs(denominator) > 1e-12, 0.5 * (left - right) / denominator, 0.0
+        ).clip(-0.5, 0.5)
+        frequency = (first + columns + offset) * self._hertz_per_bin
+        semitones = 12.0 * np.log2(frequency / _REFERENCE_A_HZ)
+        strength = (middle / loudest[rows, 0]) ** _PEAK_POWER
+        size = 12 * _CHROMA_BINS_PER_SEMITONE
+        for harmonic in range(1, self._band.harmonics + 2):
+            slot = np.round((semitones - 12.0 * np.log2(harmonic)) * _CHROMA_BINS_PER_SEMITONE)
+            self.profile += np.bincount(
+                slot.astype(np.int64) % size,
+                weights=(strength * _HARMONIC_DECAY ** (harmonic - 1)).astype(np.float64),
+                minlength=size,
+            )
+
+
 class FeatureExtractor:
     """Accumulate waveform, tempo and key features from PCM blocks."""
 
@@ -105,13 +173,8 @@ class FeatureExtractor:
         self._onset_bands = _onset_band_matrix()
         self._previous_log: np.ndarray | None = None
         self._envelope: list[np.ndarray] = []
-        self._chroma_framer = _Framer(CHROMA_FFT, CHROMA_HOP)
-        self._chroma_window = np.hanning(CHROMA_FFT).astype(np.float32)
-        self._pitch_profile = np.zeros(12 * _CHROMA_BINS_PER_SEMITONE, dtype=np.float64)
-        frequencies = np.fft.rfftfreq(CHROMA_FFT, 1.0 / SAMPLE_RATE)
-        self._chroma_first = int(np.searchsorted(frequencies, _CHROMA_LOW_HZ))
-        self._chroma_last = int(np.searchsorted(frequencies, _CHROMA_HIGH_HZ))
-        self._chroma_frequencies = frequencies
+        self._harmony = _PitchAccumulator(_HARMONY_BAND)
+        self._bass = _PitchAccumulator(_BASS_BAND)
 
     @property
     def frames(self) -> int:
@@ -132,7 +195,8 @@ class FeatureExtractor:
             if self._rhythm:
                 self._add_onsets(mono)
             if self._tonality:
-                self._add_chroma(mono)
+                self._harmony.add(mono)
+                self._bass.add(mono)
 
     def finish(self) -> AudioFeatures:
         """Flush the partial waveform bin and return every accumulated feature."""
@@ -148,7 +212,8 @@ class FeatureExtractor:
             onset_envelope=(
                 np.concatenate(self._envelope) if self._envelope else np.zeros(0, dtype=np.float32)
             ),
-            pitch_profile=self._pitch_profile.copy(),
+            pitch_profile=self._harmony.profile.copy(),
+            bass_profile=self._bass.profile.copy(),
         )
 
     # ------------------------------------------------------------- waveform
@@ -181,39 +246,3 @@ class FeatureExtractor:
         self._previous_log = compressed[-1:]
         flux = np.maximum(np.diff(compressed, axis=0), 0.0).sum(axis=1)
         self._envelope.append(flux.astype(np.float32))
-
-    # ------------------------------------------------------------------ key
-
-    def _add_chroma(self, mono: np.ndarray) -> None:
-        frames = self._chroma_framer.push(mono)
-        if frames is None:
-            return
-        magnitude = np.abs(np.fft.rfft(frames * self._chroma_window, axis=1)).astype(np.float32)
-        first, last = self._chroma_first, self._chroma_last
-        band = magnitude[:, first - 1 : last + 1]
-        centre = band[:, 1:-1]
-        peaks = (centre > band[:, :-2]) & (centre >= band[:, 2:])
-        loudest = centre.max(axis=1, keepdims=True)
-        peaks &= centre > loudest * 0.02
-        rows, columns = np.nonzero(peaks)
-        if rows.size == 0:
-            return
-        left = band[rows, columns]
-        middle = band[rows, columns + 1]
-        right = band[rows, columns + 2]
-        denominator = left - 2.0 * middle + right
-        offset = np.where(
-            np.abs(denominator) > 1e-12, 0.5 * (left - right) / denominator, 0.0
-        ).clip(-0.5, 0.5)
-        bin_index = first + columns + offset
-        frequency = bin_index * (SAMPLE_RATE / CHROMA_FFT)
-        semitones = 12.0 * np.log2(frequency / _REFERENCE_A_HZ)
-        slot = np.round(semitones * _CHROMA_BINS_PER_SEMITONE).astype(np.int64)
-        # Weight each peak by its compressed magnitude relative to its frame, so
-        # one loud bass note cannot outvote the harmony of a whole passage.
-        weight = np.sqrt(middle / loudest[rows, 0])
-        self._pitch_profile += np.bincount(
-            slot % (12 * _CHROMA_BINS_PER_SEMITONE),
-            weights=weight.astype(np.float64),
-            minlength=12 * _CHROMA_BINS_PER_SEMITONE,
-        )

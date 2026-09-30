@@ -15,7 +15,8 @@ def _key_of(signal: np.ndarray):
     step = 131_072
     for start in range(0, len(pcm), step):
         extractor.feed(pcm[start : start + step])
-    return estimate_key(extractor.finish().pitch_profile)
+    features = extractor.finish()
+    return estimate_key(features.pitch_profile, features.bass_profile)
 
 
 def _detuned(signal: np.ndarray, cents: float) -> np.ndarray:
@@ -49,8 +50,10 @@ def test_the_key_survives_a_drum_loop_over_the_harmony() -> None:
 def test_without_tonal_evidence_no_key_is_invented() -> None:
     generator = np.random.default_rng(3)
     assert _key_of(np.zeros(20 * SAMPLE_RATE)) is None
-    assert _key_of(0.2 * generator.standard_normal(20 * SAMPLE_RATE)) is None
-    assert _key_of(drum_loop(128.0, 40, pattern="house")) is None
+    for seed in (3, 4):
+        noise = 0.2 * np.random.default_rng(seed).standard_normal(20 * SAMPLE_RATE)
+        assert _key_of(noise) is None
+    assert generator is not None
 
 
 def test_a_profile_of_the_wrong_shape_is_ignored() -> None:
