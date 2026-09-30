@@ -21,6 +21,7 @@ Play/Shuffle prennent un instantané des résultats visibles disponibles. Les ab
 - [x] 2026-09-30 — Réaliser 34.3 : modèles Qt, sidebar, pages, likes, menus et intégration du lecteur.
 - [x] 2026-09-30 — Réaliser 34.4 : échanges légers/ZIP, résolution, annulation et reprise.
 - [x] 2026-09-30 — Réaliser 34.5 : recette depuis les sources et contrôles terminés ; commit/push en clôture de livraison, SHA et comparaison distante rapportés dans la conversation.
+- [x] 2026-09-30 — Corriger les bases version 16 précoces sans playlist_imports : migration 17 additive, copie de la base concernée vérifiée, sauvegarde et réparation locale effectuées, régression Qt/native vérifiée.
 
 ## Surprises & Discoveries
 
@@ -145,3 +146,13 @@ Le format léger version 1 est un manifeste UTF-8 avec couverture et SHA-256, sa
 35 tests ciblés (34 backend/persistance/non-régression et 1 parcours UI), recette Windows native et smoke-test depuis les sources terminés. Pyright ciblé est vert ; le contrôle global présente 34 erreurs contre 38 sur HEAD initial, sans nouveau diagnostic. Ruff ciblé est vert hors anciennes lignes de LibraryRepository ; Ruff global et format global ne sont pas verts avant cette étape. Deux anciens tests workspace/player échouent également sur un checkout isolé de HEAD initial ; aucun résultat global propre n’est revendiqué.
 
 Charge synthétique de 10 000 entrées absentes : création 0,162 s, lecture 0,051 s, remplacement du modèle Qt 0,026 s. Ce test ne mesure ni les accès à 10 000 fichiers réels ni le rendu complet sur toutes les machines. Packaging non lancé. Spotify reste exclu.
+
+## Correctif après signalement — journal absent en schéma 16
+
+L’utilisateur a signalé « no such table playlist_imports » lors de la création. L’inspection en lecture seule de la base applicative a confirmé `user_version=16` sans cette table. Elle avait été ajoutée à la migration 16 après son exécution dans une version de développement ; une base existante ne rejoue pas une migration déjà enregistrée. Les contrôles précédents sur bases neuves et schéma 15 ne couvraient pas ce cas.
+
+Décision du 2026-09-30 : conserver la migration 16 publiée inchangée et ajouter `017_playlist_imports_compatibility.sql` avec création conditionnelle du journal. Les bases 16 complètes gardent leurs opérations ; les bases 16 précoces reçoivent la table, avec backup avant migration. Pas de suppression ou réinitialisation des données, pas de masquage de l’erreur dans le modèle.
+
+Vérification sur fixtures avec/sans journal : UUID, dossiers, entrées, pochettes, épingles, likes, créateur et import interrompu conservés ; sauvegarde version 16 et idempotence contrôlées. Les 13 tests de migration et les deux variantes du parcours UI passent (15 tests). Le parcours sur ancienne base 16 sans journal passe aussi en fenêtre Windows native. Ruff check/format et Pyright des deux fichiers de tests sont verts.
+
+Avant réparation locale, une copie SQLite cohérente de la base concernée a été migrée : comptes des tables existantes conservés et création de playlist réussie. La migration 17 a ensuite été appliquée à la base applicative avec sauvegarde version 16 ; journal présent et second migrate sans effet. Aucune playlist de recette n’est ajoutée à la base personnelle. Aucun EXE construit. Publication du correctif et SHA confirmés dans la conversation.

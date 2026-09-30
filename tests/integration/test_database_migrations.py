@@ -59,8 +59,9 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         14,
         15,
         16,
+        17,
     ]
-    assert database.schema_version() == 16
+    assert database.schema_version() == 17
     tables = {
         str(row["name"])
         for row in database.connection().execute(
@@ -93,7 +94,20 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
     original.close()
 
     upgraded = Database(path)
-    assert [item.version for item in upgraded.migrate()] == [5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16]
+    assert [item.version for item in upgraded.migrate()] == [
+        5,
+        6,
+        7,
+        8,
+        9,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+    ]
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     backups = list(tmp_path.glob("mtee.sqlite3.v4.*.backup"))
     assert len(backups) == 1
@@ -217,8 +231,8 @@ def test_a_database_with_the_retired_analysis_migration_is_upgraded_and_preserve
     legacy.close()
 
     upgraded = Database(path)
-    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14, 15, 16]
-    assert upgraded.schema_version() == 16
+    assert [migration.version for migration in upgraded.migrate()] == [11, 12, 13, 14, 15, 16, 17]
+    assert upgraded.schema_version() == 17
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
     assert (
         upgraded.connection()
@@ -253,7 +267,7 @@ def test_an_unknown_retired_migration_remains_refused(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedMigrationHistoryError, match="unknown or unsupported"):
         database.migrate()
-    assert database.schema_version() == 16
+    assert database.schema_version() == 17
     database.close()
 
 
@@ -286,7 +300,7 @@ def test_playlist_upgrade_keeps_v15_data_and_an_exact_backup(tmp_path: Path) -> 
     original.close()
     upgraded = Database(path)
     try:
-        assert [m.version for m in upgraded.migrate()] == [16]
+        assert [m.version for m in upgraded.migrate()] == [16, 17]
         assert upgraded.migrate() == []
         assert SettingsRepository(upgraded).get("existing") == "unchanged"
         assert (
@@ -301,5 +315,75 @@ def test_playlist_upgrade_keeps_v15_data_and_an_exact_backup(tmp_path: Path) -> 
             assert not backup.execute(
                 "SELECT 1 FROM sqlite_master WHERE name='playlists'"
             ).fetchone()
+    finally:
+        upgraded.close()
+
+
+@pytest.mark.parametrize("journal_exists", [False, True])
+def test_schema_16_import_journal_upgrade_preserves_playlists_and_backup(
+    tmp_path: Path, journal_exists: bool
+) -> None:
+    from mtee.persistence.playlists_repository import PlaylistsRepository
+
+    legacy_migrations = tmp_path / "schema-v16"
+    legacy_migrations.mkdir()
+    for migration in Database(tmp_path / "unused.sqlite3").migrations:
+        if migration.version <= 16:
+            sql = migration.read_sql()
+            if migration.version == 16 and not journal_exists:
+                sql = sql.split("CREATE TABLE playlist_imports (")[0]
+            (legacy_migrations / migration.file_name).write_text(sql, encoding="utf-8")
+    path = tmp_path / "early.sqlite3"
+    original = Database(path, migrations_dir=legacy_migrations)
+    original.migrate()
+    repository = PlaylistsRepository(original)
+    folder = repository.create_folder("Keep folder")
+    identity = repository.create(
+        "Keep playlist",
+        folder,
+        description="Keep description",
+        cover="keep.png",
+        entries=[{"snapshot": {"title": "Missing song", "artist": "Known artist"}}],
+    )
+    repository.pin(identity, True)
+    original.connection().execute("INSERT INTO tracks VALUES('kept-track')")
+    repository.like("kept-track", True)
+    SettingsRepository(original).set("playlists/creator", "Keep creator")
+    before = repository.entries(identity)
+    if journal_exists:
+        original.connection().execute(
+            "INSERT INTO playlist_imports(operation_id,archive_path,folder_path,"
+            "manifest_json,phase) "
+            "VALUES('keep-import','archive.zip','extract','{}','incomplete')"
+        )
+    else:
+        with pytest.raises(sqlite3.OperationalError, match="no such table: playlist_imports"):
+            original.connection().execute("SELECT * FROM playlist_imports")
+    original.close()
+
+    upgraded = Database(path)
+    try:
+        assert [m.version for m in upgraded.migrate()] == [17]
+        assert upgraded.schema_version() == 17
+        assert upgraded.migrate() == []
+        repository = PlaylistsRepository(upgraded)
+        assert repository.entries(identity) == before
+        assert repository.playlist(identity)["cover_ref"] == "keep.png"
+        assert repository.playlist(identity)["pinned"] == 1
+        assert repository.playlist(identity)["folder_id"] == folder
+        assert repository.liked_ids() == ["kept-track"]
+        assert SettingsRepository(upgraded).get("playlists/creator") == "Keep creator"
+        imports = (
+            upgraded.connection().execute("SELECT operation_id FROM playlist_imports").fetchall()
+        )
+        assert [r[0] for r in imports] == (["keep-import"] if journal_exists else [])
+        assert repository.create("New playlist after upgrade")
+        backups = list(tmp_path.glob("early.sqlite3.v16.*.backup"))
+        assert len(backups) == 1
+        with sqlite3.connect(backups[0]) as backup:
+            assert backup.execute("PRAGMA user_version").fetchone()[0] == 16
+            assert backup.execute("SELECT name FROM playlists").fetchone()[0] == "Keep playlist"
+            tables = {r[0] for r in backup.execute("SELECT name FROM sqlite_master")}
+            assert ("playlist_imports" in tables) is journal_exists
     finally:
         upgraded.close()

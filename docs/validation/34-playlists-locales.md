@@ -71,3 +71,11 @@ La recette ne couvre pas exhaustivement chaque combinaison de panneaux divisés,
 ## Livraison
 
 ExecPlan, décisions et spécification mis à jour. Seuls les fichiers de cette livraison sont indexés ; les modifications utilisateur initiales restent hors commit. Commit détaillé puis push vers origin/main, avec fetch et comparaison des SHA. Les hashes sont rapportés dans la conversation pour éviter l’auto-référence du document.
+
+## Régression corrigée : ancienne version 16 sans journal
+
+Signalement utilisateur du 2026-09-30 : création bloquée par `no such table playlist_imports`. La base applicative existante est en version 16 mais ne contient pas le journal : il avait été ajouté au SQL de la version 16 après une première exécution pendant le développement. Les résultats de recette initiale sur bases neuves restent réels, mais ne démontraient pas la compatibilité avec cette ancienne variante.
+
+Le correctif ajoute uniquement la migration version 17, sans modifier la migration publiée 16. La création conditionnelle du journal s’applique aux deux variantes ; les opérations existantes restent intactes. Tests : **15 passed** pour `tests/integration/test_database_migrations.py` et `tests/ui/test_playlists_ui.py`. Cela inclut les sauvegardes, données de playlist, créateur, likes, journal préexistant, idempotence et tout le parcours UI sur base 16 précoce. Variante de régression en fenêtre Windows native : **1 passed**, sans avertissement QML. Ruff check/format et Pyright ciblés verts.
+
+Une copie cohérente de la base applicative a été migrée avant toute écriture sur celle-ci : comptes de toutes ses tables existantes conservés et création d’une playlist de recette réussie sur cette copie seulement. La base applicative a ensuite reçu la migration 17 et une sauvegarde version 16. Présence du journal et idempotence vérifiées ; aucune base remise à zéro, aucune playlist de test ajoutée aux données personnelles, aucun fichier audio modifié. Le nouveau code applique également ce correctif automatiquement au démarrage des autres bases concernées.
