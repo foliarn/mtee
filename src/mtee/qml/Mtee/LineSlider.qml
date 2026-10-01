@@ -29,11 +29,13 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: parent.width
         height: slider.trackHeight
+        radius: height / 2
         color: Theme.selection
 
         Rectangle {
             width: parent.width * slider.ratio
             height: parent.height
+            radius: height / 2
             color: mouse.containsMouse || slider.dragging ? slider.fillColor : Qt.lighter(Theme.textSecondary, 1.2)
         }
     }

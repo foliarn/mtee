@@ -22,7 +22,7 @@ Rectangle {
         && workspace.playlistsContaining(playback.playingId, workspace.revision).length > 0
     readonly property bool willPlay: playback.isPlaying
         || (playback.status === "Loading" && !playback.pausePending)
-    readonly property real reserve: Theme.islandHeight + 2 * Theme.islandMargin
+    readonly property real reserve: Theme.islandMargin
     readonly property real sideMargin: Math.max(48, width * 0.06)
     readonly property real cardWidth: Math.min(Theme.fsCardMaxWidth, width - 2 * sideMargin)
     readonly property bool coverVisible: cardWidth >= Theme.fsCoverHideWidth
@@ -33,7 +33,7 @@ Rectangle {
     readonly property real innerHeight: leftColumn.implicitHeight
     readonly property real cardHeight: innerHeight + 2 * Theme.fsCardPadding
     // The cover does not grow with the card: it stays at most ``fsCoverMax`` and is centred.
-    readonly property real coverSize: Math.min(innerHeight, Theme.fsCoverMax)
+    readonly property real coverSize: Math.max(0, Math.min(innerHeight - 104, Theme.fsCoverMax))
     readonly property bool hasAccent: accent.hasAccent
     readonly property color accentBase: hasAccent ? accent.baseColor : Theme.fsFallbackCard
     readonly property color accentDark: hasAccent ? accent.darkColor : Theme.fsFallbackCard
@@ -92,10 +92,20 @@ Rectangle {
     }
 
     function handleWheel(wheel) {
-        if (!hasTrack || wheelLocked)
+        if (!hasTrack)
             return
         const pixel = wheel.pixelDelta.y !== 0
-        wheelAccum += pixel ? wheel.pixelDelta.y : wheel.angleDelta.y
+        const delta = pixel ? wheel.pixelDelta.y : wheel.angleDelta.y
+        if (wheelLocked) {
+            // Inertia keeps going the way the page just moved; a scroll the other way is
+            // deliberate and goes through at once, even during the animation.
+            if (delta === 0 || (delta < 0 ? 1 : 0) === page)
+                return
+            wheelLocked = false
+            wheelUnlock.stop()
+            wheelAccum = 0
+        }
+        wheelAccum += delta
         wheelIdle.restart()
         const threshold = pixel ? Theme.fsWheelPixelThreshold : Theme.fsWheelThreshold
         if (Math.abs(wheelAccum) < threshold)
@@ -218,10 +228,12 @@ Rectangle {
 
                     MarqueeText {
                         objectName: "fullscreenTitle"
-                        width: parent.width
+                        id: titleItem
+                        width: player.coverVisible ? parent.width : parent.width - actions.width - 16
                         text: player.track.title || ""
-                        pixelSize: Theme.fsTitleSize
-                        bold: true
+                        fontFamily: Theme.displayFontFamily
+                        pixelSize: 42
+                        weight: Theme.displayFontWeight
                     }
 
                     Text {
@@ -325,56 +337,59 @@ Rectangle {
                             onClicked: player.playback.togglePlay()
                         }
                     }
-
-                    Row {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Theme.fsActionSpacing
-
-                        IconButton {
-                            objectName: "fullscreenLike"
-                            width: 36
-                            height: 36
-                            hoverBackground: false
-                            icon: player.liked ? "heart-filled" : "heart"
-                            iconSize: Theme.fsActionIconSize
-                            iconColor: player.liked ? Theme.secondary : Qt.rgba(1, 1, 1, 0.82)
-                            hoverColor: player.liked ? Theme.secondary : "#FFFFFF"
-                            tip: player.liked ? "Remove from Liked tracks" : "Add to Liked tracks"
-                            onClicked: player.workspace.toggleLike(player.playback.playingId)
-                        }
-
-                        IconButton {
-                            id: addButton
-                            objectName: "fullscreenAddPlaylist"
-                            width: 36
-                            height: 36
-                            hoverBackground: false
-                            icon: player.inPlaylist ? "check" : "add-playlist"
-                            iconSize: Theme.fsActionIconSize
-                            iconColor: Qt.rgba(1, 1, 1, 0.82)
-                            hoverColor: "#FFFFFF"
-                            tip: "Add to playlist"
-                            onClicked: player.openPlaylistMenu(addButton)
-                        }
-
-                        IconButton {
-                            id: moreButton
-                            objectName: "fullscreenMore"
-                            width: 36
-                            height: 36
-                            hoverBackground: false
-                            icon: "more"
-                            iconSize: Theme.fsActionIconSize
-                            iconColor: Qt.rgba(1, 1, 1, 0.82)
-                            hoverColor: "#FFFFFF"
-                            tip: "More"
-                            onClicked: moreMenu.popup(moreButton, 0, -moreMenu.implicitHeight)
-                        }
-                    }
                 }
             }
 
+
+            // Like, add to playlist and more, in the top right corner, level with the title.
+            Row {
+                id: actions
+                objectName: "fullscreenActions"
+                x: player.cardWidth - Theme.fsCardPadding - width
+                y: Theme.fsCardPadding + (titleItem.height - height) / 2
+                spacing: Theme.fsActionSpacing
+
+                IconButton {
+                    objectName: "fullscreenLike"
+                    width: 44
+                    height: 44
+                    hoverBackground: false
+                    icon: player.liked ? "heart-filled" : "heart"
+                    iconSize: Theme.fsActionIconSize
+                    iconColor: player.liked ? Theme.secondary : Qt.rgba(1, 1, 1, 0.82)
+                    hoverColor: player.liked ? Theme.secondary : "#FFFFFF"
+                    tip: player.liked ? "Remove from Liked tracks" : "Add to Liked tracks"
+                    onClicked: player.workspace.toggleLike(player.playback.playingId)
+                }
+
+                IconButton {
+                    id: addButton
+                    objectName: "fullscreenAddPlaylist"
+                    width: 44
+                    height: 44
+                    hoverBackground: false
+                    icon: player.inPlaylist ? "check" : "add-playlist"
+                    iconSize: Theme.fsActionIconSize
+                    iconColor: Qt.rgba(1, 1, 1, 0.82)
+                    hoverColor: "#FFFFFF"
+                    tip: "Add to playlist"
+                    onClicked: player.openPlaylistMenu(addButton)
+                }
+
+                IconButton {
+                    id: moreButton
+                    objectName: "fullscreenMore"
+                    width: 44
+                    height: 44
+                    hoverBackground: false
+                    icon: "more"
+                    iconSize: Theme.fsActionIconSize
+                    iconColor: Qt.rgba(1, 1, 1, 0.82)
+                    hoverColor: "#FFFFFF"
+                    tip: "More"
+                    onClicked: moreMenu.popup(moreButton, 0, -moreMenu.implicitHeight)
+                }
+            }
             // Square cover with rounded corners; not clickable.
             Item {
                 id: coverFrame
@@ -557,7 +572,7 @@ Rectangle {
         visible: player.hasTrack && player.page === 0
         anchors.right: parent.right
         anchors.rightMargin: 16
-        y: player.height - Theme.islandMargin - Theme.islandHeight / 2 - height / 2
+        y: player.height - Theme.islandMargin - height
         icon: "arrow-down"
         tip: "Queue and track details"
         onClicked: player.workspace.setFullscreenPage(1)
