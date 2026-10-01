@@ -423,6 +423,49 @@ Rectangle {
         y: player.height - player.progress * (player.height - Theme.fsPeek - Theme.fsTopMargin)
         width: parent.width
         height: player.page2Height
+
+        // Wide: Artist above Track details on the left, Queue on the right. Narrow: Artist and
+        // Track details side by side in a fixed row, Queue below. Page 2 never scrolls itself.
+        Item {
+            id: cards
+            objectName: "fullscreenCards"
+            x: (player.width - player.cardWidth) / 2
+            y: Theme.fsTopMargin
+            width: player.cardWidth
+            height: player.page2Height - Theme.fsTopMargin
+            readonly property bool wide: player.cardWidth >= Theme.fsWideWidth
+            readonly property real leftWidth: (width - Theme.fsCardGap) * 0.58
+            readonly property real halfWidth: (width - Theme.fsCardGap) / 2
+
+            FullscreenArtistCard {
+                id: artistCard
+                track: player.track
+                x: 0
+                y: 0
+                width: cards.wide ? cards.leftWidth : cards.halfWidth
+                height: cards.wide ? (cards.height - Theme.fsCardGap) * 0.4 : Theme.fsCompactRow
+            }
+
+            FullscreenTrackDetailsCard {
+                id: detailsCard
+                track: player.track
+                single: cards.wide && height >= 385
+                x: cards.wide ? 0 : artistCard.width + Theme.fsCardGap
+                y: cards.wide ? artistCard.height + Theme.fsCardGap : 0
+                width: cards.wide ? cards.leftWidth : cards.halfWidth
+                height: cards.wide ? cards.height - artistCard.height - Theme.fsCardGap
+                                   : Theme.fsCompactRow
+            }
+
+            FullscreenQueueCard {
+                id: queueCard
+                workspace: player.workspace
+                x: cards.wide ? cards.leftWidth + Theme.fsCardGap : 0
+                y: cards.wide ? 0 : Theme.fsCompactRow + Theme.fsCardGap
+                width: cards.wide ? cards.width - cards.leftWidth - Theme.fsCardGap : cards.width
+                height: cards.wide ? cards.height : cards.height - Theme.fsCompactRow - Theme.fsCardGap
+            }
+        }
     }
 
     // The bottom of the card stays visible under a dark gradient on page 2, not clickable.

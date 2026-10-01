@@ -37,6 +37,12 @@ Window {
     onCompactSidebarChanged: if (compactSidebar) ws.setSidebarVisible(false)
     Component.onCompleted: if (compactSidebar) ws.setSidebarVisible(false)
 
+    // The Queue list of the fullscreen player keeps its own arrow keys.
+    function queueListFocused() {
+        const focused = root.activeFocusItem
+        return focused !== null && focused !== undefined && focused.objectName === "fullscreenQueueList"
+    }
+
     function textInputFocused() {
         const focused = root.activeFocusItem
         return focused !== null && focused !== undefined
@@ -248,11 +254,13 @@ Window {
     Shortcut {
         sequences: ["PgDown", "Down"]
         enabled: root.ws.fullscreen && root.ws.playingId.length > 0 && !root.textInputFocused()
+            && !root.queueListFocused()
         onActivated: root.ws.setFullscreenPage(1)
     }
     Shortcut {
         sequences: ["PgUp", "Up"]
         enabled: root.ws.fullscreen && root.ws.playingId.length > 0 && !root.textInputFocused()
+            && !root.queueListFocused()
         onActivated: root.ws.setFullscreenPage(0)
     }
     Shortcut {

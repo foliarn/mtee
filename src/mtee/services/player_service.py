@@ -187,6 +187,8 @@ class PlayerService(QObject):
                     "trackId": track_id,
                     "entryId": entry.entry_id,
                     "origin": entry.origin,
+                    "source": entry.source,
+                    "sourceTitle": entry.source_title,
                     "revision": self._queue.revision,
                     "current": self._queue.current is entry,
                     "available": _available(track),

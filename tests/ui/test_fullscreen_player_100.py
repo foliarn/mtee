@@ -316,7 +316,7 @@ def _write_wav(path: Path) -> None:
 
 
 @contextmanager
-def _real(qapp, tmp_path: Path, monkeypatch) -> Iterator[tuple]:
+def _real(qapp, tmp_path: Path, monkeypatch, count: int = 2) -> Iterator[tuple]:
     music = tmp_path / "library"
     music.mkdir()
     data_dir = tmp_path / "data"
@@ -325,7 +325,7 @@ def _real(qapp, tmp_path: Path, monkeypatch) -> Iterator[tuple]:
     library = LibraryRepository(database)
     root = library.add_root(music)
     ids = []
-    for name in ("first.wav", "second.wav"):
+    for name in [f"track{index}.wav" for index in range(count)]:
         path = music / name
         _write_wav(path)
         ids.append(
@@ -356,7 +356,7 @@ def _real(qapp, tmp_path: Path, monkeypatch) -> Iterator[tuple]:
         for _ in range(6):
             assert runtime.jobs.wait_for_done(10_000)
             QCoreApplication.processEvents()
-        yield window, workspace, str(root["id"]), ids
+        yield window, workspace, str(root["id"]), ids, runtime
     finally:
         runtime.jobs.wait_for_done(10_000)
         QCoreApplication.processEvents()
@@ -366,7 +366,7 @@ def _real(qapp, tmp_path: Path, monkeypatch) -> Iterator[tuple]:
 def test_without_a_track_fullscreen_only_says_to_play_one(
     qapp, qtbot, tmp_path, monkeypatch
 ) -> None:
-    with _real(qapp, tmp_path, monkeypatch) as (window, workspace, _root, _ids):
+    with _real(qapp, tmp_path, monkeypatch) as (window, workspace, _root, _ids, _runtime):
         workspace.setFullscreen(True)
         qtbot.waitUntil(lambda: _visible(window, "fullscreenPlayer"))
         empty = _find(window, "fullscreenEmpty")
@@ -380,7 +380,7 @@ def test_without_a_track_fullscreen_only_says_to_play_one(
 def test_edit_info_in_the_real_workspace_replaces_the_selection_in_the_source(
     qapp, qtbot, tmp_path, monkeypatch
 ) -> None:
-    with _real(qapp, tmp_path, monkeypatch) as (window, workspace, root_id, ids):
+    with _real(qapp, tmp_path, monkeypatch) as (window, workspace, root_id, ids, _runtime):
         source = f"folder:{root_id}/"
         workspace.openFolder(source)
         workspace.playTrack(ids[0], source)
@@ -401,7 +401,7 @@ def test_edit_info_in_the_real_workspace_replaces_the_selection_in_the_source(
 def test_a_missing_source_falls_back_to_the_folder_of_the_file(
     qapp, qtbot, tmp_path, monkeypatch
 ) -> None:
-    with _real(qapp, tmp_path, monkeypatch) as (_window, workspace, root_id, ids):
+    with _real(qapp, tmp_path, monkeypatch) as (_window, workspace, root_id, ids, _runtime):
         source = f"folder:{root_id}/"
         workspace.playTrack(ids[0], source)
         qtbot.waitUntil(lambda: workspace.playingId == ids[0])
@@ -415,7 +415,7 @@ def test_a_missing_source_falls_back_to_the_folder_of_the_file(
 def test_convert_in_the_real_workspace_takes_the_playing_track(
     qapp, qtbot, tmp_path, monkeypatch
 ) -> None:
-    with _real(qapp, tmp_path, monkeypatch) as (_window, workspace, root_id, ids):
+    with _real(qapp, tmp_path, monkeypatch) as (_window, workspace, root_id, ids, _runtime):
         source = f"folder:{root_id}/"
         workspace.openFolder(source)
         workspace.playTrack(ids[0], source)
@@ -429,7 +429,7 @@ def test_convert_in_the_real_workspace_takes_the_playing_track(
 
 
 def test_the_source_name_opens_the_playing_folder(qapp, qtbot, tmp_path, monkeypatch) -> None:
-    with _real(qapp, tmp_path, monkeypatch) as (_window, workspace, root_id, ids):
+    with _real(qapp, tmp_path, monkeypatch) as (_window, workspace, root_id, ids, _runtime):
         source = f"folder:{root_id}/"
         workspace.playTrack(ids[0], source)
         qtbot.waitUntil(lambda: workspace.playingId == ids[0])
@@ -595,7 +595,7 @@ def test_the_visible_bottom_of_the_card_is_not_clickable_on_page_two(qapp, qtbot
 
 
 def test_without_a_track_pages_do_not_exist(qapp, qtbot, tmp_path, monkeypatch) -> None:
-    with _real(qapp, tmp_path, monkeypatch) as (window, workspace, _root, _ids):
+    with _real(qapp, tmp_path, monkeypatch) as (window, workspace, _root, _ids, _runtime):
         workspace.setFullscreen(True)
         qtbot.waitUntil(lambda: _visible(window, "fullscreenPlayer"))
         _wheel(window, 700, 450, angle=-120)
@@ -604,3 +604,254 @@ def test_without_a_track_pages_do_not_exist(qapp, qtbot, tmp_path, monkeypatch) 
         assert workspace.fullscreenPage == 0
         assert not _visible(window, "fullscreenPageDown")
         assert not _visible(window, "fullscreenPageUp")
+
+
+def _find_all(root: QObject, name: str) -> list[QQuickItem]:
+    assert isinstance(root, QQuickWindow)
+    found: list[QQuickItem] = []
+    pending = [root.contentItem()]
+    while pending:
+        item = pending.pop()
+        if item.objectName() == name:
+            found.append(item)
+        pending.extend(item.childItems())
+    return found
+
+
+def _child(item: QQuickItem, name: str) -> QQuickItem | None:
+    pending = list(item.childItems())
+    while pending:
+        current = pending.pop()
+        if current.objectName() == name:
+            return current
+        pending.extend(current.childItems())
+    return None
+
+
+def _center(item: QQuickItem, dx: float = 0, dy: float = 0) -> QPoint:
+    point = item.mapToScene(item.boundingRect().center())
+    return QPoint(round(point.x() + dx), round(point.y() + dy))
+
+
+def _section_texts(item: QQuickItem) -> list[str]:
+    return [str(child.property("text")) for child in item.childItems() if child.property("text")]
+
+
+def _queue_page(window, workspace, runtime, ids, root_id, qtbot, manual=()) -> list[str]:
+    """Play the first track, add ``ids[i]`` for each ``i`` of ``manual``, show page 2."""
+    source = f"folder:{root_id}/"
+    workspace.openFolder(source)
+    # The folder listing is read off the interface thread: wait for it, so that the queue
+    # captured by playTrack holds the whole folder.
+    qtbot.waitUntil(
+        lambda: (
+            (model := workspace._current_track_model()) is not None and model.rowCount() >= len(ids)
+        )
+    )
+    # Play from the top of the visible order: the tracks after it are the upcoming context.
+    ids[:] = [str(row["id"]) for row in workspace._current_track_model().rows_snapshot()]
+    workspace.playTrack(ids[0], source)
+    qtbot.waitUntil(lambda: workspace.playingId == ids[0])
+    entries: list[str] = []
+    for index in manual:
+        entries += runtime.player_service.enqueue_tracks(
+            [ids[index]], source=source, source_title="Added"
+        )
+    workspace.setFullscreen(True)
+    workspace.setFullscreenPage(1)
+    _rest(qtbot, window, 1)
+    qtbot.wait(50)
+    return entries
+
+
+def test_the_queue_shows_now_playing_then_the_two_sections(
+    qapp, qtbot, tmp_path, monkeypatch
+) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=5) as (window, workspace, root_id, ids, runtime):
+        entries = _queue_page(window, workspace, runtime, ids, root_id, qtbot, manual=[3])
+        assert _find(window, "queueCurrentRow") is not None
+        titles = {str(item.property("text")) for item in _find_all(window, "queueRowTitle")}
+        assert "track0" in titles  # the playing track comes first
+        manual_section = _find(window, "queueSection_next")
+        context_section = _find(window, "queueSection_from")
+        assert manual_section is not None and context_section is not None
+        assert _section_texts(manual_section) == ["Next in queue"]
+        assert _section_texts(context_section)[0].startswith("Next from: ")
+        assert _find(window, f"queueRow_{entries[0]}") is not None
+
+        runtime.player_service.remove_queue_entry(entries[0])
+        qtbot.waitUntil(lambda: not _visible(window, "queueSection_next"))
+        assert _visible(window, "queueSection_from")
+
+
+def test_a_cover_click_plays_the_right_occurrence_of_a_duplicate(
+    qapp, qtbot, tmp_path, monkeypatch
+) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=4) as (window, workspace, root_id, ids, runtime):
+        entries = _queue_page(window, workspace, runtime, ids, root_id, qtbot, manual=[2])
+        row = _find(window, f"queueRow_{entries[0]}")
+        assert row is not None
+        cover = _child(row, "queueCoverButton")
+        assert cover is not None
+        QTest.mouseClick(window, Qt.MouseButton.LeftButton, pos=_center(cover))
+        qtbot.waitUntil(lambda: runtime.player_service.state.current_entry_id == entries[0])
+        assert runtime.player_service.state.current_id == ids[2]
+        # The same track still waits in its original place of the context.
+        assert [r["trackId"] for r in runtime.player_service.up_next()].count(ids[2]) == 1
+
+
+def test_the_cover_of_the_current_row_toggles_playback(qapp, qtbot, tmp_path, monkeypatch) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=3) as (window, workspace, root_id, ids, runtime):
+        _queue_page(window, workspace, runtime, ids, root_id, qtbot)
+        qtbot.waitUntil(lambda: workspace.isPlaying)
+        row = _find(window, "queueCurrentRow")
+        assert row is not None
+        cover = _child(row, "queueCoverButton")
+        assert cover is not None
+        QTest.mouseClick(window, Qt.MouseButton.LeftButton, pos=_center(cover))
+        qtbot.waitUntil(lambda: not workspace.isPlaying)
+        assert runtime.player_service.state.current_id == ids[0]
+
+
+def test_the_row_menu_removes_only_that_occurrence_and_never_the_current_one(
+    qapp, qtbot, tmp_path, monkeypatch
+) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=4) as (window, workspace, root_id, ids, runtime):
+        entries = _queue_page(window, workspace, runtime, ids, root_id, qtbot, manual=[2])
+        current = _find(window, "queueCurrentRow")
+        assert current is not None
+        QTest.mouseClick(window, Qt.MouseButton.RightButton, pos=_center(current, dx=120))
+        qtbot.wait(50)
+        remove = _find(window, "queueRemove")
+        assert remove is None or not remove.isVisible()  # nothing to remove on the playing row
+        assert _visible(window, "queueEditInfo")
+        QTest.keyClick(window, Qt.Key.Key_Escape)  # closes the menu first
+        qtbot.wait(50)
+
+        row = _find(window, f"queueRow_{entries[0]}")
+        assert row is not None
+        QTest.mouseClick(window, Qt.MouseButton.RightButton, pos=_center(row, dx=120))
+        qtbot.wait(50)
+        remove = _find(window, "queueRemove")
+        assert remove is not None and remove.isVisible()
+        remove.metaObject().invokeMethod(remove, "triggered")
+        qtbot.waitUntil(
+            lambda: entries[0] not in [r["entryId"] for r in runtime.player_service.up_next()]
+        )
+        assert [r["trackId"] for r in runtime.player_service.up_next()].count(ids[2]) == 1
+
+
+def test_the_row_menu_goes_to_the_source_and_opens_info(qapp, qtbot, tmp_path, monkeypatch) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=4) as (window, workspace, root_id, ids, runtime):
+        _queue_page(window, workspace, runtime, ids, root_id, qtbot)
+        target = runtime.player_service.up_next()[1]
+        row = _find(window, f"queueRow_{target['entryId']}")
+        assert row is not None
+        QTest.mouseClick(window, Qt.MouseButton.RightButton, pos=_center(row, dx=120))
+        qtbot.wait(50)
+        goto = _find(window, "queueGoTo")
+        assert goto is not None and goto.property("text") == "Go to folder"
+        edit = _find(window, "queueEditInfo")
+        assert edit is not None
+        edit.metaObject().invokeMethod(edit, "triggered")
+        assert not workspace.fullscreen
+        qtbot.waitUntil(lambda: workspace.selectedIds == [target["trackId"]], timeout=5000)
+        assert workspace.rightPanelTab == "info"
+        assert workspace.playingId == ids[0]  # nothing was played
+
+
+def test_a_held_row_moves_once_on_release_and_escape_cancels(
+    qapp, qtbot, tmp_path, monkeypatch
+) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=5) as (window, workspace, root_id, ids, runtime):
+        _queue_page(window, workspace, runtime, ids, root_id, qtbot)
+        service = runtime.player_service
+        moves: list[tuple] = []
+        original = service.move_queue_entry
+
+        def spy(*args):
+            moves.append(args)
+            return original(*args)
+
+        service.move_queue_entry = spy
+        order = [r["entryId"] for r in service.up_next()]
+        first = _find(window, f"queueRow_{order[0]}")
+        third = _find(window, f"queueRow_{order[2]}")
+        assert first is not None and third is not None
+        start = _center(first, dx=120)
+        end = _center(third, dx=120, dy=10)
+
+        # Escape cancels the move: no call, and fullscreen stays open.
+        QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(window, QPoint(start.x(), start.y() + 30))
+        QTest.mouseMove(window, end)
+        qtbot.wait(30)
+        card = _find(window, "fullscreenQueueCard")
+        assert card is not None and card.property("dragActive")
+        QTest.keyClick(window, Qt.Key.Key_Escape)
+        qtbot.wait(30)
+        assert not card.property("dragActive")
+        QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=end)
+        qtbot.wait(30)
+        assert moves == [] and workspace.fullscreen
+
+        # A completed drag calls the service exactly once.
+        QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(window, QPoint(start.x(), start.y() + 30))
+        QTest.mouseMove(window, end)
+        qtbot.wait(30)
+        QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=end)
+        qtbot.waitUntil(lambda: len(moves) == 1)
+        assert service.up_next()[0]["entryId"] != order[0]
+
+
+def test_the_wheel_over_the_list_never_changes_the_page(qapp, qtbot, tmp_path, monkeypatch) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=5) as (window, workspace, root_id, ids, runtime):
+        _queue_page(window, workspace, runtime, ids, root_id, qtbot)
+        listing = _find(window, "fullscreenQueueList")
+        assert listing is not None
+        point = _center(listing)
+        _wheel(window, point.x(), point.y(), angle=120)  # up, already at the top
+        qtbot.wait(450)
+        assert workspace.fullscreenPage == 1
+        _wheel(window, point.x(), point.y(), angle=-120)  # down, at the bottom of a short list
+        qtbot.wait(450)
+        assert workspace.fullscreenPage == 1
+        _wheel(window, 700, 60, angle=120)  # outside the list (title bar excluded)
+        assert workspace.fullscreenPage == 0
+
+
+def test_track_details_show_the_folder_name_and_a_dash_for_missing_values(
+    qapp, qtbot, tmp_path, monkeypatch
+) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=3) as (window, workspace, root_id, ids, runtime):
+        _queue_page(window, workspace, runtime, ids, root_id, qtbot)
+        values = {}
+        for cell in _find_all(window, "detail_Folder") + _find_all(window, "detail_BPM"):
+            value = _child(cell, "detailValue")
+            assert value is not None
+            values[str(cell.objectName())] = str(value.property("text"))
+        assert values["detail_Folder"] == "library"  # not the full path
+        assert values["detail_BPM"] == "—"
+        every = [str(c.property("text")) for c in _find_all(window, "detailValue")]
+        assert len(every) == 12
+        assert all("\\" not in text and "/" not in text for text in every)
+
+
+def test_page_two_stacks_on_a_narrow_window(qapp, qtbot, tmp_path) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        workspace.setFullscreenPage(1)
+        _rest(qtbot, root, 1)
+        artist = _find(root, "fullscreenArtistCard")
+        details = _find(root, "fullscreenTrackDetailsCard")
+        queue = _find(root, "fullscreenQueueCard")
+        assert artist is not None and details is not None and queue is not None
+        assert queue.x() > artist.x() + artist.width()  # wide: Queue on the right
+        cast(QQuickWindow, root).resize(880, 600)
+        QCoreApplication.processEvents()
+        _rest(qtbot, root, 1)
+        assert details.x() > artist.x() and details.y() == artist.y()  # side by side
+        assert queue.y() > artist.y() + artist.height()  # Queue below
+        assert queue.width() > artist.width()
+        assert artist.height() == 180

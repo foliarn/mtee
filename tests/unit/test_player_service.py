@@ -661,3 +661,20 @@ def test_a_scrub_is_ignored_when_the_track_cannot_seek(qapp, qtbot, tmp_path: Pa
     assert not model.scrubbing
     assert backend.seeks == []
     service.close()
+
+
+def test_queue_rows_carry_the_source_each_occurrence_comes_from(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, _backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=3)
+    service.play_queue(ids[:2], 0, source="folder:root/album", source_title="album")
+    _wait_playing(qtbot, service)
+    service.enqueue_tracks(ids[2:], source="playlist:night", source_title="Night drive")
+    rows = service.queue_rows()
+    assert [row["source"] for row in rows[:1]] == ["folder:root/album"]
+    manual = next(row for row in service.up_next() if row["origin"] == "manual")
+    assert manual["source"] == "playlist:night"
+    assert manual["sourceTitle"] == "Night drive"
+    context = next(row for row in service.up_next() if row["origin"] == "context")
+    assert context["source"] == "folder:root/album"
+    service.close()
