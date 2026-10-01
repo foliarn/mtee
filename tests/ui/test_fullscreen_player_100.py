@@ -8,7 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
@@ -439,3 +440,167 @@ def test_the_source_name_opens_the_playing_folder(qapp, qtbot, tmp_path, monkeyp
         assert not workspace.fullscreen
         assert workspace.activeFolder == source
         assert workspace.playingId == ids[0]
+
+
+def _wheel(window: QQuickWindow, x: float, y: float, *, angle: int = 0, pixel: int = 0) -> None:
+    event = QWheelEvent(
+        QPointF(x, y),
+        QPointF(window.mapToGlobal(QPoint(round(x), round(y)))),
+        QPoint(0, pixel),
+        QPoint(0, angle),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QCoreApplication.sendEvent(window, event)
+    QCoreApplication.processEvents()
+
+
+def _player(root: QQuickWindow) -> QQuickItem:
+    item = _find(root, "fullscreenPlayer")
+    assert item is not None
+    return item
+
+
+def _rest(qtbot, root: QQuickWindow, expected_page: int) -> None:
+    """Wait for the page animation, then check the layers sit exactly on a target."""
+    player = _player(root)
+    qtbot.waitUntil(lambda: player.property("progress") == float(expected_page), timeout=3000)
+    pages = _find(root, "fullscreenPages")
+    page2 = _find(root, "fullscreenPage2")
+    assert pages is not None and page2 is not None
+    offset = float(player.property("maxOffset"))
+    height = float(player.height())
+    if expected_page == 1:
+        assert pages.y() == -offset
+        assert page2.y() == 32 + 16  # fsPeek + fsTopMargin
+    else:
+        assert pages.y() == 0
+        assert page2.y() == height
+
+
+def _open_fullscreen(workspace, qtbot) -> None:
+    workspace.setFullscreen(True)
+    QCoreApplication.processEvents()
+    qtbot.wait(30)
+
+
+def test_one_wheel_notch_changes_page_and_the_inertia_is_ignored(qapp, qtbot, tmp_path) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        assert workspace.fullscreenPage == 0
+        _wheel(root, 700, 450, angle=-120)
+        assert workspace.fullscreenPage == 1
+        _wheel(root, 700, 450, angle=120)  # during the animation: ignored
+        assert workspace.fullscreenPage == 1
+        _rest(qtbot, root, 1)
+        qtbot.wait(450)  # animation and cooldown are over
+        _wheel(root, 700, 450, angle=120)
+        assert workspace.fullscreenPage == 0
+        _rest(qtbot, root, 0)
+
+
+def test_a_trackpad_needs_enough_pixels_to_change_page(qapp, qtbot, tmp_path) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        _wheel(root, 700, 450, pixel=-30)
+        assert workspace.fullscreenPage == 0  # under the threshold: nothing
+        _wheel(root, 700, 450, pixel=-30)
+        assert workspace.fullscreenPage == 1  # accumulated 60 px
+        _rest(qtbot, root, 1)
+
+
+def test_page_keys_and_arrows_change_page(qapp, qtbot, tmp_path) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        for key in (Qt.Key.Key_PageDown, Qt.Key.Key_PageUp, Qt.Key.Key_Down, Qt.Key.Key_Up):
+            expected = 1 if key in (Qt.Key.Key_PageDown, Qt.Key.Key_Down) else 0
+            QTest.keyClick(root, key)
+            assert workspace.fullscreenPage == expected, key
+            _rest(qtbot, root, expected)
+        assert _visible(root, "fullscreenPageDown") and not _visible(root, "fullscreenPageUp")
+        _click(cast(QQuickWindow, root), "fullscreenPageDown")
+        assert workspace.fullscreenPage == 1
+        _rest(qtbot, root, 1)
+        assert _visible(root, "fullscreenPageUp") and not _visible(root, "fullscreenPageDown")
+        _click(cast(QQuickWindow, root), "fullscreenPageUp")
+        assert workspace.fullscreenPage == 0
+        _rest(qtbot, root, 0)
+
+
+def test_the_island_queue_button_goes_to_page_two_and_back(qapp, qtbot, tmp_path) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        button = _find(root, "islandQueueButton")
+        assert button is not None and not button.property("active")
+        _click(cast(QQuickWindow, root), "islandQueueButton")
+        assert workspace.fullscreenPage == 1 and button.property("active")
+        _rest(qtbot, root, 1)
+        _click(cast(QQuickWindow, root), "islandQueueButton")
+        assert workspace.fullscreenPage == 0 and not button.property("active")
+        _rest(qtbot, root, 0)
+
+
+def test_reopening_fullscreen_always_starts_on_page_one(qapp, qtbot, tmp_path) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        workspace.setFullscreenPage(1)
+        _rest(qtbot, root, 1)
+        workspace.setFullscreen(False)
+        workspace.setFullscreen(True)
+        QCoreApplication.processEvents()
+        assert workspace.fullscreenPage == 0
+        _rest(qtbot, root, 0)
+
+
+def test_a_track_change_keeps_page_two_and_a_resize_keeps_the_view_aligned(
+    qapp, qtbot, tmp_path
+) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        workspace.setFullscreenPage(1)
+        _rest(qtbot, root, 1)
+        before = workspace.playingId
+        workspace.next()
+        QCoreApplication.processEvents()
+        assert workspace.playingId != before
+        assert workspace.fullscreenPage == 1
+        _rest(qtbot, root, 1)
+        for size in ((1100, 700), (880, 600), (1440, 900)):
+            cast(QQuickWindow, root).resize(*size)
+            QCoreApplication.processEvents()
+            _rest(qtbot, root, 1)
+
+
+def test_the_visible_bottom_of_the_card_is_not_clickable_on_page_two(qapp, qtbot, tmp_path) -> None:
+    with _demo(qapp, tmp_path) as (root, workspace):
+        _open_fullscreen(workspace, qtbot)
+        workspace.setFullscreenPage(1)
+        _rest(qtbot, root, 1)
+        player = _player(root)
+        assert player.clip()  # the scrolled card must not draw over the title bar
+        play = _find(root, "fullscreenPlay")
+        assert play is not None
+        local = player.mapFromScene(play.mapToScene(play.boundingRect().center()))
+        before = workspace.isPlaying
+        # The strip of the card that stays visible, over the Play button column.
+        point = player.mapToScene(QPointF(local.x(), 18))
+        QTest.mouseClick(
+            root, Qt.MouseButton.LeftButton, pos=QPoint(round(point.x()), round(point.y()))
+        )
+        QCoreApplication.processEvents()
+        assert workspace.isPlaying == before
+        assert workspace.fullscreenPage == 1
+
+
+def test_without_a_track_pages_do_not_exist(qapp, qtbot, tmp_path, monkeypatch) -> None:
+    with _real(qapp, tmp_path, monkeypatch) as (window, workspace, _root, _ids):
+        workspace.setFullscreen(True)
+        qtbot.waitUntil(lambda: _visible(window, "fullscreenPlayer"))
+        _wheel(window, 700, 450, angle=-120)
+        QTest.keyClick(window, Qt.Key.Key_PageDown)
+        workspace.setFullscreenPage(1)
+        assert workspace.fullscreenPage == 0
+        assert not _visible(window, "fullscreenPageDown")
+        assert not _visible(window, "fullscreenPageUp")
