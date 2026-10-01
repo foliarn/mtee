@@ -86,11 +86,15 @@ def test_the_waveform_is_computed_once_then_read_from_the_database(qapp, tmp_pat
         _wait(lambda: model.state == "ready")
         assert registered() == before + 1  # the first play decodes the file once
         assert model.durationUs == pytest.approx(20_000_000, abs=100_000)
-        packed = bytes(model.samples.data())
-        assert len(packed) == 1000 * 2 * 4  # one (low, high) float32 pair per 20 ms bin
+        model.setBarCount(200)
+        packed = bytes(model.levels.data())
+        assert len(packed) == 200 * 4  # one float32 level per requested bar
         values = struct.unpack(f"<{len(packed) // 4}f", packed)
-        assert min(values) < -0.3 and max(values) > 0.3
-        assert all(-1.0 <= value <= 1.0 for value in values)
+        assert max(values) == pytest.approx(1.0)  # normalised per track
+        assert all(0.0 <= value <= 1.0 for value in values)
+        model.setBarCount(50)
+        assert len(bytes(model.levels.data())) == 50 * 4
+        model.setBarCount(200)
 
         player.play(ids[1])
         _wait(lambda: model.state == "ready" and model.durationUs > 0)
@@ -100,7 +104,7 @@ def test_the_waveform_is_computed_once_then_read_from_the_database(qapp, tmp_pat
         submitted = registered()
         player.play(ids[0])
         assert model.state == "ready"
-        assert bytes(model.samples.data()) == packed
+        assert bytes(model.levels.data()) == packed
         assert registered() == submitted
 
         model.seekRatio(0.5)

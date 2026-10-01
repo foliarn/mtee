@@ -69,6 +69,17 @@ QtObject {
     readonly property int islandMaxWidth: 960
     readonly property int treeRowHeight: 24
 
+    // Fullscreen player (plan 100): values fixed at the mock-up review.
+    readonly property int waveBarWidth: 3
+    readonly property int waveBarGap: 2
+    readonly property int waveHeight: 128
+    readonly property int waveMinBar: 2
+    readonly property color wavePlayed: "#FFFFFF"
+    readonly property color waveUnplayed: "#7C7C82"
+    readonly property color waveHoverAhead: "#B9B9BF"
+    readonly property int wavePlayheadWidth: 2
+    readonly property int waveTimeColumn: 48
+
     // Width thresholds of the reduced layouts.
     readonly property int compactSidebarWidth: 1160
     readonly property int singleGroupWidth: 930

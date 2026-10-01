@@ -62,22 +62,3 @@ class WaveformPoints:
             tuple(point[1] for point in points),
             tuple(point[2] for point in points),
         )
-
-    def packed(self) -> bytes:
-        """Return little-endian float32 ``(low, high)`` pairs scaled to ``[-1, 1]``.
-
-        This is what the interface reads: one flat buffer that QML views as a typed
-        array, instead of a nested list that it would copy for every element.
-        """
-        pairs = [
-            value / 32768.0
-            for low, high in zip(self.lows, self.highs, strict=True)
-            for value in (low, high)
-        ]
-        return struct.pack(f"<{len(pairs)}f", *pairs)
-
-    def samples(self) -> list[list[float]]:
-        """Return ``[low, high]`` pairs scaled to ``[-1, 1]`` for the display."""
-        return [
-            [low / 32768.0, high / 32768.0] for low, high in zip(self.lows, self.highs, strict=True)
-        ]

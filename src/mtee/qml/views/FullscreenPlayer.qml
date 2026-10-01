@@ -314,7 +314,7 @@ Rectangle {
             waveform: player.waveform
             playback: player.playback
             width: parent.width
-            height: 116
+            height: Theme.waveHeight
             visible: player.waveform.state === "ready"
         }
 
@@ -379,28 +379,6 @@ Rectangle {
                 iconSize: 16
                 tip: "Next"
                 onClicked: player.playback.next()
-            }
-        }
-
-        Item {
-            width: parent.width
-            height: 16
-
-            Text {
-                text: player.time(player.playback.position)
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-                font.features: { "tnum": 1 }
-            }
-
-            Text {
-                anchors.right: parent.right
-                text: player.track.duration || "0:00"
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-                font.features: { "tnum": 1 }
             }
         }
 

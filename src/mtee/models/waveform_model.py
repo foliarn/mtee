@@ -33,7 +33,6 @@ class WaveformModel(QObject):
     progressChanged = Signal()
     errorChanged = Signal()
     durationChanged = Signal()
-    samplesChanged = Signal()
     levelsChanged = Signal()
 
     def __init__(
@@ -61,7 +60,6 @@ class WaveformModel(QObject):
         self._job_has_started = False
         self._pending_start = False
         self._points: WaveformPoints | None = None
-        self._samples = QByteArray()
         self._bar_count = 0
         self._levels = QByteArray()
         self._state = "idle"
@@ -86,11 +84,6 @@ class WaveformModel(QObject):
     @Property(int, notify=durationChanged)
     def durationUs(self) -> int:
         return self._points.duration_us if self._points else 0
-
-    @Property(QByteArray, notify=samplesChanged)
-    def samples(self) -> QByteArray:
-        """Packed little-endian float32 ``(low, high)`` pairs, see ``WaveformPoints.packed``."""
-        return self._samples
 
     @Property(QByteArray, notify=levelsChanged)
     def levels(self) -> QByteArray:
@@ -224,24 +217,18 @@ class WaveformModel(QObject):
 
     def _apply(self, points: WaveformPoints) -> None:
         self._points = points
-        self._samples = QByteArray(points.packed())
         self._set_progress(1.0)
         self.durationChanged.emit()
-        self.samplesChanged.emit()
         self._refresh_levels()
         self._set_state("ready")
 
     def _clear_data(self) -> None:
         had_data = self._points is not None
-        had_samples = not self._samples.isEmpty()
         self._points = None
-        self._samples = QByteArray()
         self._set_progress(0.0)
         self._set_error("")
         if had_data:
             self.durationChanged.emit()
-        if had_samples:
-            self.samplesChanged.emit()
         self._refresh_levels()
 
     def _refresh_levels(self) -> None:

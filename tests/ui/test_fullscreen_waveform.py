@@ -38,7 +38,7 @@ def test_fullscreen_renders_monochrome_waveform_without_zoom_or_loop_controls(
         player = cast(QObject, workspace.property("playerModel"))
         waveform_model = cast(QObject, player.property("waveformModel"))
         assert waveform_model.property("state") == "ready"
-        assert waveform_model.property("samples") == []
+        assert waveform_model.property("levels") is not None
         workspace.setFullscreen(False)
         QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents)
         assert _find(root, "waveformView") is None or not waveform.isVisible()
