@@ -184,6 +184,7 @@ Rectangle {
         AppMenuItem { text: "Playlists"; onTriggered: bar.workspace.setActivity("playlists") }
         AppMenuItem { text: "Convert"; onTriggered: bar.workspace.setActivity("convert") }
         AppMenuItem { text: "Tasks"; onTriggered: bar.workspace.setActivity("tasks") }
+        AppMenuItem { text: "Tasks page"; onTriggered: bar.workspace.openTasks() }
         AppMenuSeparator {}
         AppMenuItem {
             text: "Sidebar"

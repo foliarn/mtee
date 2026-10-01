@@ -569,6 +569,7 @@ class ConversionQueueModel(QObject):
 
             def task(context: JobContext, item=item, preview=preview, conversion_id=conversion_id) -> None:
                 published = False
+                context.report_detail(item.destination.name)
                 try:
                     settings = item.effective_settings or preview.request.settings
                     temporary = item.destination.with_name(

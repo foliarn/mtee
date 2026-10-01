@@ -27,7 +27,7 @@ from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
 ACTIVITIES = ("explorer", "playlists", "convert", "tasks", "plugins", "profile")
-TAB_KINDS = ("folder", "playlist", "convert", "settings")
+TAB_KINDS = ("folder", "playlist", "convert", "settings", "tasks")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")
 MAX_GROUPS = 2
@@ -198,7 +198,7 @@ class DemoWorkspace(QObject):
         if kind == "playlist":
             playlist = self._playlists.get(ref)
             return str(playlist["name"]) if playlist else ref
-        return "Convert" if kind == "convert" else "Settings"
+        return {"convert": "Convert", "tasks": "Tasks"}.get(kind, "Settings")
 
     def _visible_order(self, source: str) -> list[str]:
         """Order of ``source`` as its tab currently shows it."""
@@ -922,6 +922,11 @@ class DemoWorkspace(QObject):
     @Slot()
     def openSettings(self) -> None:
         self._open_tab("settings:")
+        self.layoutChanged.emit()
+
+    @Slot()
+    def openTasks(self) -> None:
+        self._open_tab("tasks:")
         self.layoutChanged.emit()
 
     @Slot(int, str)

@@ -1562,11 +1562,17 @@ class WorkspaceModel(QObject):
             available = True
             issues: list[str] = []
             failure = ""
+            seen = 0
             try:
                 for batch in self._scanner.scan(
                     root["path"], is_cancelled=lambda: context.is_cancelled
                 ):
                     issues.extend(issue.message for issue in batch.issues)
+                    for issue in batch.issues:
+                        context.report_failure(issue.path, issue.message)
+                    seen += len(batch.entries)
+                    last = batch.entries[-1].relative_path if batch.entries else ""
+                    context.report_items(seen, None, last.rpartition("/")[0] or str(root["name"]))
                     changed_folders = self._library.upsert_folders(
                         root_id, batch.folders, generation
                     )
@@ -1957,6 +1963,16 @@ class WorkspaceModel(QObject):
         self._cancel_explorer_track_action()
         self._capture_navigation()
         self._open_special_tab("settings:", "Settings")
+        self._record_navigation()
+        self.layoutChanged.emit()
+        self._persist()
+
+    @Slot()
+    def openTasks(self) -> None:
+        """Open the Tasks page as an editor tab, like Settings; Back and Forward replay it."""
+        self._cancel_explorer_track_action()
+        self._capture_navigation()
+        self._open_special_tab("tasks:", "Tasks")
         self._record_navigation()
         self.layoutChanged.emit()
         self._persist()
@@ -2582,7 +2598,9 @@ class WorkspaceModel(QObject):
         state = self._tab_state(tab_id)
         if not state:
             kind, _, ref = tab_id.partition(":")
-            title = "Folder"
+            title = {"settings": "Settings", "convert": "Convert", "tasks": "Tasks"}.get(
+                kind, "Folder"
+            )
             if kind == "folder":
                 try:
                     root_id, relative = _parse_folder_ref(ref)

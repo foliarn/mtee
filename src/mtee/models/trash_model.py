@@ -268,6 +268,12 @@ class TrashModel(QObject):
                     result = self._recycle_one(candidate, operation_id, context)
                     results.append(result)
                     context.report_progress((index + 1) / total)
+                    context.report_items(index + 1, len(candidates), candidate.path.name)
+                    if result.get("status") in {"failed", "conflict", "busy"}:
+                        context.report_failure(
+                            candidate.path.name,
+                            str(result.get("message") or result.get("status")),
+                        )
             except JobCancelledError:
                 cancelled = True
             finally:

@@ -104,6 +104,8 @@ class AnalysisService:
         report_progress: Callable[[float], None],
         on_track_done: Callable[[str], None] = lambda _track_id: None,
         on_conflict: Callable[[TagConflict], None] = lambda _conflict: None,
+        report_items: Callable[[int, int, str], None] = lambda _done, _total, _name: None,
+        report_failure: Callable[[str, str], None] = lambda _name, _message: None,
         force: bool = False,
     ) -> list[TrackReport]:
         """Analyze ``track_ids``, ``settings.parallel_jobs`` at a time.
@@ -118,6 +120,11 @@ class AnalysisService:
             return []
         progress = dict.fromkeys(track_ids, 0.0)
         lock = threading.Lock()
+        finished = 0
+
+        def file_name(track_id: str) -> str:
+            record = self._library.source_record(track_id)
+            return record.path.name if record is not None else track_id
 
         def overall(track_id: str, value: float) -> None:
             with lock:
@@ -125,8 +132,12 @@ class AnalysisService:
                 report_progress(sum(progress.values()) / total)
 
         def work(track_id: str) -> TrackReport:
+            nonlocal finished
             if is_cancelled():
                 raise JobCancelledError("analysis cancelled")
+            name = file_name(track_id)
+            with lock:
+                report_items(finished, total, name)
             report = self.analyze_track(
                 track_id,
                 settings,
@@ -135,6 +146,11 @@ class AnalysisService:
                 force=force,
             )
             overall(track_id, 1.0)
+            with lock:
+                finished += 1
+                report_items(finished, total, name)
+                if not report.ok:
+                    report_failure(name, report.message or "unknown error")
             if report.conflict is not None:
                 on_conflict(report.conflict)
             on_track_done(track_id)
