@@ -280,7 +280,11 @@ class _Backend:
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
 
+    fail = False
+
     def load(self, path: Path, session_id: int) -> None:
+        if type(self).fail:
+            raise OSError("The file could not be opened.")
         self.session_id = session_id
         for name, value in (("duration", 3_000_000), ("seekable", True), ("loaded", None)):
             if self.handler is not None:
@@ -855,3 +859,25 @@ def test_page_two_stacks_on_a_narrow_window(qapp, qtbot, tmp_path) -> None:
         assert queue.y() > artist.y() + artist.height()  # Queue below
         assert queue.width() > artist.width()
         assert artist.height() == 180
+
+
+def test_a_playback_error_replaces_the_waveform_inside_the_card(
+    qapp, qtbot, tmp_path, monkeypatch
+) -> None:
+    with _real(qapp, tmp_path, monkeypatch, count=2) as (window, workspace, root_id, ids, runtime):
+        source = f"folder:{root_id}/"
+        workspace.openFolder(source)
+        qtbot.waitUntil(
+            lambda: (
+                (model := workspace._current_track_model()) is not None
+                and model.rowCount() >= len(ids)
+            )
+        )
+        monkeypatch.setattr(_Backend, "fail", True)
+        workspace.playTrack(ids[0], source)
+        qtbot.waitUntil(lambda: runtime.player_service.state.status.value == "Error")
+        workspace.setFullscreen(True)
+        qtbot.waitUntil(lambda: _visible(window, "fullscreenPlaybackError"))
+        assert not _visible(window, "waveformView")
+        assert _visible(window, "fullscreenRetry") and _visible(window, "fullscreenNext")
+        assert _visible(window, "fullscreenCard")  # the rest of the card is unchanged
