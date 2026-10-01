@@ -32,6 +32,8 @@ Rectangle {
         height - reserve - Theme.fsTopBlock - 8 - (baseInner + 2 * Theme.fsCardPadding)))
     readonly property real innerHeight: leftColumn.implicitHeight
     readonly property real cardHeight: innerHeight + 2 * Theme.fsCardPadding
+    // The cover does not grow with the card: it stays at most ``fsCoverMax`` and is centred.
+    readonly property real coverSize: Math.min(innerHeight, Theme.fsCoverMax)
     readonly property bool hasAccent: accent.hasAccent
     readonly property color accentBase: hasAccent ? accent.baseColor : Theme.fsFallbackCard
     readonly property color accentDark: hasAccent ? accent.darkColor : Theme.fsFallbackCard
@@ -206,7 +208,7 @@ Rectangle {
                 x: Theme.fsCardPadding
                 y: Theme.fsCardPadding
                 width: player.cardWidth - 2 * Theme.fsCardPadding
-                    - (player.coverVisible ? player.innerHeight + 24 : 0)
+                    - (player.coverVisible ? player.coverSize + 24 : 0)
                 spacing: 20 + player.extraHeight / 2
 
                 Column {
@@ -378,10 +380,10 @@ Rectangle {
                 id: coverFrame
                 objectName: "fullscreenPlayerCover"
                 visible: player.coverVisible
-                x: player.cardWidth - Theme.fsCardPadding - player.innerHeight
-                y: Theme.fsCardPadding
-                width: player.innerHeight
-                height: player.innerHeight
+                x: player.cardWidth - Theme.fsCardPadding - player.coverSize
+                y: (player.cardHeight - player.coverSize) / 2
+                width: player.coverSize
+                height: player.coverSize
 
                 // The cover stays a visible item: a hidden layer source never repainted once
                 // its artwork, loaded asynchronously, arrived, and kept the stand-in colour.
