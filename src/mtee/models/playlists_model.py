@@ -18,6 +18,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from mtee.domain.durations import format_playlist_meta
 from mtee.domain.jobs import JobCancelledError, JobId, JobStatus
 from mtee.domain.playlists import LIKED_PLAYLIST_ID, PLAYLIST_COLUMNS
 from mtee.persistence.settings_repository import SettingsRepository
@@ -163,6 +164,8 @@ class PlaylistsModel(QObject):
                 "name": "Liked tracks",
                 "description": "Your saved tracks",
                 "summary": "0 tracks",
+                "trackCount": 0,
+                "metaText": "0 tracks",
                 "covers": [],
                 "coverUrl": "",
             }
@@ -207,6 +210,8 @@ class PlaylistsModel(QObject):
                     "unavailable": unavailable,
                     "summary": f"{len(rows)} tracks · {seconds // 60}:{seconds % 60:02d}"
                     + (f" · {unavailable} unavailable" if unavailable else ""),
+                    "trackCount": len(rows),
+                    "metaText": format_playlist_meta(len(rows), seconds),
                 }
             )
         liked_rows = self.service.rows(LIKED_PLAYLIST_ID)
@@ -216,6 +221,8 @@ class PlaylistsModel(QObject):
             "name": "Liked tracks",
             "description": "Your saved tracks",
             "summary": f"{len(liked_rows)} tracks · {liked_seconds // 60}:{liked_seconds % 60:02d}",
+            "trackCount": len(liked_rows),
+            "metaText": format_playlist_meta(len(liked_rows), liked_seconds),
             "coverUrl": "",
             "covers": [r["coverUrl"] for r in liked_rows if r["coverUrl"]][:4],
         }

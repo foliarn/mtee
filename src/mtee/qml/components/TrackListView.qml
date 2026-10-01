@@ -360,7 +360,7 @@ FocusScope {
     Item {
         id: heading
         width: parent.width
-        height: view.isPlaylist ? (width < 800 ? 286 : 330) : 92
+        height: view.isPlaylist ? (playlistHeader.item ? playlistHeader.item.implicitHeight : 330) : 92
 
         MouseArea {
             anchors.fill: parent
@@ -370,6 +370,7 @@ FocusScope {
         }
 
         Loader {
+            id: playlistHeader
             anchors.fill: parent
             active: view.isPlaylist
             sourceComponent: Component { PlaylistHeader { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel } }
@@ -411,7 +412,8 @@ FocusScope {
             anchors.right: parent.right
             anchors.rightMargin: view.columns.padding - 6
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: view.isPlaylist ? 28 : 14
+            // On a playlist the controls are centred on the Play button (56 px, 24 from the bottom).
+            anchors.bottomMargin: view.isPlaylist ? 36 : 14
             spacing: 2
 
             TextField {
