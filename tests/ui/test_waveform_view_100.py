@@ -7,7 +7,7 @@ import time
 from typing import cast
 
 import pytest
-from PySide6.QtCore import Property, QByteArray, QObject, QPoint, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QByteArray, QObject, QPoint, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow
@@ -51,6 +51,7 @@ class _Playback(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._position = 60.0
+        self.events: list[tuple[str, float]] = []
 
     @Property(float, notify=changed)
     def playbackDuration(self) -> float:  # noqa: N802 - read by name from QML
@@ -63,6 +64,19 @@ class _Playback(QObject):
     @Property(bool, notify=changed)
     def seekable(self) -> bool:
         return True
+
+    @Slot(float, float)
+    def scrubPress(self, ratio: float, width_px: float) -> None:  # noqa: N802 - called from QML
+        self.events.append(("press", ratio))
+        self.width_px = width_px
+
+    @Slot(float)
+    def scrubMove(self, ratio: float) -> None:  # noqa: N802 - called from QML
+        self.events.append(("move", ratio))
+
+    @Slot(float)
+    def scrubRelease(self, ratio: float) -> None:  # noqa: N802 - called from QML
+        self.events.append(("release", ratio))
 
     def move(self, position: float) -> None:
         self._position = position
@@ -250,3 +264,45 @@ def test_a_repaint_at_full_width_is_fast(probe, capsys) -> None:
     with capsys.disabled():
         print(f"\nwaveform repaint + grab at 1440 px: median {median * 1000:.1f} ms")
     assert median < 0.25  # generous: offscreen software rendering; measured for the report
+
+
+def _area_point(window: QQuickWindow, x: float) -> QPoint:
+    area = cast(QQuickItem, window.findChild(QObject, "waveformArea"))
+    point = area.mapToScene(area.position()).toPoint()
+    return QPoint(point.x() + round(x), point.y() + 40)
+
+
+def test_a_press_move_release_reaches_the_player_with_unbounded_ratios(probe) -> None:
+    qapp, window, _waveform, playback = probe
+    span = float(_view(window).property("span"))
+    QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=_area_point(window, span * 0.25))
+    _settle(qapp, 0.02)
+    assert playback.events[0][0] == "press"
+    assert playback.events[0][1] == pytest.approx(0.25, abs=0.01)
+    assert playback.width_px == pytest.approx(span)
+
+    QTest.mouseMove(window, _area_point(window, span * 0.5))
+    _settle(qapp, 0.02)
+    QTest.mouseMove(window, _area_point(window, span + 120))  # held outside, to the right
+    _settle(qapp, 0.02)
+    QTest.mouseMove(window, _area_point(window, -80))  # then outside, to the left
+    _settle(qapp, 0.02)
+    moves = [ratio for kind, ratio in playback.events if kind == "move"]
+    assert any(0.45 < ratio < 0.55 for ratio in moves)
+    assert any(ratio > 1.0 for ratio in moves)
+    assert any(ratio < 0.0 for ratio in moves)
+
+    QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=_area_point(window, span + 200))
+    _settle(qapp, 0.02)
+    assert playback.events[-1][0] == "release"
+    assert playback.events[-1][1] > 1.0
+
+
+def test_moving_without_the_button_and_other_buttons_do_not_scrub(probe) -> None:
+    qapp, window, _waveform, playback = probe
+    span = float(_view(window).property("span"))
+    QTest.mouseMove(window, _area_point(window, span * 0.4))
+    _settle(qapp, 0.02)
+    QTest.mouseClick(window, Qt.MouseButton.RightButton, pos=_area_point(window, span * 0.4))
+    _settle(qapp, 0.02)
+    assert playback.events == []

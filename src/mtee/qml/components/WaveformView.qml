@@ -122,12 +122,22 @@ FocusScope {
             height: parent.height
             enabled: view.interactive
             hoverEnabled: true
+            preventStealing: true
             acceptedButtons: Qt.LeftButton
             cursorShape: Qt.PointingHandCursor
-            onClicked: (event) => {
-                view.waveform.seekRatio(Math.max(0, Math.min(1, event.x / width)))
+
+            // Ratios are not bounded: while the button is down the mouse may leave the
+            // bars on either side, and the player needs to know which one.
+            onPressed: (event) => {
+                view.playback.scrubPress(event.x / view.span, view.span)
                 view.forceActiveFocus()
             }
+            onPositionChanged: (event) => {
+                if (pressed)
+                    view.playback.scrubMove(event.x / view.span)
+            }
+            onReleased: (event) => view.playback.scrubRelease(event.x / view.span)
+            onCanceled: view.playback.scrubRelease(Math.max(0, Math.min(1, mouseX / view.span)))
         }
     }
 

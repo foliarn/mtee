@@ -60,6 +60,7 @@ class PlayerService(QObject):
         self._read_track_ids: dict[int, str] = {}
         self._history_ids: list[str] = []
         self._unmuted_volume = self._state.volume
+        self._transient_silence = False
         self._pending_seek_us: int | None = None
         self._pending_seek_started = 0.0
         self._pause_requested_session_id: int | None = None
@@ -476,7 +477,7 @@ class PlayerService(QObject):
         muted = self._state.muted
         try:
             if self._backend is not None:
-                self._backend.set_volume(0 if muted else value)
+                self._backend.set_volume(0 if muted or self._transient_silence else value)
             if value:
                 self._unmuted_volume = value
             self._publish(volume=value)
@@ -488,11 +489,29 @@ class PlayerService(QObject):
         muted = not self._state.muted
         try:
             if self._backend is not None:
-                self._backend.set_volume(0 if muted else self._state.volume)
+                self._backend.set_volume(
+                    0 if muted or self._transient_silence else self._state.volume
+                )
             if not muted:
                 self._unmuted_volume = max(1, self._state.volume)
             self._publish(muted=muted)
         except Exception as error:
+            self._fail(str(error))
+
+    def set_transient_silence(self, silent: bool) -> None:
+        """Cut the sound, or restore it, without changing the volume the user chose.
+
+        Used while scrubbing fast. It publishes neither ``muted`` nor ``volume``, so no
+        control moves, and it follows the user's mute: restoring never unmutes. Loading a
+        track, an error, the end of a track and closing all lift it.
+        """
+        if self._backend is None or self._closed or silent == self._transient_silence:
+            return
+        self._transient_silence = silent
+        try:
+            self._backend.set_volume(0 if silent or self._state.muted else self._state.volume)
+        except Exception as error:
+            self._transient_silence = False
             self._fail(str(error))
 
     @Slot()
@@ -555,6 +574,7 @@ class PlayerService(QObject):
         except Exception as error:
             flush_error = error
         self._closed = True
+        self._transient_silence = False
         if self._save_executor is not None:
             self._save_executor.shutdown(wait=True)
         self._position_timer.stop()
@@ -644,6 +664,7 @@ class PlayerService(QObject):
             context.__enter__()
             self._read_contexts[session_id] = context
             self._read_track_ids[session_id] = track_id
+            self._transient_silence = False
             self._backend.set_volume(0 if self._state.muted else self._state.volume)
             # An explicit activation means "play this track". Reset the native
             # pause property here, once, before load so a previous track's pause
@@ -792,6 +813,7 @@ class PlayerService(QObject):
             self._finish()
 
     def _finish(self, *, stop_backend: bool = False) -> None:
+        self._transient_silence = False
         self._position_timer.stop()
         self._publish(
             status=PlaybackStatus.ENDED,
@@ -810,6 +832,7 @@ class PlayerService(QObject):
         self._trim_track_rows()
 
     def _fail(self, message: str, *, source_closed: bool = False) -> None:
+        self._transient_silence = False
         self._position_timer.stop()
         self._pending_seek_us = None
         self._restore_seek = None
