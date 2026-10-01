@@ -42,7 +42,6 @@ Window {
         return focused !== null && focused !== undefined
             && (focused.objectName === "folderSearchField"
                 || focused.objectName === "fieldEditorInput"
-                || focused instanceof AbstractButton
                 || focused instanceof TextInput
                 || focused instanceof TextEdit)
     }
@@ -225,7 +224,8 @@ Window {
 
     Shortcut {
         sequence: "Space"
-        enabled: root.ws.playingId.length > 0 && !root.textInputFocused()
+        autoRepeat: false
+        enabled: root.active && root.ws.playingId.length > 0 && !root.textInputFocused()
         onActivated: root.ws.togglePlay()
     }
     Shortcut { sequence: "Ctrl+I"; enabled: !root.textInputFocused(); onActivated: root.ws.toggleRightPanel("info") }

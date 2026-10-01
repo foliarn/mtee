@@ -191,6 +191,31 @@ def test_space_goes_to_search_while_a_track_is_playing(
         QTest.keyClick(root, Qt.Key.Key_Left, Qt.KeyboardModifier.ControlModifier)
         assert backend.seeks == [0, 0, 0]
 
+        QTest.keyClick(root, Qt.Key.Key_Space)
+        assert backend.paused
+        previous.forceActiveFocus()
+        QCoreApplication.processEvents()
+        QTest.keyClick(root, Qt.Key.Key_Space)
+        assert not backend.paused
+        assert backend.seeks == [0, 0, 0]
+        workspace.showRightPanel("queue")
+        qtbot.waitUntil(lambda: _visible(root, "playbackQueueView"))
+        QTest.keyClick(root, Qt.Key.Key_Space)
+        assert backend.paused
+        workspace.openSettings()
+        QTest.keyClick(root, Qt.Key.Key_Space)
+        assert not backend.paused
+        workspace.openConvert()
+        QTest.keyClick(root, Qt.Key.Key_Space)
+        assert backend.paused
+        QTest.keyClick(root, Qt.Key.Key_Space, Qt.KeyboardModifier.ControlModifier)
+        assert backend.paused
+        workspace.setActivity("explorer")
+        QTest.keyClick(root, Qt.Key.Key_Space)
+        assert not backend.paused
+        workspace.openFolder(f"folder:{root_id}/")
+        QCoreApplication.processEvents()
+
         search = _find(root, "folderSearchField")
         assert search is not None and search.isVisible()
         search.forceActiveFocus()
