@@ -97,6 +97,10 @@ QtObject {
     readonly property real fsShadowOpacity: 0.05
     readonly property int fsAccentFade: 1000
     readonly property int fsPlaySize: 69
+    readonly property int playlistMenuWidth: 300
+    readonly property int playlistMenuMaxHeight: 420
+    readonly property int playlistMenuRow: 44
+    readonly property int playlistMenuCover: 32
     readonly property int playlistCoverLarge: 240
     readonly property int playlistCoverCompact: 192
     readonly property int playlistCoverRadius: 6
