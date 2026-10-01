@@ -1,7 +1,7 @@
 import QtQuick
 import Mtee
 
-// Right panel with Info and Queue.
+// Right panel with Info, Queue and History.
 Rectangle {
     id: panel
 
@@ -30,7 +30,7 @@ Rectangle {
             height: parent.height
 
             Repeater {
-                model: [{ "key": "info", "label": "Info" }, { "key": "queue", "label": "Queue" }]
+                model: [{ "key": "info", "label": "Info" }, { "key": "queue", "label": "Queue" }, { "key": "history", "label": "History" }]
 
                 delegate: Item {
                     id: tabItem
@@ -90,11 +90,13 @@ Rectangle {
         anchors.leftMargin: 1
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        sourceComponent: panel.workspace.rightPanelTab === "queue" ? queueComponent : infoComponent
+        sourceComponent: panel.workspace.rightPanelTab === "queue" ? queueComponent
+            : panel.workspace.rightPanelTab === "history" ? historyComponent : infoComponent
     }
 
     Component { id: infoComponent; InfoPanel { workspace: panel.workspace } }
     Component { id: queueComponent; QueuePanel { workspace: panel.workspace; bottomInset: panel.bottomInset } }
+    Component { id: historyComponent; HistoryPanel { workspace: panel.workspace; bottomInset: panel.bottomInset } }
     MouseArea {
         property real pressX: 0
         anchors.left: parent.left

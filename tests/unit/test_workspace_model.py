@@ -286,3 +286,33 @@ def test_the_tasks_page_is_a_tab_that_back_and_forward_replay(qapp, tmp_path: Pa
     workspace.flush_session()
     jobs.shutdown(1_000)
     database.close()
+
+
+def test_the_history_tab_of_the_right_panel_is_kept_restored_and_navigable(
+    qapp, tmp_path: Path
+) -> None:
+    database = Database(tmp_path / "panel.sqlite3")
+    database.migrate()
+    session = WorkspaceRepository(database)
+    jobs = JobService(qapp, max_thread_count=1)
+    workspace = WorkspaceModel(library=LibraryRepository(database), session=session, jobs=jobs)
+    workspace.openSettings()
+    workspace.showRightPanel("queue")
+    workspace.showRightPanel("history")
+    assert workspace.rightPanelTab == "history" and workspace.rightPanelVisible
+
+    workspace.navigateBack()
+    assert workspace.rightPanelTab == "queue"
+    workspace.navigateForward()
+    assert workspace.rightPanelTab == "history"
+
+    workspace.showRightPanel("nonsense")
+    assert workspace.rightPanelTab == "info"
+    workspace.toggleRightPanel("history")
+    assert workspace.rightPanelTab == "history"
+
+    workspace.flush_session()
+    restored = WorkspaceModel(library=LibraryRepository(database), session=session, jobs=jobs)
+    assert restored.rightPanelTab == "history"
+    jobs.shutdown(1_000)
+    database.close()

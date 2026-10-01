@@ -139,7 +139,9 @@ class WorkspaceModel(QObject):
         self._sidebar_visible = bool(self._state.get("sidebarVisible", True))
         self._right_visible = bool(self._state.get("rightPanelVisible", False))
         saved_right_tab = str(self._state.get("rightPanelTab", "info"))
-        self._right_tab = saved_right_tab if saved_right_tab in {"info", "queue"} else "info"
+        self._right_tab = (
+            saved_right_tab if saved_right_tab in {"info", "queue", "history"} else "info"
+        )
         self._sidebar_width = int(self._state.get("sidebarWidth", 240))
         self._right_panel_width = int(self._state.get("rightPanelWidth", 360))
         self._fullscreen = False
@@ -2269,7 +2271,7 @@ class WorkspaceModel(QObject):
     @Slot(str)
     def showRightPanel(self, tab: str) -> None:
         self._capture_navigation()
-        self._right_tab = tab if tab in {"info", "queue"} else "info"
+        self._right_tab = tab if tab in {"info", "queue", "history"} else "info"
         self._right_visible = True
         self._record_navigation()
         self._prepare_visible_metadata()
@@ -2283,7 +2285,7 @@ class WorkspaceModel(QObject):
             self._right_visible = False
         else:
             self._right_visible = True
-            self._right_tab = tab if tab in {"info", "queue"} else "info"
+            self._right_tab = tab if tab in {"info", "queue", "history"} else "info"
         self._prepare_visible_metadata()
         self._record_navigation()
         self.layoutChanged.emit()

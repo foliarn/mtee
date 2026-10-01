@@ -205,6 +205,7 @@ def _validated(value: Any) -> dict[str, Any]:
     if not isinstance(result["rightPanelTab"], str) or result["rightPanelTab"] not in {
         "info",
         "queue",
+        "history",
     }:
         result["rightPanelTab"] = "info"
     result["islandEnabled"] = bool(result.get("islandEnabled", True))

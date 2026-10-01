@@ -1017,8 +1017,8 @@ class DemoWorkspace(QObject):
 
     @Slot(str)
     def showRightPanel(self, tab: str) -> None:
-        """Open the right panel on ``info`` or ``queue``."""
-        if tab not in ("info", "queue"):
+        """Open the right panel on ``info``, ``queue`` or ``history``."""
+        if tab not in ("info", "queue", "history"):
             raise ValueError(f"Unsupported panel tab: {tab}")
         self._right_panel = tab
         self._right_panel_visible = True
