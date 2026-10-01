@@ -2,6 +2,10 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Échantillonnage mapping et tagging — préparation du 2026-10-01
+
+Le [plan 102 — Échantillon de la collection](102-echantillonnage-mapping-tagging.md) prépare une étude à lancer avec Luna : inventaire local en lecture seule, puis 100 fichiers aléatoires et 50 cas ciblés au maximum, propositions argumentées et rapport à retourner à la conversation de cadrage. La collection annoncée comprend environ 2 850 fichiers MP3/FLAC/WAV/AIFF/M4A pour MTEE et Rekordbox. Aucun accès API SoundCloud ; Spotify en mode développement n'est pas requis pour cette étude. Les pochettes et TIDAL sont reportés. Ce plan ne réactive ni les anciennes intégrations, ni le renommage effectif, ni le développement de l'extension. Il contient une consigne prête à copier dans Luna et les fichiers attendus. Préparation uniquement ; aucun échantillon exécuté ni build Windows.
+
 ## Playlists et interactions des morceaux — préparation du 2026-10-01
 
 Le [plan 98 — Playlists, glisser-déposer et Play/Pause](98-playlists-glisser-deposer-play-pause.md) couvre uniquement les features Notion 2, 3 et 4 et le bonus d'édition par titre/survol de pochette. Il précise la création immédiate avec un nom fondé sur le nombre de playlists présentes, les indicateurs et le réordonnancement par lots dans List/Artwork, et le bouton Play/Pause à gauche des pochettes, hors file d'attente. Les décisions utilisateur, les fichiers à modifier, les jalons, les tests et 24 cas de recette sont inclus pour Luna. La préparation est documentaire ; la maquette ciblée reste à préparer et valider avant le code fonctionnel. Aucun build Windows n'est prévu.

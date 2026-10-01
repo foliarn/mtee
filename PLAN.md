@@ -1,6 +1,14 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum étude mapping et tagging — 2026-10-01
+
+L'utilisateur demande de préparer un échantillonnage qu'il exécutera avec Luna avant de rapporter les résultats. Le [plan 102](Plans%20d'ex%C3%A9cution/102-echantillonnage-mapping-tagging.md) définit un inventaire en lecture seule et une revue d'au plus 150 fichiers, séparant 100 cas aléatoires de 50 cas ciblés. La collection annoncée compte environ 2 850 fichiers MP3, FLAC, WAV, AIFF et M4A ; Rekordbox et MTEE sont les usages de référence. Le fonctionnement futur souhaité est une validation par lots, puis l'automatisation des cas fiables après évaluation.
+
+L'utilisateur n'a pas accès à l'API SoundCloud ; Spotify utilise une application en mode développement. Shovel est fonctionnel pour la découverte Spotify et l'historique des titres vus, mais son contrat d'échange reste à examiner. L'étude locale ne dépend d'aucun de ces accès. Les pochettes sont explicitement reportées, ainsi que le téléchargement TIDAL. Le nom souhaité reste `Titre.ext` avec indication de version lorsque les tags sont compatibles, sinon `Artiste - Titre.ext` ; les collisions seront rapportées sans règle de suffixe imposée. Une réanalyse Rekordbox est acceptable pour l'utilisateur, sans autorisation de supprimer sa base ou ses données.
+
+Cette demande prépare un diagnostic uniquement : aucun tagging, renommage, migration Artists, extension, intégration fournisseur ni changement de collection. Les rapports personnels restent hors Git. Les résultats serviront au prochain cadrage et aux maquettes avant développement fonctionnel ; les autres séries conservent leur périmètre.
+
 ## Addendum playlists locales — 2026-09-30
 
 La demande explicite réactive les playlists manuelles locales sur le socle actuel, indépendamment de la taxonomie et des vues intelligentes de l'ancienne étape 10. Les décisions sont consignées dans `docs/decisions/34-playlists.md` et l'implémentation dans le [plan 34](Plans%20d'ex%C3%A9cution/34-playlists-locales.md). Une nouvelle maquette QML est soumise à validation avant le backend et sa migration SQLite ; le cadrage ne constitue pas cette validation.
