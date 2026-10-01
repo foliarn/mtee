@@ -103,6 +103,9 @@ QtObject {
     readonly property int fsPeek: 32
     readonly property int fsTopMargin: 16
     readonly property int fsVignetteHeight: 96
+    readonly property int fsWideWidth: 1100
+    readonly property int fsCardGap: 20
+    readonly property int fsCompactRow: 180
 
     // Width thresholds of the reduced layouts.
     readonly property int compactSidebarWidth: 1160

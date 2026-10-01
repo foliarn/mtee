@@ -507,9 +507,64 @@ class DemoWorkspace(QObject):
     @Property(list, notify=playbackChanged)
     def upNext(self) -> list[dict[str, object]]:
         if self._playing not in self._queue:
-            return [dict(self._tracks[tid]) for tid in self._queue if tid in self._tracks]
-        index = self._queue.index(self._playing)
-        return [dict(self._tracks[tid]) for tid in self._queue[index + 1 :]]
+            upcoming = [tid for tid in self._queue if tid in self._tracks]
+        else:
+            index = self._queue.index(self._playing)
+            upcoming = [tid for tid in self._queue[index + 1 :] if tid in self._tracks]
+        return [
+            {
+                **self._tracks[tid],
+                "trackId": tid,
+                "entryId": tid,
+                "origin": "context",
+                "queueGroup": "from",
+                "source": self._source,
+                "available": True,
+            }
+            for tid in upcoming
+        ]
+
+    @Property(str, notify=playbackChanged)
+    def currentEntryId(self) -> str:
+        return self._playing
+
+    @Property(int, notify=playbackChanged)
+    def queueRevision(self) -> int:
+        return 0
+
+    @Slot(str, result=bool)
+    def playEntry(self, entry_id: str) -> bool:
+        """Illustrative: the demo queue has one occurrence per track."""
+        if entry_id not in self._tracks:
+            return False
+        self._playing = entry_id
+        self._is_playing = True
+        self._position = 0.0
+        self.playbackChanged.emit()
+        self.positionChanged.emit()
+        return True
+
+    @Slot(str, result=bool)
+    def removeQueueEntry(self, entry_id: str) -> bool:
+        if entry_id == self._playing or entry_id not in self._queue:
+            return False
+        self._queue.remove(entry_id)
+        self.playbackChanged.emit()
+        return True
+
+    @Slot(str, str, result=bool)
+    def moveQueueEntry(self, entry_id: str, before_entry_id: str) -> bool:
+        if entry_id == self._playing or entry_id not in self._queue:
+            return False
+        self._queue.remove(entry_id)
+        target = (
+            self._queue.index(before_entry_id)
+            if before_entry_id in self._queue
+            else len(self._queue)
+        )
+        self._queue.insert(target, entry_id)
+        self.playbackChanged.emit()
+        return True
 
     @Property(list, notify=playbackChanged)
     def history(self) -> list[dict[str, object]]:
