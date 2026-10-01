@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import struct
-
 import numpy as np
 import pytest
 
@@ -86,14 +84,6 @@ def test_stored_bytes_round_trip() -> None:
     assert len(payload) == 3 * 6
     restored = WaveformPoints.from_bytes(2_000_000, payload)
     assert restored == points
-    assert points.samples()[1] == [-1.0, 32767 / 32768.0]
-
-
-def test_the_interface_buffer_holds_scaled_float_pairs() -> None:
-    points = WaveformPoints(2_000_000, (-32768, -16384), (32767, 0), (10, 20))
-    packed = points.packed()
-    assert len(packed) == 2 * 2 * 4
-    assert struct.unpack("<4f", packed) == (-1.0, 32767 / 32768.0, -0.5, 0.0)
 
 
 @pytest.mark.parametrize("payload", [b"", b"abc", bytes(4), bytes(12 + 4)])

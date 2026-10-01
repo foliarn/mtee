@@ -1,213 +1,173 @@
 import QtQuick
 import Mtee
 
+// Fullscreen waveform (plan 100): symmetric rounded bars drawn from the RMS levels of
+// the waveform model, a thin playhead, hover colouring and two stacked times on the
+// right. Hovering never moves the playhead or the sound.
 FocusScope {
     id: view
 
     required property var waveform
     required property var playback
 
-    readonly property real durationSeconds: Math.max(0, Number(playback.playbackDuration) || 0)
+    // The playback engine's duration, else the one of the library metadata.
+    readonly property real durationSeconds: Math.max(0,
+        Number(playback.playbackDuration) || Number(playback.duration) || 0)
     readonly property real positionSeconds: Math.max(0, Number(playback.position) || 0)
     readonly property real playheadRatio: durationSeconds > 0
         ? Math.max(0, Math.min(1, positionSeconds / durationSeconds)) : 0
-    // ``waveform.samples`` is a packed buffer of little-endian float32 pairs
-    // (low, high). A Python list read from QML costs a full copy per element, which
-    // froze the interface for seconds; a typed array view is free.
-    readonly property var displayPoints: {
-        const raw = waveform.samples
-        // An empty buffer reaches QML as a zero-length ArrayBuffer, which Float32Array
-        // refuses; there is nothing to draw until at least one (low, high) pair exists.
-        const source = raw && raw.byteLength >= 8 ? new Float32Array(raw) : []
-        const count = Math.floor(source.length / 2)
-        const budget = Math.max(1, Math.floor(width / 2))
-        const points = []
-        if (count <= budget) {
-            for (let index = 0; index < count; ++index)
-                points.push([source[2 * index], source[2 * index + 1]])
-            return points
-        }
+    readonly property bool interactive: playback.seekable === true && waveform.state === "ready"
+    // Bar heights in [0, 1], one float32 per bar (see WaveformModel.levels).
+    readonly property var levelValues: {
+        const raw = waveform.levels
+        return raw && raw.byteLength >= 4 ? new Float32Array(raw) : []
+    }
+    readonly property bool ready: waveform.state === "ready"
+    readonly property int barWidth: Theme.waveBarWidth
+    readonly property int barGap: Theme.waveBarGap
+    readonly property int barCount: Math.max(1, Math.floor((plot.width + barGap) / (barWidth + barGap)))
+    // Without a ready waveform, flat minimal bars fill the width.
+    readonly property int drawCount: ready ? levelValues.length : barCount
+    readonly property real span: drawCount * barWidth + Math.max(0, drawCount - 1) * barGap
+    // Hovered position as a ratio of the drawn bars; -1 when the mouse is elsewhere.
+    readonly property real hoverRatio: {
+        if (!interactive || span <= 0 || !(area.containsMouse || area.pressed))
+            return -1
+        return Math.max(0, Math.min(1, area.mouseX / span))
+    }
+    readonly property real hoverPx: hoverRatio >= 0 ? hoverRatio * span : -1
 
-        for (let bin = 0; bin < budget; ++bin) {
-            const start = Math.floor(bin * count / budget)
-            const end = Math.max(start + 1, Math.floor((bin + 1) * count / budget))
-            let low = 1
-            let high = -1
-            for (let index = start; index < end; ++index) {
-                low = Math.min(low, source[2 * index])
-                high = Math.max(high, source[2 * index + 1])
-            }
-            points.push([low, high])
-        }
-        return points
+    implicitHeight: Theme.waveHeight
+
+    // Colour of the bar centred on ``x``: ``p`` is the playhead and ``h`` the hovered
+    // abscissa (negative without hover), in pixels of the drawn bars.
+    function barColor(x, p, h) {
+        if (h < 0)
+            return x <= p ? Theme.wavePlayed : Theme.waveUnplayed
+        if (h > p)
+            return x <= p ? Theme.wavePlayed : (x <= h ? Theme.waveHoverAhead : Theme.waveUnplayed)
+        return x <= h ? Theme.wavePlayed : Theme.waveUnplayed
     }
 
-    implicitHeight: 116
+    function formatTime(seconds) {
+        const total = Math.max(0, Math.floor(seconds))
+        const hours = Math.floor(total / 3600)
+        const minutes = Math.floor((total % 3600) / 60)
+        const secs = total % 60
+        const pad = (secs < 10 ? "0" : "") + secs
+        return hours > 0 ? hours + ":" + (minutes < 10 ? "0" : "") + minutes + ":" + pad
+                         : minutes + ":" + pad
+    }
 
-    Canvas {
-        id: waveformCanvas
+    onBarCountChanged: barCountTimer.restart()
+    onLevelValuesChanged: bars.requestPaint()
+    onSpanChanged: bars.requestPaint()
+    onReadyChanged: bars.requestPaint()
+    onPlayheadRatioChanged: bars.requestPaint()
+    onHoverPxChanged: bars.requestPaint()
+    Component.onCompleted: view.waveform.setBarCount(view.barCount)
+
+    Timer {
+        id: barCountTimer
+        interval: 50
+        onTriggered: view.waveform.setBarCount(view.barCount)
+    }
+
+    Item {
+        id: plot
         anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        height: 84
-        property var points: view.displayPoints
-        onPointsChanged: requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        onPaint: {
-            const ctx = getContext("2d")
-            ctx.clearRect(0, 0, width, height)
-            if (points.length === 0 || width <= 0 || height <= 0)
-                return
-            const center = height / 2
-            for (let i = 0; i < points.length; ++i) {
-                const x = (i + 0.5) * width / points.length
-                const low = points[i][0]
-                const high = points[i][1]
-                const y1 = center - high * center * 0.92
-                const y2 = center - low * center * 0.92
-                ctx.beginPath()
-                ctx.moveTo(x, y1)
-                ctx.lineTo(x, y2)
-                ctx.strokeStyle = Theme.textSecondary
-                ctx.lineWidth = Math.min(2, Math.max(1, width / points.length * 0.64))
-                ctx.stroke()
+        anchors.right: times.left
+        anchors.rightMargin: 16
+        height: Theme.waveHeight
+
+        Canvas {
+            id: bars
+            objectName: "waveformBars"
+            width: view.span
+            height: parent.height
+            onWidthChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                const count = view.drawCount
+                const step = view.barWidth + view.barGap
+                const ready = view.ready
+                const p = view.playheadRatio * view.span
+                const h = view.hoverPx
+                for (let i = 0; i < count; ++i) {
+                    const x = i * step
+                    const barHeight = Math.max(Theme.waveMinBar, (ready ? view.levelValues[i] : 0) * height)
+                    ctx.fillStyle = ready ? view.barColor(x + view.barWidth / 2, p, h) : Theme.waveUnplayed
+                    ctx.beginPath()
+                    ctx.roundedRect(x, (height - barHeight) / 2, view.barWidth, barHeight,
+                                    view.barWidth / 2, view.barWidth / 2)
+                    ctx.fill()
+                }
             }
+        }
+
+        Rectangle {
+            objectName: "wavePlayhead"
+            visible: view.ready && view.levelValues.length > 0
+            width: Theme.wavePlayheadWidth
+            height: parent.height
+            x: Math.max(0, Math.min(view.span - width, view.playheadRatio * view.span - width / 2))
+            color: Theme.wavePlayed
         }
 
         MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
+            id: area
+            objectName: "waveformArea"
+            width: view.span
+            height: parent.height
+            enabled: view.interactive
+            hoverEnabled: true
             acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.PointingHandCursor
             onClicked: (event) => {
-                view.waveform.seekRatio(event.x / width)
+                view.waveform.seekRatio(Math.max(0, Math.min(1, event.x / width)))
                 view.forceActiveFocus()
             }
         }
     }
 
     Item {
-        id: playedWaveformClip
-        z: 1
-        anchors.left: waveformCanvas.left
-        anchors.top: waveformCanvas.top
-        height: waveformCanvas.height
-        width: playbackOverlay.played * waveformCanvas.width
-        clip: true
-
-        Canvas {
-            id: playedWaveformCanvas
-            width: waveformCanvas.width
-            height: waveformCanvas.height
-            property var points: view.displayPoints
-            onPointsChanged: requestPaint()
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d")
-                ctx.clearRect(0, 0, width, height)
-                if (points.length === 0 || width <= 0 || height <= 0)
-                    return
-                const center = height / 2
-                ctx.beginPath()
-                for (let i = 0; i < points.length; ++i) {
-                    const x = (i + 0.5) * width / points.length
-                    const low = points[i][0]
-                    const high = points[i][1]
-                    const y1 = center - high * center * 0.92
-                    const y2 = center - low * center * 0.92
-                    ctx.moveTo(x, y1)
-                    ctx.lineTo(x, y2)
-                }
-                ctx.strokeStyle = Theme.textMuted
-                ctx.lineWidth = Math.min(2, Math.max(1, width / points.length * 0.64))
-                ctx.stroke()
-            }
-        }
-    }
-
-    Canvas {
-        id: playbackOverlay
-        z: 2
-        anchors.fill: waveformCanvas
-        property real played: view.playheadRatio
-        property real duration: view.durationSeconds
-        onPlayedChanged: requestPaint()
-        onDurationChanged: requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-
-        onPaint: {
-            const ctx = getContext("2d")
-            ctx.clearRect(0, 0, width, height)
-            if (duration <= 0 || width <= 0 || height <= 0)
-                return
-
-            const ratio = Math.max(0, Math.min(1, played))
-            const playedWidth = ratio * width
-
-            const lineX = Math.max(0.5, Math.min(width - 0.5, playedWidth))
-            ctx.beginPath()
-            ctx.moveTo(lineX, 0)
-            ctx.lineTo(lineX, height)
-            ctx.strokeStyle = Theme.textPrimary
-            ctx.lineWidth = 1
-            ctx.stroke()
-        }
-    }
-
-    Rectangle {
-        id: timeTag
-        z: 3
-        visible: view.durationSeconds > 0
-        width: Math.min(view.width, timeLabel.implicitWidth + 12)
-        height: 22
-        readonly property real inset: Math.min(4, Math.max(0, (view.width - width) / 2))
-        x: Math.max(inset, Math.min(view.width - width - inset,
-                                    view.playheadRatio * view.width - width / 2))
-        y: 4
-        radius: 3
-        color: Theme.surface
-        border.width: 1
-        border.color: Theme.separator
+        id: times
+        anchors.right: parent.right
+        width: Theme.waveTimeColumn
+        height: Theme.waveHeight
 
         Text {
-            id: timeLabel
-            anchors.centerIn: parent
-            width: parent.width - 8
-            text: view.formatTime(Math.min(view.positionSeconds, view.durationSeconds))
-            color: Theme.textPrimary
-            elide: Text.ElideRight
+            objectName: "waveformTimeTop"
+            anchors.right: parent.right
+            anchors.bottom: divider.top
+            anchors.bottomMargin: 6
+            text: view.formatTime((view.hoverRatio >= 0 ? view.hoverRatio : view.playheadRatio)
+                                  * view.durationSeconds)
+            color: Qt.rgba(1, 1, 1, 0.95)
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSmall
+            font.pixelSize: 14
             font.features: { "tnum": 1 }
         }
-    }
 
-    Text {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 26
-        verticalAlignment: Text.AlignVCenter
-        text: view.waveform.state === "generating" ? "Preparing waveform…"
-            : view.waveform.error.length > 0 ? view.waveform.error : "Click waveform to seek"
-        color: Theme.textMuted
-        elide: Text.ElideRight
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSmall
-    }
-
-    function formatTime(seconds) {
-        const total = Math.max(0, Math.floor(Number(seconds) || 0))
-        const hours = Math.floor(total / 3600)
-        const minutes = Math.floor(total / 60) % 60
-        const remaining = total % 60
-        const secondsText = remaining < 10 ? "0" + remaining : String(remaining)
-        if (hours > 0) {
-            const minutesText = minutes < 10 ? "0" + minutes : String(minutes)
-            return hours + ":" + minutesText + ":" + secondsText
+        Rectangle {
+            id: divider
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width
+            height: 1
+            color: Qt.rgba(1, 1, 1, 0.35)
         }
-        return Math.floor(total / 60) + ":" + secondsText
+
+        Text {
+            objectName: "waveformTimeBottom"
+            anchors.right: parent.right
+            anchors.top: divider.bottom
+            anchors.topMargin: 6
+            text: view.formatTime(view.durationSeconds)
+            color: Qt.rgba(1, 1, 1, 0.6)
+            font.family: Theme.fontFamily
+            font.pixelSize: 14
+            font.features: { "tnum": 1 }
+        }
     }
 }

@@ -637,7 +637,7 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 - [x] 2026-10-01 — 100.0 : maquette `docs/ux/mockups/Fullscreen100Review.qml` (avec `Fs100Waveform.qml` et `Fs100Marquee.qml`), lanceur `scripts/review_fullscreen_100.py`, quinze captures dans `docs/ux/fullscreen-100-2026-10-01/` et dossier `docs/ux/review-100-fullscreen.md` préparés. Contrôles : captures hors écran sans avertissement QML, `ruff check` et `ruff format --check` sur le lanceur, `pyright` sans erreur, parcours simulé des pages (molette, touches, bouton Queue) et du scrub, essai de `--audio` et `--covers` sur des fichiers synthétiques (WAV, PNG), rendu natif d'une pochette réelle. Non observé : essai à la souris réelle par l'utilisateur.
 - [x] 2026-10-01 — 100.0 : validation utilisateur (« parfait continue ») consignée dans le Decision Log, avec les valeurs proposées retenues ; champs candidats de Track details à confirmer avant 100.6.
 - [x] 2026-10-01 — 100.1 : format de waveform v2 (`<hhH`, RMS par point), énergie par tranche de 20 ms dans `features.py`, `reduce_waveform()` à quatre tableaux, `bar_levels()` dans `domain/waveform_levels.py`, `WaveformModel.levels` / `setBarCount()`, recalcul de la seule waveform par l'analyse générale (`pending()` et `analyze_track()`). Tests : `test_waveform_points.py`, `test_waveform_levels.py`, `test_analysis_repository.py`, `test_analysis_pipeline.py` (WAV synthétiques, FFmpeg embarqué), plus `test_tag_conflicts.py`, `test_fullscreen_waveform.py`, `test_player_views.py`, `test_key_analysis.py`, `test_tempo_analysis.py` sans régression. `ruff check`, `ruff format --check` et `pyright` sans erreur sur les fichiers touchés. Non fait ici (reporté à 100.2) : niveaux fictifs de `DemoWorkspace` et retrait de `packed()` / `samples()`, car l'ancien `WaveformView.qml` les lit encore.
-- [ ] 100.2 — Rendu de la waveform testé.
+- [x] 2026-10-01 — 100.2 : `WaveformView.qml` réécrit (barres symétriques arrondies, tête de lecture, survol, colonne des deux temps, nombre de barres selon la largeur avec debounce de 50 ms), constantes `wave*` dans `Theme.qml`, ligne de temps de `FullscreenPlayer.qml` supprimée, niveaux fictifs de `DemoWorkspace`, `samples` / `packed()` retirés. Tests : `test_waveform_view_100.py` (couleurs des trois lignes du tableau, pas de badge ni d'aide, temps hors survol et au survol, survol sans seek, nombre de barres, tête de lecture, repeinte), `test_waveform_view_speed.py` adapté, `test_fullscreen_waveform.py`, `test_player_views.py`, `test_demo_navigation.py`, `test_waveform_model.py`, `--demo --smoke-test`. Non fait : états de génération et d'indisponibilité avec texte et bouton Retry (carte, 100.4) ; clic = seek simple jusqu'à 100.3.
 - [ ] 100.3 — Scrub testé, latence mesurée, seuils ajustés à l'écoute.
 - [ ] 100.4 — Carte principale, couleur d'accent, île et menu testés.
 - [ ] 100.5 — Pages et transition testées.
@@ -670,6 +670,8 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 
 2026-10-01 — Jalon 100.1 : mesure de `bar_levels()` sur 1200 points : 0,26 ms pour 240 barres, 0,42 ms pour 480, 0,80 ms pour 1000 (Windows 11, Python 3.12, un seul essai de 100 appels), très en dessous de la milliseconde du contrat.
 
+2026-10-01 — Jalon 100.2 : durée de repeinte du Canvas à 1440 px mesurée par `test_a_repaint_at_full_width_is_fast` : médiane de 2,5 à 2,7 ms (repeinte et capture, rendu logiciel hors écran, Windows 11), sous les 8 ms du contrat : un seul Canvas suffit, pas de découpage en deux.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur, première série : décisions S1–S11, C1–C21, W1–W14, G1–G7, P1–P7 et D1–D9, telles que transcrites. Points notables : barres symétriques ; survol sans effet sur le son ; scrub audio avec silence au-delà d'une vitesse seuil ; suppression de l'éditeur de tags du plein écran ; carte Artiste réduite à un placeholder ; aucune autre carte que celles listées.
@@ -695,3 +697,5 @@ Révision du 2026-10-01 : première rédaction après deux séries de questions.
 Révision du 2026-10-01 (jalon 100.0) : maquette, lanceur, captures et dossier de revue préparés ; découvertes et choix de maquette ajoutés à Surprises & Discoveries et au Decision Log ; validation utilisateur en attente.
 
 Révision du 2026-10-01 (jalon 100.1) : données RMS, niveaux de barres et recalcul de la waveform seule par l'analyse générale implémentés et testés ; validation de la maquette 100.0 consignée (« parfait continue »).
+
+Révision du 2026-10-01 (jalon 100.2) : rendu de la waveform implémenté et testé ; `samples` et `packed()` supprimés ; états de génération et d'indisponibilité repoussés à la carte (100.4).

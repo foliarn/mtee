@@ -1,7 +1,8 @@
-"""The waveform view must draw a 1,200-point waveform without freezing the interface.
+"""The waveform view must draw a full-width waveform without freezing the interface.
 
-Reading a Python list from QML costs a full copy per element, which made the first
-paint of this view take several seconds. The samples now travel as one packed buffer.
+Reading a Python list from QML costs a full copy per element, which once made the first
+paint of the waveform take several seconds. The bar heights now travel as one packed
+float32 buffer (``WaveformModel.levels``).
 """
 
 from __future__ import annotations
@@ -16,32 +17,39 @@ from PySide6.QtQuick import QQuickWindow
 
 from mtee.assets import qml_dir
 
-_POINTS = 1_200
 _BUDGET_SECONDS = 1.0  # the list-based view needed about five seconds on the same machine
 
 
 class _Waveform(QObject):
     changed = Signal()
 
-    def __init__(self, points: int = _POINTS) -> None:
+    def __init__(self, ready: bool = True) -> None:
         super().__init__()
-        generator = random.Random(3)
-        flat = []
-        for _ in range(points):
-            flat.extend((-(0.2 + 0.7 * generator.random()), 0.2 + 0.7 * generator.random()))
-        self._packed = QByteArray(struct.pack(f"<{len(flat)}f", *flat)) if flat else QByteArray()
+        self._ready = ready
+        self._levels = QByteArray()
+        self.bar_counts: list[int] = []
 
     @Property(QByteArray, notify=changed)
-    def samples(self) -> QByteArray:
-        return self._packed
+    def levels(self) -> QByteArray:
+        return self._levels
 
     @Property(str, notify=changed)
     def state(self) -> str:
-        return "ready"
+        return "ready" if self._ready else "generating"
 
     @Property(str, notify=changed)
     def error(self) -> str:
         return ""
+
+    @Slot(int)
+    def setBarCount(self, count: int) -> None:  # noqa: N802 - called by name from QML
+        self.bar_counts.append(count)
+        if not self._ready or count < 1:
+            return
+        generator = random.Random(3)
+        values = [0.2 + 0.8 * generator.random() for _ in range(count)]
+        self._levels = QByteArray(struct.pack(f"<{count}f", *values))
+        self.changed.emit()
 
     @Slot(float)
     def seekRatio(self, ratio: float) -> None:  # noqa: N802 - called by name from QML
@@ -59,13 +67,12 @@ class _Playback(QObject):
     def position(self) -> float:
         return 100.0
 
+    @Property(bool, notify=changed)
+    def seekable(self) -> bool:
+        return True
 
-def test_the_first_paint_of_a_full_waveform_is_immediate(qapp) -> None:
-    engine = QQmlEngine()
-    engine.addImportPath(str(qml_dir()))
-    waveform, playback = _Waveform(), _Playback()
-    engine.rootContext().setContextProperty("testWaveform", waveform)
-    engine.rootContext().setContextProperty("testPlayback", playback)
+
+def _window(engine: QQmlEngine, name: str) -> QQuickWindow:
     components = (qml_dir() / "components").as_posix()
     component = QQmlComponent(engine)
     component.setData(
@@ -83,63 +90,59 @@ def test_the_first_paint_of_a_full_waveform_is_immediate(qapp) -> None:
             }}
         }}
         """.encode(),
-        QUrl("file:///waveform-speed-probe.qml"),
+        QUrl(f"file:///{name}.qml"),
     )
-    started = time.perf_counter()
     window = component.create()
     assert window is not None, component.errors()
     assert isinstance(window, QQuickWindow)
+    window.component = component  # type: ignore[attr-defined]  # keep the component alive
+    return window
+
+
+def test_the_first_paint_of_a_full_waveform_is_immediate(qapp) -> None:
+    engine = QQmlEngine()
+    engine.addImportPath(str(qml_dir()))
+    waveform, playback = _Waveform(), _Playback()
+    engine.rootContext().setContextProperty("testWaveform", waveform)
+    engine.rootContext().setContextProperty("testPlayback", playback)
+    started = time.perf_counter()
+    window = _window(engine, "waveform-speed-probe")
     for _ in range(30):
         qapp.processEvents()
+        time.sleep(0.005)
     window.grabWindow()
     elapsed = time.perf_counter() - started
     try:
         view = window.findChild(QObject, "view")
         assert view is not None
-        points = view.property("displayPoints")
-        assert len(points.toVariant() if hasattr(points, "toVariant") else points) == 700
+        assert view.property("barCount") == waveform.bar_counts[-1] > 200
+        levels = view.property("levelValues")
+        assert len(levels.toVariant() if hasattr(levels, "toVariant") else levels) == view.property(
+            "barCount"
+        )
         assert elapsed < _BUDGET_SECONDS, f"first paint took {elapsed:.2f} s"
     finally:
         window.close()
         window.deleteLater()
 
 
-def test_a_waveform_that_is_not_ready_yet_draws_nothing_without_errors(qapp) -> None:
+def test_a_waveform_that_is_not_ready_yet_draws_flat_bars_without_errors(qapp) -> None:
     """An empty buffer reaches QML as a zero-length ArrayBuffer, which Float32Array refuses."""
     messages: list[str] = []
     previous = qInstallMessageHandler(lambda _mode, _context, text: messages.append(text))
     try:
         engine = QQmlEngine()
         engine.addImportPath(str(qml_dir()))
-        waveform, playback = _Waveform(points=0), _Playback()
+        waveform, playback = _Waveform(ready=False), _Playback()
         engine.rootContext().setContextProperty("testWaveform", waveform)
         engine.rootContext().setContextProperty("testPlayback", playback)
-        components = (qml_dir() / "components").as_posix()
-        component = QQmlComponent(engine)
-        component.setData(
-            f"""
-            import QtQuick
-            import QtQuick.Window
-            import "file:///{components}"
-            Window {{
-                width: 1400; height: 200; visible: true
-                WaveformView {{
-                    objectName: "view"
-                    anchors.fill: parent
-                    waveform: testWaveform
-                    playback: testPlayback
-                }}
-            }}
-            """.encode(),
-            QUrl("file:///waveform-empty-probe.qml"),
-        )
-        window = component.create()
-        assert window is not None, component.errors()
+        window = _window(engine, "waveform-empty-probe")
         for _ in range(10):
             qapp.processEvents()
         view = window.findChild(QObject, "view")
         assert view is not None
-        assert len(view.property("displayPoints").toVariant()) == 0
+        assert len(view.property("levelValues").toVariant()) == 0
+        assert view.property("drawCount") == view.property("barCount")
         window.close()
         window.deleteLater()
     finally:

@@ -7,9 +7,11 @@ moves a fictitious position, saving changes a copy of invented tags.
 
 from __future__ import annotations
 
+import math
 import random
+import struct
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QByteArray, QObject, Signal, Slot
 
 from mtee.demo.library import (
     CONVERT_BATCHES,
@@ -19,6 +21,8 @@ from mtee.demo.library import (
     DemoTrack,
 )
 from mtee.demo.scenarios import DEFAULT_SCENARIO, SCENARIO_NAMES, DemoScenario, load_scenario
+from mtee.domain.waveform import WAVEFORM_POINTS, WaveformPoints
+from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
 
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
@@ -112,6 +116,7 @@ class DemoWorkspace(QObject):
     selectionChanged = Signal()
     playbackChanged = Signal()
     positionChanged = Signal()
+    levelsChanged = Signal()
     saveStateChanged = Signal()
     conversionChanged = Signal()
 
@@ -149,6 +154,7 @@ class DemoWorkspace(QObject):
         self._right_panel = scenario.right_panel
         self._right_panel_visible = bool(scenario.right_panel)
         self._fullscreen = scenario.fullscreen
+        self._bar_count = 0
         self._island_enabled = scenario.island_enabled
         self._expanded: set[str] = set(_INITIAL_EXPANDED)
         self._selected = list(scenario.selected)
@@ -302,9 +308,32 @@ class DemoWorkspace(QObject):
             else 0
         )
 
-    @Property(list, notify=playbackChanged)
-    def samples(self) -> list[list[float]]:
-        return []
+    @Property(QByteArray, notify=levelsChanged)
+    def levels(self) -> QByteArray:
+        """Illustrative bar heights, one float32 per requested bar, like ``WaveformModel``."""
+        if not self._playing or self._bar_count < 1:
+            return QByteArray()
+        seed = sum(ord(char) for char in self._playing)
+        rms = tuple(
+            round(
+                32767
+                * (0.18 + 0.8 * abs(math.sin(index / 41 + seed)) ** 1.5)
+                * (0.55 + 0.45 * abs(math.sin(index / 7)))
+            )
+            for index in range(WAVEFORM_POINTS)
+        )
+        zeros = (0,) * WAVEFORM_POINTS
+        values = bar_levels(
+            WaveformPoints(1_000_000, zeros, zeros, rms), self._bar_count, WAVEFORM_DISPLAY_GAMMA
+        )
+        return QByteArray(struct.pack(f"<{len(values)}f", *values))
+
+    @Slot(int)
+    def setBarCount(self, count: int) -> None:
+        bounded = max(0, int(count))
+        if bounded != self._bar_count:
+            self._bar_count = bounded
+            self.levelsChanged.emit()
 
     @Slot()
     def retry(self) -> None:
