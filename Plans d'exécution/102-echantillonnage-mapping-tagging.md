@@ -12,7 +12,7 @@ L'étude ne promet pas d'identifier tous les fichiers. Une absence de preuve doi
 
 - [x] 2026-10-01 — Préparer le protocole, les décisions utilisateur, les livrables et la consigne de lancement Luna.
 - [ ] 102.0 — Confirmer les racines de collection et préparer un espace de sortie privé.
-- [ ] 102.1 — Créer et tester l'outil de diagnostic en lecture seule.
+- [x] 102.1 — Créer et tester l'outil de diagnostic en lecture seule.
 - [ ] 102.2 — Inventorier la collection et sélectionner l'échantillon reproductible.
 - [ ] 102.3 — Examiner les 150 fichiers au maximum et constituer les propositions argumentées.
 - [ ] 102.4 — Produire le rapport de retour, vérifier l'intégrité et consigner les limites.
@@ -21,6 +21,8 @@ L'étude ne promet pas d'identifier tous les fichiers. Une absence de preuve doi
 ## Surprises & Discoveries
 
 À la préparation, aucun fichier de la collection n'a été lu et aucun appel authentifié Spotify ou SoundCloud n'a été effectué. Le chemin de la collection reste à fournir lors du lancement.
+
+Le 2026-10-01, l'outil `scripts/audit_mapping_sample.py` et ses tests synthétiques ont été créés. Sept tests ciblent la sélection stable, l'absence de doublons, les petites populations/formats rares, les valeurs multiples Unicode, les indications de version, les fichiers illisibles, la protection des octets audio et la reprise depuis un inventaire. Pytest et Ruff passent. Aucun dossier de collection n'a été parcouru. `.local/validation/102/` est ignoré par la règle `.gitignore:19`.
 
 Le dépôt possède `MetadataReader` dans `src/mtee/services/metadata_reader.py`, fondé sur Mutagen et sans appel à une méthode de sauvegarde. Ses valeurs normalisées utilisent des tuples. Sa vue simplifiée ne suffit pas à observer tous les tags bruts : les champs personnalisés, URL et divergences d'alias nécessitent une lecture complémentaire ciblée avec Mutagen en mode brut. Ne pas confondre une valeur absente du modèle MTEE avec une valeur absente du fichier.
 
@@ -45,6 +47,8 @@ Le projet Shovel est déclaré dans l'application sur l'hôte `tofik-local`, au 
 2026-10-01, Codex — Retenir un inventaire exhaustif léger, puis 100 fichiers au hasard et 50 cas difficiles. Le nombre 150 est un budget d'étude proposé, pas une exigence statistique ni un engagement de précision. La partie ciblée sera rapportée séparément.
 
 2026-10-01, Codex — Exécuter l'étude sans réseau obligatoire. Les URL déjà contenues dans les fichiers et les exports locaux éventuellement fournis sont des indices utilisables. L'absence d'API SoundCloud n'est pas à compenser par des endpoints privés, cookies récupérés ou identifiants tiers. Ne pas solliciter de clé Spotify pour terminer ce lot.
+
+2026-10-01, Codex — Ajouter au JSONL les tags bruts et la vue normalisée fournie par `MetadataReader`, afin de rendre visibles les alias et divergences au lieu de prendre l'une des deux vues pour une vérité exhaustive. L'inventaire rechargé reste une photographie figée et ne réécrit pas les données de sélection.
 
 ## Périmètre et exclusions
 
@@ -174,12 +178,13 @@ Sujet indicatif du commit d'exécution : `Ajoute le diagnostic local pour prépa
 
 ## Outcomes & Retrospective
 
-Préparation uniquement au 2026-10-01. L'outillage n'est pas créé, l'échantillon n'est pas tiré, aucune correspondance n'est confirmée et aucune compatibilité Rekordbox n'est testée. Compléter cette section à l'exécution avec les résultats observés, sans recopier de données personnelles dans le dépôt.
+Au début du 2026-10-01, l'outil en lecture seule et ses sept tests synthétiques sont créés et vérifiés depuis les sources. Les commandes ont réussi : `rtk proxy uv run python -m pytest tests/unit/test_mapping_sample_audit.py -q` (7 tests), `uv run ruff check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`, `uv run ruff format scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py` et `git diff --check -- scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`. Le chemin de collection n'étant pas encore fourni, l'inventaire, l'échantillon, l'examen manuel et le rapport de retour restent à faire. Aucune correspondance n'est confirmée et Rekordbox n'a pas été testé. Compléter cette section après le scan sans recopier de données personnelles dans le dépôt.
 
-Contrôles de préparation réalisés : décodage UTF-8 strict des trois documents, vérification des nouveaux liens et références de sources existantes, exclusion Git de `.local/validation/102/`, `git diff --check` et inspection du diff documentaire. Les changements applicatifs préexistants sont hors de cette préparation. Aucun test applicatif, scan de collection ou build n'a été lancé.
+Contrôles documentaires initiaux : décodage UTF-8 strict des documents, vérification des liens et références, exclusion Git de `.local/validation/102/`, puis inspection du diff de préparation. Depuis, le jalon 102.1 a ajouté un outil et des tests synthétiques ; leurs commandes réelles sont consignées ci-dessus. Les changements applicatifs préexistants restent hors de ce lot. Aucun scan de collection ni build n'a encore été lancé.
 
 ## Consigne prête à copier dans Luna
 
     Exécute le plan « Plans d'exécution/102-echantillonnage-mapping-tagging.md » de MTEE jusqu'au rapport d'échantillonnage. Lis AGENTS.md et PLANS.md. Si je n'ai pas donné les racines de ma collection, demande-moi uniquement ces chemins avant de scanner. Crée et teste l'outil de diagnostic, inventorie toute la collection en lecture seule, puis examine au maximum 100 fichiers aléatoires et 50 cas ciblés selon le plan. Ne modifie aucun audio, tag, nom de fichier ni base MTEE/Rekordbox. Aucun accès API SoundCloud ; Spotify en mode développement n'est pas une dépendance de ce lot. Ne développe ni extension, ni catalogue Artists, ni traitement de pochettes, ni intégration TIDAL/Shovel. Produis rapport-retour.md et summary.json dans le dossier privé prévu, ainsi que les fichiers de détail. Sépare observations, hypothèses et confirmations ; termine même si des fichiers restent non identifiés. Maintiens le plan, vérifie les résultats et publie uniquement l'outillage, les tests synthétiques et la documentation sans données personnelles. Préserve les changements Git préexistants. Aucun build Windows. Termine en donnant les liens des deux fichiers que je dois rapporter à la conversation de cadrage.
 
 Révision documentaire : 2026-10-01 — Protocole initial adapté à l'absence d'API SoundCloud, au mode développement Spotify et au report des pochettes.
+Révision d'exécution : 2026-10-01 — Jalon 102.1 réalisé : ajout de l'outil autonome, de la sortie JSONL de l'inventaire et de l'échantillon, de la comparaison des tags bruts et normalisés, et des tests synthétiques. Le scan réel attend les chemins explicites de la collection.
