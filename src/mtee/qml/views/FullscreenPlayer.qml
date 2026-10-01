@@ -383,13 +383,18 @@ Rectangle {
                 width: player.innerHeight
                 height: player.innerHeight
 
+                // The cover stays a visible item: a hidden layer source never repainted once
+                // its artwork, loaded asynchronously, arrived, and kept the stand-in colour.
                 CoverArt {
                     id: cover
                     anchors.fill: parent
-                    visible: false
-                    layer.enabled: true
                     pattern: player.track.cover !== undefined ? player.track.cover : -1
                     source: player.track.coverUrl || ""
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        maskEnabled: true
+                        maskSource: coverMask
+                    }
                 }
 
                 Item {
@@ -402,13 +407,6 @@ Rectangle {
                         anchors.fill: parent
                         radius: 12
                     }
-                }
-
-                MultiEffect {
-                    anchors.fill: parent
-                    source: cover
-                    maskEnabled: true
-                    maskSource: coverMask
                 }
             }
         }

@@ -82,7 +82,7 @@ QtObject {
     readonly property int fsCardRadius: 16
     readonly property int fsCardMaxWidth: 1400
     readonly property int fsCardPadding: 28
-    readonly property int fsCardExtra: 60
+    readonly property int fsCardExtra: 220
     readonly property int fsCoverHideWidth: 820
     readonly property int fsTitleSize: 34
     readonly property int fsArtistSize: 18
