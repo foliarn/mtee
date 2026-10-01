@@ -620,7 +620,39 @@ class DemoWorkspace(QObject):
 
     @Property(list, notify=playbackChanged)
     def history(self) -> list[dict[str, object]]:
-        return [dict(self._tracks[tid]) for tid in self._history if tid in self._tracks]
+        return [
+            {
+                **self._tracks[tid],
+                "trackId": tid,
+                "historyId": "demo-" + tid,
+                "source": self._source,
+                "available": True,
+            }
+            for tid in self._history
+            if tid in self._tracks
+        ]
+
+    @Property(bool, constant=True)
+    def hasHistoryModel(self) -> bool:
+        return False
+
+    @Slot(str, result=bool)
+    def playHistoryEntry(self, history_id: str) -> bool:
+        """Play a listed track now; the demo queue keeps its order."""
+        track_id = history_id.removeprefix("demo-")
+        if track_id not in self._tracks:
+            return False
+        self._push_history()
+        self._playing = track_id
+        self._is_playing = True
+        self._position = 0.0
+        self.playbackChanged.emit()
+        self.positionChanged.emit()
+        return True
+
+    @Slot(str)
+    def enqueueHistoryEntry(self, history_id: str) -> None:
+        self.enqueueTracks([history_id.removeprefix("demo-")], self._source, [])
 
     @Property(str, notify=saveStateChanged)
     def saveState(self) -> str:

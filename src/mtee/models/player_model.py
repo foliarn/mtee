@@ -9,6 +9,7 @@ from PySide6.QtCore import Property, QByteArray, QElapsedTimer, QObject, QTimer,
 from mtee.domain.playback import PlaybackStatus
 from mtee.domain.scrub import EnsurePlaying, Next, ScrubCommand, ScrubSession, Seek, Silence
 from mtee.models.cover_accent_model import CoverAccentModel
+from mtee.models.playback_history_model import PlaybackHistoryModel
 from mtee.models.playback_queue_model import PlaybackQueueModel
 from mtee.models.waveform_model import WaveformModel
 from mtee.services.player_service import PlayerService
@@ -42,6 +43,7 @@ class PlayerModel(QObject):
         self._accent = accent
         self._queue_model = PlaybackQueueModel(service, self)
         self._upcoming_queue_model = PlaybackQueueModel(service, self, upcoming_only=True)
+        self._history_model = PlaybackHistoryModel(service, self)
         self._scrub: ScrubSession | None = None
         self._clock = QElapsedTimer()
         self._clock.start()
@@ -179,6 +181,14 @@ class PlayerModel(QObject):
     @Property(QObject, constant=True)
     def upcomingQueueModel(self) -> QObject:
         return self._upcoming_queue_model
+
+    @Property(QObject, constant=True)
+    def historyModel(self) -> QObject:
+        return self._history_model
+
+    @Property(bool, constant=True)
+    def hasHistoryModel(self) -> bool:
+        return True
 
     @Property(QObject, constant=True)
     def waveformModel(self) -> QObject:
@@ -371,6 +381,14 @@ class PlayerModel(QObject):
     @Slot(str, result=bool)
     def playEntry(self, entry_id: str) -> bool:
         return self._service.play_entry(entry_id)
+
+    @Slot(str, result=bool)
+    def playHistoryEntry(self, history_id: str) -> bool:
+        return self._service.play_history_entry(history_id)
+
+    @Slot(str)
+    def enqueueHistoryEntry(self, history_id: str) -> None:
+        self._service.enqueue_history_entry(history_id)
 
     @Slot(str, result=bool)
     def removeQueueEntry(self, entry_id: str) -> bool:

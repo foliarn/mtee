@@ -8,12 +8,15 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
+from uuid import uuid4
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
 from mtee.domain.playback import PlaybackState, PlaybackStatus
+from mtee.domain.playback_history import HistoryEntry, PlaybackHistory
 from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
 from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
@@ -58,7 +61,8 @@ class PlayerService(QObject):
         self._track_rows: dict[str, dict[str, Any]] = {}
         self._read_contexts: dict[int, AbstractContextManager] = {}
         self._read_track_ids: dict[int, str] = {}
-        self._history_ids: list[str] = []
+        self._history = PlaybackHistory()
+        self._history_recorded_entry: str | None = None
         self._unmuted_volume = self._state.volume
         self._transient_silence = False
         self._pending_seek_us: int | None = None
@@ -103,6 +107,10 @@ class PlayerService(QObject):
             return
         self._save_sequence = session.write_sequence
         self._queue = session.queue
+        self._history = PlaybackHistory(session.history)
+        for item in session.history:
+            if item.snapshot and item.track_id not in self._track_rows:
+                self._track_rows[item.track_id] = dict(item.snapshot)
         for entry in (
             *session.queue.past,
             *((session.queue.current,) if session.queue.current else ()),
@@ -119,7 +127,10 @@ class PlayerService(QObject):
             return
         self._save_sequence += 1
         snapshot = PlaybackSession(
-            self._queue, max(0, self._state.position_us), self._save_sequence
+            self._queue,
+            max(0, self._state.position_us),
+            self._save_sequence,
+            self._history.entries,
         )
         future = self._save_executor.submit(self._session_repository.save, snapshot)
         self._save_futures.append(future)
@@ -202,11 +213,74 @@ class PlayerService(QObject):
         return [dict(row) for row in self.queue_rows()[start:]]
 
     def history_rows(self) -> list[dict[str, Any]]:
-        return [
-            dict(self._track_rows[track_id])
-            for track_id in reversed(self._history_ids[-20:])
-            if track_id in self._track_rows
-        ]
+        """The listenings, most recent first, each merged with the freshest track row."""
+        rows = []
+        for entry in self._history.entries:
+            track = {**entry.snapshot, **self._track_rows.get(entry.track_id, {})}
+            rows.append(
+                {
+                    **track,
+                    "id": entry.track_id,
+                    "trackId": entry.track_id,
+                    "historyId": entry.history_id,
+                    "playedAt": entry.played_at_utc,
+                    "source": entry.source,
+                    "sourceTitle": entry.source_title,
+                    "available": _available(track),
+                }
+            )
+        return rows
+
+    def play_history_entry(self, history_id: str) -> bool:
+        """Play a past listening now as a new occurrence, leaving the queue as it is."""
+        entry = self._history.find(history_id)
+        if entry is None:
+            return False
+        track = {**entry.snapshot, **self._track_rows.get(entry.track_id, {})}
+        if not _available(track):
+            return False
+        self._track_rows[entry.track_id] = dict(track)
+        occurrence = QueueEntry.create(
+            entry.track_id,
+            "manual",
+            source=entry.source,
+            source_title=entry.source_title,
+            snapshot=track,
+        )
+        self._queue = self._queue.insert_current(occurrence)
+        self._open_queue_current()
+        return True
+
+    def enqueue_history_entry(self, history_id: str) -> tuple[str, ...]:
+        """Append a past listening to the manual part of the queue."""
+        entry = self._history.find(history_id)
+        if entry is None:
+            return ()
+        track = {**entry.snapshot, **self._track_rows.get(entry.track_id, {})}
+        return self.enqueue_tracks(
+            [entry.track_id],
+            source=entry.source,
+            source_title=entry.source_title,
+            tracks=[{**track, "id": entry.track_id}],
+        )
+
+    def _record_history(self) -> None:
+        """Remember the track being left, once per occurrence."""
+        track_id = self._state.current_id
+        entry_id = self._state.current_entry_id
+        if not track_id or entry_id == self._history_recorded_entry:
+            return
+        self._history_recorded_entry = entry_id
+        self._history = self._history.record(
+            HistoryEntry(
+                history_id=str(uuid4()),
+                track_id=track_id,
+                snapshot=dict(self._track_rows.get(track_id, {})),
+                source=self._state.source,
+                source_title=self._state.source_title,
+                played_at_utc=datetime.now(UTC).isoformat(timespec="seconds"),
+            )
+        )
 
     def play_queue(
         self,
@@ -610,8 +684,7 @@ class PlayerService(QObject):
         previous_id = self._state.current_id
         next_entry_id = self._queue.current.entry_id if self._queue.current else ""
         if previous_id and self._state.current_entry_id != next_entry_id:
-            self._history_ids.append(previous_id)
-            del self._history_ids[:-20]
+            self._record_history()
         session_id = self._state.session_id + 1
         if initially_paused:
             self._pause_requested_session_id = session_id
@@ -636,7 +709,7 @@ class PlayerService(QObject):
             sample_rate=None,
             channels="",
             seeking=False,
-            history=tuple(self._history_ids[-20:]),
+            history=tuple(entry.track_id for entry in self._history.entries),
         )
         self.queueChanged.emit()
         self._pending_seek_us = None
@@ -815,6 +888,7 @@ class PlayerService(QObject):
             self._finish()
 
     def _finish(self, *, stop_backend: bool = False) -> None:
+        self._record_history()
         self._transient_silence = False
         self._position_timer.stop()
         self._publish(
@@ -831,6 +905,7 @@ class PlayerService(QObject):
         else:
             self._release_read_lease(self._state.session_id)
         self.queueChanged.emit()
+        self._schedule_session_save()
         self._trim_track_rows()
 
     def _fail(self, message: str, *, source_closed: bool = False) -> None:
@@ -866,7 +941,7 @@ class PlayerService(QObject):
             self.stateChanged.emit()
 
     def _trim_track_rows(self) -> None:
-        retained = set(self._state.track_ids) | set(self._history_ids[-20:])
+        retained = set(self._state.track_ids) | {e.track_id for e in self._history.entries}
         if self._state.current_id:
             retained.add(self._state.current_id)
         self._track_rows = {

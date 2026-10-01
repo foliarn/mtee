@@ -92,3 +92,27 @@ def test_repeat_one_leaves_pending_and_repeat_all_reuses_context_only() -> None:
     assert queue.current is first[0]
     assert queue.upcoming == (first[1],)
     assert nine not in queue.upcoming
+
+
+def test_insert_current_keeps_upcoming_and_moves_the_previous_current_to_the_past() -> None:
+    first = context("1", "2", "3")
+    queue = QueueState().start_context(first, 0, source="folder:test")
+    queue = queue.enqueue(manual("9"))
+    inserted = manual("7")[0]
+
+    result = queue.insert_current(inserted)
+
+    assert result.current is inserted
+    assert names(result.past) == ["1"]
+    assert result.upcoming == queue.upcoming
+    assert result.revision == queue.revision + 1
+    assert result.previous().current is first[0]
+
+
+def test_insert_current_without_a_current_occurrence() -> None:
+    inserted = manual("7")[0]
+
+    result = QueueState().insert_current(inserted)
+
+    assert result.current is inserted
+    assert result.past == () and result.upcoming == ()
