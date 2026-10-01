@@ -200,3 +200,64 @@ def test_a_track_that_is_being_written_is_reported_not_skipped(library: Analysis
     assert not report.ok
     assert library.repository.get(track_id) is None
     assert np.isfinite(1.0)
+
+
+def _stale_waveform(library: AnalysisLibrary, track_id: str) -> None:
+    with library.database.transaction() as connection:
+        connection.execute("UPDATE track_waveforms SET algorithm_version = 1")
+
+
+def test_pending_keeps_a_track_whose_only_waveform_is_stale(library: AnalysisLibrary) -> None:
+    track_id = library.add_track("old.wav", 124.0, 0, False, 20)
+    service = library.service()
+    assert service.analyze_track(track_id, AnalysisSettings()).ok
+    assert service.pending([track_id], force=False) == []
+    _stale_waveform(library, track_id)
+    assert service.pending([track_id], force=False) == [track_id]
+
+
+def test_a_stale_waveform_is_recomputed_alone_and_changes_nothing_else(
+    library: AnalysisLibrary,
+) -> None:
+    track_id = library.add_track("old.wav", 124.0, 0, False, 20)
+    path = library.base / "music" / "old.wav"
+    service = library.service(write_tags=True)
+    assert service.analyze_track(track_id, AnalysisSettings()).ok
+    library.repository.mark_user_edited([track_id], "bpm")
+    with library.database.transaction() as connection:
+        connection.execute("UPDATE track_analysis SET bpm = 99.5")
+    before = library.repository.get(track_id)
+    digest = sha256_of_file(path)
+    _stale_waveform(library, track_id)
+
+    report = service.analyze_track(track_id, AnalysisSettings(write_tags=True))
+
+    assert report.ok, report.message
+    assert report.conflict is None
+    after = library.repository.get(track_id)
+    assert after == before  # tempo, key, manual flag and timestamps untouched
+    assert after is not None and after.bpm == pytest.approx(99.5)
+    assert sha256_of_file(path) == digest  # no tag written
+    assert MetadataReader().read(path).bpm == ()
+    waveform = library.repository.load_waveform(track_id, None)
+    assert waveform is not None and max(waveform.rms) > 1_000
+
+
+def test_a_forced_analysis_redoes_everything_even_with_a_current_waveform(
+    library: AnalysisLibrary,
+) -> None:
+    track_id = library.add_track("again.wav", 128.0, 2, True, 20)
+    service = library.service()
+    assert service.analyze_track(track_id, AnalysisSettings()).ok
+    with library.database.transaction() as connection:
+        connection.execute("UPDATE track_analysis SET bpm = 99.5")
+    reports = service.run_batch(
+        [track_id],
+        AnalysisSettings(),
+        is_cancelled=lambda: False,
+        report_progress=lambda _value: None,
+        force=True,
+    )
+    assert reports[0].ok
+    stored = library.repository.get(track_id)
+    assert stored is not None and stored.bpm == pytest.approx(128.0, abs=0.05)

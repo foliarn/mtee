@@ -137,6 +137,24 @@ class AnalysisRepository:
                 ),
             )
 
+    def has_current_waveform(self, track_id: str, current_duration_us: int | None) -> bool:
+        """Return whether a waveform of the current version fits the audio, without reading it."""
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT source_duration_us, algorithm_version, length(points) AS size "
+                "FROM track_waveforms WHERE track_id = ?",
+                (track_id,),
+            )
+            .fetchone()
+        )
+        return (
+            row is not None
+            and int(row["algorithm_version"]) == WAVEFORM_ALGORITHM_VERSION
+            and durations_agree(row["source_duration_us"], current_duration_us)
+            and int(row["size"] or 0) > 0
+        )
+
     def load_waveform(
         self, track_id: str, current_duration_us: int | None
     ) -> WaveformPoints | None:

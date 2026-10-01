@@ -635,8 +635,8 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 - [x] 2026-10-01 — Deux séries de réponses utilisateur consignées (S, C, W, G, P, D).
 - [x] 2026-10-01 — Plan rédigé et contrôles documentaires effectués. Aucun code, aucun test applicatif.
 - [x] 2026-10-01 — 100.0 : maquette `docs/ux/mockups/Fullscreen100Review.qml` (avec `Fs100Waveform.qml` et `Fs100Marquee.qml`), lanceur `scripts/review_fullscreen_100.py`, quinze captures dans `docs/ux/fullscreen-100-2026-10-01/` et dossier `docs/ux/review-100-fullscreen.md` préparés. Contrôles : captures hors écran sans avertissement QML, `ruff check` et `ruff format --check` sur le lanceur, `pyright` sans erreur, parcours simulé des pages (molette, touches, bouton Queue) et du scrub, essai de `--audio` et `--covers` sur des fichiers synthétiques (WAV, PNG), rendu natif d'une pochette réelle. Non observé : essai à la souris réelle par l'utilisateur.
-- [ ] 100.0 — Validation utilisateur obtenue et valeurs retenues consignées. En attente : les onze décisions listées dans `docs/ux/review-100-fullscreen.md` et la ratification de ses points de découverte. Les jalons 100.1 et suivants ne démarrent pas avant.
-- [ ] 100.1 — Données RMS, niveaux de barres et recalcul par l'analyse générale testés.
+- [x] 2026-10-01 — 100.0 : validation utilisateur (« parfait continue ») consignée dans le Decision Log, avec les valeurs proposées retenues ; champs candidats de Track details à confirmer avant 100.6.
+- [x] 2026-10-01 — 100.1 : format de waveform v2 (`<hhH`, RMS par point), énergie par tranche de 20 ms dans `features.py`, `reduce_waveform()` à quatre tableaux, `bar_levels()` dans `domain/waveform_levels.py`, `WaveformModel.levels` / `setBarCount()`, recalcul de la seule waveform par l'analyse générale (`pending()` et `analyze_track()`). Tests : `test_waveform_points.py`, `test_waveform_levels.py`, `test_analysis_repository.py`, `test_analysis_pipeline.py` (WAV synthétiques, FFmpeg embarqué), plus `test_tag_conflicts.py`, `test_fullscreen_waveform.py`, `test_player_views.py`, `test_key_analysis.py`, `test_tempo_analysis.py` sans régression. `ruff check`, `ruff format --check` et `pyright` sans erreur sur les fichiers touchés. Non fait ici (reporté à 100.2) : niveaux fictifs de `DemoWorkspace` et retrait de `packed()` / `samples()`, car l'ancien `WaveformView.qml` les lit encore.
 - [ ] 100.2 — Rendu de la waveform testé.
 - [ ] 100.3 — Scrub testé, latence mesurée, seuils ajustés à l'écoute.
 - [ ] 100.4 — Carte principale, couleur d'accent, île et menu testés.
@@ -666,6 +666,10 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 
 2026-10-01 — Jalon 100.0 : la maquette a calculé, sur un WAV synthétique (sinus d'amplitude 0,8 / 0,2 / 0,5), des valeurs RMS de 0,567 / 0,142 / 0,355, soit amplitude/√2 comme attendu ; un fichier de moins de 1200 tranches de 20 ms garde un point par tranche. Le prototype d'accent a retenu `#E0245E` sur une image unie vive, `#EADFA0` sur une image pâle, et aucune couleur sur une image grise (repli C9).
 
+2026-10-01 — Jalon 100.1 : le crash natif `Windows fatal exception: access violation` et l'échec de `tests/unit/test_workspace_model.py` apparaissent aussi sur un HEAD propre (worktree temporaire à `6160ddd`, avec la même combinaison `test_workspace_model.py` puis `test_analysis_pipeline.py`) : préexistants, sans lien avec ce plan. `tests/unit/test_conversion_queue.py::test_queue_accepts_files_reviews_an_output_and_starts_on_explicit_second_action` échoue aussi ; non comparé à un HEAD propre. Exécutés séparément, les tests du jalon passent.
+
+2026-10-01 — Jalon 100.1 : mesure de `bar_levels()` sur 1200 points : 0,26 ms pour 240 barres, 0,42 ms pour 480, 0,80 ms pour 1000 (Windows 11, Python 3.12, un seul essai de 100 appels), très en dessous de la milliseconde du contrat.
+
 ## Decision Log
 
 2026-10-01 — Utilisateur, première série : décisions S1–S11, C1–C21, W1–W14, G1–G7, P1–P7 et D1–D9, telles que transcrites. Points notables : barres symétriques ; survol sans effet sur le son ; scrub audio avec silence au-delà d'une vitesse seuil ; suppression de l'éditeur de tags du plein écran ; carte Artiste réduite à un placeholder ; aucune autre carte que celles listées.
@@ -678,6 +682,10 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 
 2026-10-01 — Utilisateur, après la maquette 100.0 : « ajoute de la hauteur à la carte ». La maquette ajoute 60 px (valeur initiale, réglable par `Card extra height` dans `F2`), répartis entre les écarts de la colonne de gauche et plafonnés pour ne pas toucher l'île ; la pochette carrée en prend la hauteur intérieure. La valeur définitive reste à fixer en revue (`fsCardExtra` à ajouter à `Theme.qml`).
 
+2026-10-01 — Utilisateur : « parfait continue » après le résumé de la maquette 100.0 (onze décisions et six points de découverte listés). Interprété comme l'acceptation de la maquette avec ses valeurs proposées, hauteur de carte +60 px comprise : barres B 3/2, gamma 1,6, waveform de 128 px, gris `#7C7C82` / `#B9B9BF`, Play A (cercle blanc), ombre de repli 5 %, page 2 large et étroite comme montrées, marquee 40 px/s avec pauses de 2 s, textes 34/18/13, page 2 glissant depuis le bas, survol de file en `Theme.selection`, blanc translucide sur la carte, île avec 76 px de réserve. Les champs candidats de Track details (`Album`, `Duration`, `Sample rate`, `Bit depth`, `Size`) ne sont pas tranchés : à confirmer avant 100.6, sans bloquer 100.1 à 100.5. Le jalon 100.1 démarre.
+
+2026-10-01 — Sonnet 5.5 : jalon 100.1. `AnalysisService.analyze_track()` et `run_batch()` reçoivent un paramètre `force` (défaut faux) : « Re-analyze » le transmet pour tout recalculer ; sans lui, une piste dont le tempo et la tonalité sont à jour mais dont la waveform est absente ou d'une autre version reçoit la seule waveform, sans écriture de tags ni de BPM ni de tonalité, corrections manuelles intactes. Une piste complètement à jour appelée directement sans `force` est toujours analysée en entier, comme avant. Ajout de `AnalysisRepository.has_current_waveform()` (sans lire le BLOB) pour `pending()`. `WAVEFORM_DISPLAY_GAMMA = 1.6` (valeur de maquette). `DemoWorkspace` et `WorkspaceModel` n'ont pas été touchés (fichiers avec du travail extérieur non commité) : les niveaux fictifs viendront avec 100.2.
+
 ## Outcomes & Retrospective
 
 Préparation et jalon 100.0 (maquette) : ce document transcrit les décisions de l'utilisateur, décrit les contrats, les fichiers à créer ou modifier, huit jalons, les tests et une matrice de recette. Aucune fonctionnalité de l'application n'est implémentée et aucun build n'est réalisé. Le jalon 100.0 a produit la maquette, quinze captures et le dossier de revue ; la validation de l'utilisateur est en attente et bloque 100.1 à 100.7. Limites observées : maquette sans son, horloge simulée, scrub et seuils non éprouvés à la souris réelle ni à l'écoute, `--audio` et `--covers` essayés seulement sur des fichiers synthétiques, pas sur la collection de l'utilisateur.
@@ -685,3 +693,5 @@ Préparation et jalon 100.0 (maquette) : ce document transcrit les décisions de
 Révision du 2026-10-01 : première rédaction après deux séries de questions.
 
 Révision du 2026-10-01 (jalon 100.0) : maquette, lanceur, captures et dossier de revue préparés ; découvertes et choix de maquette ajoutés à Surprises & Discoveries et au Decision Log ; validation utilisateur en attente.
+
+Révision du 2026-10-01 (jalon 100.1) : données RMS, niveaux de barres et recalcul de la waveform seule par l'analyse générale implémentés et testés ; validation de la maquette 100.0 consignée (« parfait continue »).

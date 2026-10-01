@@ -100,6 +100,7 @@ class AnalysisModel(QObject):
                 report_progress=context.report_progress,
                 on_track_done=self._bridge.trackDone.emit,
                 on_conflict=self._bridge.conflict.emit,
+                force=force,
             )
 
         self._jobs.submit(task, label=label)

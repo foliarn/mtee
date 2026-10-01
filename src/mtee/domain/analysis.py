@@ -30,7 +30,8 @@ __all__ = [
 # Version 2: key from weighted peaks, harmonic support and the bass line.
 ANALYSIS_ALGORITHM_VERSION = 2
 # The stored waveform has its own version, so a better key does not throw it away.
-WAVEFORM_ALGORITHM_VERSION = 1
+# Version 2: each point also stores the RMS energy of its slice (plan 100).
+WAVEFORM_ALGORITHM_VERSION = 2
 # A stored result stays valid while the audio length agrees within this tolerance:
 # a tag edit changes the file bytes but not the audio, a replaced file does.
 DURATION_TOLERANCE_US = 1_000_000

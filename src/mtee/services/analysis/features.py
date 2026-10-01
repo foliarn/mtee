@@ -3,7 +3,8 @@
 The decoder delivers 16-bit stereo blocks; nothing here keeps the whole track in
 memory. Three feature families are accumulated side by side:
 
-* min/max amplitude bins of 20 ms, the basis of the stored waveform;
+* min/max amplitude and energy (sum of squares) bins of 20 ms, the basis of the
+  stored waveform;
 * an onset-strength envelope (log-compressed spectral flux), used for tempo;
 * two 36-bin pitch-class profiles from spectral peaks (the harmony, and the bass
   line seen through a longer window), used for the key.
@@ -55,6 +56,8 @@ class AudioFeatures:
     frames: int
     waveform_low: np.ndarray
     waveform_high: np.ndarray
+    waveform_sumsq: np.ndarray  # int64, sum of squared samples of each bin, channels included
+    waveform_count: np.ndarray  # int64, number of samples of each bin, channels included
     onset_envelope: np.ndarray
     pitch_profile: np.ndarray
     bass_profile: np.ndarray
@@ -168,6 +171,8 @@ class FeatureExtractor:
         self._carry = np.zeros((0, 2), dtype=np.int16)
         self._low: list[np.ndarray] = []
         self._high: list[np.ndarray] = []
+        self._sumsq: list[np.ndarray] = []
+        self._count: list[np.ndarray] = []
         self._onset_framer = _Framer(ONSET_FFT, ONSET_HOP)
         self._onset_window = np.hanning(ONSET_FFT).astype(np.float32)
         self._onset_bands = _onset_band_matrix()
@@ -203,12 +208,19 @@ class FeatureExtractor:
         if self._carry.shape[0]:
             self._low.append(np.array([self._carry.min()], dtype=np.int16))
             self._high.append(np.array([self._carry.max()], dtype=np.int16))
+            self._sumsq.append(
+                np.array([np.square(self._carry.astype(np.int64)).sum()], dtype=np.int64)
+            )
+            self._count.append(np.array([self._carry.size], dtype=np.int64))
             self._carry = self._carry[:0]
         empty = np.zeros(0, dtype=np.int16)
+        empty_wide = np.zeros(0, dtype=np.int64)
         return AudioFeatures(
             frames=self._frames,
             waveform_low=np.concatenate(self._low) if self._low else empty,
             waveform_high=np.concatenate(self._high) if self._high else empty,
+            waveform_sumsq=np.concatenate(self._sumsq) if self._sumsq else empty_wide,
+            waveform_count=np.concatenate(self._count) if self._count else empty_wide,
             onset_envelope=(
                 np.concatenate(self._envelope) if self._envelope else np.zeros(0, dtype=np.float32)
             ),
@@ -225,6 +237,8 @@ class FeatureExtractor:
             bins = data[:whole].reshape(-1, WAVEFORM_BIN_FRAMES * 2)
             self._low.append(bins.min(axis=1))
             self._high.append(bins.max(axis=1))
+            self._sumsq.append(np.square(bins.astype(np.int64)).sum(axis=1))
+            self._count.append(np.full(bins.shape[0], bins.shape[1], dtype=np.int64))
         self._carry = data[whole:].copy()
 
     # ---------------------------------------------------------------- tempo

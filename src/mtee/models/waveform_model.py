@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from contextlib import suppress
 from typing import Any
 
@@ -10,6 +11,7 @@ from PySide6.QtCore import Property, QByteArray, QObject, Qt, Signal, Slot
 from mtee.domain.conversion import ConversionSource
 from mtee.domain.jobs import JobId
 from mtee.domain.waveform import WaveformPoints
+from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
 from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.library_repository import LibraryRepository, TrackSource
 from mtee.services.audio_analyzer import AudioAnalyzer
@@ -32,6 +34,7 @@ class WaveformModel(QObject):
     errorChanged = Signal()
     durationChanged = Signal()
     samplesChanged = Signal()
+    levelsChanged = Signal()
 
     def __init__(
         self,
@@ -59,6 +62,8 @@ class WaveformModel(QObject):
         self._pending_start = False
         self._points: WaveformPoints | None = None
         self._samples = QByteArray()
+        self._bar_count = 0
+        self._levels = QByteArray()
         self._state = "idle"
         self._progress = 0.0
         self._error = ""
@@ -86,6 +91,20 @@ class WaveformModel(QObject):
     def samples(self) -> QByteArray:
         """Packed little-endian float32 ``(low, high)`` pairs, see ``WaveformPoints.packed``."""
         return self._samples
+
+    @Property(QByteArray, notify=levelsChanged)
+    def levels(self) -> QByteArray:
+        """Little-endian float32 bar heights in ``[0, 1]``, one per bar (see ``setBarCount``)."""
+        return self._levels
+
+    @Slot(int)
+    def setBarCount(self, count: int) -> None:
+        """Ask for ``count`` bars; the levels follow the width the view can draw."""
+        bounded = max(0, int(count))
+        if bounded == self._bar_count:
+            return
+        self._bar_count = bounded
+        self._refresh_levels()
 
     @Slot()
     def retry(self) -> None:
@@ -209,6 +228,7 @@ class WaveformModel(QObject):
         self._set_progress(1.0)
         self.durationChanged.emit()
         self.samplesChanged.emit()
+        self._refresh_levels()
         self._set_state("ready")
 
     def _clear_data(self) -> None:
@@ -222,6 +242,17 @@ class WaveformModel(QObject):
             self.durationChanged.emit()
         if had_samples:
             self.samplesChanged.emit()
+        self._refresh_levels()
+
+    def _refresh_levels(self) -> None:
+        if self._points is None or self._bar_count < 1:
+            levels = QByteArray()
+        else:
+            values = bar_levels(self._points, self._bar_count, WAVEFORM_DISPLAY_GAMMA)
+            levels = QByteArray(struct.pack(f"<{len(values)}f", *values))
+        if levels != self._levels:
+            self._levels = levels
+            self.levelsChanged.emit()
 
     def _set_state(self, state: str, error: str = "") -> None:
         changed = state != self._state
