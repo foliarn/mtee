@@ -29,6 +29,7 @@ Row {
     }
 
     IconButton {
+        objectName: "previousButton"
         anchors.verticalCenter: parent.verticalCenter
         width: controls.buttonSize
         height: controls.buttonSize

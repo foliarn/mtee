@@ -6,12 +6,14 @@ import wave
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 
 from mtee.app import _build_runtime, _shutdown, create_application
 from mtee.cli import AppOptions
+from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
+from mtee.domain.tracks import SourceRevision
 from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.database import Database
@@ -39,6 +41,7 @@ class _UiPlayerBackend:
         self.handler: BackendEventHandler | None = None
         self.session_id = 0
         self.paused = False
+        self.seeks: list[int] = []
 
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
@@ -54,8 +57,8 @@ class _UiPlayerBackend:
         self.paused = paused
         self._emit("pause", paused)
 
-    def seek(self, _position_us: int) -> None:
-        return
+    def seek(self, position_us: int) -> None:
+        self.seeks.append(position_us)
 
     def set_volume(self, _value: int) -> None:
         return
@@ -115,7 +118,9 @@ def test_fullscreen_and_island_keep_one_shared_playback_state(qapp, tmp_path: Pa
         application.quit()
 
 
-def test_space_goes_to_search_while_a_track_is_playing(qapp, tmp_path: Path, monkeypatch) -> None:
+def test_space_goes_to_search_while_a_track_is_playing(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
     audio_path = tmp_path / "library" / "track.wav"
     audio_path.parent.mkdir(parents=True)
     with wave.open(str(audio_path), "wb") as handle:
@@ -127,7 +132,16 @@ def test_space_goes_to_search_while_a_track_is_playing(qapp, tmp_path: Path, mon
     data_dir = tmp_path / "space-test"
     database = Database(data_dir / "mtee.sqlite3")
     database.migrate()
-    root_record = LibraryRepository(database).add_root(audio_path.parent)
+    library = LibraryRepository(database)
+    root_record = library.add_root(audio_path.parent)
+    track_id = library.upsert_location(
+        root_record["id"],
+        audio_path.name,
+        audio_path,
+        SourceRevision.observe(audio_path),
+        MetadataSnapshot(title=("Track",), technical=TechnicalInfo(duration_us=3_000_000)),
+        0,
+    )
     database.close()
 
     backend = _UiPlayerBackend()
@@ -143,11 +157,39 @@ def test_space_goes_to_search_while_a_track_is_playing(qapp, tmp_path: Path, mon
     try:
         assert runtime.jobs.wait_for_done(10_000)
         workspace.openFolder(f"folder:{root_id}/")
-        QCoreApplication.processEvents()
-        track_id = workspace.tabTracks("folder", root_id, "index", True)[0]["id"]
         workspace.playTrack(track_id, f"folder:{root_id}/")
         QCoreApplication.processEvents()
         assert workspace.playingId == track_id
+
+        previous = _find(root, "previousButton")
+        assert previous is not None and previous.isVisible()
+        point = previous.mapToScene(previous.boundingRect().center())
+        QTest.mouseClick(
+            root, Qt.MouseButton.LeftButton, pos=QPoint(round(point.x()), round(point.y()))
+        )
+        assert backend.seeks == [0]
+        workspace.setFullscreen(True)
+        qtbot.waitUntil(lambda: _visible(root, "fullscreenPlayer"))
+        fullscreen_player = _find(root, "fullscreenPlayer")
+        assert fullscreen_player is not None
+        pending = [fullscreen_player]
+        fullscreen_previous = None
+        while pending:
+            item = pending.pop()
+            if item.objectName() == "previousButton":
+                fullscreen_previous = item
+                break
+            pending.extend(item.childItems())
+        assert fullscreen_previous is not None and fullscreen_previous.isVisible()
+        point = fullscreen_previous.mapToScene(fullscreen_previous.boundingRect().center())
+        QTest.mouseClick(
+            root, Qt.MouseButton.LeftButton, pos=QPoint(round(point.x()), round(point.y()))
+        )
+        assert backend.seeks == [0, 0]
+        workspace.setFullscreen(False)
+        QCoreApplication.processEvents()
+        QTest.keyClick(root, Qt.Key.Key_Left, Qt.KeyboardModifier.ControlModifier)
+        assert backend.seeks == [0, 0, 0]
 
         search = _find(root, "folderSearchField")
         assert search is not None and search.isVisible()

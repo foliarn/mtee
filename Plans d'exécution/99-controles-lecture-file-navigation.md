@@ -355,7 +355,8 @@ Après le push, faire `git fetch origin` et comparer `git rev-parse HEAD` à `gi
 - [x] 99.2 — Persistance et restauration validées sur copies.
 - [x] 2026-10-01 — 99.3 : ajout par menus de morceaux et playlists, file virtualisée, retrait et drag par occurrence ; 24 tests ciblés passés, Ruff et Pyright ciblés verts.
 - [x] 99.3 — Menus et vues de file reliés et testés.
-- [ ] 99.4 — Précédent validé aux bornes et en pause.
+- [x] 2026-10-01 — 99.4 : 36 tests domaine/service et deux tests UI passés ; seuil 3 s, pause, double clic rapide, doublon manuel et Repeat all couverts.
+- [x] 99.4 — Précédent validé aux bornes et en pause.
 - [ ] 99.5 — Espace validé selon le focus et sur backend.
 - [ ] 99.6 — Navigation arrière/avant validée par panneau et à la souris.
 - [ ] 99.7 — Désélection et Info vide validés.
@@ -399,6 +400,8 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Codex : 99.3 prépare les lots dans `JobService` et applique les réponses dans l'ordre des requêtes, même si les workers finissent dans un autre ordre. La vue de file utilise un `ListView` unique pour les occurrences à venir ; courant et historique sont ses en-tête et pied. Les mutations ciblent `entry_id`.
 
+2026-10-01 — Codex : 99.4 privilégie le seek demandé encore en attente, sinon lit la position native puis celle publiée, pour trancher à 3 secondes. Un redémarrage publie immédiatement zéro afin qu'un second clic rapide atteigne l'occurrence précédente. En Repeat all, un retour au début réactive la dernière occurrence du contexte et conserve les ajouts manuels en attente.
+
 ## Outcomes & Retrospective
 
 Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La maquette 99.0 a été approuvée ; le domaine 99.1, la persistance 99.2 et les commandes UI de file 99.3 sont implémentés et testés. Les commandes de lecture et de navigation, la désélection et la recette intégrée restent à réaliser. Aucune distribution Windows n'est demandée.
@@ -412,3 +415,5 @@ Révision du 2026-10-01 : approbation de la maquette reçue ; 99.1 implémenté 
 Révision du 2026-10-01 : 99.2 implémenté avec migration, dépôt, writer et chargement en pause. Prochaine étape : 99.3, menus et file visible ; la validation native complète reste réservée à 99.8.
 
 Révision du 2026-10-01 : 99.3 implémenté et testé depuis les sources, avec clic droit, lot ordonné, playlist entière, retrait, drag et annulation Escape. Prochaine étape : 99.4, seuil Précédent et tests des bornes.
+
+Révision du 2026-10-01 : 99.4 implémenté et testé aux cinq positions demandées, en lecture et pause ; les commandes de l'îlot, du plein écran et Ctrl+Left passent par la même méthode. Prochaine étape : 99.5, Espace et focus.

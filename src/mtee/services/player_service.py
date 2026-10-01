@@ -425,11 +425,32 @@ class PlayerService(QObject):
     def previous(self) -> None:
         if self._queue.current is None:
             return
-        if self._queue.past:
+        position = self._effective_previous_position()
+        if position >= 3_000_000:
+            self._restart_current()
+        elif self._queue.past:
             self._queue = self._queue.previous()
             self._open_queue_current()
+        elif self._queue.repeat == "all" and self._queue.context_order:
+            self._queue = self._queue.previous_wrap()
+            self._open_queue_current()
         else:
-            self.seek(0)
+            self._restart_current()
+
+    def _effective_previous_position(self) -> int:
+        if self._pending_seek_us is not None:
+            return self._pending_seek_us
+        if self._backend is not None:
+            with suppress(Exception):
+                position = self._backend.position_us()
+                if position is not None:
+                    return max(0, int(position))
+        return self._state.position_us
+
+    def _restart_current(self) -> None:
+        self.seek(0)
+        if self._state.status is PlaybackStatus.PAUSED:
+            self.resume()
 
     @Slot(int)
     def seek(self, position_us: int) -> None:
@@ -445,7 +466,7 @@ class PlayerService(QObject):
             self._backend.seek(target)
             self._pending_seek_us = target
             self._pending_seek_started = time.monotonic()
-            self._publish(seeking=True)
+            self._publish(position_us=target, seeking=True)
         except Exception as error:
             self._fail(str(error))
 
