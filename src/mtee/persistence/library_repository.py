@@ -120,11 +120,7 @@ class LibraryRepository:
             source = Path(path).resolve(strict=False)
             try:
                 observed = SourceRevision.observe(source, generation=revision.generation)
-                if (
-                    source.is_symlink()
-                    or not source.is_file()
-                    or not revision.matches(observed)
-                ):
+                if source.is_symlink() or not source.is_file() or not revision.matches(observed):
                     observed_entries.append(None)
                     continue
                 file_dates = FileDates.observe(source)
@@ -134,9 +130,7 @@ class LibraryRepository:
             observed_entries.append((relative_path, source, observed, metadata, file_dates))
 
         source_by_key = {
-            normalize_path(entry[1]): entry[1]
-            for entry in observed_entries
-            if entry is not None
+            normalize_path(entry[1]): entry[1] for entry in observed_entries if entry is not None
         }
         derived_ids: dict[str, str] = {}
         if source_by_key:
@@ -283,10 +277,14 @@ class LibraryRepository:
                 relative = source.relative_to(root_path).as_posix()
             except ValueError:
                 continue
-            scan = self._database.connection().execute(
-                "SELECT scan_generation FROM library_roots WHERE root_id=?",
-                (str(root["id"]),),
-            ).fetchone()
+            scan = (
+                self._database.connection()
+                .execute(
+                    "SELECT scan_generation FROM library_roots WHERE root_id=?",
+                    (str(root["id"]),),
+                )
+                .fetchone()
+            )
             if scan is None:
                 continue
             identities = self.upsert_locations(
@@ -334,7 +332,9 @@ class LibraryRepository:
             )
         return unchanged
 
-    def upsert_folders(self, root_id: str, folders: Sequence[str], scan_generation: int) -> list[str]:
+    def upsert_folders(
+        self, root_id: str, folders: Sequence[str], scan_generation: int
+    ) -> list[str]:
         """Remember folders and return paths that became newly present."""
         if not folders:
             return []
@@ -356,7 +356,7 @@ class LibraryRepository:
             if root is None:
                 raise KeyError(f"Unknown library root: {root_id}")
             if int(root[0]) != scan_generation:
-                return
+                return []
             connection.executemany(
                 "INSERT INTO library_folders(root_id,relative_path,parent_relative_path,"
                 "seen_generation,present) "
@@ -407,6 +407,69 @@ class LibraryRepository:
                 (status, now, root_id),
             )
         return sorted(changed_parents)
+
+    def current_generation(self, root_id: str) -> int:
+        row = (
+            self._database.connection()
+            .execute("SELECT scan_generation FROM library_roots WHERE root_id=?", (root_id,))
+            .fetchone()
+        )
+        if row is None:
+            raise KeyError(f"Unknown library root: {root_id}")
+        return int(row[0])
+
+    def reconcile_folder(
+        self,
+        root_id: str,
+        relative: str,
+        *,
+        present_files: Sequence[str],
+        present_folders: Sequence[str],
+        generation: int,
+    ) -> list[str]:
+        """Mark absent the direct children of one folder that a listing no longer shows.
+
+        Nothing happens when the root was rescanned since ``generation`` was read: that
+        scan owns the presence flags. Sub-folders that vanished take their whole subtree
+        with them, as a complete scan would. Returns the parents whose content changed.
+        """
+        changed: set[str] = set()
+        with self._database.transaction() as connection:
+            current = connection.execute(
+                "SELECT scan_generation FROM library_roots WHERE root_id=?", (root_id,)
+            ).fetchone()
+            if current is None or int(current[0]) != generation:
+                return []
+            files = set(present_files)
+            folders = set(present_folders)
+            for row in connection.execute(
+                "SELECT track_id,relative_path FROM root_tracks WHERE root_id=? "
+                "AND parent_relative_path=? AND present=1",
+                (root_id, relative),
+            ).fetchall():
+                if str(row["relative_path"]) not in files:
+                    connection.execute(
+                        "UPDATE root_tracks SET present=0 WHERE root_id=? AND track_id=?",
+                        (root_id, str(row["track_id"])),
+                    )
+                    changed.add(relative)
+            for row in connection.execute(
+                "SELECT relative_path FROM library_folders WHERE root_id=? "
+                "AND parent_relative_path=? AND present=1",
+                (root_id, relative),
+            ).fetchall():
+                gone = str(row["relative_path"])
+                if gone in folders:
+                    continue
+                prefix = gone + "/"
+                for table in ("root_tracks", "library_folders"):
+                    connection.execute(
+                        f"UPDATE {table} SET present=0 WHERE root_id=? AND present=1 "
+                        "AND (relative_path=? OR substr(relative_path,1,?)=?)",
+                        (root_id, gone, len(prefix), prefix),
+                    )
+                changed.add(relative)
+        return sorted(changed)
 
     def mark_root_unavailable(self, root_id: str) -> None:
         with self._database.transaction() as connection:
@@ -492,7 +555,9 @@ class LibraryRepository:
             {
                 "kind": "track",
                 "id": str(row["track_id"]),
-                "name": str(row["title"] or row["relative_path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]),
+                "name": str(
+                    row["title"] or row["relative_path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                ),
                 "depth": 0,
                 "expanded": False,
                 "hasChildren": False,
@@ -590,9 +655,7 @@ class LibraryRepository:
         )
         if row is None:
             return {}
-        return _track_dict(
-            row, str(row["root_id"] or ""), track_id=track_id, display=self._display
-        )
+        return _track_dict(row, str(row["root_id"] or ""), track_id=track_id, display=self._display)
 
     def source_record(self, track_id: str) -> TrackSource | None:
         """Return the path, cached metadata, and exact stored source revision."""

@@ -217,9 +217,46 @@ def test_invalid_session_is_replaced_with_safe_layout_and_diagnostic(qapp, tmp_p
             "VALUES('main',?, '2026-01-01T00:00:00+00:00')",
             (json.dumps({"version": 1, "roots": [], "groups": [], "activeGroup": "broken"}),),
         )
-    workspace = WorkspaceModel(library=library, session=session, jobs=JobService(qapp))
+    jobs = JobService(qapp)
+    workspace = WorkspaceModel(library=library, session=session, jobs=jobs)
 
     assert session.load_recovered
     assert workspace.groups_snapshot() == [{"tabs": [], "active": ""}]
     assert "safe default layout" in workspace._message
+    jobs.shutdown(1_000)
+    database.close()
+
+
+def test_opening_a_folder_picks_up_files_added_on_disk(qapp, qtbot, tmp_path: Path) -> None:
+    folder = tmp_path / "audio"
+    first = folder / "first.wav"
+    _write_wav(first)
+    database = Database(tmp_path / "refresh.sqlite3")
+    database.migrate()
+    library = LibraryRepository(database)
+    root = library.add_root(folder)
+    generation = library.begin_scan(root["id"])
+    library.upsert_location(
+        root["id"],
+        first.name,
+        first,
+        SourceRevision.observe(first),
+        MetadataSnapshot(title=("First",)),
+        generation,
+    )
+    library.finish_scan(root["id"], generation, complete=True)
+    jobs = JobService(qapp, max_thread_count=2)
+    workspace = WorkspaceModel(library=library, session=WorkspaceRepository(database), jobs=jobs)
+    qtbot.waitUntil(lambda: bool(workspace._roots_by_id), timeout=5_000)
+    _write_wav(folder / "second.wav")
+
+    tab_id = f"folder:{root['id']}/"
+    workspace.openFolder(tab_id)
+    model = workspace.trackModelForTab(tab_id, "folder", f"{root['id']}/", "filename", True, 0)
+
+    qtbot.waitUntil(lambda: len(model.trackIds) == 2, timeout=10_000)
+    assert workspace._folder_watch.watched()
+    workspace.flush_session()
+    assert not workspace._folder_watch.watched()
+    jobs.shutdown(1_000)
     database.close()
