@@ -77,6 +77,7 @@ class WorkspaceModel(QObject):
     explorerTrackReady = Signal(int, object, object)
     sessionWriteFinished = Signal(object, object)
     playlistCreationRequested = Signal(list)
+    enqueuePrepared = Signal(int, object)
 
     def __init__(
         self,
@@ -93,6 +94,9 @@ class WorkspaceModel(QObject):
         self._jobs = jobs
         self._player = player
         self._playlists_model: PlaylistsModel | None = None
+        self._enqueue_sequence = 0
+        self._enqueue_next_to_apply = 1
+        self._enqueue_ready: dict[int, dict[str, Any]] = {}
         self._metadata_editor: MetadataEditorModel | None = None
         self._conversion_model: ConversionQueueModel | None = None
         self._trash_model: TrashModel | None = None
@@ -183,6 +187,7 @@ class WorkspaceModel(QObject):
         self.folderBranchReady.connect(self._on_folder_branch_ready)
         self.trackRowsReady.connect(self._on_track_rows_ready)
         self.explorerTrackReady.connect(self._on_explorer_track_ready)
+        self.enqueuePrepared.connect(self._on_enqueue_prepared)
         if player is not None:
             player.playbackChanged.connect(self.playbackChanged.emit)
             player.positionChanged.connect(self.positionChanged.emit)
@@ -553,6 +558,116 @@ class WorkspaceModel(QObject):
             )
         elif not available:
             self._set_message("There are no available tracks in these results.")
+
+    @Slot(list, str, list)
+    def enqueueTracks(self, identities: list, source: str, rows: list) -> None:
+        """Capture visible identities and prepare local rows outside the UI thread."""
+        self._request_enqueue([str(value) for value in identities], source, rows, False)
+
+    @Slot(str)
+    def enqueuePlaylist(self, identity: str) -> None:
+        """Add the full playlist in its own order, regardless of the active filter."""
+        self._request_enqueue([], "playlist:" + identity, [], True)
+
+    def _request_enqueue(
+        self, identities: list[str], source: str, rows: list, entire_playlist: bool
+    ) -> None:
+        if self._player is None:
+            self._set_message("The audio runtime is unavailable.")
+            return
+        self._enqueue_sequence += 1
+        sequence = self._enqueue_sequence
+        captured_rows = [dict(row) for row in rows if isinstance(row, dict)]
+        playlist_service = self._playlists_model.service if self._playlists_model else None
+        playlist_id = source.partition(":")[2] if source.startswith("playlist:") else ""
+        detail = (
+            self._playlists_model.details(playlist_id)
+            if playlist_id and self._playlists_model
+            else {}
+        )
+        source_title = str(detail.get("name", "Playlist")) if playlist_id else source
+
+        def prepare(context: JobContext) -> None:
+            try:
+                if playlist_id and playlist_service is not None:
+                    playlist_rows = playlist_service.rows(playlist_id)
+                    if entire_playlist:
+                        targets = playlist_rows
+                    else:
+                        lookup = {str(row.get("id", "")): row for row in playlist_rows}
+                        targets = [lookup.get(identity, {}) for identity in identities]
+                else:
+                    supplied = {str(row.get("id", "")): row for row in captured_rows}
+                    targets = [
+                        supplied.get(identity) or self._library.track(identity)
+                        for identity in identities
+                    ]
+                accepted: list[dict[str, Any]] = []
+                rejected = 0
+                for row in targets:
+                    context.raise_if_cancelled()
+                    if not isinstance(row, dict):
+                        rejected += 1
+                        continue
+                    track_id = str(row.get("trackId") or row.get("id") or "")
+                    path = str(row.get("path", ""))
+                    available = bool(
+                        track_id
+                        and row.get("available", row.get("status") == "readable")
+                        and path
+                        and Path(path).is_file()
+                    )
+                    if not available:
+                        rejected += 1
+                        continue
+                    accepted.append(dict(row) | {"id": track_id})
+                self.enqueuePrepared.emit(
+                    sequence,
+                    {
+                        "rows": accepted,
+                        "rejected": rejected,
+                        "source": source,
+                        "source_title": source_title,
+                    },
+                )
+            except Exception as error:
+                self.enqueuePrepared.emit(sequence, {"error": str(error)})
+
+        try:
+            self._jobs.submit(
+                prepare,
+                label="Add playlist to queue" if entire_playlist else "Add tracks to queue",
+                visible=entire_playlist or len(identities) > 100,
+            )
+        except RuntimeError as error:
+            self.enqueuePrepared.emit(sequence, {"error": str(error)})
+
+    @Slot(int, object)
+    def _on_enqueue_prepared(self, sequence: int, result: object) -> None:
+        self._enqueue_ready[sequence] = (
+            result if isinstance(result, dict) else {"error": "Invalid queue batch"}
+        )
+        while self._enqueue_next_to_apply in self._enqueue_ready:
+            ready = self._enqueue_ready.pop(self._enqueue_next_to_apply)
+            self._enqueue_next_to_apply += 1
+            if "error" in ready:
+                self._set_message("Could not add to queue: " + str(ready["error"]))
+                continue
+            accepted = [dict(row) for row in ready.get("rows", [])]
+            if accepted and self._player is not None:
+                self._player.enqueue_tracks(
+                    [str(row["id"]) for row in accepted],
+                    source=str(ready.get("source", "")),
+                    source_title=str(ready.get("source_title", "")),
+                    tracks=accepted,
+                )
+            rejected = int(ready.get("rejected", 0))
+            if rejected:
+                self._set_message(
+                    f"Added {len(accepted)} tracks; {rejected} unavailable tracks skipped."
+                )
+            elif not accepted:
+                self._set_message("There are no available tracks to add to the queue.")
 
     @Property(list, notify=metadataChanged)
     def infoFields(self) -> list[dict[str, Any]]:

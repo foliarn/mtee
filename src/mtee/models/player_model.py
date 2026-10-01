@@ -31,6 +31,7 @@ class PlayerModel(QObject):
         self._service = service
         self._waveform = waveform
         self._queue_model = PlaybackQueueModel(service, self)
+        self._upcoming_queue_model = PlaybackQueueModel(service, self, upcoming_only=True)
         service.stateChanged.connect(self.playbackChanged.emit)
         service.positionChanged.connect(self.positionChanged.emit)
         service.trackAccessReleased.connect(self.trackAccessReleased.emit)
@@ -160,6 +161,10 @@ class PlayerModel(QObject):
         return self._queue_model
 
     @Property(QObject, constant=True)
+    def upcomingQueueModel(self) -> QObject:
+        return self._upcoming_queue_model
+
+    @Property(QObject, constant=True)
     def waveformModel(self) -> QObject:
         return self._waveform if self._waveform is not None else self
 
@@ -186,6 +191,18 @@ class PlayerModel(QObject):
 
     def queue_model(self) -> PlaybackQueueModel:
         return self._queue_model
+
+    def enqueue_tracks(
+        self,
+        track_ids: list[str],
+        *,
+        source: str = "",
+        source_title: str = "",
+        tracks: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, ...]:
+        return self._service.enqueue_tracks(
+            track_ids, source=source, source_title=source_title, tracks=tracks
+        )
 
     @Property(bool, constant=True)
     def hasQueueModel(self) -> bool:

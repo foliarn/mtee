@@ -694,6 +694,8 @@ FocusScope {
                         contextMenu.trackId = modelData.id
                         contextMenu.folderId = modelData.folder || ""
                         contextMenu.trackIds = view.workspace.selectedIds
+                        contextMenu.orderedIds = view.orderedIds
+                        contextMenu.captureQueueTargets()
                         contextMenu.popup(trackRow, x, y)
                     }
                 }
@@ -870,6 +872,8 @@ FocusScope {
                         contextMenu.trackId = tile.modelData.id
                         contextMenu.folderId = tile.modelData.folder
                         contextMenu.trackIds = view.workspace.selectedIds
+                        contextMenu.orderedIds = view.orderedIds
+                        contextMenu.captureQueueTargets()
                         contextMenu.popup(tile, event.x, event.y)
                     }
                 }
