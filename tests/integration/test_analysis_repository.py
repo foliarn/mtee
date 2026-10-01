@@ -28,7 +28,7 @@ def _add_track(database: Database, track_id: str) -> None:
 
 
 def _points(duration_us: int = 5_000_000) -> WaveformPoints:
-    return WaveformPoints(duration_us, (-100, -200), (100, 300))
+    return WaveformPoints(duration_us, (-100, -200), (100, 300), (70, 150))
 
 
 def test_a_result_is_stored_and_read_back(database: Database) -> None:
@@ -119,6 +119,26 @@ def test_a_waveform_from_another_algorithm_version_is_recomputed(database: Datab
     with database.transaction() as connection:
         connection.execute("UPDATE track_waveforms SET algorithm_version = 0")
     assert repository.load_waveform("t1", 5_000_000) is None
+
+
+def test_a_version_one_waveform_is_ignored_and_a_version_two_one_is_read(
+    database: Database,
+) -> None:
+    _add_track(database, "t1")
+    repository = AnalysisRepository(database)
+    # A version 1 row holds (low, high) pairs of 4 bytes, which the new format cannot read.
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO track_waveforms (track_id, duration_us, source_duration_us, "
+            "points, algorithm_version, computed_at_utc) VALUES ('t1', 5000000, 5000000, "
+            "x'9CFF6400', 1, '2026-09-30T00:00:00Z')"
+        )
+    assert repository.load_waveform("t1", 5_000_000) is None
+    assert not repository.has_current_waveform("t1", 5_000_000)
+    repository.save_waveform("t1", _points(), 5_000_000)
+    assert repository.load_waveform("t1", 5_000_000) == _points()
+    assert repository.has_current_waveform("t1", 5_000_000)
+    assert not repository.has_current_waveform("t1", 9_000_000)  # a different audio length
 
 
 def test_a_damaged_stored_waveform_is_ignored(database: Database) -> None:

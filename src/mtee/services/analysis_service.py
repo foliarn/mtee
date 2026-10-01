@@ -76,7 +76,11 @@ class AnalysisService:
         self._tag_writer = tag_writer
 
     def pending(self, track_ids: Sequence[str], *, force: bool) -> list[str]:
-        """Return the tracks that need an analysis; ``force`` keeps them all."""
+        """Return the tracks that need an analysis; ``force`` keeps them all.
+
+        A track also needs one when only its waveform is missing or of an older version:
+        it then gets the waveform alone, see ``analyze_track``.
+        """
         identities = list(dict.fromkeys(track_ids))
         if force:
             return identities
@@ -85,7 +89,9 @@ class AnalysisService:
         for track_id in identities:
             record = self._library.source_record(track_id)
             duration = _duration_us(record)
-            if not self._repository.is_current(stored.get(track_id), duration):
+            if not self._repository.is_current(
+                stored.get(track_id), duration
+            ) or not self._repository.has_current_waveform(track_id, duration):
                 pending.append(track_id)
         return pending
 
@@ -98,8 +104,11 @@ class AnalysisService:
         report_progress: Callable[[float], None],
         on_track_done: Callable[[str], None] = lambda _track_id: None,
         on_conflict: Callable[[TagConflict], None] = lambda _conflict: None,
+        force: bool = False,
     ) -> list[TrackReport]:
         """Analyze ``track_ids``, ``settings.parallel_jobs`` at a time.
+
+        With ``force`` every track is analyzed in full, even one whose results are current.
 
         Raises ``JobCancelledError`` on cancellation and ``AnalysisBatchError`` at the
         end when some tracks failed; finished tracks are stored either way.
@@ -123,6 +132,7 @@ class AnalysisService:
                 settings,
                 is_cancelled=is_cancelled,
                 report_progress=lambda value: overall(track_id, value),
+                force=force,
             )
             overall(track_id, 1.0)
             if report.conflict is not None:
@@ -157,7 +167,15 @@ class AnalysisService:
         *,
         is_cancelled: Callable[[], bool] = lambda: False,
         report_progress: Callable[[float], None] = lambda _value: None,
+        force: bool = False,
     ) -> TrackReport:
+        """Analyze one track and store the results.
+
+        When the tempo and key are current but the stored waveform is missing or of an
+        older version, only the waveform is computed and saved: the tempo, the key, the
+        manual corrections and the tags of the file are left alone. ``force`` skips that
+        shortcut and redoes everything.
+        """
         record = self._library.source_record(track_id)
         if record is None:
             return TrackReport(track_id, False, "The track is no longer in the library.")
@@ -165,12 +183,19 @@ class AnalysisService:
             return TrackReport(track_id, False, "This audio file could not be read.")
         duration = _duration_us(record)
         source = ConversionSource(track_id, record.path, record.revision)
+        waveform_only = (
+            not force
+            and self._repository.is_current(self._repository.get(track_id), duration)
+            and not self._repository.has_current_waveform(track_id, duration)
+        )
         try:
             outcome = self._analyzer.analyze(
                 source,
                 record.revision,
-                tempo_range=(float(settings.bpm_min), float(settings.bpm_max)),
-                tonality=True,
+                tempo_range=(
+                    None if waveform_only else (float(settings.bpm_min), float(settings.bpm_max))
+                ),
+                tonality=not waveform_only,
                 expected_duration_us=duration,
                 is_cancelled=is_cancelled,
                 report_progress=report_progress,
@@ -180,6 +205,8 @@ class AnalysisService:
         except Exception as error:
             return TrackReport(track_id, False, f"{record.path.name}: {error}")
         self._repository.save_waveform(track_id, outcome.waveform, duration)
+        if waveform_only:
+            return TrackReport(track_id, True)
         stored = self._repository.save_result(
             track_id, bpm=outcome.bpm, key=outcome.key, source_duration_us=duration
         )

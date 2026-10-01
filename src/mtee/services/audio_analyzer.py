@@ -102,7 +102,11 @@ class AudioAnalyzer:
         if features.frames < 1:
             raise ValueError("No decodable audio frames were found.")
         waveform = reduce_waveform(
-            features.waveform_low, features.waveform_high, features.duration_us
+            features.waveform_low,
+            features.waveform_high,
+            features.waveform_sumsq,
+            features.waveform_count,
+            features.duration_us,
         )
         bpm: float | None = None
         if tempo_range is not None:
