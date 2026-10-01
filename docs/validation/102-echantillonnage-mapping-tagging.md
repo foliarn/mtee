@@ -27,4 +27,19 @@ Le rapport détaillé, le résumé, l’inventaire et les lignes de revue demeur
 
 Aucune écriture de tag ou de nom n’a été faite. Aucune recherche Web, API Spotify/SoundCloud, connexion Shovel, export Rekordbox ou écoute n’a été réalisée. Les identités proposées sont des indices locaux non confirmés. La version de Rekordbox n’a pas été relevée et sa compatibilité n’a pas été testée. Les collisions et renommages restent des simulations sans suffixe de collision validé.
 
-Un examen humain des cas prioritaires et une décision sur les groupes d’artistes restent nécessaires avant de cadrer l’automatisation, le catalogue Artists ou l’application de corrections.
+Un examen humain des cas prioritaires et une décision sur les groupes d'artistes restent nécessaires avant de cadrer l'automatisation, le catalogue Artists ou l'application de corrections.
+
+## Revue corrigée 102.5
+
+À la demande de l'utilisateur, les règles de proposition artiste/titre et de simulation de renommage ont été corrigées sur les données figées, sans nouvelle lecture audio. La sortie privée `run_followup_02` réutilise à l'identique l'inventaire et l'échantillon de `run_final_03`. Elle contient 150 revues, un lot de 20 cas avec artiste et titre proposés, et une simulation de renommage comparée à l'inventaire complet. Les décisions A+ et Ev comme artistes distincts dans leurs collaborations sont conservées.
+
+Les règles testées retirent les préfixes d'artiste des tags titre lorsqu'ils correspondent au crédit proposé; peuvent proposer un artiste à partir du titre, d'un nom connu et de séparateurs imparfaits; préservent toutes les valeurs artiste et titre; comparent les collaborations comme listes; gardent les indications musicales de version; retirent les annotations promo/techniques/catalogue identifiées et signalent les cas ambigus ou possiblement mal encodés. La simulation vérifie les collisions entre fichiers présents et propositions, ainsi que les noms Windows, y compris lorsque les tags titre sont absents. Elle n'applique rien.
+
+Neuf tests synthétiques ciblés ont été ajoutés au module existant (20 tests ciblés au total). Contrôles réussis :
+
+    .venv/Scripts/python.exe -m pytest tests/unit/test_mapping_sample_audit.py -q
+    .venv/Scripts/ruff.exe check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py
+    .venv/Scripts/ruff.exe format --check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py
+    git diff --check -- scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py
+
+Aucun tag, audio, base, API, pochette ou paquet Windows n'a été touché. La sortie détaillée et les cas contenant des noms de collection restent dans `.local/validation/102/run_followup_02/`, ignoré par Git.

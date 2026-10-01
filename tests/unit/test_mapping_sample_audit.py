@@ -11,13 +11,18 @@ import pytest
 from mutagen.id3 import TIT2, TPE1
 from mutagen.wave import WAVE
 from scripts.audit_mapping_sample import (
+    _clean_annotation,
     _inventory_one,
     _is_link_or_junction,
     _motifs,
     _music_refs,
+    _parse_filename_metadata,
     _values,
+    propose_metadata,
     run,
+    same_artist_credit,
     select_sample,
+    simulate_rename_proposals,
 )
 
 
@@ -212,3 +217,114 @@ def test_frozen_inventory_input_is_reusable_without_roots(tmp_path: Path) -> Non
     assert (result / "run.json").is_file()
     assert len((result / "inventory.jsonl").read_text(encoding="utf-8").splitlines()) == 4
     assert len((result / "sample.jsonl").read_text(encoding="utf-8").splitlines()) == 3
+
+
+def test_title_prefix_artist_is_removed_and_all_title_values_are_cleaned() -> None:
+    row = _row(
+        1,
+        title="Ev & Taiki Nulight - Chaos (Free Download) (Taiki Nulight Remix)",
+        artist="Ev & Taiki Nulight",
+    )
+    row["tags"]["title"].append("Ev & Taiki Nulight - Chaos (Radio Edit)")
+
+    proposal = propose_metadata(row, ["Ev", "Taiki Nulight", "Ev & Taiki Nulight"])
+
+    assert proposal["proposed_artists"] == ["Ev & Taiki Nulight"]
+    assert proposal["proposed_titles"] == ["Chaos (Taiki Nulight Remix)", "Chaos (Radio Edit)"]
+    assert proposal["existing_titles"] == row["tags"]["title"]
+    assert "Free Download" in proposal["removed_annotations"]
+
+
+def test_artist_can_be_in_title_and_imperfect_filename_separator_is_supported() -> None:
+    from_title = _row(1, title="HERMIT - BREAK IT OFF (Extended Mix)", artist="")
+    title_proposal = propose_metadata(from_title, [])
+    assert title_proposal["proposed_artists"] == ["HERMIT"]
+    assert title_proposal["proposed_titles"] == ["BREAK IT OFF (Extended Mix)"]
+    assert (
+        title_proposal["artist_evidence_basis"] == "uppercase_artist_prefix_in_title_tag_unverified"
+    )
+
+    artists, title, _ = _parse_filename_metadata("Mozey- Hands.wav", ["Mozey", "AC-13"])
+    assert artists == ["Mozey"]
+    assert title == "Hands"
+    # The longer known credit must win before the dash is interpreted as a separator.
+    artists, title, _ = _parse_filename_metadata("AC-13 - Track.wav", ["AC-13", "AC"])
+    assert artists == ["AC-13"]
+    assert title == "Track"
+
+
+def test_cleaning_removes_technical_catalog_noise_but_keeps_version_and_flags_year() -> None:
+    title, removed, ambiguous = _clean_annotation(
+        "Track (Free Download) (HYP123) (320kbps) (Extended Remix) (2025)"
+    )
+    assert title == "Track (Extended Remix) (2025)"
+    assert {"Free Download", "HYP123", "320kbps"} <= set(removed)
+    assert "2025" in ambiguous
+
+
+def test_cleaning_does_not_remove_technical_words_when_they_are_track_text() -> None:
+    title, removed, _ = _clean_annotation("Master of Puppets")
+    assert title == "Master of Puppets"
+    assert removed == []
+
+
+def test_artist_collaboration_separator_differences_are_not_conflicts() -> None:
+    known = ["Ev", "Taiki Nulight", "Ev & Taiki Nulight"]
+    assert same_artist_credit("Ev & Taiki Nulight", "Ev, Taiki Nulight", known)
+    assert not same_artist_credit("Ev & Taiki Nulight", "Ev & Mozey", [*known, "Mozey"])
+
+
+def test_user_identified_a_plus_and_ev_collaborations_remain_artist_values() -> None:
+    for credit, known in (
+        ("Riordan, A+", ["Riordan", "A+"]),
+        ("Ev & Taiki Nulight", ["Ev", "Taiki Nulight"]),
+    ):
+        row = _row(1, title="Track", artist=credit)
+        proposal = propose_metadata(row, known)
+        assert proposal["proposed_artists"] == [credit]
+        assert same_artist_credit(credit, " & ".join(known), [*known, credit])
+
+
+def test_encoding_damage_is_reported_without_rewriting_artist_or_title() -> None:
+    row = _row(1, title="Caf� Song", artist="Zo�")
+    proposal = propose_metadata(row, ["Zo�"])
+    assert proposal["encoding_warning"] is True
+    assert "possible_encoding_corruption" in proposal["ambiguous_annotations"]
+    assert proposal["proposed_artists"] == ["Zo�"]
+
+
+def test_rename_simulation_checks_existing_proposed_and_windows_collisions() -> None:
+    inventory = [
+        _row(1, title="Shared", artist="One"),
+        _row(2, title="", artist="Two"),
+        _row(3, title="NUL", artist="Three"),
+        _row(4, title="Taken", artist="Four"),
+        _row(5, title="Shared", artist="Five"),
+    ]
+    inventory[4]["relative_path"] = "Folder/Shared.mp3"
+    proposals = {
+        "item-1": {"proposed_titles": ["Shared"]},
+        "item-2": {"proposed_titles": ["Shared"]},
+        "item-3": {"proposed_titles": ["NUL"]},
+        "item-4": {"proposed_titles": ["Taken?"]},
+    }
+    previews = simulate_rename_proposals(inventory, proposals)
+    assert any(c["kind"] == "proposed_target" for c in previews[0]["collisions"])
+    assert any(c["kind"] == "proposed_target" for c in previews[1]["collisions"])
+    assert any(c["kind"] == "existing_file" for c in previews[0]["collisions"])
+    assert previews[2]["windows_name_issues"]
+    assert previews[3]["windows_name_issues"]
+    assert all(not row["rename_applied"] for row in previews)
+
+
+def test_rename_simulation_uses_windows_case_and_trailing_dot_identity() -> None:
+    inventory = [_row(1), _row(2)]
+    inventory[0]["relative_path"] = "Folder/Old.mp3"
+    inventory[1]["relative_path"] = "folder/TITLE.mp3"
+    previews = simulate_rename_proposals(
+        inventory,
+        {"item-1": {"proposed_titles": ["title"]}, "item-2": {"proposed_titles": ["Trailing. "]}},
+    )
+    assert any(c["kind"] == "existing_file" for c in previews[0]["collisions"])
+    assert previews[1]["windows_name_issues"]
+    assert not previews[0]["rename_applied"]

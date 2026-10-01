@@ -16,6 +16,7 @@ L'étude ne promet pas d'identifier tous les fichiers. Une absence de preuve doi
 - [x] 2026-10-01 — 102.2 : inventaire stable et tirage reproductible des groupes random et targeted.
 - [x] 2026-10-01 — 102.3 : examiner les 150 lignes au moyen des tags bruts, de la vue MTEE, des noms et du contexte de dossier; garder toutes les confirmations à not_checked.
 - [x] 2026-10-01 — 102.4 : produire le rapport privé, vérifier sa structure et consigner les limites dans `docs/validation/102-echantillonnage-mapping-tagging.md`.
+- [x] 2026-10-01 — 102.5 : corriger les règles de propositions titre/artiste et la simulation de renommage sur les entrées figées; ajouter neuf tests synthétiques et produire le retour privé `run_followup_02`, sans rescanner.
 - [x] Publier l'outillage, les tests synthétiques et la documentation sans données de collection.
 
 ## Surprises & Discoveries
@@ -189,6 +190,10 @@ L'étude a été exécutée le 2026-10-01 depuis les sources. L'inventaire final
 Les propositions restent des indices, jamais des confirmations d'identité. Aucune écoute, recherche réseau, connexion Shovel, appel Spotify/SoundCloud, export Rekordbox, écriture de tag ou renommage n'a été fait. La version de Rekordbox n'est pas relevée et la compatibilité n'est pas testée. Les décisions utilisateur sur les 20 cas prioritaires et les rapprochements d'artistes restent en attente; aucune automatisation ne peut être déduite de ce rapport.
 
 Contrôles réellement exécutés : onze tests ciblés via `rtk proxy uv run python -m pytest tests/unit/test_mapping_sample_audit.py -q`; `uv run ruff check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`; `uv run ruff format --check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`; validation de la structure JSON/JSONL et des compteurs des livrables locaux; `git diff --check`. L'exclusion `.local/validation/102/` a été confirmée par `git check-ignore`. Aucun build Windows n'a été lancé. Le rapport versionné ne contient pas de données de collection.
+
+Suivi 102.5, 2026-10-01 : la revue corrigée réutilise octet pour octet l'inventaire et l'échantillon de `run_final_03`; elle ne lit aucun fichier audio. Les propositions retirent un préfixe artiste du titre lorsqu'il correspond aux artistes proposés, peuvent extraire un artiste connu du titre ou d'un séparateur de nom imparfait, préservent toutes les valeurs artiste/titre, comparent les collaborations comme listes et signalent encodage ou annotations ambigus. L'aperçu simule les titres proposés sans exiger de tags existants et contrôle les collisions Windows avec l'inventaire complet et les autres propositions. La sortie privée `run_followup_02` contient 150 lignes revues et 20 cas lisibles à valider; aucune écriture de tag ou de nom n'a été faite. Les décisions utilisateur concernant A+ et Ev comme artistes distincts dans leurs collaborations sont conservées.
+
+Contrôles du suivi : 20 tests synthétiques ciblés réussis (`python -m pytest tests/unit/test_mapping_sample_audit.py -q`), `ruff check`, `ruff format --check`, `git diff --check`, empreintes d'entrée identiques, couverture unique de 150/150 et 20 cas avec artiste et titre. Aucun build Windows ni accès API.
 
 ## Consigne prête à copier dans Luna
 

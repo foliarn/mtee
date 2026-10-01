@@ -52,6 +52,251 @@ SECRET_MARKERS = ("token", "secret", "auth", "cookie", "signature", "signed")
 VERSION_RE = re.compile(r"\b(remix|edit|bootleg|live|extended|club mix|radio edit|vip)\b", re.I)
 SEPARATORS_RE = re.compile(r"\s(?:-|–|—|\|)\s|\s+[/&+]\s+|\bfeat\.?\b", re.I)  # noqa: RUF001
 
+PROMO_RE = re.compile(
+    r"\b(?:free\s+(?:download|dl)|download\s+free|promo(?:tional)?\s+copy|"
+    r"out\s+now|buy\s+link\s+in\s+description)\b",
+    re.I,
+)
+TECHNICAL_RE = re.compile(
+    r"\b(?:(?:\d{2,3}\s*)?kbps|(?:16|24)\s*bit|"
+    r"(?:44\.1|48|88\.2|96)\s*khz)\b",
+    re.I,
+)
+FINAL_MARKER_RE = re.compile(
+    r"(?:\s*[-\u2013\u2014]\s*|\s+)(?:final\s*\d*|master(?:ed)?|wav(?:\s+file)?)\s*$", re.I
+)
+VERSION_DETAIL_RE = re.compile(
+    r"\b(?:remix|rework|edit|bootleg|live|extended(?:\s+mix)?|club\s+mix|"
+    r"radio\s+edit|vip|original\s+mix|instrumental|dub\s+mix|refix|flip)\b",
+    re.I,
+)
+WINDOWS_RESERVED = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+WINDOWS_INVALID_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _clean_annotation(text: str) -> tuple[str, list[str], list[str]]:
+    """Remove only clearly non-musical title annotations and report uncertainty."""
+    removed: list[str] = []
+    ambiguous: list[str] = []
+
+    def remove_match(match: re.Match[str]) -> str:
+        value = match.group(0)
+        if (
+            PROMO_RE.search(value)
+            or TECHNICAL_RE.search(value)
+            or re.search(r"\b(?:final\s*\d*|master(?:ed)?|wav(?:\s+file)?)\b", value, re.I)
+        ):
+            removed.append(value.strip(" ()[]{}"))
+            return " "
+        # Catalog-like codes are removed only when their shape is explicit.
+        if re.fullmatch(r"[A-Z]{2,8}[-_ ]?\d{2,6}[A-Z]?", value.strip(" ()[]{}"), re.I):
+            removed.append(value.strip(" ()[]{}"))
+            return " "
+        if not VERSION_DETAIL_RE.search(value):
+            ambiguous.append(value.strip(" ()[]{}"))
+        return value
+
+    text = re.sub(r"\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}", remove_match, text)
+    text = PROMO_RE.sub(lambda m: removed.append(m.group(0)) or " ", text)
+    text = TECHNICAL_RE.sub(lambda m: removed.append(m.group(0)) or " ", text)
+    match = FINAL_MARKER_RE.search(text)
+    if match:
+        removed.append(match.group(0).strip(" -\u2013\u2014"))
+        text = text[: match.start()]
+    # Numeric year/version tokens are not confidently classifiable as noise.
+    for match in re.finditer(r"\b(?:19|20)\d{2}\b|\bv\d+(?:\.\d+)*\b", text, re.I):
+        if not VERSION_DETAIL_RE.search(text[max(0, match.start() - 24) : match.end() + 24]):
+            ambiguous.append(match.group(0))
+    cleaned = re.sub(r"\s+", " ", text).strip(" \t-\u2013\u2014_.,;:")
+    return cleaned, removed, ambiguous
+
+
+def _artist_key(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _windows_path_key(value: str) -> str:
+    """Approximate Windows case-insensitive path identity, including trailing dots/spaces."""
+    return "/".join(part.rstrip(" .").casefold() for part in value.replace("\\", "/").split("/"))
+
+
+def _artist_components(value: str, known: set[str]) -> list[str]:
+    """Split collaboration punctuation only when every part is independently known."""
+    parts = re.split(r"\s*(?:,|&|\band\b|\bfeat\.?|\bft\.?)\s*", value, flags=re.I)
+    if len(parts) > 1 and all(_artist_key(part) in known for part in parts):
+        return [part.strip() for part in parts]
+    if _artist_key(value) in known:
+        return [value.strip()]
+    return [value.strip()] if value.strip() else []
+
+
+def same_artist_credit(left: str, right: str, known_artists: Iterable[str]) -> bool:
+    """Compare collaboration credits as artist lists, independent of separator."""
+    known = {_artist_key(name) for name in known_artists}
+    known.update({_artist_key(left), _artist_key(right)})
+    left_parts = [_artist_key(x) for x in _artist_components(left, known)]
+    right_parts = [_artist_key(x) for x in _artist_components(right, known)]
+    return sorted(left_parts) == sorted(right_parts)
+
+
+def _parse_filename_metadata(
+    filename: str, known_artists: Iterable[str]
+) -> tuple[list[str], str, list[str]]:
+    """Parse known artist prefixes without splitting hyphens inside artist names."""
+    stem = Path(filename).stem
+    known = sorted(set(known_artists), key=lambda item: (-len(item), item.casefold()))
+    folded = stem.casefold()
+    for artist in known:
+        prefix = artist.casefold()
+        if not folded.startswith(prefix):
+            continue
+        remainder = stem[len(artist) :]
+        match = re.match(r"^\s*(?:-|\u2013|\u2014|\|)\s*(.+)$", remainder)
+        if match:
+            return (
+                _artist_components(artist, {_artist_key(x) for x in known}),
+                match.group(1).strip(),
+                [],
+            )
+    # A known artist may also appear in the title tag as "ARTIST - TITLE".
+    return [], stem, []
+
+
+def propose_metadata(row: dict[str, Any], known_artists: Iterable[str]) -> dict[str, Any]:
+    """Propose cleaned artist/title values while retaining every existing value."""
+    tags = row.get("tags", {})
+    raw_artists = [str(value) for value in tags.get("artist", [])]
+    raw_titles = [str(value) for value in tags.get("title", [])]
+    tag_artists = [value.strip() for value in raw_artists if value.strip()]
+    tag_titles = [value for value in raw_titles if value.strip()]
+    known = {_artist_key(name) for name in known_artists}
+    known.update(_artist_key(name) for name in tag_artists)
+    filename_artists, filename_title, _ = _parse_filename_metadata(
+        Path(row.get("relative_path", "")).name, known_artists
+    )
+
+    proposed_artists = list(tag_artists) if tag_artists else filename_artists
+    artist_evidence = "artist_tag_values" if tag_artists else "known_artist_filename_prefix"
+    artist_keys = {
+        _artist_key(value)
+        for artist in proposed_artists
+        for value in _artist_components(artist, known)
+    }
+    title_sources = tag_titles if tag_titles else [filename_title]
+    proposed_titles: list[str] = []
+    removed: list[str] = []
+    ambiguous: list[str] = []
+    for raw_title in title_sources:
+        title = raw_title
+        # Strip a leading artist credit only when the entire prefix is in the proposed credit list.
+        match = re.match(r"^\s*(.+?)\s+-\s+(.+)$", title)
+        prefix_keys = (
+            {_artist_key(value) for value in _artist_components(match.group(1), known)}
+            if match
+            else set()
+        )
+        if match and prefix_keys and prefix_keys == artist_keys:
+            title = match.group(2)
+        # Title can be the only place where a known artist and its track are credited.
+        if not proposed_artists:
+            title_artists, remainder, _ = _parse_filename_metadata(title, known_artists)
+            if title_artists:
+                proposed_artists = title_artists
+                title = remainder
+                artist_evidence = "known_artist_prefix_in_title_tag"
+            else:
+                unverified = re.match(
+                    r"^\s*([A-Z][A-Z0-9&+.,'\u2019 -]{1,50}?)\s+[-\u2013\u2014]\s+(.+)$",
+                    title,
+                )
+                if unverified and unverified.group(1).strip().isupper():
+                    proposed_artists = [unverified.group(1).strip()]
+                    title = unverified.group(2)
+                    artist_evidence = "uppercase_artist_prefix_in_title_tag_unverified"
+        cleaned, dropped, uncertain = _clean_annotation(title)
+        removed.extend(dropped)
+        ambiguous.extend(uncertain)
+        if cleaned:
+            proposed_titles.append(cleaned)
+
+    raw_text = " ".join(tag_artists + tag_titles + [Path(row.get("relative_path", "")).name])
+    corrupt = bool("\ufffd" in raw_text or re.search(r"(?:Ã.|Â.|â€|ðŸ)", raw_text))
+    if corrupt:
+        ambiguous.append("possible_encoding_corruption")
+    return {
+        "proposed_artists": proposed_artists,
+        "proposed_titles": proposed_titles,
+        "artist_evidence_basis": artist_evidence,
+        "existing_artists": raw_artists,
+        "existing_titles": raw_titles,
+        "removed_annotations": sorted(set(removed)),
+        "ambiguous_annotations": sorted(set(ambiguous)),
+        "encoding_warning": corrupt,
+        "verification_status": "not_checked",
+    }
+
+
+def simulate_rename_proposals(
+    inventory: list[dict[str, Any]], proposals: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Preview Windows-safe title.ext targets and collisions without changing files."""
+    existing: dict[str, list[str]] = {}
+    for row in inventory:
+        path = row.get("relative_path", "")
+        existing.setdefault(_windows_path_key(path), []).append(path)
+    targets: dict[str, list[str]] = {}
+    result: list[dict[str, Any]] = []
+    for row in inventory:
+        item_id = row.get("item_id", "")
+        proposal = proposals.get(item_id, {})
+        titles = proposal.get("proposed_titles", [])
+        extension = Path(row.get("relative_path", "")).suffix
+        candidates = [f"{title}{extension}" for title in titles]
+        result.append(
+            {
+                "item_id": item_id,
+                "current_relative_path": row.get("relative_path", ""),
+                "candidate_filenames": candidates,
+                "rename_applied": False,
+            }
+        )
+        for candidate in candidates:
+            key = _windows_path_key(
+                (Path(row.get("relative_path", "")).parent / candidate).as_posix()
+            )
+            targets.setdefault(key, []).append(item_id)
+    for row, preview in zip(inventory, result, strict=True):
+        source = row.get("relative_path", "")
+        collisions: list[dict[str, Any]] = []
+        issues: list[dict[str, str]] = []
+        for candidate in preview["candidate_filenames"]:
+            target = (Path(source).parent / candidate).as_posix()
+            key = _windows_path_key(target)
+            if any(
+                path != source and _windows_path_key(path) == key for path in existing.get(key, [])
+            ):
+                collisions.append({"target": target, "kind": "existing_file"})
+            if len(set(targets.get(key, []))) > 1:
+                collisions.append({"target": target, "kind": "proposed_target"})
+            base = Path(candidate).stem
+            if (
+                WINDOWS_INVALID_RE.search(candidate)
+                or base.rstrip(" .") != base
+                or base.upper() in WINDOWS_RESERVED
+                or len(candidate) > 255
+            ):
+                issues.append({"filename": candidate, "kind": "invalid_windows_name"})
+        preview["collisions"] = collisions
+        preview["windows_name_issues"] = issues
+    return result
+
 
 def _stat(path: Path) -> dict[str, int | None]:
     try:
