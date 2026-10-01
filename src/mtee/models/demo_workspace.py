@@ -154,6 +154,7 @@ class DemoWorkspace(QObject):
         self._right_panel = scenario.right_panel
         self._right_panel_visible = bool(scenario.right_panel)
         self._fullscreen = scenario.fullscreen
+        self._fullscreen_page = 0
         self._bar_count = 0
         self._liked: set[str] = set()
         self._island_enabled = scenario.island_enabled
@@ -880,6 +881,18 @@ class DemoWorkspace(QObject):
     def setFullscreen(self, enabled: bool) -> None:
         if bool(enabled) != self._fullscreen and (self._playing or not enabled):
             self._fullscreen = bool(enabled)
+            self._fullscreen_page = 0
+            self.layoutChanged.emit()
+
+    @Property(int, notify=layoutChanged)
+    def fullscreenPage(self) -> int:
+        return self._fullscreen_page
+
+    @Slot(int)
+    def setFullscreenPage(self, page: int) -> None:
+        target = 1 if int(page) >= 1 else 0
+        if target != self._fullscreen_page and (self._playing or not target):
+            self._fullscreen_page = target
             self.layoutChanged.emit()
 
     @Slot(bool)

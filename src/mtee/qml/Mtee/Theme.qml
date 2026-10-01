@@ -96,6 +96,13 @@ QtObject {
     readonly property int fsActionIconSize: 22
     readonly property int fsActionSpacing: 8
     readonly property int fsTopBlock: 64
+    readonly property int fsPageDuration: 350
+    readonly property int fsWheelThreshold: 120
+    readonly property int fsWheelPixelThreshold: 60
+    readonly property int fsPageCooldown: 200
+    readonly property int fsPeek: 32
+    readonly property int fsTopMargin: 16
+    readonly property int fsVignetteHeight: 96
 
     // Width thresholds of the reduced layouts.
     readonly property int compactSidebarWidth: 1160

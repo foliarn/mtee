@@ -138,6 +138,7 @@ class WorkspaceModel(QObject):
         self._sidebar_width = int(self._state.get("sidebarWidth", 240))
         self._right_panel_width = int(self._state.get("rightPanelWidth", 360))
         self._fullscreen = False
+        self._fullscreen_page = 0
         self._island_enabled = bool(self._state.get("islandEnabled", True))
         self._message = (
             "The saved workspace was invalid. MTEE restored a safe default layout."
@@ -262,6 +263,11 @@ class WorkspaceModel(QObject):
     @Property(bool, notify=layoutChanged)
     def fullscreen(self) -> bool:
         return self._fullscreen
+
+    @Property(int, notify=layoutChanged)
+    def fullscreenPage(self) -> int:
+        """Page of the fullscreen player: 0 for the card, 1 for queue and track details."""
+        return self._fullscreen_page
 
     @Property(bool, notify=layoutChanged)
     def islandEnabled(self) -> bool:
@@ -1865,8 +1871,20 @@ class WorkspaceModel(QObject):
         self.layoutChanged.emit()
         self._persist()
 
+    @Slot(int)
+    def setFullscreenPage(self, page: int) -> None:
+        """Show page 0 or 1 of the fullscreen player; ignored without a playing track."""
+        target = 1 if int(page) >= 1 else 0
+        has_track = self._player is not None and bool(self._player.playing_id_value())
+        if target == self._fullscreen_page or (target and not has_track):
+            return
+        self._fullscreen_page = target
+        self.layoutChanged.emit()
+
     @Slot(bool)
     def setFullscreen(self, enabled: bool) -> None:
+        if bool(enabled) != self._fullscreen:
+            self._fullscreen_page = 0  # reopening always shows the card
         self._fullscreen = bool(enabled)
         self._prepare_visible_metadata()
         self.layoutChanged.emit()

@@ -198,9 +198,16 @@ Rectangle {
             hoverBackground: false
             icon: "queue"
             iconSize: 18
-            active: island.workspace.rightPanelVisible && island.workspace.rightPanelTab === "queue"
-            tip: "Queue and history"
-            onClicked: island.workspace.toggleRightPanel("queue")
+            objectName: "islandQueueButton"
+            active: island.fullscreen ? island.workspace.fullscreenPage === 1
+                : island.workspace.rightPanelVisible && island.workspace.rightPanelTab === "queue"
+            tip: island.fullscreen ? "Queue and track details" : "Queue and history"
+            onClicked: {
+                if (island.fullscreen)
+                    island.workspace.setFullscreenPage(island.workspace.fullscreenPage === 1 ? 0 : 1)
+                else
+                    island.workspace.toggleRightPanel("queue")
+            }
         }
 
         IconButton {

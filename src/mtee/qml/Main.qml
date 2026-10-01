@@ -112,7 +112,9 @@ Window {
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: Theme.islandMargin
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(Theme.islandMaxWidth, parent.width - 2 * Theme.islandMargin)
+                // Fullscreen leaves room for the page arrow beside the island.
+                width: Math.min(Theme.islandMaxWidth,
+                                parent.width - 2 * (root.ws.fullscreen ? 76 : Theme.islandMargin))
                 workspace: root.ws
             }
         }
@@ -242,6 +244,17 @@ Window {
         onActivated: root.ws.trashModel.request_recycle(root.ws.selectedIds)
     }
     Shortcut { sequence: "F11"; onActivated: root.ws.setFullscreen(!root.ws.fullscreen) }
+    // Fullscreen pages: the page keys never reach a text field.
+    Shortcut {
+        sequences: ["PgDown", "Down"]
+        enabled: root.ws.fullscreen && root.ws.playingId.length > 0 && !root.textInputFocused()
+        onActivated: root.ws.setFullscreenPage(1)
+    }
+    Shortcut {
+        sequences: ["PgUp", "Up"]
+        enabled: root.ws.fullscreen && root.ws.playingId.length > 0 && !root.textInputFocused()
+        onActivated: root.ws.setFullscreenPage(0)
+    }
     Shortcut {
         sequence: "Esc"
         enabled: root.ws.fullscreen
