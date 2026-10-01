@@ -79,9 +79,9 @@ Légende : **Auto** = vérifié par test automatisé ; **Partiel** = une partie 
 
 ## Limites et écarts à connaître
 
-- Les valeurs de la maquette sont celles que l'utilisateur a laissées passer avec « parfait continue », hauteur de carte +60 px comprise. Les seuils du scrub (100 ms, 2000 px/s, 80 ms, 60 ms) n'ont **pas** été ajustés à l'écoute.
+- Les valeurs de la maquette sont celles que l'utilisateur a laissées passer avec « parfait continue ». La hauteur de carte a ensuite été portée de +60 à +220 px (plafonnés) à la suite d'un retour de l'utilisateur sur la fenêtre réelle. Les seuils du scrub (100 ms, 2000 px/s, 80 ms, 60 ms) n'ont **pas** été ajustés à l'écoute.
 - Aucune analyse générale n'a été lancée sur une collection réelle : ni les waveforms de l'utilisateur ni leur recalcul en v2 n'ont été observés.
-- La pochette arrondie utilise `MultiEffect`, qui ne s'affiche pas avec le rendu logiciel hors écran : à vérifier dans la fenêtre native.
+- La pochette arrondie utilise `MultiEffect`, qui ne s'affiche pas avec le rendu logiciel hors écran ; aucun test automatisé ne la couvre. Une première version la laissait unie dans la fenêtre native (source de layer cachée, image asynchrone) : corrigée après un retour de l'utilisateur et vérifiée par capture native d'un FLAC à pochette intégrée.
 - Le `+` de la carte et celui de l'île ne fonctionnent pas pour une piste absente de l'onglet quand une playlist est ouverte (comportement existant de `localTrackIds`).
 - Les douze champs de Track details sont conservés sans validation explicite de la liste.
 - Le panneau Queue du plan 99 n'a pas de sections.
