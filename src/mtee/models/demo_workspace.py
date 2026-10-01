@@ -155,6 +155,7 @@ class DemoWorkspace(QObject):
         self._right_panel_visible = bool(scenario.right_panel)
         self._fullscreen = scenario.fullscreen
         self._bar_count = 0
+        self._liked: set[str] = set()
         self._island_enabled = scenario.island_enabled
         self._expanded: set[str] = set(_INITIAL_EXPANDED)
         self._selected = list(scenario.selected)
@@ -307,6 +308,23 @@ class DemoWorkspace(QObject):
             if self._playing
             else 0
         )
+
+    @Property(QObject, constant=True)
+    def accent(self) -> QObject:
+        """No cover colour in the demo: the card uses its grey fallback."""
+        return self
+
+    @Property(str, constant=True)
+    def baseColor(self) -> str:
+        return ""
+
+    @Property(str, constant=True)
+    def darkColor(self) -> str:
+        return ""
+
+    @Property(bool, constant=True)
+    def hasAccent(self) -> bool:
+        return False
 
     @Property(QByteArray, notify=levelsChanged)
     def levels(self) -> QByteArray:
@@ -1137,6 +1155,49 @@ class DemoWorkspace(QObject):
         self._next_playlist += 1
         ids = [str(tid) for tid in track_ids if str(tid) in self._tracks]
         self._playlists[playlist_id] = {"id": playlist_id, "name": name, "tracks": ids}
+        self._revision += 1
+        self.libraryChanged.emit()
+
+    @Slot(str, str)
+    def revealTrack(self, track_id: str, _source: str) -> None:
+        """Illustrative: leave fullscreen and select the track."""
+        self.setFullscreen(False)
+        self.selectTrack(track_id)
+
+    @Slot(str, str)
+    def revealTrackForEdit(self, track_id: str, source: str) -> None:
+        self.revealTrack(track_id, source)
+        self.showRightPanel("info")
+
+    @Slot(list)
+    def addTracksToConvert(self, track_ids: list) -> None:
+        added = [str(tid) for tid in track_ids if str(tid) not in self._convert_inputs]
+        if added:
+            self._convert_inputs.extend(added)
+            self.conversionChanged.emit()
+        self.setFullscreen(False)
+        self.openConvert()
+
+    @Slot()
+    def openPlayingSource(self) -> None:
+        self.setFullscreen(False)
+        kind, _, reference = self._source.partition(":")
+        if kind == "playlist":
+            self.openPlaylist(reference)
+        elif kind == "folder":
+            self.openFolder(reference)
+
+    @Slot(str)
+    def showInExplorer(self, _track_id: str) -> None:
+        """The demo library has no files to show."""
+
+    @Slot(str, result=bool)
+    def isLiked(self, track_id: str) -> bool:
+        return track_id in self._liked
+
+    @Slot(str)
+    def toggleLike(self, track_id: str) -> None:
+        self._liked ^= {track_id}
         self._revision += 1
         self.libraryChanged.emit()
 

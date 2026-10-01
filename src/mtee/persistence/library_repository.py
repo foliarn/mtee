@@ -557,6 +557,21 @@ class LibraryRepository:
         )
         return int(row[0]), int(row[1]), int(row[2])
 
+    def track_folder(self, track_id: str) -> tuple[str, str] | None:
+        """Return the ``(root_id, relative_folder)`` that lists the track, if it is present."""
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT root_id, relative_path FROM root_tracks "
+                "WHERE track_id=? AND present=1 ORDER BY root_id LIMIT 1",
+                (track_id,),
+            )
+            .fetchone()
+        )
+        if row is None:
+            return None
+        return str(row["root_id"]), _folder_of(str(row["relative_path"]))
+
     def track(self, track_id: str) -> dict[str, Any]:
         row = (
             self._database.connection()

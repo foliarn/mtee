@@ -100,7 +100,7 @@ def test_fullscreen_and_island_keep_one_shared_playback_state(qapp, tmp_path: Pa
             QCoreApplication.processEvents()
             assert _visible(root, "fullscreenPlayer")
             assert _find(root, "waveformView") is not None
-            assert not _visible(root, "playerIsland")
+            assert _visible(root, "playerIsland")
             workspace.selectTrack("dnb04", "single", [])
             assert workspace.selectedIds == ["dnb04"]
             assert workspace.playingId == playing_id
@@ -170,16 +170,9 @@ def test_space_goes_to_search_while_a_track_is_playing(
         assert backend.seeks == [0]
         workspace.setFullscreen(True)
         qtbot.waitUntil(lambda: _visible(root, "fullscreenPlayer"))
-        fullscreen_player = _find(root, "fullscreenPlayer")
-        assert fullscreen_player is not None
-        pending = [fullscreen_player]
-        fullscreen_previous = None
-        while pending:
-            item = pending.pop()
-            if item.objectName() == "previousButton":
-                fullscreen_previous = item
-                break
-            pending.extend(item.childItems())
+        # The island stays above the fullscreen player, with the same transport.
+        assert _visible(root, "playerIsland")
+        fullscreen_previous = _find(root, "previousButton")
         assert fullscreen_previous is not None and fullscreen_previous.isVisible()
         point = fullscreen_previous.mapToScene(fullscreen_previous.boundingRect().center())
         QTest.mouseClick(

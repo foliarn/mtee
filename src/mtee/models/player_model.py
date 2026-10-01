@@ -8,6 +8,7 @@ from PySide6.QtCore import Property, QByteArray, QElapsedTimer, QObject, QTimer,
 
 from mtee.domain.playback import PlaybackStatus
 from mtee.domain.scrub import EnsurePlaying, Next, ScrubCommand, ScrubSession, Seek, Silence
+from mtee.models.cover_accent_model import CoverAccentModel
 from mtee.models.playback_queue_model import PlaybackQueueModel
 from mtee.models.waveform_model import WaveformModel
 from mtee.services.player_service import PlayerService
@@ -33,10 +34,12 @@ class PlayerModel(QObject):
         parent: QObject | None = None,
         *,
         waveform: WaveformModel | None = None,
+        accent: CoverAccentModel | None = None,
     ) -> None:
         super().__init__(parent)
         self._service = service
         self._waveform = waveform
+        self._accent = accent
         self._queue_model = PlaybackQueueModel(service, self)
         self._upcoming_queue_model = PlaybackQueueModel(service, self, upcoming_only=True)
         self._scrub: ScrubSession | None = None
@@ -192,6 +195,23 @@ class PlayerModel(QObject):
     @Property(str, notify=playbackChanged)
     def error(self) -> str:
         return ""
+
+    @Property(QObject, constant=True)
+    def accent(self) -> QObject:
+        """Accent colour of the playing cover; this model itself (no accent) when unattached."""
+        return self._accent if self._accent is not None else self
+
+    @Property(str, constant=True)
+    def baseColor(self) -> str:
+        return ""
+
+    @Property(str, constant=True)
+    def darkColor(self) -> str:
+        return ""
+
+    @Property(bool, constant=True)
+    def hasAccent(self) -> bool:
+        return False
 
     @Property(QByteArray, notify=levelsChanged)
     def levels(self) -> QByteArray:

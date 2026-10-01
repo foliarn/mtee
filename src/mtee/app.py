@@ -23,6 +23,7 @@ from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
 from mtee.models.conversion_queue_model import ConversionQueueModel
+from mtee.models.cover_accent_model import CoverAccentModel
 from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
@@ -189,7 +190,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         waveform_model = WaveformModel(
             player_service, library, jobs, file_access, analysis_repository, application
         )
-        player_model = PlayerModel(player_service, application, waveform=waveform_model)
+        accent_model = CoverAccentModel(player_service, library, application)
+        player_model = PlayerModel(
+            player_service, application, waveform=waveform_model, accent=accent_model
+        )
         workspace = WorkspaceModel(
             library=library,
             session=workspace_repository,

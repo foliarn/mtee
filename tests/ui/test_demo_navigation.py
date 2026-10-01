@@ -84,7 +84,7 @@ def test_convert_error_scenario_loads_the_convert_tab(qapp, tmp_path: Path) -> N
         _close(application, runtime)
 
 
-def test_fullscreen_hides_the_island_and_restores_the_editor(qapp, tmp_path: Path) -> None:
+def test_fullscreen_keeps_the_island_and_restores_the_editor(qapp, tmp_path: Path) -> None:
     application, runtime = _runtime(qapp, tmp_path, "explorer-info")
     try:
         root = runtime.engine.rootObjects()[0]
@@ -96,7 +96,7 @@ def test_fullscreen_hides_the_island_and_restores_the_editor(qapp, tmp_path: Pat
         workspace.setFullscreen(True)
         QCoreApplication.processEvents()
         assert _visible(root, "fullscreenPlayer")
-        assert not _visible(root, "playerIsland")
+        assert _visible(root, "playerIsland")  # fixed and floating, as in normal mode
         assert not _visible(root, "rightPanel")
 
         workspace.setFullscreen(False)

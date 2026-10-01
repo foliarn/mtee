@@ -115,6 +115,42 @@ FocusScope {
             color: Theme.wavePlayed
         }
 
+        Text {
+            objectName: "waveformGenerating"
+            visible: view.waveform.state === "generating"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: -16
+            text: "Generating waveform · " + Math.round((Number(view.waveform.progress) || 0) * 100) + "%"
+            color: Qt.rgba(1, 1, 1, 0.7)
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSecondary
+        }
+
+        Row {
+            objectName: "waveformUnavailable"
+            visible: view.waveform.state === "unavailable"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: -16
+            spacing: 12
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: view.waveform.error || "Waveform unavailable"
+                color: Qt.rgba(1, 1, 1, 0.8)
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSecondary
+            }
+
+            TextButton {
+                objectName: "waveformRetry"
+                kind: "ghost"
+                text: "Retry"
+                onClicked: view.waveform.retry()
+            }
+        }
+
         MouseArea {
             id: area
             objectName: "waveformArea"

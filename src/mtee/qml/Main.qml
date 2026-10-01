@@ -15,7 +15,7 @@ Window {
     readonly property bool maximized: visibility === Window.Maximized
     readonly property bool compactSidebar: width < Theme.compactSidebarWidth
     readonly property bool singleGroup: width < Theme.singleGroupWidth
-    readonly property bool islandVisible: ws.playingId.length > 0 && ws.islandEnabled && !ws.fullscreen
+    readonly property bool islandVisible: ws.playingId.length > 0 && ws.islandEnabled
     property int sidebarWidth: shell.demoMode ? Theme.sidebarWidth : root.ws.sidebarWidth
     property int rightPanelWidth: shell.demoMode ? Theme.rightPanelWidth : root.ws.rightPanelWidth
 
@@ -104,7 +104,6 @@ Window {
                 anchors.fill: parent
                 visible: root.ws.fullscreen
                 workspace: root.ws
-                metadataEditor: root.ws.metadataEditable ? root.ws.metadataEditor : null
             }
 
             PlayerIsland {
