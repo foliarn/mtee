@@ -20,6 +20,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3
@@ -37,7 +38,17 @@ FIELDS = {
     "bpm": ("TBPM", "tmpo", "bpm"),
     "key": ("TKEY", "initialkey", "key"),
 }
-MUSIC_ID_KEYS = ("UFID", "TXXX", "WOAR", "WXXX", "----:com.apple.iTunes:MusicBrainz Track Id")
+MUSIC_MARKERS = ("spotify", "soundcloud", "musicbrainz", "discogs", "bandcamp")
+MUSIC_HOSTS = {
+    "spotify.com",
+    "open.spotify.com",
+    "soundcloud.com",
+    "musicbrainz.org",
+    "bandcamp.com",
+    "discogs.com",
+    "tidal.com",
+}
+SECRET_MARKERS = ("token", "secret", "auth", "cookie", "signature", "signed")
 VERSION_RE = re.compile(r"\b(remix|edit|bootleg|live|extended|club mix|radio edit|vip)\b", re.I)
 SEPARATORS_RE = re.compile(r"\s(?:-|–|—|\|)\s|\s+[/&+]\s+|\bfeat\.?\b", re.I)  # noqa: RUF001
 
@@ -56,6 +67,11 @@ def _inside(path: Path, root: Path) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+def _is_link_or_junction(path: Path) -> bool:
+    is_junction = getattr(path, "is_junction", None)
+    return path.is_symlink() or (callable(is_junction) and is_junction())
 
 
 def _roots(values: list[str]) -> list[tuple[str, Path]]:
@@ -81,12 +97,12 @@ def _walk(
             dirs[:] = sorted(
                 name
                 for name in dirs
-                if not (current / name).is_symlink()
+                if not _is_link_or_junction(current / name)
                 and not _inside(output_resolved, (current / name).resolve(strict=False))
             )
             for name in sorted(names):
                 path = current / name
-                if path.is_symlink():
+                if _is_link_or_junction(path):
                     continue
                 suffix = path.suffix.casefold()
                 if suffix not in SUPPORTED:
@@ -132,35 +148,54 @@ def _values(tags: Any, keys: Iterable[str]) -> list[str]:
     for key in keys:
         try:
             value = tags.get(key)
-        except (AttributeError, TypeError):
+        except (AttributeError, KeyError, TypeError, ValueError):
             continue
         if value is not None:
             output.extend(_text(value))
     return output
 
 
-def _raw_tags(path: Path) -> tuple[dict[str, list[str]], list[str], list[str]]:
+def _music_refs(tags: Any, names: list[str]) -> tuple[list[str], list[dict[str, str]]]:
+    urls: set[str] = set()
+    identifiers: set[tuple[str, str]] = set()
+    for key in names:
+        folded = key.casefold()
+        relevant_key = any(marker in folded for marker in MUSIC_MARKERS)
+        if any(marker in folded for marker in SECRET_MARKERS):
+            continue
+        for value in _values(tags, (key,)):
+            text = value.strip()
+            if text.startswith(("http://", "https://")):
+                try:
+                    parsed = urlsplit(text)
+                    host = (parsed.hostname or "").casefold()
+                except ValueError:
+                    continue
+                recognized_host = any(
+                    host == domain or host.endswith(f".{domain}") for domain in MUSIC_HOSTS
+                )
+                if parsed.scheme not in {"http", "https"} or not recognized_host:
+                    continue
+                urls.add(urlunsplit((parsed.scheme, host, parsed.path, "", "")))
+            elif relevant_key and text and len(text) <= 256 and not any(c.isspace() for c in text):
+                identifiers.add((key, text))
+    return sorted(urls), [{"source_key": key, "value": value} for key, value in sorted(identifiers)]
+
+
+def _raw_tags(
+    path: Path,
+) -> tuple[dict[str, list[str]], list[str], list[str], list[dict[str, str]]]:
     audio = MutagenFile(path, easy=False)
     tags = getattr(audio, "tags", None)
     values = {field: _values(tags, keys) for field, keys in FIELDS.items()}
     names: list[str] = []
-    ids: list[str] = []
+    urls: list[str] = []
+    identifiers: list[dict[str, str]] = []
     if tags is not None:
         with suppress(AttributeError, TypeError):
             names = sorted(str(key) for key in tags)
-        for key in names:
-            if key in MUSIC_ID_KEYS or any(
-                term in key.casefold()
-                for term in ("spotify", "soundcloud", "musicbrainz", "discogs", "bandcamp", "url")
-            ):
-                # Do not leak signed query parameters or token-like values.
-                candidates = _values(tags, (key,))
-                ids.extend(
-                    value.split("?", 1)[0]
-                    for value in candidates
-                    if value.startswith(("http://", "https://"))
-                )
-    return values, names, sorted(set(ids))
+        urls, identifiers = _music_refs(tags, names)
+    return values, names, urls, identifiers
 
 
 def _inventory_one(alias: str, root: Path, path: Path) -> dict[str, Any]:
@@ -181,6 +216,7 @@ def _inventory_one(alias: str, root: Path, path: Path) -> dict[str, Any]:
         "mtee_view": {},
         "tag_names": [],
         "music_urls": [],
+        "music_identifiers": [],
         "id3_version": None,
         "changed_during_read": False,
         "hard_link_count": None,
@@ -195,8 +231,9 @@ def _inventory_one(alias: str, root: Path, path: Path) -> dict[str, Any]:
         audio = MutagenFile(path, easy=False)
         if audio is None or getattr(audio, "info", None) is None:
             raise ValueError("Mutagen could not identify a supported audio stream")
-        raw, names, urls = _raw_tags(path)
+        raw, names, urls, identifiers = _raw_tags(path)
         record["tags"], record["tag_names"], record["music_urls"] = raw, names, urls
+        record["music_identifiers"] = identifiers
         snapshot = MetadataReader().read(path)
         record["mtee_view"] = {
             field: list(getattr(snapshot, field))
@@ -236,7 +273,7 @@ def _motifs(row: dict[str, Any]) -> list[str]:
     if not title and not artist:
         motifs.append("title_and_artist_missing")
     elif not artist:
-        motifs.append("artist_missing")
+        motifs.append("artist_only_missing")
     if title and stem.casefold() != title.casefold():
         motifs.append("title_filename_divergence")
     if SEPARATORS_RE.search(stem) or len(tags.get("artist", [])) > 1:
@@ -254,9 +291,13 @@ def select_sample(
     rows: list[dict[str, Any]], seed: int = 102, random_size: int = 100, targeted_size: int = 50
 ) -> list[dict[str, Any]]:
     """Select stable random and targeted groups from a frozen inventory."""
-    ordered = sorted(
-        rows, key=lambda r: (r["root_alias"], r["relative_path"].casefold(), r["relative_path"])
-    )
+    ordered = [
+        dict(row)
+        for row in sorted(
+            rows,
+            key=lambda r: (r["root_alias"], r["relative_path"].casefold(), r["relative_path"]),
+        )
+    ]
     rng = random.Random(seed)
     random_rows = rng.sample(ordered, min(random_size, len(ordered)))
     random_ids = {row["item_id"] for row in random_rows}
@@ -267,7 +308,7 @@ def select_sample(
     targeted: list[dict[str, Any]] = []
     targeted_ids: set[str] = set()
 
-    def add_candidates(candidates: list[dict[str, Any]], limit: int) -> None:
+    def add_candidates(candidates: list[dict[str, Any]], limit: int, priority: int) -> None:
         nonlocal targeted
         available = [r for r in candidates if r["item_id"] not in random_ids | targeted_ids]
         stable_rng = random.Random(seed ^ 0x102A7)
@@ -276,6 +317,7 @@ def select_sample(
             motifs = _motifs(row)
             row["sample_group"] = "targeted"
             row["sample_motifs"] = motifs
+            row["sample_priority"] = priority
             targeted.append(row)
             targeted_ids.add(row["item_id"])
 
@@ -288,24 +330,30 @@ def select_sample(
         add_candidates(
             [r for r in remaining if Path(r["relative_path"]).suffix.casefold() == extension],
             min(need, budget - len(targeted)),
+            1,
         )
-    for predicate, quota in (
-        (lambda m: "title_and_artist_missing" in m, 15),
-        (lambda m: "artist_missing" in m, 15),
+    for priority, predicate, quota in (
+        (2, lambda m: "title_and_artist_missing" in m, 15),
+        (2, lambda m: "artist_only_missing" in m, 15),
         (
+            3,
             lambda m: bool(
                 {"title_filename_divergence", "compound_credits_or_separators", "version_marker"}
                 & set(m)
             ),
             15,
         ),
-        (lambda m: bool({"multiple_values_or_external_provenance", "unreadable"} & set(m)), budget),
+        (
+            4,
+            lambda m: bool({"multiple_values_or_external_provenance", "unreadable"} & set(m)),
+            budget,
+        ),
     ):
         if len(targeted) >= budget:
             break
         eligible = [r for r in remaining if predicate(_motifs(r))]
-        add_candidates(eligible, min(quota, budget - len(targeted)))
-    add_candidates(remaining, budget - len(targeted))
+        add_candidates(eligible, min(quota, budget - len(targeted)), priority)
+    add_candidates(remaining, budget - len(targeted), 5)
     return random_rows + targeted
 
 
@@ -388,6 +436,7 @@ def run(args: argparse.Namespace) -> Path:
             for field in FIELDS:
                 row["tags"].setdefault(field, [])
             row.setdefault("music_urls", [])
+            row.setdefault("music_identifiers", [])
         roots: list[tuple[str, Path]] = []
         other: Counter[str] = Counter()
     else:
@@ -402,7 +451,7 @@ def run(args: argparse.Namespace) -> Path:
     output.mkdir(parents=True, exist_ok=False)
     sample = select_sample(inventory, args.seed, args.random_size, args.targeted_size)
     run_record = {
-        "script_version": "102.1",
+        "script_version": "102.4",
         "created_at_utc": datetime.now(UTC).isoformat(),
         "python_version": sys.version,
         "mutagen_version": __import__("mutagen").version_string,

@@ -11,18 +11,20 @@ L'étude ne promet pas d'identifier tous les fichiers. Une absence de preuve doi
 ## Progress
 
 - [x] 2026-10-01 — Préparer le protocole, les décisions utilisateur, les livrables et la consigne de lancement Luna.
-- [ ] 102.0 — Confirmer les racines de collection et préparer un espace de sortie privé.
-- [x] 102.1 — Créer et tester l'outil de diagnostic en lecture seule.
-- [ ] 102.2 — Inventorier la collection et sélectionner l'échantillon reproductible.
-- [ ] 102.3 — Examiner les 150 fichiers au maximum et constituer les propositions argumentées.
-- [ ] 102.4 — Produire le rapport de retour, vérifier l'intégrité et consigner les limites.
-- [ ] Publier uniquement l'outillage, les tests synthétiques et la documentation dépourvue de données personnelles.
+- [x] 2026-10-01 — 102.0 : l'utilisateur a indiqué la racine; vérification directe du dossier et sortie privée ignorée par Git.
+- [x] 2026-10-01 — 102.1 : créer l'outil de diagnostic en lecture seule et onze tests synthétiques ciblés.
+- [x] 2026-10-01 — 102.2 : inventaire stable et tirage reproductible des groupes random et targeted.
+- [x] 2026-10-01 — 102.3 : examiner les 150 lignes au moyen des tags bruts, de la vue MTEE, des noms et du contexte de dossier; garder toutes les confirmations à not_checked.
+- [x] 2026-10-01 — 102.4 : produire le rapport privé, vérifier sa structure et consigner les limites dans `docs/validation/102-echantillonnage-mapping-tagging.md`.
+- [x] Publier l'outillage, les tests synthétiques et la documentation sans données de collection.
 
 ## Surprises & Discoveries
 
 À la préparation, aucun fichier de la collection n'a été lu et aucun appel authentifié Spotify ou SoundCloud n'a été effectué. Le chemin de la collection reste à fournir lors du lancement.
 
-Le 2026-10-01, l'outil `scripts/audit_mapping_sample.py` et ses tests synthétiques ont été créés. Sept tests ciblent la sélection stable, l'absence de doublons, les petites populations/formats rares, les valeurs multiples Unicode, les indications de version, les fichiers illisibles, la protection des octets audio et la reprise depuis un inventaire. Pytest et Ruff passent. Aucun dossier de collection n'a été parcouru. `.local/validation/102/` est ignoré par la règle `.gitignore:19`.
+Le 2026-10-01, l'outil a d'abord classé à tort des FLAC comme illisibles. La cause était l'exception `ValueError` que la vue Vorbis de Mutagen lève lorsqu'un alias demandé est absent. `MetadataReader` lisait pourtant ces mêmes fichiers. Le diagnostic attrape désormais `ValueError` au niveau de la lecture d'un alias et la traite comme une absence de clé; un test synthétique couvre ce comportement.
+
+La première exécution contient donc des erreurs de classement et n'est pas utilisée. Une exécution séparée après le correctif a relu l'inventaire; la dernière exécution inclut ensuite les identifiants musicaux déjà présents, le filtrage des URL et les dernières priorités du tirage. Les rapports finaux référencent explicitement ce dernier dossier. `.local/validation/102/` est ignoré par la règle `.gitignore:19`.
 
 Le dépôt possède `MetadataReader` dans `src/mtee/services/metadata_reader.py`, fondé sur Mutagen et sans appel à une méthode de sauvegarde. Ses valeurs normalisées utilisent des tuples. Sa vue simplifiée ne suffit pas à observer tous les tags bruts : les champs personnalisés, URL et divergences d'alias nécessitent une lecture complémentaire ciblée avec Mutagen en mode brut. Ne pas confondre une valeur absente du modèle MTEE avec une valeur absente du fichier.
 
@@ -49,6 +51,10 @@ Le projet Shovel est déclaré dans l'application sur l'hôte `tofik-local`, au 
 2026-10-01, Codex — Exécuter l'étude sans réseau obligatoire. Les URL déjà contenues dans les fichiers et les exports locaux éventuellement fournis sont des indices utilisables. L'absence d'API SoundCloud n'est pas à compenser par des endpoints privés, cookies récupérés ou identifiants tiers. Ne pas solliciter de clé Spotify pour terminer ce lot.
 
 2026-10-01, Codex — Ajouter au JSONL les tags bruts et la vue normalisée fournie par `MetadataReader`, afin de rendre visibles les alias et divergences au lieu de prendre l'une des deux vues pour une vérité exhaustive. L'inventaire rechargé reste une photographie figée et ne réécrit pas les données de sélection.
+
+2026-10-01, Codex — Mutagen peut signaler par `ValueError` une clé Vorbis absente; traiter cette exception comme l'absence de l'alias, sans déclarer le fichier FLAC illisible. La première exécution est conservée comme trace locale, puis un nouveau dossier d'exécution devient la source du rapport.
+
+2026-10-01, Codex — Conserver uniquement les identifiants musicaux locaux issus de champs explicitement identifiés et les URL de domaines musicaux reconnus; retirer paramètres et fragments d'URL et ignorer les champs dont le nom évoque un jeton ou un secret. Ne pas inférer de nouvel identifiant externe.
 
 ## Périmètre et exclusions
 
@@ -178,9 +184,11 @@ Sujet indicatif du commit d'exécution : `Ajoute le diagnostic local pour prépa
 
 ## Outcomes & Retrospective
 
-Au début du 2026-10-01, l'outil en lecture seule et ses sept tests synthétiques sont créés et vérifiés depuis les sources. Les commandes ont réussi : `rtk proxy uv run python -m pytest tests/unit/test_mapping_sample_audit.py -q` (7 tests), `uv run ruff check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`, `uv run ruff format scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py` et `git diff --check -- scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`. Le chemin de collection n'étant pas encore fourni, l'inventaire, l'échantillon, l'examen manuel et le rapport de retour restent à faire. Aucune correspondance n'est confirmée et Rekordbox n'a pas été testé. Compléter cette section après le scan sans recopier de données personnelles dans le dépôt.
+L'étude a été exécutée le 2026-10-01 depuis les sources. L'inventaire final et l'échantillon, les propositions de revue et l'aperçu de renommage sont conservés sous `.local/validation/102/run_final_03/`; ils contiennent des données personnelles et restent ignorés par Git. Le rapport destiné au retour et `summary.json` se trouvent dans ce même dossier. L'inventaire détaillé a été vérifié stable par taille et `mtime_ns` autour de la lecture. Les sorties et exemples de collection n'ont pas été copiés dans le dépôt.
 
-Contrôles documentaires initiaux : décodage UTF-8 strict des documents, vérification des liens et références, exclusion Git de `.local/validation/102/`, puis inspection du diff de préparation. Depuis, le jalon 102.1 a ajouté un outil et des tests synthétiques ; leurs commandes réelles sont consignées ci-dessus. Les changements applicatifs préexistants restent hors de ce lot. Aucun scan de collection ni build n'a encore été lancé.
+Les propositions restent des indices, jamais des confirmations d'identité. Aucune écoute, recherche réseau, connexion Shovel, appel Spotify/SoundCloud, export Rekordbox, écriture de tag ou renommage n'a été fait. La version de Rekordbox n'est pas relevée et la compatibilité n'est pas testée. Les décisions utilisateur sur les 20 cas prioritaires et les rapprochements d'artistes restent en attente; aucune automatisation ne peut être déduite de ce rapport.
+
+Contrôles réellement exécutés : onze tests ciblés via `rtk proxy uv run python -m pytest tests/unit/test_mapping_sample_audit.py -q`; `uv run ruff check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`; `uv run ruff format --check scripts/audit_mapping_sample.py tests/unit/test_mapping_sample_audit.py`; validation de la structure JSON/JSONL et des compteurs des livrables locaux; `git diff --check`. L'exclusion `.local/validation/102/` a été confirmée par `git check-ignore`. Aucun build Windows n'a été lancé. Le rapport versionné ne contient pas de données de collection.
 
 ## Consigne prête à copier dans Luna
 
@@ -188,3 +196,4 @@ Contrôles documentaires initiaux : décodage UTF-8 strict des documents, vérif
 
 Révision documentaire : 2026-10-01 — Protocole initial adapté à l'absence d'API SoundCloud, au mode développement Spotify et au report des pochettes.
 Révision d'exécution : 2026-10-01 — Jalon 102.1 réalisé : ajout de l'outil autonome, de la sortie JSONL de l'inventaire et de l'échantillon, de la comparaison des tags bruts et normalisés, et des tests synthétiques. Le scan réel attend les chemins explicites de la collection.
+Révision de clôture : 2026-10-01 — Exécution de 102.0 à 102.4, correction d'un faux état illisible Mutagen/FLAC, ajout de tests sur les alias et identifiants musicaux, revue locale de l'échantillon, production du rapport privé et ajout du rapport de validation sans données personnelles.

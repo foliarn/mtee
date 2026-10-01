@@ -10,7 +10,15 @@ from pathlib import Path
 import pytest
 from mutagen.id3 import TIT2, TPE1
 from mutagen.wave import WAVE
-from scripts.audit_mapping_sample import _inventory_one, _motifs, run, select_sample
+from scripts.audit_mapping_sample import (
+    _inventory_one,
+    _is_link_or_junction,
+    _motifs,
+    _music_refs,
+    _values,
+    run,
+    select_sample,
+)
 
 
 def _row(
@@ -61,6 +69,22 @@ def test_small_population_and_rare_formats_are_bounded() -> None:
     assert extensions == {".wav", ".aiff", ".mp3"}
 
 
+def test_targeted_missing_artist_quotas_do_not_recount_missing_both() -> None:
+    rows = [_row(index, title="", artist="") for index in range(80)]
+    rows.extend(_row(index + 80, title=f"Title {index}", artist="") for index in range(80))
+    rows.extend(_row(index + 160) for index in range(80))
+
+    targeted = [
+        row
+        for row in select_sample(rows, random_size=0, targeted_size=50)
+        if row["sample_group"] == "targeted"
+    ]
+
+    priority_two = [row for row in targeted if row["sample_priority"] == 2]
+    assert sum("title_and_artist_missing" in row["sample_motifs"] for row in priority_two) == 15
+    assert sum("artist_only_missing" in row["sample_motifs"] for row in priority_two) == 15
+
+
 def test_inventory_records_unicode_multivalues_without_changing_audio(tmp_path: Path) -> None:
     path = tmp_path / "Café.wav"
     with wave.open(str(path), "wb") as audio:
@@ -106,6 +130,43 @@ def test_unreadable_files_remain_in_inventory(tmp_path: Path) -> None:
     row = _inventory_one("R1", tmp_path, path)
     assert row["status"] == "unreadable"
     assert row["error"]
+
+
+def test_mutagen_missing_tag_alias_value_error_is_treated_as_absent() -> None:
+    class MutagenTags(dict):
+        def get(self, key: str, default: object = None) -> object:
+            if key not in self:
+                raise ValueError
+            return super().get(key, default)
+
+    assert _values(MutagenTags({"TITLE": ["Song"]}), ("artist", "TITLE")) == ["Song"]
+
+
+def test_music_references_keep_identifiers_and_strip_sensitive_url_parameters() -> None:
+    tags = {
+        "spotify_track_id": ["spotify:track:0123456789abcdef"],
+        "website": ["https://www.soundcloud.com/artist/song?token=private"],
+        "private_token": ["do-not-keep"],
+        "unrelated_url": ["https://example.invalid/music"],
+    }
+
+    urls, identifiers = _music_refs(tags, list(tags))
+
+    assert urls == ["https://www.soundcloud.com/artist/song"]
+    assert identifiers == [
+        {"source_key": "spotify_track_id", "value": "spotify:track:0123456789abcdef"}
+    ]
+
+
+def test_junctions_are_treated_like_links() -> None:
+    class Junction:
+        def is_symlink(self) -> bool:
+            return False
+
+        def is_junction(self) -> bool:
+            return True
+
+    assert _is_link_or_junction(Junction())  # type: ignore[arg-type]
 
 
 def test_run_refuses_output_inside_root_before_scanning(tmp_path: Path) -> None:
