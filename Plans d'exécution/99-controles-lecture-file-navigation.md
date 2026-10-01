@@ -357,7 +357,8 @@ Après le push, faire `git fetch origin` et comparer `git rev-parse HEAD` à `gi
 - [x] 99.3 — Menus et vues de file reliés et testés.
 - [x] 2026-10-01 — 99.4 : 36 tests domaine/service et deux tests UI passés ; seuil 3 s, pause, double clic rapide, doublon manuel et Repeat all couverts.
 - [x] 99.4 — Précédent validé aux bornes et en pause.
-- [ ] 99.5 — Espace validé selon le focus et sur backend.
+- [x] 2026-10-01 — 99.5 : raccourci unique borné à la fenêtre active, sans répétition ; test UI avec backend factice sur fond, bouton, file, Settings, Convert, recherche et Ctrl+Space.
+- [x] 99.5 — Espace validé selon le focus et sur backend.
 - [ ] 99.6 — Navigation arrière/avant validée par panneau et à la souris.
 - [ ] 99.7 — Désélection et Info vide validés.
 - [ ] 99.8 — Recette intégrée depuis les sources, rapport, commit et push vérifiés.
@@ -402,6 +403,8 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Codex : 99.4 privilégie le seek demandé encore en attente, sinon lit la position native puis celle publiée, pour trancher à 3 secondes. Un redémarrage publie immédiatement zéro afin qu'un second clic rapide atteigne l'occurrence précédente. En Repeat all, un retour au début réactive la dernière occurrence du contexte et conserve les ajouts manuels en attente.
 
+2026-10-01 — Codex : 99.5 retire `AbstractButton` du prédicat « saisie », borne le raccourci Espace à la fenêtre active et désactive son auto-répétition. Le test UI reproduit le focus sur le bouton Précédent et vérifie qu'Espace reprend la lecture sans déclencher ce bouton.
+
 ## Outcomes & Retrospective
 
 Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La maquette 99.0 a été approuvée ; le domaine 99.1, la persistance 99.2 et les commandes UI de file 99.3 sont implémentés et testés. Les commandes de lecture et de navigation, la désélection et la recette intégrée restent à réaliser. Aucune distribution Windows n'est demandée.
@@ -417,3 +420,5 @@ Révision du 2026-10-01 : 99.2 implémenté avec migration, dépôt, writer et c
 Révision du 2026-10-01 : 99.3 implémenté et testé depuis les sources, avec clic droit, lot ordonné, playlist entière, retrait, drag et annulation Escape. Prochaine étape : 99.4, seuil Précédent et tests des bornes.
 
 Révision du 2026-10-01 : 99.4 implémenté et testé aux cinq positions demandées, en lecture et pause ; les commandes de l'îlot, du plein écran et Ctrl+Left passent par la même méthode. Prochaine étape : 99.5, Espace et focus.
+
+Révision du 2026-10-01 : 99.5 corrigé dans le raccourci unique de `Main.qml`, puis exercé sur les vues principales et un contrôle focalisé. Prochaine étape : 99.6, historique de pages et boutons latéraux.
