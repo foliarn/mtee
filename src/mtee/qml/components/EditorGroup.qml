@@ -102,7 +102,8 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         name: tab.modelData.kind === "folder" ? "folder"
                             : tab.modelData.kind === "playlist" ? "playlists"
-                            : tab.modelData.kind === "convert" ? "convert" : "settings"
+                            : tab.modelData.kind === "convert" ? "convert"
+                            : tab.modelData.kind === "tasks" ? "tasks" : "settings"
                         size: 15
                         color: tab.isActive ? Theme.primary : Theme.textMuted
                     }
@@ -172,6 +173,7 @@ Rectangle {
         sourceComponent: group.activeTab === null ? emptyComponent
             : group.activeTab.kind === "convert" ? convertComponent
             : group.activeTab.kind === "settings" ? settingsComponent
+            : group.activeTab.kind === "tasks" ? tasksComponent
             : listComponent
     }
 
@@ -188,6 +190,14 @@ Rectangle {
     Component {
         id: convertComponent
         ConvertView {
+            workspace: group.workspace
+            bottomInset: group.bottomInset
+        }
+    }
+
+    Component {
+        id: tasksComponent
+        TasksView {
             workspace: group.workspace
             bottomInset: group.bottomInset
         }

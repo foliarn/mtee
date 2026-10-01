@@ -171,3 +171,141 @@ def test_the_model_shows_the_submitted_jobs(qtbot, service: JobService) -> None:
     assert model.rowCount() == 1
     assert model.status_at(0).job_id == job_id
     assert _wait_until(lambda: service.status(job_id).is_terminal)
+
+
+def test_status_validates_counters() -> None:
+    from mtee.domain.jobs import JobStatus
+
+    job_id = JobId.new()
+    with pytest.raises(ValueError, match="exceed"):
+        JobStatus(job_id, "x", completed=3, total=2)
+    with pytest.raises(ValueError, match="negative"):
+        JobStatus(job_id, "x", total=-1)
+    with pytest.raises(ValueError, match="negative"):
+        JobStatus(job_id, "x", completed=-1)
+    assert JobStatus(job_id, "x", completed=2).total is None
+
+
+def test_remaining_seconds_follows_the_counter_then_the_fraction() -> None:
+    from dataclasses import replace
+
+    from mtee.domain.jobs import JobStatus, remaining_seconds
+
+    base = JobStatus(JobId.new(), "x", state=JobState.RUNNING, started_at=1_000.0)
+
+    assert remaining_seconds(replace(base, completed=10, total=40), 1_020.0) == pytest.approx(60.0)
+    assert remaining_seconds(replace(base, progress=0.25), 1_020.0) == pytest.approx(60.0)
+    # too early, nothing to extrapolate, not running, never started
+    assert remaining_seconds(replace(base, completed=1, total=40), 1_002.0) is None
+    assert remaining_seconds(base, 1_020.0) is None
+    assert remaining_seconds(replace(base, state=JobState.QUEUED, progress=0.5), 1_020.0) is None
+    assert remaining_seconds(replace(base, started_at=None, progress=0.5), 1_020.0) is None
+    assert remaining_seconds(replace(base, completed=0, total=40), 1_020.0) is None
+
+
+def test_items_detail_and_failures_are_published_with_timestamps(service: JobService) -> None:
+    gate = threading.Event()
+
+    def task(context: JobContext) -> None:
+        context.report_items(2, 4, "b.flac")
+        context.report_failure("a.flac", "could not decode")
+        gate.wait(5)
+
+    job_id = service.submit(task, label="Analyze")
+    assert _wait_until(lambda: service.status(job_id).failure_total == 1)
+    status = service.status(job_id)
+    assert (status.completed, status.total, status.detail) == (2, 4, "b.flac")
+    assert status.progress == pytest.approx(0.5)
+    assert status.started_at is not None and status.finished_at is None
+    assert status.failures[0].name == "a.flac"
+    gate.set()
+    assert _wait_until(lambda: service.status(job_id).is_terminal)
+    assert service.status(job_id).finished_at is not None
+
+
+def test_the_counter_does_not_override_a_finer_progress(service: JobService) -> None:
+    gate = threading.Event()
+
+    def task(context: JobContext) -> None:
+        context.report_progress(0.3)
+        context.report_items(3, 4, "c")
+        gate.wait(5)
+
+    job_id = service.submit(task, label="Mixed")
+    assert _wait_until(lambda: service.status(job_id).completed == 3)
+    status = service.status(job_id)
+    assert status.progress == pytest.approx(0.3)  # the finer progress keeps the last word
+    gate.set()
+    assert _wait_until(lambda: service.status(job_id).is_terminal)
+
+
+def test_failures_are_capped_but_counted(service: JobService) -> None:
+    from mtee.services.jobs import MAX_KEPT_FAILURES
+
+    def task(context: JobContext) -> None:
+        for index in range(MAX_KEPT_FAILURES + 20):
+            context.report_failure(f"f{index}", "bad")
+
+    job_id = service.submit(task, label="Many")
+    assert _wait_until(lambda: service.status(job_id).is_terminal)
+    status = service.status(job_id)
+    assert len(status.failures) == MAX_KEPT_FAILURES
+    assert status.failure_total == MAX_KEPT_FAILURES + 20
+
+
+def test_clear_finished_forgets_terminal_jobs_only(qtbot, service: JobService) -> None:
+    model = JobsListModel(service)
+    gate = threading.Event()
+    done = service.submit(lambda _context: None, label="Done")
+    running = service.submit(lambda _context: gate.wait(5), label="Running")
+    assert _wait_until(lambda: service.status(done).is_terminal)
+    assert _wait_until(lambda: service.status(running).state is JobState.RUNNING)
+    qtbot.waitUntil(lambda: model.finishedCount == 1 and model.activeCount == 1, timeout=2_000)
+
+    cleared = service.clear_finished()
+
+    assert cleared == [done]
+    assert model.rowCount() == 1
+    assert model.status_at(0).job_id == running
+    assert model.finishedCount == 0 and model.activeCount == 1
+    with pytest.raises(UnknownJobError):
+        service.status(done)
+    gate.set()
+
+
+def test_the_model_exposes_counters_cancel_and_failures(qtbot, service: JobService) -> None:
+    from mtee.models.jobs_model import JobRole
+
+    model = JobsListModel(service)
+    gate = threading.Event()
+
+    def task(context: JobContext) -> None:
+        context.report_items(5, 10, "five.wav")
+        context.report_failure("one.wav", "unreadable")
+        gate.wait(5)
+
+    job_id = service.submit(task, label="Analyze")
+    assert _wait_until(lambda: service.status(job_id).failure_total == 1)
+    qtbot.waitUntil(lambda: model.status_at(0).failure_total == 1, timeout=2_000)
+    index = model.index(0, 0)
+
+    assert model.data(index, int(JobRole.COMPLETED)) == 5
+    assert model.data(index, int(JobRole.TOTAL)) == 10
+    assert model.data(index, int(JobRole.DETAIL)) == "five.wav"
+    assert model.data(index, int(JobRole.FAILURE_COUNT)) == 1
+    assert model.data(index, int(JobRole.FAILURES)) == [
+        {"name": "one.wav", "message": "unreadable"}
+    ]
+    assert model.data(index, int(JobRole.CAN_CANCEL)) is True
+    assert model.data(index, int(JobRole.REMAINING_SECONDS)) == -1.0
+    assert model.data(index, int(JobRole.ELAPSED_SECONDS)) >= 0.0
+
+    model.cancel(str(job_id))
+    model.cancel("not-a-job")  # an unknown or malformed id is ignored
+    gate.set()
+    assert _wait_until(lambda: service.status(job_id).is_terminal)
+    qtbot.waitUntil(lambda: model.status_at(0).is_terminal, timeout=2_000)
+    assert model.data(index, int(JobRole.CAN_CANCEL)) is False
+    assert model.data(index, int(JobRole.FINISHED_RANK)) == 0
+    model.clearFinished()
+    assert model.rowCount() == 0

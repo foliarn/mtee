@@ -98,6 +98,8 @@ class AnalysisModel(QObject):
                 settings,
                 is_cancelled=lambda: context.is_cancelled,
                 report_progress=context.report_progress,
+                report_items=context.report_items,
+                report_failure=context.report_failure,
                 on_track_done=self._bridge.trackDone.emit,
                 on_conflict=self._bridge.conflict.emit,
                 force=force,

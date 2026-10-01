@@ -474,6 +474,7 @@ class MetadataEditorModel(QObject):
                     context.raise_if_cancelled()
                     results.append(self._writer.undo(operation_id, draft_id))
                     context.report_progress((index + 1) / len(operation_ids))
+                    context.report_items(index + 1, len(operation_ids), "Undo")
                 except Exception as error:
                     results.append(
                         MetadataEditResult(
@@ -551,6 +552,9 @@ class MetadataEditorModel(QObject):
                         # An edit made by the user protects that value from analysis.
                         self._analysis.mark_user_edited([target.track_id], batch.field)
                     context.report_progress((index + 1) / total)
+                    context.report_items(index + 1, len(batch.targets), batch.field)
+                    if saved.status != "saved":
+                        context.report_failure(target.track_id, saved.message or saved.status)
                 except Exception as error:
                     results.append(
                         MetadataEditResult(

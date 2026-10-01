@@ -8,10 +8,11 @@ Qt signals notify the models, which are updated on the graphical thread.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import replace
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
 
 from mtee.domain.jobs import (
     ERROR_CANCELLED,
@@ -20,11 +21,21 @@ from mtee.domain.jobs import (
     JobCancelledError,
     JobError,
     JobId,
+    JobItemFailure,
     JobState,
     JobStatus,
 )
 
-__all__ = ["JobContext", "JobService", "JobTask", "UnknownJobError", "cancelled_error"]
+__all__ = [
+    "MAX_KEPT_FAILURES",
+    "JobContext",
+    "JobService",
+    "JobTask",
+    "UnknownJobError",
+    "cancelled_error",
+]
+
+MAX_KEPT_FAILURES = 500
 
 
 class UnknownJobError(LookupError):
@@ -38,6 +49,7 @@ class JobContext:
         self._job_id = job_id
         self._service = service
         self._cancelled = threading.Event()
+        self._fine_progress = False
 
     @property
     def job_id(self) -> JobId:
@@ -60,7 +72,31 @@ class JobContext:
     def report_progress(self, progress: float) -> None:
         """Publish a progress between 0.0 and 1.0; values outside are clamped."""
         bounded = min(1.0, max(0.0, float(progress)))
+        self._fine_progress = True
         self._service.publish_progress(self._job_id, bounded)
+
+    def report_items(self, completed: int, total: int | None, detail: str = "") -> None:
+        """Publish how many elements are done, out of ``total`` when it is known.
+
+        ``detail`` names the element being handled. The progress fraction follows the
+        counter (``completed / total``) unless the task publishes its own finer
+        progress with ``report_progress``, which then keeps the last word.
+        """
+        self._service.publish_items(
+            self._job_id,
+            max(0, int(completed)),
+            total,
+            detail,
+            follow_counter=not self._fine_progress,
+        )
+
+    def report_detail(self, text: str) -> None:
+        """Publish what the job is doing now, without a counter."""
+        self._service.publish_items(self._job_id, None, None, text, follow_counter=False)
+
+    def report_failure(self, name: str, message: str) -> None:
+        """Record an element that failed while the job goes on."""
+        self._service.publish_failure(self._job_id, JobItemFailure(name, message))
 
     def sleep(self, seconds: float, *, step_seconds: float = 0.05) -> None:
         """Wait while staying cancellable, for artificial or polling tasks."""
@@ -114,6 +150,7 @@ class JobService(QObject):
 
     jobSubmitted = Signal(object)
     jobUpdated = Signal(object)
+    jobsCleared = Signal(object)
     _progressFlushRequested = Signal()
 
     def __init__(
@@ -227,6 +264,7 @@ class JobService(QObject):
                     continue
                 stopped = replace(
                     status,
+                    finished_at=time.time(),
                     state=JobState.FAILED,
                     error=JobError(
                         code=ERROR_INTERRUPTED,
@@ -256,26 +294,84 @@ class JobService(QObject):
             status = self._statuses.get(job_id)
             if status is None or status.is_terminal:
                 return False
-            running = replace(status, state=JobState.RUNNING)
+            running = replace(status, state=JobState.RUNNING, started_at=time.time())
             self._statuses[job_id] = running
         self.jobUpdated.emit(running)
         return True
 
     def publish_progress(self, job_id: JobId, progress: float) -> None:
         """Keep the latest progress and coalesce UI notifications to 100 ms."""
-        request_flush = False
         with self._lock:
             status = self._statuses.get(job_id)
             if status is None or status.is_terminal:
                 return
             updated = replace(status, progress=progress)
             self._statuses[job_id] = updated
+        self._request_flush(job_id)
+
+    def _request_flush(self, job_id: JobId) -> None:
+        request_flush = False
+        with self._lock:
             self._pending_progress.add(job_id)
             if not self._progress_flush_enqueued:
                 self._progress_flush_enqueued = True
                 request_flush = True
         if request_flush:
             self._progressFlushRequested.emit()
+
+    def publish_items(
+        self,
+        job_id: JobId,
+        completed: int | None,
+        total: int | None,
+        detail: str,
+        *,
+        follow_counter: bool,
+    ) -> None:
+        """Keep the latest counter and detail; notifications are coalesced like progress."""
+        with self._lock:
+            status = self._statuses.get(job_id)
+            if status is None or status.is_terminal:
+                return
+            changes: dict[str, object] = {"detail": detail}
+            if completed is not None:
+                known_total = total if total is not None else None
+                if known_total is not None:
+                    completed = min(completed, known_total)
+                changes["completed"] = completed
+                changes["total"] = known_total
+                if follow_counter and known_total:
+                    changes["progress"] = min(1.0, completed / known_total)
+            self._statuses[job_id] = replace(status, **changes)  # type: ignore[arg-type]
+        self._request_flush(job_id)
+
+    def publish_failure(self, job_id: JobId, failure: JobItemFailure) -> None:
+        """Record a failed element; only the first ``MAX_KEPT_FAILURES`` are kept."""
+        with self._lock:
+            status = self._statuses.get(job_id)
+            if status is None or status.is_terminal:
+                return
+            kept = status.failures
+            if len(kept) < MAX_KEPT_FAILURES:
+                kept = (*kept, failure)
+            self._statuses[job_id] = replace(
+                status, failures=kept, failure_total=status.failure_total + 1
+            )
+        self._request_flush(job_id)
+
+    def clear_finished(self) -> list[JobId]:
+        """Forget the finished jobs of the user's list and report which ones went."""
+        with self._lock:
+            cleared = [
+                job_id
+                for job_id, status in self._statuses.items()
+                if status.is_terminal and job_id not in self._hidden
+            ]
+            for job_id in cleared:
+                del self._statuses[job_id]
+        if cleared:
+            self.jobsCleared.emit(cleared)
+        return cleared
 
     def finish(self, job_id: JobId, state: JobState, error: JobError | None) -> None:
         """Record the terminal state reported by the worker of ``job_id``."""
@@ -284,7 +380,9 @@ class JobService(QObject):
             if status is None or status.is_terminal:
                 return
             progress = 1.0 if state is JobState.SUCCEEDED else status.progress
-            finished = replace(status, state=state, progress=progress, error=error)
+            finished = replace(
+                status, state=state, progress=progress, error=error, finished_at=time.time()
+            )
             self._statuses[job_id] = finished
             self._contexts.pop(job_id, None)
             self._pending_progress.discard(job_id)

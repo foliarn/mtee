@@ -260,3 +260,29 @@ def test_opening_a_folder_picks_up_files_added_on_disk(qapp, qtbot, tmp_path: Pa
     assert not workspace._folder_watch.watched()
     jobs.shutdown(1_000)
     database.close()
+
+
+def test_the_tasks_page_is_a_tab_that_back_and_forward_replay(qapp, tmp_path: Path) -> None:
+    database = Database(tmp_path / "tasks.sqlite3")
+    database.migrate()
+    jobs = JobService(qapp, max_thread_count=1)
+    workspace = WorkspaceModel(
+        library=LibraryRepository(database),
+        session=WorkspaceRepository(database),
+        jobs=jobs,
+    )
+    workspace.openSettings()
+    workspace.openTasks()
+
+    tabs = workspace.groups_snapshot()[0]["tabs"]
+    assert workspace.groups_snapshot()[0]["active"] == "tasks:"
+    assert [tab["title"] for tab in tabs if tab["id"] == "tasks:"] == ["Tasks"]
+
+    workspace.navigateBack()
+    assert workspace.groups_snapshot()[0]["active"] == "settings:"
+    workspace.navigateForward()
+    assert workspace.groups_snapshot()[0]["active"] == "tasks:"
+
+    workspace.flush_session()
+    jobs.shutdown(1_000)
+    database.close()
