@@ -634,8 +634,8 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 - [x] 2026-10-01 — Sources du plein écran, de la waveform, de l'analyse, de l'île, des menus et des plans 98/99 inspectées au commit `a22273b`.
 - [x] 2026-10-01 — Deux séries de réponses utilisateur consignées (S, C, W, G, P, D).
 - [x] 2026-10-01 — Plan rédigé et contrôles documentaires effectués. Aucun code, aucun test applicatif.
-- [ ] 100.0 — Maquette, captures et dossier de revue préparés.
-- [ ] 100.0 — Validation utilisateur obtenue et valeurs retenues consignées.
+- [x] 2026-10-01 — 100.0 : maquette `docs/ux/mockups/Fullscreen100Review.qml` (avec `Fs100Waveform.qml` et `Fs100Marquee.qml`), lanceur `scripts/review_fullscreen_100.py`, quinze captures dans `docs/ux/fullscreen-100-2026-10-01/` et dossier `docs/ux/review-100-fullscreen.md` préparés. Contrôles : captures hors écran sans avertissement QML, `ruff check` et `ruff format --check` sur le lanceur, `pyright` sans erreur, parcours simulé des pages (molette, touches, bouton Queue) et du scrub, essai de `--audio` et `--covers` sur des fichiers synthétiques (WAV, PNG), rendu natif d'une pochette réelle. Non observé : essai à la souris réelle par l'utilisateur.
+- [ ] 100.0 — Validation utilisateur obtenue et valeurs retenues consignées. En attente : les onze décisions listées dans `docs/ux/review-100-fullscreen.md` et la ratification de ses points de découverte. Les jalons 100.1 et suivants ne démarrent pas avant.
 - [ ] 100.1 — Données RMS, niveaux de barres et recalcul par l'analyse générale testés.
 - [ ] 100.2 — Rendu de la waveform testé.
 - [ ] 100.3 — Scrub testé, latence mesurée, seuils ajustés à l'écoute.
@@ -656,6 +656,16 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 
 2026-10-01 — Le plan 99 n'a pas encore de code à la préparation (maquette 99.0 seulement) et le plan 98 a des modifications non commitées dans des fichiers voisins (`workspace_model.py`, `TrackRow.qml`).
 
+2026-10-01 — Jalon 100.0 : avec une colonne unique (carte puis page 2), les cartes de la page 2 sont visibles sous la carte principale dès la page 1 (constaté sur la première capture). La maquette garde les deux positions d'arrivée du contrat « Plein écran, île et pages » mais fait glisser la page 2 depuis le bas de la vue avec la progression de la transition (carte : `-progress × offset`, page 2 : de la hauteur de la vue à `fsPeek + marge_haute`). À ratifier ; sinon la page 2 devrait être masquée en page 1.
+
+2026-10-01 — Jalon 100.0 : `Shortcut` n'accepte pas `PageDown` / `PageUp` comme séquences (les touches ne réagissaient pas) ; `PgDown` et `PgUp` fonctionnent, vérifié par des frappes simulées. À appliquer au jalon 100.5.
+
+2026-10-01 — Jalon 100.0 : `import QtQuick.Effects` fonctionne avec PySide6 6.9.3 et `MultiEffect` masque correctement une image dans la fenêtre native ; il ne s'affiche pas avec le rendu logiciel hors écran. `ClippingRectangle` n'existe pas dans cette installation. Pour l'ombre de repli, le contrat prévoit des rectangles dégradés si l'effet pose problème ; la maquette utilise six rectangles translucides empilés, sans effet.
+
+2026-10-01 — Jalon 100.0 : `Theme.hover` est égal à `Theme.surface`, fond des cartes neutres de la page 2 : le survol des lignes de la file y serait invisible. La maquette utilise `Theme.selection`. Une ombre noire à 5 % sur `Theme.editor` est quasi imperceptible ; `Theme.textMuted` est illisible sur une carte colorée (la maquette utilise du blanc translucide). À trancher en revue.
+
+2026-10-01 — Jalon 100.0 : la maquette a calculé, sur un WAV synthétique (sinus d'amplitude 0,8 / 0,2 / 0,5), des valeurs RMS de 0,567 / 0,142 / 0,355, soit amplitude/√2 comme attendu ; un fichier de moins de 1200 tranches de 20 ms garde un point par tranche. Le prototype d'accent a retenu `#E0245E` sur une image unie vive, `#EADFA0` sur une image pâle, et aucune couleur sur une image grise (repli C9).
+
 ## Decision Log
 
 2026-10-01 — Utilisateur, première série : décisions S1–S11, C1–C21, W1–W14, G1–G7, P1–P7 et D1–D9, telles que transcrites. Points notables : barres symétriques ; survol sans effet sur le son ; scrub audio avec silence au-delà d'une vitesse seuil ; suppression de l'éditeur de tags du plein écran ; carte Artiste réduite à un placeholder ; aucune autre carte que celles listées.
@@ -664,8 +674,12 @@ Message multiligne via une here-string PowerShell non interpolée et `git commit
 
 2026-10-01 — Préparation : l'énergie RMS est stockée avec min/max (format v2, sans migration) et affichée avec normalisation par piste et courbe gamma. Le scrub est un domaine pur à commandes, testable sans Qt. Le silence transitoire passe par le volume du backend sans publier l'état de mute. L'accent de pochette est calculé hors thread UI avec un cache en mémoire. Les pages suivent une propriété `fullscreenPage` partagée avec l'île, sans Flickable libre. Toutes les valeurs numériques sont initiales et doivent être fixées en revue 100.0.
 
+2026-10-01 — Sonnet 5.5 : jalon 100.0 exécuté sur le plan 100 tel quel. Choix de maquette (non produits par l'utilisateur, à valider en revue) : la hauteur de la carte découle de son contenu et la pochette en prend la hauteur intérieure ; la waveform affichée par défaut prend les barres B 3/2 et le gamma 1,6 ; les champs candidats de Track details sont marqués d'un astérisque ; la page 2 étroite place Artiste et Track details sur une rangée de 180 px ; l'île réserve 76 px de chaque côté pour la flèche du bas. Le panneau `F2` et les cartes de comparaison `waveform-variants` et `play-variants` servent à la revue et ne seront pas portés dans l'application.
+
 ## Outcomes & Retrospective
 
-Préparation uniquement : ce document transcrit les décisions de l'utilisateur, décrit les contrats, les fichiers à créer ou modifier, huit jalons, les tests et une matrice de recette. Aucune fonctionnalité n'est implémentée, aucun test applicatif n'est exécuté, aucun build n'est réalisé.
+Préparation et jalon 100.0 (maquette) : ce document transcrit les décisions de l'utilisateur, décrit les contrats, les fichiers à créer ou modifier, huit jalons, les tests et une matrice de recette. Aucune fonctionnalité de l'application n'est implémentée et aucun build n'est réalisé. Le jalon 100.0 a produit la maquette, quinze captures et le dossier de revue ; la validation de l'utilisateur est en attente et bloque 100.1 à 100.7. Limites observées : maquette sans son, horloge simulée, scrub et seuils non éprouvés à la souris réelle ni à l'écoute, `--audio` et `--covers` essayés seulement sur des fichiers synthétiques, pas sur la collection de l'utilisateur.
 
 Révision du 2026-10-01 : première rédaction après deux séries de questions.
+
+Révision du 2026-10-01 (jalon 100.0) : maquette, lanceur, captures et dossier de revue préparés ; découvertes et choix de maquette ajoutés à Surprises & Discoveries et au Decision Log ; validation utilisateur en attente.
