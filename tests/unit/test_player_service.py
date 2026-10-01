@@ -151,6 +151,101 @@ def test_previous_at_first_seeks_to_start_and_last_next_ends(qapp, qtbot, tmp_pa
     service.close()
 
 
+@pytest.mark.parametrize("position", [0, 2_900_000, 2_999_999, 3_000_000, 3_100_000])
+@pytest.mark.parametrize("paused", [False, True])
+def test_previous_uses_three_second_boundary(
+    qapp, qtbot, tmp_path: Path, position: int, paused: bool
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path)
+    service.play_queue(ids, 1)
+    _wait_playing(qtbot, service)
+    if paused:
+        service.pause()
+    backend.position = position
+    before_loads = len(backend.loads)
+
+    service.previous()
+
+    expected = ids[0] if position < 3_000_000 else ids[1]
+    qtbot.waitUntil(lambda: service.state.current_id == expected)
+    assert service.state.current_id == expected
+    assert len(backend.loads) == before_loads + (position < 3_000_000)
+    if position >= 3_000_000:
+        assert backend.seeks[-1] == 0
+    _wait_playing(qtbot, service)
+    assert backend.paused is False
+    service.close()
+
+
+def test_two_quick_previous_clicks_use_pending_restart_position(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path)
+    service.play_queue(ids, 1)
+    _wait_playing(qtbot, service)
+    backend.position = 3_100_000
+    service.previous()
+    # A native position reading may lag behind the requested seek.
+    backend.position = 3_100_000
+    service.previous()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[0])
+    _wait_playing(qtbot, service)
+    service.close()
+
+
+def test_previous_wraps_to_last_context_with_repeat_all(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    assert service.state.repeat == "all"
+    manual_id = service.enqueue_tracks([ids[1]])[0]
+    backend.position = 0
+    service.previous()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[-1])
+    _wait_playing(qtbot, service)
+    assert any(row["entryId"] == manual_id for row in service.up_next())
+    service.close()
+
+
+@pytest.mark.parametrize("repeat_clicks", [0, 2], ids=["off", "one"])
+def test_previous_at_first_restarts_in_off_and_one_modes(
+    qapp, qtbot, tmp_path: Path, repeat_clicks: int
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    for _ in range(repeat_clicks):
+        service.cycle_repeat()
+    service.pause()
+    backend.position = 2_999_999
+    service.previous()
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[0]
+    assert backend.seeks[-1] == 0
+    assert backend.paused is False
+    service.close()
+
+
+def test_previous_from_manual_duplicate_returns_to_exact_occurrence(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path)
+    service.play_queue(ids[:2])
+    _wait_playing(qtbot, service)
+    first_id = service.queue_state.current.entry_id  # type: ignore[union-attr]
+    manual_id = service.enqueue_tracks([ids[0]])[0]
+    service.next()
+    _wait_playing(qtbot, service)
+    assert service.state.current_entry_id == manual_id
+    backend.position = 0
+    service.previous()
+    _wait_playing(qtbot, service)
+    assert service.state.current_entry_id == first_id
+    assert service.up_next()[0]["entryId"] == manual_id
+    service.close()
+
+
 def test_stale_backend_errors_do_not_replace_a_new_session(qapp, qtbot, tmp_path: Path) -> None:
     service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=2)
     service.play_queue(ids)

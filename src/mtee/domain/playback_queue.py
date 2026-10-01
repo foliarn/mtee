@@ -117,6 +117,17 @@ class QueueState:
         upcoming = (*((self.current,) if self.current else ()), *self.upcoming)
         return self._changed(past=self.past[:-1], current=self.past[-1], upcoming=upcoming)
 
+    def previous_wrap(self) -> QueueState:
+        """Wrap from the first occurrence to the final context occurrence."""
+        if self.past or not self.context_order:
+            return self
+        manual = tuple(entry for entry in self.upcoming if entry.origin == "manual")
+        return self._changed(
+            past=self.context_order[:-1],
+            current=self.context_order[-1],
+            upcoming=manual,
+        )
+
     def play_entry(self, entry_id: str) -> QueueState:
         for index, entry in enumerate(self.upcoming):
             if entry.entry_id == entry_id:
