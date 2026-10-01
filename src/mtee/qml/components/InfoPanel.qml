@@ -29,21 +29,22 @@ Item {
         onTriggered: info.workspace.finishSave()
     }
 
-    Text {
-        visible: info.selection.length === 0
-        anchors.centerIn: parent
-        width: parent.width - 48
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.WordWrap
-        text: "Select a track to see its info."
-        color: Theme.textSecondary
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSecondary
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.LeftButton
+        onClicked: info.workspace.clearSelection(info.workspace.activeGroup)
     }
 
     Flickable {
         id: scroller
         visible: info.selection.length > 0
+        MouseArea {
+            anchors.fill: parent
+            z: -1
+            acceptedButtons: Qt.LeftButton
+            onClicked: info.workspace.clearSelection(info.workspace.activeGroup)
+        }
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right

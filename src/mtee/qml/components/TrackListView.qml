@@ -34,9 +34,13 @@ FocusScope {
     readonly property bool modelBacked: typeof workspace.trackModelForTab === "function"
     readonly property var rows: modelBacked ? [] : workspace.tabTracks(tab.kind, tab.ref, tab.sortKey, tab.sortAscending, workspace.revision)
     readonly property var trackModel: modelBacked
-        ? workspace.trackModelForTab(tab.id, tab.kind, tab.ref, tab.sortKey, tab.sortAscending)
+        ? workspace.trackModelForTab(tab.id, tab.kind, tab.ref, tab.sortKey, tab.sortAscending, groupIndex)
         : rows
     readonly property var orderedIds: modelBacked ? trackModel.trackIds : rows.map((track) => track.id)
+    readonly property var selectionIds: {
+        workspace.selectedIds
+        return workspace.selectedIdsForGroup(groupIndex)
+    }
     readonly property bool isPlaylist: tab.kind === "playlist" && modelBacked
     property bool playlistSearchOpen: false
     readonly property var playlistOptions: ["title", "artist", "album", "bpm", "key", "duration"]
@@ -132,7 +136,7 @@ FocusScope {
     }
 
     function focusedIndex() {
-        const selected = workspace.selectedIds
+        const selected = selectionIds
         if (selected.length === 0)
             return -1
         return modelBacked
@@ -146,13 +150,13 @@ FocusScope {
         view.forceActiveFocus()
         const trackId = orderedIds[index]
         if (event.button === Qt.RightButton) {
-            if (workspace.selectedIds.indexOf(trackId) < 0)
+            if (selectionIds.indexOf(trackId) < 0)
                 workspace.selectTrack(trackId, "single", [])
             return
         }
         if (
             !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))
-            && workspace.selectedIds.indexOf(trackId) >= 0
+            && selectionIds.indexOf(trackId) >= 0
         )
             return
         const mode = (event.modifiers & Qt.ShiftModifier) ? "range"
@@ -191,13 +195,13 @@ FocusScope {
     }
 
     function openPlaylistMenu(anchor, trackId) {
-        const ids = workspace.selectedIds.indexOf(trackId) >= 0 ? workspace.selectedIds : [trackId]
+        const ids = selectionIds.indexOf(trackId) >= 0 ? selectionIds : [trackId]
         playlistMenu.trackIds = ids
         playlistMenu.popup(anchor, 0, anchor.height)
     }
 
     function selectedDragIds(trackId) {
-        const selected = workspace.selectedIds.indexOf(trackId) >= 0 ? workspace.selectedIds : [trackId]
+        const selected = selectionIds.indexOf(trackId) >= 0 ? selectionIds : [trackId]
         return Array.from(view.orderedIds).filter(id => selected.indexOf(id) >= 0)
     }
 
@@ -357,7 +361,7 @@ FocusScope {
             anchors.fill: parent
             z: -1
             acceptedButtons: Qt.LeftButton
-            onClicked: view.forceActiveFocus()
+            onClicked: { view.forceActiveFocus(); view.workspace.clearSelection(view.groupIndex) }
         }
 
         Loader {
@@ -417,7 +421,10 @@ FocusScope {
                 text: view.tab.searchQuery || ""
                 color: Theme.textPrimary; placeholderTextColor: Theme.textMuted
                 font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
-                onTextEdited: view.workspace.setSearch(view.tab.id, text)
+                onTextEdited: {
+                    view.workspace.setActiveGroup(view.groupIndex)
+                    view.workspace.setSearch(view.tab.id, text)
+                }
                 Behavior on width { NumberAnimation { duration: 190; easing.type: Easing.OutExpo } }
                 background: Rectangle { color: Theme.surface; border.color: playlistSearch.activeFocus ? Theme.focus : Theme.separator }
             }
@@ -433,7 +440,10 @@ FocusScope {
                 iconSize: 18
                 active: !view.artwork
                 tip: "List"
-                onClicked: view.workspace.setTabView(view.tab.id, "list")
+                onClicked: {
+                    view.workspace.setActiveGroup(view.groupIndex)
+                    view.workspace.setTabView(view.tab.id, "list")
+                }
             }
 
             IconButton {
@@ -441,7 +451,10 @@ FocusScope {
                 iconSize: 18
                 active: view.artwork
                 tip: "Artwork"
-                onClicked: view.workspace.setTabView(view.tab.id, "artwork")
+                onClicked: {
+                    view.workspace.setActiveGroup(view.groupIndex)
+                    view.workspace.setTabView(view.tab.id, "artwork")
+                }
             }
 
             IconButton {
@@ -529,7 +542,10 @@ FocusScope {
             placeholderTextColor: Theme.textMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSmall
-            onTextEdited: view.workspace.setSearch(view.tab.id, text)
+            onTextEdited: {
+                view.workspace.setActiveGroup(view.groupIndex)
+                view.workspace.setSearch(view.tab.id, text)
+            }
             Keys.onEscapePressed: (event) => {
                 view.forceActiveFocus()
                 event.accepted = true
@@ -601,6 +617,36 @@ FocusScope {
             ListView {
                 id: list
                 objectName: "trackRowsList"
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    onTapped: (point, button) => {
+                        if (list.indexAt(point.position.x, list.contentY + point.position.y) < 0)
+                            view.workspace.clearSelection(view.groupIndex)
+                    }
+                }
+                property bool navigationRestored: false
+                function restoreNavigationScroll() {
+                    if (navigationRestored || count === 0) return
+                    const saved = view.workspace.navigationScroll(view.groupIndex, view.tab.id, "list")
+                    const anchor = view.workspace.navigationAnchor(view.groupIndex, view.tab.id, "list")
+                    const index = view.orderedIds.indexOf(anchor.id)
+                    if (index >= 0) {
+                        positionViewAtIndex(index, ListView.Beginning)
+                        contentY += anchor.offset
+                    } else {
+                        contentY = saved
+                    }
+                    contentY = Math.min(Math.max(0, contentHeight - height), Math.max(0, contentY))
+                    navigationRestored = true
+                }
+                onCountChanged: Qt.callLater(restoreNavigationScroll)
+                onContentYChanged: if (navigationRestored && visible) {
+                    const index = indexAt(1, contentY + 1)
+                    const item = index >= 0 ? itemAtIndex(index) : null
+                    const anchorId = index >= 0 && index < view.orderedIds.length ? view.orderedIds[index] : ""
+                    view.workspace.setNavigationScroll(view.groupIndex, view.tab.id, "list",
+                        contentY, anchorId, item ? contentY - item.y : 0)
+                }
                 anchors.fill: parent
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
@@ -633,6 +679,20 @@ FocusScope {
                             view.dropIndex = -1
                         }
                     }
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton
+                        onClicked: view.workspace.clearSelection(view.groupIndex)
+                    }
+                }
+                MouseArea {
+                    objectName: "emptyTrackListHitArea"
+                    parent: list
+                    anchors.fill: list
+                    z: 10
+                    enabled: list.count === 0
+                    acceptedButtons: Qt.LeftButton
+                    onClicked: view.workspace.clearSelection(view.groupIndex)
                 }
                 ScrollBar.vertical: ThinScrollBar {}
 
@@ -651,7 +711,7 @@ FocusScope {
                     workspace: view.workspace
                     groupIndex: view.groupIndex
                     separateArtist: view.modelBacked
-                    selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
+                    selected: view.selectionIds.indexOf(modelData.id) >= 0
                     playing: view.workspace.playingId === (modelData.trackId || modelData.id)
                     paused: !view.workspace.isPlaying
                     current: view.activeFocus && list.currentIndex === index
@@ -693,7 +753,7 @@ FocusScope {
                     onContextRequested: (x, y) => {
                         contextMenu.trackId = modelData.id
                         contextMenu.folderId = modelData.folder || ""
-                        contextMenu.trackIds = view.workspace.selectedIds
+                        contextMenu.trackIds = view.selectionIds
                         contextMenu.orderedIds = view.orderedIds
                         contextMenu.captureQueueTargets()
                         contextMenu.popup(trackRow, x, y)
@@ -705,6 +765,36 @@ FocusScope {
 
     GridView {
         id: grid
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onTapped: (point, button) => {
+                if (grid.indexAt(point.position.x, grid.contentY + point.position.y) < 0)
+                    view.workspace.clearSelection(view.groupIndex)
+            }
+        }
+        property bool navigationRestored: false
+        function restoreNavigationScroll() {
+            if (navigationRestored || count === 0) return
+            const saved = view.workspace.navigationScroll(view.groupIndex, view.tab.id, "artwork")
+            const anchor = view.workspace.navigationAnchor(view.groupIndex, view.tab.id, "artwork")
+            const index = view.orderedIds.indexOf(anchor.id)
+            if (index >= 0) {
+                positionViewAtIndex(index, GridView.Beginning)
+                contentY += anchor.offset
+            } else {
+                contentY = saved
+            }
+            contentY = Math.min(Math.max(0, contentHeight - height), Math.max(0, contentY))
+            navigationRestored = true
+        }
+        onCountChanged: Qt.callLater(restoreNavigationScroll)
+        onContentYChanged: if (navigationRestored && visible) {
+            const index = indexAt(1, contentY + 1)
+            const item = index >= 0 ? itemAtIndex(index) : null
+            const anchorId = index >= 0 && index < view.orderedIds.length ? view.orderedIds[index] : ""
+            view.workspace.setNavigationScroll(view.groupIndex, view.tab.id, "artwork",
+                contentY, anchorId, item ? contentY - item.y : 0)
+        }
         visible: view.artwork
         anchors.top: heading.bottom
         anchors.left: parent.left
@@ -743,6 +833,19 @@ FocusScope {
                     view.dropIndex = -1
                 }
             }
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                onClicked: view.workspace.clearSelection(view.groupIndex)
+            }
+        }
+        MouseArea {
+            parent: grid
+            anchors.fill: grid
+            z: 10
+            enabled: grid.count === 0
+            acceptedButtons: Qt.LeftButton
+            onClicked: view.workspace.clearSelection(view.groupIndex)
         }
         ScrollBar.vertical: ThinScrollBar {}
 
@@ -755,7 +858,7 @@ FocusScope {
             objectName: "trackTile_" + (index + 1)
             required property var modelData
             required property int index
-            readonly property bool selected: view.workspace.selectedIds.indexOf(modelData.id) >= 0
+            readonly property bool selected: view.selectionIds.indexOf(modelData.id) >= 0
             readonly property bool playing: view.workspace.playingId === (modelData.trackId || modelData.id)
             property var dragTrackIds: []
             property var dragEntryIds: []
@@ -871,7 +974,7 @@ FocusScope {
                     if (event.button === Qt.RightButton) {
                         contextMenu.trackId = tile.modelData.id
                         contextMenu.folderId = tile.modelData.folder
-                        contextMenu.trackIds = view.workspace.selectedIds
+                        contextMenu.trackIds = view.selectionIds
                         contextMenu.orderedIds = view.orderedIds
                         contextMenu.captureQueueTargets()
                         contextMenu.popup(tile, event.x, event.y)
@@ -948,8 +1051,10 @@ FocusScope {
             onClicked: (event) => {
                 if (event.button === Qt.RightButton)
                     reorderMenu.popup(cell, event.x, event.y)
-                else if (cell.sortKey.length > 0)
+                else if (cell.sortKey.length > 0) {
+                    view.workspace.setActiveGroup(view.groupIndex)
                     view.workspace.setSort(view.tab.id, cell.sortKey)
+                }
             }
         }
 

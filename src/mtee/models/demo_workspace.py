@@ -157,6 +157,7 @@ class DemoWorkspace(QObject):
         self._fullscreen_page = 0
         self._bar_count = 0
         self._liked: set[str] = set()
+        self._settings_page = "general"
         self._island_enabled = scenario.island_enabled
         self._expanded: set[str] = set(_INITIAL_EXPANDED)
         self._selected = list(scenario.selected)
@@ -257,6 +258,53 @@ class DemoWorkspace(QObject):
     @Property(int, notify=layoutChanged)
     def activeGroup(self) -> int:
         return self._active_group
+
+    @Property(str, notify=layoutChanged)
+    def settingsPage(self) -> str:
+        return self._settings_page
+
+    @Slot(int, result=str)
+    def settingsPageForGroup(self, _group_index: int) -> str:
+        return self._settings_page
+
+    @Slot(str)
+    def setSettingsPage(self, page: str) -> None:
+        if page in {"general", "analysis"}:
+            self._settings_page = page
+            self.layoutChanged.emit()
+
+    @Slot(int, str)
+    def setSettingsPageForGroup(self, _group_index: int, page: str) -> None:
+        self.setSettingsPage(page)
+
+    @Slot(int, str, str, float)
+    @Slot(int, str, str, float, str, float)
+    def setNavigationScroll(
+        self,
+        _group: int,
+        _tab: str,
+        _view: str,
+        _value: float,
+        _anchor: str = "",
+        _offset: float = 0.0,
+    ) -> None:
+        return
+
+    @Slot(int, str, str, result=float)
+    def navigationScroll(self, _group: int, _tab: str, _view: str) -> float:
+        return 0.0
+
+    @Slot(int, str, str, result=dict)
+    def navigationAnchor(self, _group: int, _tab: str, _view: str) -> dict[str, object]:
+        return {"id": "", "offset": 0.0}
+
+    @Slot()
+    def navigateBack(self) -> None:
+        return
+
+    @Slot()
+    def navigateForward(self) -> None:
+        return
 
     @Property(str, notify=layoutChanged)
     def activeFolder(self) -> str:
@@ -439,6 +487,10 @@ class DemoWorkspace(QObject):
 
     @Property(list, notify=selectionChanged)
     def selectedIds(self) -> list[str]:
+        return list(self._selected)
+
+    @Slot(int, result=list)
+    def selectedIdsForGroup(self, _group_index: int) -> list[str]:
         return list(self._selected)
 
     @Property(str, notify=playbackChanged)
@@ -965,6 +1017,14 @@ class DemoWorkspace(QObject):
         self.explorerChanged.emit()
 
     # ---------------------------------------------------- selection actions
+
+    @Slot()
+    @Slot(int)
+    def clearSelection(self, _group_index: int = -1) -> None:
+        self._selected = []
+        self._anchor = ""
+        self._reset_save_state()
+        self.selectionChanged.emit()
 
     @Slot(str, str, list)
     def selectTrack(self, track_id: str, mode: str = "single", ordered: list | None = None) -> None:

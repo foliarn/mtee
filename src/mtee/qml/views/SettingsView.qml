@@ -10,9 +10,10 @@ Rectangle {
 
     objectName: "settingsView"
     required property var workspace
+    property int groupIndex: 0
     property int bottomInset: 0
     property bool rememberQueue: false
-    property string page: "general"
+    readonly property string page: workspace.settingsPageForGroup(groupIndex)
     readonly property var analysis: workspace.analysisSettings
 
     color: Theme.editor
@@ -98,7 +99,7 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: settings.page = tabItem.modelData.key
+                            onClicked: settings.workspace.setSettingsPageForGroup(settings.groupIndex, tabItem.modelData.key)
                         }
                     }
                 }
