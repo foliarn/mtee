@@ -11,6 +11,12 @@ Item {
     required property var workspace
 
     objectName: "explorerPane"
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.LeftButton
+        onClicked: pane.workspace.clearSelection(pane.workspace.activeGroup)
+    }
     readonly property var treeModel: typeof workspace.folderTreeModel === "object"
         ? workspace.folderTreeModel : null
     property string scrollAnchorId: ""
@@ -127,6 +133,16 @@ Item {
         reuseItems: true
         model: pane.treeModel || pane.workspace.explorerRows
         ScrollBar.vertical: ThinScrollBar {}
+        MouseArea {
+            parent: tree
+            x: 0
+            y: Math.min(tree.height, Math.max(0, tree.contentHeight - tree.contentY))
+            width: tree.width
+            height: Math.max(0, tree.height - y)
+            z: 10
+            acceptedButtons: Qt.LeftButton
+            onClicked: pane.workspace.clearSelection(pane.workspace.activeGroup)
+        }
 
         WheelScrollHandler {
             flickable: tree

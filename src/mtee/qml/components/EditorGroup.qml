@@ -45,6 +45,15 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
             clip: true
             model: group.groupData.tabs
+            MouseArea {
+                parent: tabs
+                x: Math.min(tabs.width, Math.max(0, tabs.contentWidth - tabs.contentX))
+                width: Math.max(0, tabs.width - x)
+                height: tabs.height
+                z: 10
+                acceptedButtons: Qt.LeftButton
+                onClicked: group.workspace.clearSelection(group.groupIndex)
+            }
 
             delegate: Rectangle {
                 id: tab
@@ -188,13 +197,20 @@ Rectangle {
         id: settingsComponent
         SettingsView {
             workspace: group.workspace
+            groupIndex: group.groupIndex
             bottomInset: group.bottomInset
         }
     }
 
     Component {
         id: emptyComponent
-        EmptyEditor {}
+        EmptyEditor {
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                onClicked: group.workspace.clearSelection(group.groupIndex)
+            }
+        }
     }
 
     Rectangle {

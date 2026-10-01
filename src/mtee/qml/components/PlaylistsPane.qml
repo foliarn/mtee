@@ -10,6 +10,12 @@ Item {
     readonly property string activePlaylist: workspace.groups.length ? workspace.groups[workspace.activeGroup].active.split(":")[1] || "" : ""
     property var contextEntry: ({})
     objectName: "playlistsPane"
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.LeftButton
+        onClicked: pane.workspace.clearSelection(pane.workspace.activeGroup)
+    }
     PaneHeader {
         id: header
         width: parent.width
@@ -26,11 +32,27 @@ Item {
     }
     ListView {
         id: tree
+        MouseArea {
+            anchors.fill: parent
+            z: -1
+            acceptedButtons: Qt.LeftButton
+            onClicked: pane.workspace.clearSelection(pane.workspace.activeGroup)
+        }
         anchors.top: header.bottom; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         model: pane.live ? pane.playlistsModel.tree : pane.workspace.playlists
         ScrollBar.vertical: ThinScrollBar {}
+        MouseArea {
+            parent: tree
+            x: 0
+            y: Math.min(tree.height, Math.max(0, tree.contentHeight - tree.contentY))
+            width: tree.width
+            height: Math.max(0, tree.height - y)
+            z: 10
+            acceptedButtons: Qt.LeftButton
+            onClicked: pane.workspace.clearSelection(pane.workspace.activeGroup)
+        }
         DropArea {
             anchors.fill: parent
             keys: ["mtee-playlist-node"]

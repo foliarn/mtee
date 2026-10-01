@@ -2,7 +2,7 @@
 
 ## Statut et résultat attendu
 
-Ce plan prépare uniquement les features **9 à 13** de la sous-page Notion Segmentation. Il est destiné à une exécution ultérieure par Luna. Sa préparation n'autorise pas son implémentation. Les décisions produit validées ci-dessous priment sur les interprétations de la segmentation. Les deux séries de réponses utilisateur ont été intégrées ; la revue de maquette est un jalon de l'exécution future.
+Ce plan couvre uniquement les features **9 à 13** de la sous-page Notion Segmentation. Son exécution a été autorisée après la revue de maquette 99.0. Les décisions produit validées ci-dessous priment sur les interprétations de la segmentation. Le code des jalons 99.1 à 99.7 est livré ; la vérification visuelle et physique de 99.8 est confiée à l'utilisateur, conformément à sa consigne ultérieure.
 
 Le résultat attendu est une file modifiable et persistante, l'ajout FIFO par clic droit, une commande Espace fiable hors saisie, une navigation arrière/avant par les boutons latéraux de souris, un Précédent cohérent autour de trois secondes et la désélection par clic dans le vide du panneau actif.
 
@@ -359,9 +359,12 @@ Après le push, faire `git fetch origin` et comparer `git rev-parse HEAD` à `gi
 - [x] 99.4 — Précédent validé aux bornes et en pause.
 - [x] 2026-10-01 — 99.5 : raccourci unique borné à la fenêtre active, sans répétition ; test UI avec backend factice sur fond, bouton, file, Settings, Convert, recherche et Ctrl+Space.
 - [x] 99.5 — Espace validé selon le focus et sur backend.
-- [ ] 99.6 — Navigation arrière/avant validée par panneau et à la souris.
-- [ ] 99.7 — Désélection et Info vide validés.
-- [ ] 99.8 — Recette intégrée depuis les sources, rapport, commit et push vérifiés.
+- [x] 2026-10-01 — 99.6 : domaine d'historique, replay des pages et sous-pages, recherche/tri/défilement/sélection par groupe, filtre BackButton/ForwardButton installé sur la fenêtre ; tests unitaires ciblés passés. Boutons physiques non vérifiés sur instruction utilisateur.
+- [x] 2026-10-01 — 99.7 : désélection par groupe reliée aux surfaces vides, Info vidé, état sauvegardé ; tests unitaires ciblés passés. Rendu et clics réels non vérifiés sur instruction utilisateur.
+- [x] 99.6 — Implémentation de navigation arrière/avant terminée ; recette souris laissée à l'utilisateur.
+- [x] 99.7 — Implémentation de la désélection et de l'Info vide terminée ; recette visuelle laissée à l'utilisateur.
+- [x] 99.8 — Rapport préparé et contrôles hors UI consignés ; commit et push à vérifier lors de la livraison.
+- [ ] 99.8 — Recette visuelle, souris physique et écoute à confirmer par l'utilisateur.
 
 La preuve du commit et du push de préparation est fournie dans le compte rendu de livraison, après comparaison de HEAD et origin/main ; elle n'est pas précochée avant publication ni inscrite sous forme de hash autoréférentiel.
 
@@ -382,6 +385,8 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 2026-10-01 — Le contrôle natif `test_mpv_playback.py` a produit un diagnostic fatal Windows `0xe24c4a02` au `MpvBackend.close()` tout en terminant avec un code de sortie zéro. Ce signal ne permet pas de déclarer la recette audio native validée ; il sera repris à la recette intégrée. Le smoke-test applicatif depuis les sources avec `.local/validation/99` a quitté avec code zéro.
 
 2026-10-01 — Le test d'ordre de sélection 99.3 a d'abord supposé l'ordre d'insertion des fichiers ; la liste visible était triée autrement. Il compare désormais à l'ordre effectivement affiché et sélectionne les lignes dans l'ordre inverse pour contrôler le réordonnancement du lot.
+
+2026-10-01 — L'utilisateur a explicitement demandé de terminer le code sans autres tests UI ni inspection de captures et de prendre en charge lui-même l'examen visuel. Les fichiers de tests UI envisagés pour 99.6/99.7 n'ont donc pas été conservés. Le contrôle hors UI ciblé passe (56 tests) ; le test préexistant `test_navigation_keeps_each_panel_selection_and_restores_it` attend synchroniquement des lignes chargées par worker et échoue encore. Une passe large unit/integration a rencontré un échec de conversion hors plan 99 (fixture locale) puis une violation d'accès Windows dans des workers SQLite. Les contrôles globaux Ruff/Pyright signalent des diagnostics dans d'autres modules ; les fichiers Python de 99 passent Ruff, Ruff format et Pyright ciblés.
 
 ## Decision Log
 
@@ -405,9 +410,13 @@ La preuve du commit et du push de préparation est fournie dans le compte rendu 
 
 2026-10-01 — Codex : 99.5 retire `AbstractButton` du prédicat « saisie », borne le raccourci Espace à la fenêtre active et désactive son auto-répétition. Le test UI reproduit le focus sur le bouton Précédent et vérifie qu'Espace reprend la lecture sans déclencher ce bouton.
 
+2026-10-01 — Codex : 99.6 conserve un historique en mémoire par groupe, capture les paramètres de vue avant de quitter une destination et restaure une page sans créer de nouvelle entrée. Deux groupes affichant le même onglet disposent de modèles de lignes distincts. Les boutons latéraux sont interceptés au niveau de la fenêtre active pour ne pas dépendre du composant sous le pointeur.
+
+2026-10-01 — Codex : 99.7 cible le groupe du fond cliqué et efface sélection et ancre avant sauvegarde. Le panneau Info est vide lorsque la sélection est vide. Les contrôles visuels et physiques relèvent de l'utilisateur selon sa consigne.
+
 ## Outcomes & Retrospective
 
-Les deux séries de décisions utilisateur sont intégrées. Le plan décrit les structures et interfaces à créer, les changements dans les sources existantes, neuf jalons, les tests à créer/étendre et une matrice de recette couvrant les cinq features. La maquette 99.0 a été approuvée ; le domaine 99.1, la persistance 99.2 et les commandes UI de file 99.3 sont implémentés et testés. Les commandes de lecture et de navigation, la désélection et la recette intégrée restent à réaliser. Aucune distribution Windows n'est demandée.
+Les deux séries de décisions utilisateur sont intégrées. La maquette 99.0 a été approuvée et les fonctions 99.1 à 99.7 sont implémentées. Les 56 tests ciblés hors UI passent, de même que les contrôles statiques ciblés. Le rapport de validation distingue les preuves disponibles des parcours visuels, physiques et audio laissés à l'utilisateur. Aucune distribution Windows n'est demandée.
 
 Révision du 2026-10-01 : rédaction après lecture des sources et deux séries de réponses utilisateur ; Q1–Q4 résolues, algorithmes de file et restauration définis, navigation de toutes les pages et matrice de recette ajoutées.
 
@@ -422,3 +431,5 @@ Révision du 2026-10-01 : 99.3 implémenté et testé depuis les sources, avec c
 Révision du 2026-10-01 : 99.4 implémenté et testé aux cinq positions demandées, en lecture et pause ; les commandes de l'îlot, du plein écran et Ctrl+Left passent par la même méthode. Prochaine étape : 99.5, Espace et focus.
 
 Révision du 2026-10-01 : 99.5 corrigé dans le raccourci unique de `Main.qml`, puis exercé sur les vues principales et un contrôle focalisé. Prochaine étape : 99.6, historique de pages et boutons latéraux.
+
+Révision du 2026-10-01 : 99.6 et 99.7 implémentés. Historique par groupe, sous-page Settings, recherche/tri/scroll/sélection et modèles de listes séparés ; désélection des surfaces vides et Info vide. À la demande expresse de l'utilisateur, aucun autre test UI ni examen de capture n'est effectué. 99.8 se limite ici aux contrôles hors UI et au rapport ; recette manuelle à confirmer par l'utilisateur.

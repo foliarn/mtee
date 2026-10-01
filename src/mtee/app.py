@@ -295,6 +295,8 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         _discard_partial_startup(database, jobs, player_service, engine, workspace)
         return None
     window = engine.rootObjects()[0]
+    if isinstance(window, QWindow) and isinstance(workspace, WorkspaceModel):
+        window.installEventFilter(workspace)
     if isinstance(window, QWindow) and not options.diagnostic_no_native_frame:
         frame.attach(window)
 
