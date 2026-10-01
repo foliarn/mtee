@@ -52,8 +52,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture", action="store_true", help="write PNG files (offscreen)")
     parser.add_argument("--native", action="store_true", help="capture with the native platform")
-    parser.add_argument("--close-after", type=float, default=0.0,
-                        help="close the window after N seconds (load check)")
+    parser.add_argument(
+        "--close-after",
+        type=float,
+        default=0.0,
+        help="close the window after N seconds (load check)",
+    )
     parser.add_argument("--scene", choices=SCENES, default="queue")
     args = parser.parse_args()
     if args.capture and not args.native:

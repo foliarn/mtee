@@ -41,6 +41,11 @@ FocusScope {
         workspace.selectedIds
         return workspace.selectedIdsForGroup(groupIndex)
     }
+    // An empty selection also drops the keyboard cursor, so no row keeps its focus frame.
+    onSelectionIdsChanged: {
+        if (selectionIds.length === 0)
+            list.currentIndex = -1
+    }
     readonly property bool isPlaylist: tab.kind === "playlist" && modelBacked
     property bool playlistSearchOpen: false
     readonly property var playlistOptions: ["title", "artist", "album", "bpm", "key", "duration"]
@@ -714,7 +719,7 @@ FocusScope {
                     selected: view.selectionIds.indexOf(modelData.id) >= 0
                     playing: view.workspace.playingId === (modelData.trackId || modelData.id)
                     paused: !view.workspace.isPlaying
-                    current: view.activeFocus && list.currentIndex === index
+                    current: view.activeFocus && list.currentIndex === index && view.selectionIds.length > 0
                     inPlaylist: view.workspace.playlistsContaining(modelData.trackId || modelData.id, view.workspace.revision).length > 0
                     onDragStarted: view.prepareTrackDrag(trackRow, modelData)
                     onDragMoved: (x, y) => view.moveTrackDrag(trackRow, x, y)
