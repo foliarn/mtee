@@ -155,6 +155,7 @@ class WorkspaceModel(QObject):
         self._track_job_ids: dict[str, str] = {}
         self._explorer_activation_generation = 0
         self._pending_explorer_track: dict[str, Any] | None = None
+        self._pending_reveal: tuple[str, str] | None = None
         self._explorer_track_job_id = ""
         self._folder_request_generation: dict[str, int] = {}
         self._folder_job_ids: dict[str, str] = {}
@@ -466,6 +467,90 @@ class WorkspaceModel(QObject):
     def toggleLike(self, track_id: str) -> None:
         if self._playlists_model is not None:
             self._playlists_model.toggleLike(track_id)
+
+    @Slot(str, str)
+    def revealTrack(self, track_id: str, source: str) -> None:
+        """Leave fullscreen and show the track in the folder or playlist it was played from.
+
+        When that source no longer exists, the folder of the file is shown instead. Nothing
+        is played and the previous selection is replaced by this track.
+        """
+        identity = str(track_id)
+        if not identity:
+            return
+        if self._fullscreen:
+            self.setFullscreen(False)
+        kind, _, reference = str(source).partition(":")
+        playlist_exists = bool(
+            kind == "playlist"
+            and self._playlists_model
+            and self._playlists_model.details(reference)
+        )
+        if playlist_exists:
+            self.openPlaylist(reference)
+            self._select_revealed_row("playlist:" + reference, identity)
+            return
+        if kind == "folder" and self._folder_source_exists(str(source)):
+            self.selectExplorerTrack(identity, str(source))
+            return
+        located = self._library.track_folder(identity)
+        if located is None:
+            self._set_message("This file is no longer in the library.")
+            return
+        root_id, relative = located
+        folder_id = f"folder:{root_id}/{relative}" if relative else f"root:{root_id}"
+        self.selectExplorerTrack(identity, folder_id)
+
+    @Slot(str, str)
+    def revealTrackForEdit(self, track_id: str, source: str) -> None:
+        """Show the track as ``revealTrack`` does, then open the Info panel on it."""
+        self.revealTrack(track_id, source)
+        self.showRightPanel("info")
+
+    @Slot(list)
+    def addTracksToConvert(self, track_ids: list) -> None:
+        """Queue these tracks, given by their library identity, for conversion and open it."""
+        identities = [str(identity) for identity in track_ids if str(identity)]
+        if self._conversion_model is not None and identities:
+            self._conversion_model.add_tracks(identities)
+        if self._fullscreen:
+            self.setFullscreen(False)
+        self.openConvert()
+
+    @Slot()
+    def openPlayingSource(self) -> None:
+        """Leave fullscreen and open the folder or playlist the playing track comes from."""
+        source = self._player.playing_source_value() if self._player is not None else ""
+        kind, _, reference = source.partition(":")
+        if self._fullscreen:
+            self.setFullscreen(False)
+        if kind == "playlist" and reference:
+            self.openPlaylist(reference)
+        elif kind == "folder" and self._folder_source_exists(source):
+            self.openFolder(source)
+
+    def _folder_source_exists(self, source: str) -> bool:
+        try:
+            parsed = _parse_folder_id(source)
+        except ValueError:
+            return False
+        if parsed is None:
+            return False
+        root_id, relative = parsed
+        if root_id not in self._roots_by_id:
+            return False
+        return not relative or relative in set(self._library.folders(root_id))
+
+    def _select_revealed_row(self, tab_id: str, track_id: str) -> None:
+        """Select the first row of the tab that shows this track, now or when rows arrive."""
+        model = self._track_models.get(tab_id)
+        if model is not None:
+            for row in model.rows_snapshot():
+                if str(row.get("trackId", row.get("id", ""))) == track_id:
+                    self._pending_reveal = None
+                    self.selectTrack(str(row["id"]), "single", [])
+                    return
+        self._pending_reveal = (tab_id, track_id)
 
     @Slot(str, str, int)
     def movePlaylistEntry(self, source: str, entry: str, offset: int) -> None:
@@ -943,6 +1028,12 @@ class WorkspaceModel(QObject):
             return
         self._track_job_ids.pop(tab_id, None)
         model.replace(rows)
+        reveal = self._pending_reveal
+        if reveal is not None and reveal[0] == tab_id:
+            self._pending_reveal = None
+            if self._groups[self._active_group]["active"] == tab_id:
+                self._select_revealed_row(tab_id, reveal[1])
+                self._pending_reveal = None
         pending = self._pending_explorer_track
         if (
             pending is not None

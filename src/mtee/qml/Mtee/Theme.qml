@@ -79,6 +79,23 @@ QtObject {
     readonly property color waveHoverAhead: "#B9B9BF"
     readonly property int wavePlayheadWidth: 2
     readonly property int waveTimeColumn: 48
+    readonly property int fsCardRadius: 16
+    readonly property int fsCardMaxWidth: 1400
+    readonly property int fsCardPadding: 28
+    readonly property int fsCardExtra: 60
+    readonly property int fsCoverHideWidth: 820
+    readonly property int fsTitleSize: 34
+    readonly property int fsArtistSize: 18
+    readonly property int fsGenreSize: 13
+    readonly property real fsMarqueeSpeed: 40
+    readonly property int fsMarqueePause: 2000
+    readonly property color fsFallbackCard: "#26262B"
+    readonly property real fsShadowOpacity: 0.05
+    readonly property int fsAccentFade: 1000
+    readonly property int fsPlaySize: 56
+    readonly property int fsActionIconSize: 22
+    readonly property int fsActionSpacing: 8
+    readonly property int fsTopBlock: 64
 
     // Width thresholds of the reduced layouts.
     readonly property int compactSidebarWidth: 1160

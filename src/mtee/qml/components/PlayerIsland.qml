@@ -9,6 +9,7 @@ Rectangle {
     required property var workspace
     readonly property var player: workspace.playerModel
     readonly property var track: player.playingTrack
+    readonly property bool fullscreen: workspace.fullscreen
     readonly property bool inPlaylist: track.id !== undefined
         && workspace.playlistsContaining(track.id, workspace.revision).length > 0
 
@@ -44,8 +45,9 @@ Rectangle {
             source: island.track.coverUrl || ""
 
             MouseArea {
+                enabled: !island.fullscreen
                 anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
+                cursorShape: island.fullscreen ? Qt.ArrowCursor : Qt.PointingHandCursor
                 onClicked: island.workspace.setFullscreen(true)
             }
         }
@@ -223,10 +225,11 @@ Rectangle {
         IconButton {
             anchors.verticalCenter: parent.verticalCenter
             hoverBackground: false
-            icon: "fullscreen"
+            objectName: "islandFullscreenButton"
+            icon: island.fullscreen ? "exit-fullscreen" : "fullscreen"
             iconSize: 18
-            tip: "Fullscreen player (F11)"
-            onClicked: island.workspace.setFullscreen(true)
+            tip: island.fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen player (F11)"
+            onClicked: island.workspace.setFullscreen(!island.fullscreen)
         }
     }
 
