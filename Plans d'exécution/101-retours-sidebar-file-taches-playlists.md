@@ -494,10 +494,12 @@ Risques identifiés : `QFileSystemWatcher` peut manquer des événements sur cer
 - [x] 2026-10-01 — 101.6 Tâches détaillées et page Tasks (`f732720`) ; tests jobs, modèle, lot d'analyse, openTasks.
 - [x] 2026-10-01 — 101.7 Couleur d'accent OKLab (`814138f`) ; tests palette et modèle.
 - [x] 2026-10-01 — 101.8 En-tête de playlist façon Spotify (`098fe8c`) ; tests format et `details()`.
-- [x] 2026-10-01 — Porte de revue : compte rendu envoyé à l'utilisateur. **Accord de l'utilisateur sur la maquette 101.1 : non reçu** (101.9 et 101.10 non commencés).
-- [ ] 101.9 — Panneau Queue et History.
-- [ ] 101.10 — Menu « Add to playlist » compact.
-- [ ] 101.11 — Rapport de validation et clôture.
+- [x] 2026-10-01 — Porte de revue : compte rendu envoyé ; accord explicite de l'utilisateur reçu ensuite (voir Decision Log).
+- [x] 2026-10-01 — 101.9 Panneau Queue et History (`69baca8`) ; test unitaire de l'onglet, chargement hors écran des panneaux.
+- [x] 2026-10-01 — 101.10 Menu « Add to playlist » compact (`19d2ce3`) ; chargement hors écran du menu ouvert.
+- [x] 2026-10-01 — 101.11 Rapport `docs/validation/101-retours-sidebar-file-taches-playlists.md` et clôture. Recette U1–U13 à faire par l'utilisateur.
+
+2026-10-01 — Utilisateur : maquette 101.1 validée (« tout est nickel »), variante `history-times` acceptée (« c'est bien le marqueur de temps »). 101.9 l'implémente : heure relative au repos dans History, « … » au survol, y compris la suppression du bouton `Close` du menu « Add to playlist ».
 
 ## Surprises & Discoveries
 
@@ -539,12 +541,14 @@ Risques identifiés : `QFileSystemWatcher` peut manquer des événements sur cer
 
 ## Outcomes & Retrospective
 
-Porte de revue atteinte le 2026-10-01. Livrés et poussés : 101.0 à 101.8. Non commencés, en attente de l'accord de l'utilisateur sur la maquette 101.1 : 101.9 (panneau Queue/History) et 101.10 (menu « Add to playlist » compact), puis 101.11 (clôture et rapport de validation).
+Porte de revue atteinte puis levée le 2026-10-01 après l'accord de l'utilisateur. Livrés et poussés : 101.0 à 101.11 (rapport de validation inclus).
 
-Contrôles réellement effectués : tests unitaires ciblés de chaque jalon ; suite `tests/unit` complète identique à la base (seul échec : `test_navigation_keeps_each_panel_selection_and_restores_it`, préexistant, comparé sur un worktree du commit de base) ; Ruff et Pyright sur les fichiers modifiés ; smoke-test QML en mode normal et `--demo` ; chargements hors écran non interactifs de `TasksView`/`TasksPane` (avec de vrais jobs) et de `PlaylistHeader` sans avertissement. Aucun test UI, aucune inspection visuelle, aucun build Windows. Les cas U1 à U13 de la matrice restent à vérifier par l'utilisateur (U11 et U13 attendent 101.9 et 101.10).
+Contrôles réellement effectués : tests unitaires ciblés de chaque jalon ; suite `tests/unit` complète identique à la base (seul échec : `test_navigation_keeps_each_panel_selection_and_restores_it`, préexistant, comparé sur un worktree du commit de base) ; Ruff et Pyright sur les fichiers modifiés ; smoke-test QML en mode normal et `--demo` ; chargements hors écran non interactifs de `TasksView`/`TasksPane` (avec de vrais jobs) et de `PlaylistHeader` sans avertissement. Aucun test UI, aucune inspection visuelle, aucun build Windows. Les cas U1 à U13 de la matrice restent à vérifier par l'utilisateur. `tests/ui/test_playback_queue_ui.py` devra être adapté (voir le rapport).
 
 ## Notes de révision
 
 2026-10-01 — Création du plan.
 
 2026-10-01 — Porte de revue : suivi mis à jour après 101.0–101.8 ; décisions et découvertes d'exécution ajoutées.
+
+2026-10-01 — Clôture : 101.9 à 101.11 exécutés après accord ; rapport de validation ajouté.
