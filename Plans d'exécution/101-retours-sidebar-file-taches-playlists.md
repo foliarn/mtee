@@ -485,16 +485,16 @@ Risques identifiés : `QFileSystemWatcher` peut manquer des événements sur cer
 ## Progress
 
 - [x] 2026-10-01 — Plan préparé à partir de la demande et de quatre séries de réponses ; état du dépôt relevé au commit `01ecd55`.
-- [ ] 101.0 — Base de travail commitée et poussée.
-- [ ] 101.1 — Maquettes et dossier de revue.
-- [ ] 101.2 — Désélection complète.
-- [ ] 101.3 — Clic et double-clic de l'Explorer.
-- [ ] 101.4 — Rafraîchissement des dossiers.
-- [ ] 101.5 — Historique d'écoute persistant.
-- [ ] 101.6 — Tâches détaillées et page Tasks.
-- [ ] 101.7 — Couleur d'accent.
-- [ ] 101.8 — En-tête de playlist.
-- [ ] Porte de revue : compte rendu envoyé, accord de l'utilisateur sur la maquette.
+- [x] 2026-10-01 — 101.0 Base de travail commitée et poussée (`ee7124c`, plan `7f40606`).
+- [x] 2026-10-01 — 101.1 Maquettes et dossier de revue (`459af90`) ; 14 scènes chargées sans avertissement QML.
+- [x] 2026-10-01 — 101.2 Désélection complète (`aa8a4c3`) ; smoke-test QML.
+- [x] 2026-10-01 — 101.3 Clic et double-clic de l'Explorer (`2950c08`) ; smoke-test QML.
+- [x] 2026-10-01 — 101.4 Rafraîchissement des dossiers (`2ee9a99`) ; tests scanner, refresh, watcher, workspace.
+- [x] 2026-10-01 — 101.5 Historique d'écoute persistant (`59e4827`) ; tests domaine, service, session v1/v2, modèle.
+- [x] 2026-10-01 — 101.6 Tâches détaillées et page Tasks (`f732720`) ; tests jobs, modèle, lot d'analyse, openTasks.
+- [x] 2026-10-01 — 101.7 Couleur d'accent OKLab (`814138f`) ; tests palette et modèle.
+- [x] 2026-10-01 — 101.8 En-tête de playlist façon Spotify (`098fe8c`) ; tests format et `details()`.
+- [x] 2026-10-01 — Porte de revue : compte rendu envoyé à l'utilisateur. **Accord de l'utilisateur sur la maquette 101.1 : non reçu** (101.9 et 101.10 non commencés).
 - [ ] 101.9 — Panneau Queue et History.
 - [ ] 101.10 — Menu « Add to playlist » compact.
 - [ ] 101.11 — Rapport de validation et clôture.
@@ -506,6 +506,12 @@ Risques identifiés : `QFileSystemWatcher` peut manquer des événements sur cer
 2026-10-01 — L'historique du panneau Queue est limité à 20 entrées en mémoire ; la session persistée du plan 99 ne le contient pas.
 
 2026-10-01 — L'algorithme d'accent rejette tout pixel de saturation inférieure à 0,25 : les pochettes achromatiques n'ont jamais d'accent, d'où la carte grise de repli constatée par l'utilisateur.
+
+2026-10-01 — Un test unitaire existant (`test_invalid_session_is_replaced_with_safe_layout_and_diagnostic`) laissait un `WorkspaceModel` et un `JobService` actifs. Dès que `WorkspaceModel` a lancé une tâche de fond au chargement (rafraîchissement de dossier), un test suivant qui tournait la boucle d'événements a provoqué une violation d'accès native. Corrigé en arrêtant le `JobService` du test. Même cause pour `test_folder_watch` : un `QFileSystemWatcher` non détruit proprement faisait planter `test_playback_queue.py` plus loin dans la suite ; les tests détruisent maintenant le service (`deleteLater` puis `DeferredDelete`).
+
+2026-10-01 — Sans FFmpeg local (`vendor/` absent), `tests/integration/test_conversion_ffmpeg.py` échoue et les tests d'analyse bout en bout sont ignorés ; le test de `run_batch` de ce plan utilise donc un double d'analyseur (`tests/unit/test_analysis_batch_report.py`).
+
+2026-10-01 — Les fichiers sources du dépôt sont parfois en CRLF dans la copie de travail (avertissements `CRLF will be replaced by LF`) ; les scripts d'édition ont préservé la fin de ligne d'origine.
 
 ## Decision Log
 
@@ -521,10 +527,24 @@ Risques identifiés : `QFileSystemWatcher` peut manquer des événements sur cer
 
 2026-10-01 — Préparation : l'heure relative dans History est une proposition soumise dans la maquette, non une exigence.
 
+2026-10-01 — Exécution (Claude Sonnet 5.5) : `openTasks()` ouvre un onglet `tasks:` rejoué par Back/Forward, mais non restauré au redémarrage, comme Settings et Convert (seuls les onglets de dossier et de playlist le sont ; `_restore_groups`). Les tâches sont propres à la session, donc rien à restaurer. Écart avec la phrase du plan « l'onglet se restaure après rechargement de l'état », signalé à l'utilisateur.
+
+2026-10-01 — Exécution : le rafraîchissement de dossier est déclenché par un seul point, `layoutChanged` (ouverture, activation, division, fermeture d'onglet), plus `openFolder` sur un onglet déjà actif, le retour au premier plan et le watcher. `_sync_folder_watches` compare les onglets actifs à ceux de l'appel précédent et ne rafraîchit que les nouveaux visibles.
+
+2026-10-01 — Exécution : `reconcile_folder` marque aussi absents les sous-arbres des sous-dossiers disparus (comme un scan complet) ; `LibraryRepository.upsert_folders` renvoyait `None` au lieu de `[]` quand la génération avait changé (corrigé).
+
+2026-10-01 — Exécution : le compteur de `report_items` ne pilote la fraction de progression que si la tâche n'a jamais publié de `report_progress` plus fin ; l'analyse garde sa moyenne par morceau et ajoute le compteur X/N.
+
+2026-10-01 — Exécution : `contrast_with_white` est remplacée par `contrast_ratio(a, b)` (seule la suite de tests de la palette l'utilisait). `TransportControls.qml` n'est pas posée sur la carte du plein écran : non modifiée.
+
 ## Outcomes & Retrospective
 
-Non commencé. À remplir à la porte de revue puis à la clôture.
+Porte de revue atteinte le 2026-10-01. Livrés et poussés : 101.0 à 101.8. Non commencés, en attente de l'accord de l'utilisateur sur la maquette 101.1 : 101.9 (panneau Queue/History) et 101.10 (menu « Add to playlist » compact), puis 101.11 (clôture et rapport de validation).
+
+Contrôles réellement effectués : tests unitaires ciblés de chaque jalon ; suite `tests/unit` complète identique à la base (seul échec : `test_navigation_keeps_each_panel_selection_and_restores_it`, préexistant, comparé sur un worktree du commit de base) ; Ruff et Pyright sur les fichiers modifiés ; smoke-test QML en mode normal et `--demo` ; chargements hors écran non interactifs de `TasksView`/`TasksPane` (avec de vrais jobs) et de `PlaylistHeader` sans avertissement. Aucun test UI, aucune inspection visuelle, aucun build Windows. Les cas U1 à U13 de la matrice restent à vérifier par l'utilisateur (U11 et U13 attendent 101.9 et 101.10).
 
 ## Notes de révision
 
 2026-10-01 — Création du plan.
+
+2026-10-01 — Porte de revue : suivi mis à jour après 101.0–101.8 ; décisions et découvertes d'exécution ajoutées.
