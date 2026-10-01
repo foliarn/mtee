@@ -91,3 +91,48 @@ def test_migration_from_17_keeps_data_and_creates_consistent_backup(tmp_path: Pa
     backup.close()
     assert database.migrate() == []
     database.close()
+
+
+def test_session_v2_round_trips_the_history_and_v1_loads_without_one(tmp_path: Path) -> None:
+    from mtee.domain.playback_history import HistoryEntry
+
+    database = Database(tmp_path / "history.sqlite3")
+    database.migrate()
+    repository = PlaybackRepository(database)
+    history = (
+        HistoryEntry(
+            "7f6c0d3e-1f7b-4d2a-9d56-0a1d3f8e1b11",
+            "track-3",
+            {"title": "Three", "path": "C:/never/stored.wav"},
+            "playlist:night",
+            "Night drive",
+            "2026-10-01T12:00:00+00:00",
+        ),
+    )
+    base = _session()
+    assert repository.save(PlaybackSession(base.queue, 1, 5, history))
+
+    loaded = repository.load()
+
+    assert loaded is not None
+    assert loaded.history[0].track_id == "track-3"
+    assert loaded.history[0].source_title == "Night drive"
+    assert dict(loaded.history[0].snapshot) == {"title": "Three"}
+
+    with database.transaction() as connection:
+        stored = json.loads(
+            connection.execute("SELECT value_json FROM playback_session").fetchone()[0]
+        )
+        stored["version"] = 1
+        del stored["history"]
+        connection.execute("UPDATE playback_session SET value_json=?", (json.dumps(stored),))
+    old = repository.load()
+    assert old is not None and old.history == ()
+
+    stored["version"] = 2
+    stored["history"] = [{"history_id": "not-a-uuid"}]
+    with database.transaction() as connection:
+        connection.execute("UPDATE playback_session SET value_json=?", (json.dumps(stored),))
+    with pytest.raises(PlaybackSessionError):
+        repository.load()
+    database.close()

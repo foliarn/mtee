@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import UUID
 
+from mtee.domain.playback_history import HISTORY_LIMIT, HistoryEntry, PlaybackHistory
 from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.persistence.database import Database
 
@@ -34,6 +35,7 @@ class PlaybackSession:
     queue: QueueState
     position_us: int = 0
     write_sequence: int = 0
+    history: tuple[HistoryEntry, ...] = ()
 
 
 class PlaybackRepository:
@@ -58,6 +60,7 @@ class PlaybackRepository:
         if session.position_us < 0 or session.write_sequence < 0:
             raise PlaybackSessionError("Negative playback position or write sequence")
         session.queue.validate()
+        PlaybackHistory(session.history).validate()
         encoded = json.dumps(_encode(session), ensure_ascii=False, separators=(",", ":"))
         stamp = datetime.now(UTC).isoformat(timespec="seconds")
         with self._database.transaction() as connection:
@@ -126,10 +129,48 @@ def _decode_entry(data: Any) -> QueueEntry:
     )
 
 
+def _encode_history(entry: HistoryEntry) -> dict[str, Any]:
+    return {
+        "history_id": entry.history_id,
+        "track_id": entry.track_id,
+        "snapshot": _snapshot(dict(entry.snapshot)) or {},
+        "source": entry.source,
+        "source_title": entry.source_title,
+        "played_at_utc": entry.played_at_utc,
+    }
+
+
+def _decode_history(data: Any) -> HistoryEntry:
+    if not isinstance(data, dict):
+        raise PlaybackSessionError("History entry is not an object")
+    history_id = data["history_id"]
+    track_id = data["track_id"]
+    source = data["source"]
+    source_title = data["source_title"]
+    played_at = data["played_at_utc"]
+    if not all(
+        isinstance(item, str) for item in (history_id, track_id, source, source_title, played_at)
+    ):
+        raise PlaybackSessionError("History entry has invalid text fields")
+    UUID(history_id)
+    if not track_id:
+        raise PlaybackSessionError("History entry has no track")
+    datetime.fromisoformat(played_at)
+    return HistoryEntry(
+        history_id,
+        track_id,
+        _snapshot(data.get("snapshot")) or {},
+        source,
+        source_title,
+        played_at,
+    )
+
+
 def _encode(session: PlaybackSession) -> dict[str, Any]:
     queue = session.queue
     return {
-        "version": 1,
+        "version": 2,
+        "history": [_encode_history(entry) for entry in session.history],
         "write_sequence": session.write_sequence,
         "position_us": session.position_us,
         "queue": {
@@ -151,7 +192,7 @@ def _decode(data: Any) -> PlaybackSession:
         not isinstance(data, dict)
         or not isinstance(data.get("version"), int)
         or isinstance(data.get("version"), bool)
-        or data.get("version") != 1
+        or data.get("version") not in (1, 2)
     ):
         raise PlaybackSessionError("Unsupported playback session version")
     position = data["position_us"]
@@ -198,4 +239,9 @@ def _decode(data: Any) -> PlaybackSession:
         repeat=cast(Literal["off", "one", "all"], repeat),
     )
     queue.validate()
-    return PlaybackSession(queue, position, sequence)
+    raw_history = data.get("history", []) if data["version"] == 2 else []
+    if not isinstance(raw_history, list):
+        raise PlaybackSessionError("Invalid history structure")
+    history = tuple(_decode_history(entry) for entry in raw_history[:HISTORY_LIMIT])
+    PlaybackHistory(history).validate()
+    return PlaybackSession(queue, position, sequence, history)

@@ -678,3 +678,137 @@ def test_queue_rows_carry_the_source_each_occurrence_comes_from(
     context = next(row for row in service.up_next() if row["origin"] == "context")
     assert context["source"] == "folder:root/album"
     service.close()
+
+
+def _readable(tracks: dict[str, dict[str, object]]) -> None:
+    for row in tracks.values():
+        row["status"] = "readable"
+
+
+def test_history_records_the_track_left_but_not_a_repeat_one_restart(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=3)
+    _readable(tracks)
+    service.play_queue(ids, 0, source="folder:root/album", source_title="album")
+    _wait_playing(qtbot, service)
+    assert service.history_rows() == []
+
+    service.next()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[1])
+    _wait_playing(qtbot, service)
+    rows = service.history_rows()
+    assert [row["trackId"] for row in rows] == [ids[0]]
+    assert rows[0]["source"] == "folder:root/album"
+    assert rows[0]["available"] is True
+
+    service.previous()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[0])
+    _wait_playing(qtbot, service)
+    assert [row["trackId"] for row in service.history_rows()] == [ids[1], ids[0]]
+
+    service.cycle_repeat()
+    service.cycle_repeat()
+    assert service.state.repeat == "one"
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1)
+    _wait_playing(qtbot, service)
+    assert len(service.history_rows()) == 2
+    service.close()
+
+
+def test_history_gets_the_last_track_when_the_queue_ends_and_not_twice(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=1)
+    _readable(tracks)
+    service.play_queue(ids, 0)
+    _wait_playing(qtbot, service)
+
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: service.state.status is PlaybackStatus.ENDED)
+    assert [row["trackId"] for row in service.history_rows()] == [ids[0]]
+
+    service.retry()
+    qtbot.waitUntil(lambda: len(backend.loads) == 2)
+    _wait_playing(qtbot, service)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: service.state.status is PlaybackStatus.ENDED)
+    assert len(service.history_rows()) == 1
+    service.close()
+
+
+def test_playing_a_history_entry_keeps_the_upcoming_queue(qapp, qtbot, tmp_path: Path) -> None:
+    service, _backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=4)
+    _readable(tracks)
+    service.play_queue(ids[:3], 0)
+    _wait_playing(qtbot, service)
+    service.enqueue_tracks(ids[3:])
+    service.next()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[3])
+    _wait_playing(qtbot, service)
+    upcoming_before = [row["entryId"] for row in service.up_next()]
+    history_id = service.history_rows()[0]["historyId"]
+
+    assert service.play_history_entry(history_id)
+    qtbot.waitUntil(lambda: service.state.current_id == ids[0])
+    _wait_playing(qtbot, service)
+
+    assert [row["entryId"] for row in service.up_next()] == upcoming_before
+    assert service.queue_state.past[-1].track_id == ids[3]
+    assert not service.play_history_entry("unknown")
+    service.close()
+
+
+def test_enqueue_history_entry_appends_a_manual_occurrence(qapp, qtbot, tmp_path: Path) -> None:
+    service, _backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=3)
+    _readable(tracks)
+    service.play_queue(ids, 0)
+    _wait_playing(qtbot, service)
+    service.next()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[1])
+    history_id = service.history_rows()[0]["historyId"]
+
+    created = service.enqueue_history_entry(history_id)
+
+    assert len(created) == 1
+    assert service.up_next()[0]["entryId"] == created[0]
+    assert service.up_next()[0]["trackId"] == ids[0]
+    assert service.enqueue_history_entry("unknown") == ()
+    service.close()
+
+
+def test_an_unavailable_history_entry_cannot_be_played(qapp, qtbot, tmp_path: Path) -> None:
+    service, _backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=2)
+    service.play_queue(ids, 0)  # the fixture rows are not "readable"
+    _wait_playing(qtbot, service)
+    service.next()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[1])
+    row = service.history_rows()[0]
+
+    assert row["available"] is False
+    assert not service.play_history_entry(row["historyId"])
+    service.close()
+
+
+def test_player_model_exposes_the_history_as_a_list_model(qapp, qtbot, tmp_path: Path) -> None:
+    from mtee.models.player_model import PlayerModel
+
+    service, _backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=2)
+    _readable(tracks)
+    model = PlayerModel(service)
+    assert model.hasHistoryModel and model.historyModel.count == 0
+    service.play_queue(ids, 0)
+    _wait_playing(qtbot, service)
+    service.next()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[1])
+
+    history = model.historyModel
+    assert history.count == 1
+    row = history.rows_snapshot()[0]
+    assert row["trackId"] == ids[0]
+    assert model.playHistoryEntry(row["historyId"])
+    qtbot.waitUntil(lambda: service.state.current_id == ids[0])
+    qtbot.waitUntil(lambda: history.count == 2)
+    service.close()

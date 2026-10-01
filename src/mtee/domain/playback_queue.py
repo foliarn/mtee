@@ -136,6 +136,14 @@ class QueueState:
                 return self._changed(past=past, current=entry, upcoming=upcoming)
         return self
 
+    def insert_current(self, entry: QueueEntry) -> QueueState:
+        """Make ``entry`` the current occurrence; the previous one goes to the past.
+
+        What waits in ``upcoming`` is left as it is, manual additions included.
+        """
+        past = (*self.past, *((self.current,) if self.current else ()))
+        return self._changed(past=past, current=entry)
+
     def remove(self, entry_id: str) -> QueueState:
         upcoming = tuple(entry for entry in self.upcoming if entry.entry_id != entry_id)
         if len(upcoming) == len(self.upcoming):
