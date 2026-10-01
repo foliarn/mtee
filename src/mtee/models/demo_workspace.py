@@ -21,6 +21,7 @@ from mtee.demo.library import (
     DemoTrack,
 )
 from mtee.demo.scenarios import DEFAULT_SCENARIO, SCENARIO_NAMES, DemoScenario, load_scenario
+from mtee.domain.durations import format_playlist_meta
 from mtee.domain.waveform import WAVEFORM_POINTS, WaveformPoints
 from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
 
@@ -488,6 +489,8 @@ class DemoWorkspace(QObject):
                     "name": playlist["name"],
                     "count": len(ids),
                     "summary": f"{len(ids)} titles · {_format_total(seconds)}",
+                    "trackCount": len(ids),
+                    "metaText": format_playlist_meta(len(ids), seconds),
                     "cover": self._tracks[ids[0]]["cover"] if ids else -1,
                 }
             )

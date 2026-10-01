@@ -97,6 +97,12 @@ QtObject {
     readonly property real fsShadowOpacity: 0.05
     readonly property int fsAccentFade: 1000
     readonly property int fsPlaySize: 69
+    readonly property int playlistCoverLarge: 240
+    readonly property int playlistCoverCompact: 192
+    readonly property int playlistCoverRadius: 6
+    readonly property int playlistTitleLarge: 64
+    readonly property int playlistTitleCompact: 44
+    readonly property int playlistTitleMin: 32
     readonly property int fsActionIconSize: 22
     readonly property int fsActionSpacing: 8
     readonly property int fsTopBlock: 64
