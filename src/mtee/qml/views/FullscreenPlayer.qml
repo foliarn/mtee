@@ -39,6 +39,14 @@ Rectangle {
     readonly property color accentDark: hasAccent ? accent.darkColor : Theme.fsFallbackCard
     property color shownBase: accentBase
     property color shownDark: accentDark
+    // Colour of everything laid on the card: white, or near-black on a light card. The
+    // variants are the same colour at a lower opacity.
+    readonly property color cardForeground: hasAccent ? accent.foregroundColor : "#FFFFFF"
+    property color onCard: cardForeground
+    readonly property color onCardStrong: Qt.rgba(onCard.r, onCard.g, onCard.b, 0.88)
+    readonly property color onCardSoft: Qt.rgba(onCard.r, onCard.g, onCard.b, 0.62)
+    readonly property color onCardIcon: Qt.rgba(onCard.r, onCard.g, onCard.b, 0.82)
+    readonly property color onCardFaint: Qt.rgba(onCard.r, onCard.g, onCard.b, 0.35)
 
     readonly property int page: workspace.fullscreenPage
     readonly property real cardBottom: cardHolder.y + cardHolder.height
@@ -128,6 +136,7 @@ Rectangle {
 
     Behavior on shownBase { ColorAnimation { duration: Theme.fsAccentFade } }
     Behavior on shownDark { ColorAnimation { duration: Theme.fsAccentFade } }
+    Behavior on onCard { ColorAnimation { duration: Theme.fsAccentFade } }
 
     Text {
         objectName: "fullscreenEmpty"
@@ -231,6 +240,7 @@ Rectangle {
                         id: titleItem
                         width: player.coverVisible ? parent.width : parent.width - actions.width - 16
                         text: player.track.title || ""
+                        color: player.onCard
                         fontFamily: Theme.displayFontFamily
                         pixelSize: 42
                         weight: Theme.displayFontWeight
@@ -242,7 +252,7 @@ Rectangle {
                         text: player.track.artist && player.track.artist.length > 0
                             ? player.track.artist : "Unknown artist"
                         elide: Text.ElideRight
-                        color: Qt.rgba(1, 1, 1, 0.88)
+                        color: player.onCardStrong
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsArtistSize
                     }
@@ -253,7 +263,7 @@ Rectangle {
                         width: parent.width
                         text: player.track.genre || ""
                         elide: Text.ElideRight
-                        color: Qt.rgba(1, 1, 1, 0.62)
+                        color: player.onCardSoft
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsGenreSize
                     }
@@ -269,6 +279,11 @@ Rectangle {
                         anchors.fill: parent
                         waveform: player.waveform
                         playback: player.playback
+                        playedColor: player.onCard
+                        unplayedColor: player.onCardFaint
+                        hoverAheadColor: player.onCardSoft
+                        playheadColor: player.onCard
+                        textColor: player.onCard
                     }
 
                     Row {
@@ -320,7 +335,7 @@ Rectangle {
                         width: Theme.fsPlaySize
                         height: width
                         radius: width / 2
-                        color: "#FFFFFF"
+                        color: player.onCard
                         scale: playMouse.pressed ? 0.94 : 1
 
                         Icon {
@@ -356,8 +371,8 @@ Rectangle {
                     hoverBackground: false
                     icon: player.liked ? "heart-filled" : "heart"
                     iconSize: Theme.fsActionIconSize
-                    iconColor: player.liked ? Theme.secondary : Qt.rgba(1, 1, 1, 0.82)
-                    hoverColor: player.liked ? Theme.secondary : "#FFFFFF"
+                    iconColor: player.liked ? Theme.secondary : player.onCardIcon
+                    hoverColor: player.liked ? Theme.secondary : player.onCard
                     tip: player.liked ? "Remove from Liked tracks" : "Add to Liked tracks"
                     onClicked: player.workspace.toggleLike(player.playback.playingId)
                 }
@@ -370,8 +385,8 @@ Rectangle {
                     hoverBackground: false
                     icon: player.inPlaylist ? "check" : "add-playlist"
                     iconSize: Theme.fsActionIconSize
-                    iconColor: Qt.rgba(1, 1, 1, 0.82)
-                    hoverColor: "#FFFFFF"
+                    iconColor: player.onCardIcon
+                    hoverColor: player.onCard
                     tip: "Add to playlist"
                     onClicked: player.openPlaylistMenu(addButton)
                 }
@@ -384,8 +399,8 @@ Rectangle {
                     hoverBackground: false
                     icon: "more"
                     iconSize: Theme.fsActionIconSize
-                    iconColor: Qt.rgba(1, 1, 1, 0.82)
-                    hoverColor: "#FFFFFF"
+                    iconColor: player.onCardIcon
+                    hoverColor: player.onCard
                     tip: "More"
                     onClicked: moreMenu.popup(moreButton, 0, -moreMenu.implicitHeight)
                 }

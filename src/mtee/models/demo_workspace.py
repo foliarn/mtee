@@ -371,6 +371,14 @@ class DemoWorkspace(QObject):
     def darkColor(self) -> str:
         return ""
 
+    @Property(str, constant=True)
+    def foregroundColor(self) -> str:
+        return "#FFFFFF"
+
+    @Property(bool, constant=True)
+    def isLight(self) -> bool:
+        return False
+
     @Property(bool, constant=True)
     def hasAccent(self) -> bool:
         return False

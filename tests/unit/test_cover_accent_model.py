@@ -54,6 +54,16 @@ class _Artwork:
         return image
 
 
+def _near(first: str, second: str) -> bool:
+    one, two = QColor(first), QColor(second)
+    return (
+        max(
+            abs(one.red() - two.red()), abs(one.green() - two.green()), abs(one.blue() - two.blue())
+        )
+        <= 2
+    )
+
+
 def _model(qapp, colours: dict[str, str]):
     player, library, artwork = _Player(), _Library(), _Artwork(colours)
     for name in ("vivid", "green", "plain"):
@@ -67,8 +77,9 @@ def test_the_accent_follows_the_playing_cover_off_the_interface_thread(qapp, qtb
     assert not model.hasAccent and model.baseColor == ""
     player.play("vivid")
     qtbot.waitUntil(lambda: model.hasAccent)
-    assert model.baseColor == "#E0245E"
+    assert _near(model.baseColor, "#E0245E")
     assert QColor(model.darkColor).valueF() < QColor(model.baseColor).valueF()
+    assert model.foregroundColor == "#FFFFFF" and not model.isLight
 
 
 def test_a_track_without_artwork_or_in_no_library_has_no_accent(qapp, qtbot) -> None:
@@ -90,8 +101,9 @@ def test_the_previous_accent_stays_until_the_next_one_is_known(qapp, qtbot) -> N
     changes: list[str] = []
     model.accentChanged.connect(lambda: changes.append(model.baseColor))
     player.play("green")
-    assert model.baseColor == "#E0245E"  # still the old one while computing
-    qtbot.waitUntil(lambda: model.baseColor != "#E0245E")
+    old = model.baseColor
+    assert _near(old, "#E0245E")  # still the old one while computing
+    qtbot.waitUntil(lambda: model.baseColor != old)
     assert changes and "" not in changes  # a direct change, never through "no accent"
 
 
@@ -115,3 +127,12 @@ def test_a_cover_is_decoded_once_and_then_served_from_memory(qapp, qtbot) -> Non
     player.play("vivid")
     assert model.baseColor == "#E0245E"  # immediately, from the cache
     assert len(artwork.reads) == reads
+
+
+def test_a_white_cover_gives_a_light_card_with_dark_text(qapp, qtbot) -> None:
+    player, model, _artwork = _model(qapp, {"vivid": "#FFFFFF"})
+    assert model.foregroundColor == "#FFFFFF" and not model.isLight  # nothing yet
+    player.play("vivid")
+    qtbot.waitUntil(lambda: model.hasAccent)
+    assert _near(model.baseColor, "#FFFFFF")
+    assert model.isLight and model.foregroundColor == "#0A0A0A"
