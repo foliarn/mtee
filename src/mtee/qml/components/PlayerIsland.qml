@@ -15,9 +15,13 @@ Rectangle {
 
     objectName: "playerIsland"
     height: Theme.islandHeight
-    color: Theme.surface
-    border.width: 1
-    border.color: Theme.separator
+    color: Theme.chrome
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.separator
+    }
 
     function time(seconds) {
         const total = Math.max(0, Math.floor(seconds))
@@ -31,8 +35,8 @@ Rectangle {
 
     Item {
         id: left
-        x: 12
-        width: parent.width * 0.3
+        x: 16
+        width: Math.max(0, (parent.width - center.width) / 2 - 32)
         height: parent.height
 
         CoverArt {
@@ -69,6 +73,7 @@ Rectangle {
                 color: Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeBody
+                font.weight: Font.DemiBold
             }
 
             Text {
@@ -104,12 +109,15 @@ Rectangle {
         id: center
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width * 0.4
+        width: Math.min(720, Math.max(320, parent.width * 0.5))
         spacing: 2
 
         TransportControls {
             anchors.horizontalCenter: parent.horizontalCenter
             player: island.player
+            buttonSize: 36
+            iconSize: 22
+            playSize: 40
         }
 
         Row {
@@ -118,19 +126,19 @@ Rectangle {
             spacing: 8
 
             Text {
-                width: 36
+                width: 44
                 horizontalAlignment: Text.AlignRight
                 anchors.verticalCenter: parent.verticalCenter
                 text: island.time(island.player.position)
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeCaption
+                font.pixelSize: Theme.fontSizeSecondary
                 font.features: { "tnum": 1 }
             }
 
             LineSlider {
                 objectName: "islandProgress"
-                width: parent.width - 88
+                width: parent.width - 104
                 anchors.verticalCenter: parent.verticalCenter
                 from: 0
                 enabled: island.player.seekable
@@ -140,12 +148,12 @@ Rectangle {
             }
 
             Text {
-                width: 36
+                width: 44
                 anchors.verticalCenter: parent.verticalCenter
                 text: island.track.duration || "0:00"
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeCaption
+                font.pixelSize: Theme.fontSizeSecondary
                 font.features: { "tnum": 1 }
             }
         }
@@ -189,7 +197,7 @@ Rectangle {
 
     Row {
         anchors.right: parent.right
-        anchors.rightMargin: 12
+        anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         spacing: 4
 

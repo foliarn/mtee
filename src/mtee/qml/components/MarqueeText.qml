@@ -10,6 +10,8 @@ Item {
     property color color: Theme.textPrimary
     property int pixelSize: Theme.fontSizeBody
     property bool bold: false
+    property string fontFamily: Theme.fontFamily
+    property int weight: bold ? Font.Bold : Font.Normal
     property real speed: Theme.fsMarqueeSpeed
     property int pause: Theme.fsMarqueePause
     readonly property real overflow: Math.max(0, label.implicitWidth - width)
@@ -35,9 +37,9 @@ Item {
         objectName: "marqueeLabel"
         text: marquee.text
         color: marquee.color
-        font.family: Theme.fontFamily
+        font.family: marquee.fontFamily
         font.pixelSize: marquee.pixelSize
-        font.weight: marquee.bold ? Font.Bold : Font.Normal
+        font.weight: marquee.weight
     }
 
     SequentialAnimation {

@@ -198,9 +198,10 @@ FocusScope {
 
         Rectangle {
             id: divider
-            anchors.verticalCenter: parent.verticalCenter
+            // 2px, so it is centred exactly on the bars (centred between two pixel rows).
+            y: Math.round(parent.height / 2) - 1
             width: parent.width
-            height: 1
+            height: 2
             color: Qt.rgba(1, 1, 1, 0.35)
         }
 

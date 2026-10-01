@@ -80,11 +80,14 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+        // The player bar spans the window under every pane.
+        readonly property real playerReserve: root.islandVisible ? Theme.islandHeight : 0
 
         ActivityBar {
             id: activityBar
             anchors.top: parent.top
             anchors.bottom: parent.bottom
+            anchors.bottomMargin: body.playerReserve
             workspace: root.ws
         }
 
@@ -92,6 +95,7 @@ Window {
             id: main
             anchors.top: parent.top
             anchors.bottom: parent.bottom
+            anchors.bottomMargin: body.playerReserve
             anchors.left: activityBar.right
             anchors.leftMargin: sidebar.visible && !root.compactSidebar ? sidebar.width : 0
             anchors.right: parent.right
@@ -103,7 +107,7 @@ Window {
                 visible: !root.ws.fullscreen
                 workspace: root.ws
                 singleGroup: root.singleGroup
-                bottomInset: root.islandVisible ? Theme.islandHeight + 2 * Theme.islandMargin : 0
+                bottomInset: 0
             }
 
             FullscreenPlayer {
@@ -111,18 +115,15 @@ Window {
                 visible: root.ws.fullscreen
                 workspace: root.ws
             }
+        }
 
-            PlayerIsland {
-                id: island
-                visible: root.islandVisible
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: Theme.islandMargin
-                anchors.horizontalCenter: parent.horizontalCenter
-                // Fullscreen leaves room for the page arrow beside the island.
-                width: Math.min(Theme.islandMaxWidth,
-                                parent.width - 2 * (root.ws.fullscreen ? 76 : Theme.islandMargin))
-                workspace: root.ws
-            }
+        PlayerIsland {
+            id: island
+            visible: root.islandVisible
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            workspace: root.ws
         }
 
         MouseArea {
@@ -135,6 +136,7 @@ Window {
             id: sidebar
             anchors.top: parent.top
             anchors.bottom: parent.bottom
+            anchors.bottomMargin: body.playerReserve
             anchors.left: activityBar.right
             width: root.sidebarWidth
             visible: root.ws.sidebarVisible && !root.ws.fullscreen
@@ -146,6 +148,7 @@ Window {
             id: rightPanel
             anchors.top: parent.top
             anchors.bottom: parent.bottom
+            anchors.bottomMargin: body.playerReserve
             anchors.right: parent.right
             width: root.rightPanelWidth
             visible: root.ws.rightPanelVisible && !root.ws.fullscreen

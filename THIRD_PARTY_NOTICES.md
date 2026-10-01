@@ -9,6 +9,7 @@ Ce document liste les composants réellement embarqués dans la distribution Win
 | Mutagen | Lecture des métadonnées audio | GPL v2 ou ultérieure | À confirmer ; conditionne la licence de MTEE |
 | NumPy | Calcul du tempo, de la tonalité et de la waveform | BSD-3-Clause (2.5.3 : BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 selon ses métadonnées) | Version 2.5.3 verrouillée dans `uv.lock` ; texte principal embarqué par `packaging/mtee.spec` (build non exécuté) |
 | PyInstaller | Outil de construction, non redistribué | GPL v2 avec exception pour les exécutables produits | À confirmer sur la version verrouillée |
+| Plus Jakarta Sans | Police des grands titres (Bold, ExtraBold) | SIL Open Font License 1.1 | Texte embarqué : `LICENSES/PlusJakartaSans-OFL.txt` |
 | Geist Sans | Police de l'interface | Attendue sous SIL Open Font License | Non vérifiée : fichiers non versionnés à ce jour |
 
 Points à trancher avant une publication : Mutagen étant sous licence GPL, la licence retenue pour le code de MTEE doit être compatible avec la distribution combinée. Aucune licence n'est attribuée à MTEE à ce stade ; la décision revient à l'auteur.

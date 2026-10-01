@@ -43,6 +43,9 @@ QtObject {
 
     // Python registers the embedded font and sets it as the application font.
     readonly property string fontFamily: Qt.application.font.family
+    // Display font for large titles (embedded Plus Jakarta Sans, Bold and ExtraBold).
+    readonly property string displayFontFamily: "Plus Jakarta Sans"
+    readonly property int displayFontWeight: Font.ExtraBold
     readonly property int fontSizeBody: 14
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeSecondary: 13
@@ -64,7 +67,7 @@ QtObject {
     readonly property int tabHeight: 36
     readonly property int rowHeight: 56
     readonly property int coverSize: 40
-    readonly property int islandHeight: 72
+    readonly property int islandHeight: 92
     readonly property int islandMargin: 16
     readonly property int islandMaxWidth: 960
     readonly property int treeRowHeight: 24
@@ -93,7 +96,7 @@ QtObject {
     readonly property color fsFallbackCard: "#26262B"
     readonly property real fsShadowOpacity: 0.05
     readonly property int fsAccentFade: 1000
-    readonly property int fsPlaySize: 56
+    readonly property int fsPlaySize: 69
     readonly property int fsActionIconSize: 22
     readonly property int fsActionSpacing: 8
     readonly property int fsTopBlock: 64

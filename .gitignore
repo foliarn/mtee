@@ -39,3 +39,6 @@ corpus-private/
 .DS_Store
 Thumbs.db
 Desktop.ini
+# Added by code-review-graph
+.code-review-graph/
+graphify-out/
