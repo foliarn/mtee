@@ -3,8 +3,9 @@ import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import Mtee
 
-// Folder tree: a click on a folder opens it in a tab, a click on a file selects
-// it, a double click plays it. The folder of the active tab is highlighted.
+// Folder tree: a click on a folder opens it in a tab without unfolding it, the
+// chevron or a double click unfolds or folds it, a click on a file selects it and
+// a double click plays it. The folder of the active tab is highlighted.
 Item {
     id: pane
 
@@ -225,8 +226,6 @@ Item {
                         if (onChevron) {
                             pane.workspace.toggleFolder(row.modelData.id)
                         } else {
-                            if (!row.modelData.expanded)
-                                pane.workspace.toggleFolder(row.modelData.id)
                             pane.workspace.openFolder(row.modelData.id)
                         }
                     } else {
@@ -241,9 +240,10 @@ Item {
                 onDoubleClicked: {
                     if (row.isLoading)
                         return
-                    if (row.isFolder)
-                        pane.workspace.openFolder(row.modelData.id)
-                    else if (typeof pane.workspace.activateExplorerTrack === "function")
+                    if (row.isFolder) {
+                        if (row.modelData.hasChildren)
+                            pane.workspace.toggleFolder(row.modelData.id)
+                    } else if (typeof pane.workspace.activateExplorerTrack === "function")
                         pane.workspace.activateExplorerTrack(row.modelData.id, row.modelData.folder)
                     else if (typeof pane.workspace.playTrack === "function")
                         pane.workspace.playTrack(row.modelData.id, row.modelData.folder)
