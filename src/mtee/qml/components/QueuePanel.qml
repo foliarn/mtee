@@ -1,15 +1,19 @@
 import QtQuick
 
+// Queue tab of the right panel: the same list as page 2 of the fullscreen player.
 Item {
     id: queue
     required property var workspace
     property int bottomInset: 0
     objectName: "queuePanel"
 
-    PlaybackQueueView {
+    QueueList {
         anchors.fill: parent
-        player: queue.workspace.playerModel
+        anchors.bottomMargin: queue.bottomInset
         workspace: queue.workspace
-        bottomInset: queue.bottomInset
+        horizontalPadding: 12
+        rightPadding: 10
+        labelInset: 12
+        listObjectName: "queuePanelList"
     }
 }

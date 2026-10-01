@@ -204,6 +204,11 @@ Rectangle {
             onTriggered: bar.workspace.toggleRightPanel("queue")
         }
         AppMenuItem {
+            text: "History"
+            mark: bar.workspace.rightPanelVisible && bar.workspace.rightPanelTab === "history"
+            onTriggered: bar.workspace.toggleRightPanel("history")
+        }
+        AppMenuItem {
             text: "Split editor"
             hint: "Ctrl+\\"
             mark: bar.workspace.groups.length > 1
