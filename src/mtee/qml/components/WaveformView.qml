@@ -10,6 +10,14 @@ FocusScope {
     required property var waveform
     required property var playback
 
+    // Colours of the bars and of the texts; the fullscreen card passes the ones that read
+    // on its own colour (dark on a light card).
+    property color playedColor: Theme.wavePlayed
+    property color unplayedColor: Theme.waveUnplayed
+    property color hoverAheadColor: Theme.waveHoverAhead
+    property color playheadColor: Theme.wavePlayed
+    property color textColor: "#FFFFFF"
+
     // The playback engine's duration, else the one of the library metadata.
     readonly property real durationSeconds: Math.max(0,
         Number(playback.playbackDuration) || Number(playback.duration) || 0)
@@ -43,10 +51,10 @@ FocusScope {
     // abscissa (negative without hover), in pixels of the drawn bars.
     function barColor(x, p, h) {
         if (h < 0)
-            return x <= p ? Theme.wavePlayed : Theme.waveUnplayed
+            return x <= p ? playedColor : unplayedColor
         if (h > p)
-            return x <= p ? Theme.wavePlayed : (x <= h ? Theme.waveHoverAhead : Theme.waveUnplayed)
-        return x <= h ? Theme.wavePlayed : Theme.waveUnplayed
+            return x <= p ? playedColor : (x <= h ? hoverAheadColor : unplayedColor)
+        return x <= h ? playedColor : unplayedColor
     }
 
     function formatTime(seconds) {
@@ -65,6 +73,9 @@ FocusScope {
     onReadyChanged: bars.requestPaint()
     onPlayheadRatioChanged: bars.requestPaint()
     onHoverPxChanged: bars.requestPaint()
+    onPlayedColorChanged: bars.requestPaint()
+    onUnplayedColorChanged: bars.requestPaint()
+    onHoverAheadColorChanged: bars.requestPaint()
     Component.onCompleted: view.waveform.setBarCount(view.barCount)
 
     Timer {
@@ -97,7 +108,7 @@ FocusScope {
                 for (let i = 0; i < count; ++i) {
                     const x = i * step
                     const barHeight = Math.max(Theme.waveMinBar, (ready ? view.levelValues[i] : 0) * height)
-                    ctx.fillStyle = ready ? view.barColor(x + view.barWidth / 2, p, h) : Theme.waveUnplayed
+                    ctx.fillStyle = ready ? view.barColor(x + view.barWidth / 2, p, h) : view.unplayedColor
                     ctx.beginPath()
                     ctx.roundedRect(x, (height - barHeight) / 2, view.barWidth, barHeight,
                                     view.barWidth / 2, view.barWidth / 2)
@@ -112,7 +123,7 @@ FocusScope {
             width: Theme.wavePlayheadWidth
             height: parent.height
             x: Math.max(0, Math.min(view.span - width, view.playheadRatio * view.span - width / 2))
-            color: Theme.wavePlayed
+            color: view.playheadColor
         }
 
         Text {
@@ -122,7 +133,7 @@ FocusScope {
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: -16
             text: "Generating waveform · " + Math.round((Number(view.waveform.progress) || 0) * 100) + "%"
-            color: Qt.rgba(1, 1, 1, 0.7)
+            color: Qt.rgba(view.textColor.r, view.textColor.g, view.textColor.b, 0.7)
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSecondary
         }
@@ -138,7 +149,7 @@ FocusScope {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: view.waveform.error || "Waveform unavailable"
-                color: Qt.rgba(1, 1, 1, 0.8)
+                color: Qt.rgba(view.textColor.r, view.textColor.g, view.textColor.b, 0.8)
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
             }
@@ -190,7 +201,7 @@ FocusScope {
             anchors.bottomMargin: 6
             text: view.formatTime((view.hoverRatio >= 0 ? view.hoverRatio : view.playheadRatio)
                                   * view.durationSeconds)
-            color: Qt.rgba(1, 1, 1, 0.95)
+            color: Qt.rgba(view.textColor.r, view.textColor.g, view.textColor.b, 0.95)
             font.family: Theme.fontFamily
             font.pixelSize: 14
             font.features: { "tnum": 1 }
@@ -202,7 +213,7 @@ FocusScope {
             y: Math.round(parent.height / 2) - 1
             width: parent.width
             height: 2
-            color: Qt.rgba(1, 1, 1, 0.35)
+            color: Qt.rgba(view.textColor.r, view.textColor.g, view.textColor.b, 0.35)
         }
 
         Text {
@@ -211,7 +222,7 @@ FocusScope {
             anchors.top: divider.bottom
             anchors.topMargin: 6
             text: view.formatTime(view.durationSeconds)
-            color: Qt.rgba(1, 1, 1, 0.6)
+            color: Qt.rgba(view.textColor.r, view.textColor.g, view.textColor.b, 0.6)
             font.family: Theme.fontFamily
             font.pixelSize: 14
             font.features: { "tnum": 1 }

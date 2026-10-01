@@ -8,14 +8,14 @@ from PySide6.QtCore import Property, QObject, QRunnable, Qt, QThreadPool, Signal
 
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.artwork_service import ArtworkService
-from mtee.services.cover_palette import accent_from_image
+from mtee.services.cover_palette import CoverAccent, accent_from_image
 from mtee.services.player_service import PlayerService
 
 __all__ = ["CoverAccentModel"]
 
 _CACHE_LIMIT = 256
 _THUMBNAIL_SIZE = 64
-Accent = tuple[str, str] | None
+Accent = CoverAccent | None
 
 
 class _Bridge(QObject):
@@ -50,11 +50,13 @@ class _Compute(QRunnable):
 
 
 class CoverAccentModel(QObject):
-    """``baseColor`` and ``darkColor`` of the cover of the playing track.
+    """Colours of the card for the cover of the playing track.
 
-    Both are empty and ``hasAccent`` is false when the track has no cover or when none of
-    its colours stands out. While a track is being computed the previous accent stays, so
-    the interface can fade from one colour to the next.
+    ``baseColor`` and ``darkColor`` are the dominant colour and its darker second stop,
+    ``foregroundColor`` the text colour that reads on them and ``isLight`` whether the card
+    is light. All are empty and ``hasAccent`` is false when the track has no cover. While a
+    track is being computed the previous accent stays, so the interface can fade from one
+    colour to the next.
     """
 
     accentChanged = Signal()
@@ -82,11 +84,19 @@ class CoverAccentModel(QObject):
 
     @Property(str, notify=accentChanged)
     def baseColor(self) -> str:
-        return self._accent[0] if self._accent else ""
+        return self._accent.base if self._accent else ""
 
     @Property(str, notify=accentChanged)
     def darkColor(self) -> str:
-        return self._accent[1] if self._accent else ""
+        return self._accent.dark if self._accent else ""
+
+    @Property(str, notify=accentChanged)
+    def foregroundColor(self) -> str:
+        return self._accent.foreground if self._accent else "#FFFFFF"
+
+    @Property(bool, notify=accentChanged)
+    def isLight(self) -> bool:
+        return self._accent.light if self._accent else False
 
     @Property(bool, notify=accentChanged)
     def hasAccent(self) -> bool:
@@ -114,7 +124,7 @@ class CoverAccentModel(QObject):
 
     @Slot(int, object, object)
     def _on_computed(self, request: int, key: object, accent: object) -> None:
-        result: Accent = accent if isinstance(accent, tuple) else None
+        result: Accent = accent if isinstance(accent, CoverAccent) else None
         if isinstance(key, tuple):
             self._cache[key] = result
             self._cache.move_to_end(key)
