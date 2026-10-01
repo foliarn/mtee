@@ -12,6 +12,7 @@ from mtee.domain.tracks import SourceRevision
 
 __all__ = [
     "AUDIO_SUFFIXES",
+    "DirectoryListing",
     "LibraryScanner",
     "ScanBatch",
     "ScanEntry",
@@ -61,6 +62,16 @@ class ScanBatch:
     issues: tuple[ScanIssue, ...] = ()
     complete: bool = False
     cancelled: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DirectoryListing:
+    """The direct audio files and sub-folders of one folder."""
+
+    entries: tuple[ScanEntry, ...] = ()
+    folders: tuple[str, ...] = ()
+    issues: tuple[ScanIssue, ...] = ()
+    complete: bool = False
 
 
 class LibraryScanner:
@@ -132,11 +143,7 @@ class LibraryScanner:
                             entries.clear()
                             folders.clear()
                         continue
-                    if (
-                        not child.is_file(follow_symlinks=False)
-                        or _MTEE_CONVERSION_TEMP.fullmatch(child.name) is not None
-                        or Path(child.name).suffix.casefold() not in AUDIO_SUFFIXES
-                    ):
+                    if not _is_audio_candidate(child):
                         continue
                     path = Path(child.path)
                     try:
@@ -158,6 +165,55 @@ class LibraryScanner:
         yield ScanBatch(
             entries=tuple(entries), folders=tuple(folders), issues=tuple(issues), complete=complete
         )
+
+    def list_directory(self, root: Path | str, relative: str) -> DirectoryListing:
+        """List one folder of ``root`` without recursion, with the filters of ``scan``."""
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            return DirectoryListing(issues=(ScanIssue(relative, "Invalid folder path."),))
+        root_path = Path(root).expanduser()
+        try:
+            root_path = root_path.resolve(strict=True)
+            directory = root_path / relative_path
+            if directory.is_symlink():
+                raise NotADirectoryError(str(directory))
+            with os.scandir(directory) as iterator:
+                children = sorted(iterator, key=lambda item: (item.name.casefold(), item.name))
+        except OSError as error:
+            return DirectoryListing(
+                issues=(ScanIssue(str(root_path / relative_path), _message(error)),)
+            )
+        entries: list[ScanEntry] = []
+        folders: list[str] = []
+        issues: list[ScanIssue] = []
+        complete = True
+        for child in children:
+            try:
+                if child.is_symlink():
+                    continue
+                path = Path(child.path)
+                if child.is_dir(follow_symlinks=False):
+                    folders.append(path.relative_to(root_path).as_posix())
+                elif _is_audio_candidate(child):
+                    entries.append(
+                        ScanEntry(
+                            path,
+                            path.relative_to(root_path).as_posix(),
+                            SourceRevision.observe(path),
+                        )
+                    )
+            except OSError as error:
+                complete = False
+                issues.append(ScanIssue(child.path, _message(error)))
+        return DirectoryListing(tuple(entries), tuple(folders), tuple(issues), complete)
+
+
+def _is_audio_candidate(child: os.DirEntry[str]) -> bool:
+    return (
+        child.is_file(follow_symlinks=False)
+        and _MTEE_CONVERSION_TEMP.fullmatch(child.name) is None
+        and Path(child.name).suffix.casefold() in AUDIO_SUFFIXES
+    )
 
 
 def _message(error: OSError) -> str:

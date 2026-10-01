@@ -105,3 +105,31 @@ def test_a_root_symlink_is_not_followed(tmp_path: Path) -> None:
 
     assert not batches[-1].complete
     assert batches[-1].issues
+
+
+def test_list_directory_is_flat_and_filtered(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    _write_wav(root / "a.wav")
+    _write_wav(root / "sub" / "deep.wav")
+    (root / "notes.txt").write_text("not audio", encoding="utf-8")
+    _write_wav(root / "song.mtee-0b9d8b3e-1c5f-4d21-9a53-3f6f5a7c2e10.tmp.wav")
+
+    listing = LibraryScanner().list_directory(root, "")
+
+    assert listing.complete
+    assert [entry.relative_path for entry in listing.entries] == ["a.wav"]
+    assert listing.folders == ("sub",)
+    nested = LibraryScanner().list_directory(root, "sub")
+    assert [entry.relative_path for entry in nested.entries] == ["sub/deep.wav"]
+
+
+def test_list_directory_reports_a_missing_folder(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    listing = LibraryScanner().list_directory(root, "gone")
+
+    assert not listing.complete
+    assert listing.entries == ()
+    assert listing.issues
+    assert not LibraryScanner().list_directory(root, "../x").complete

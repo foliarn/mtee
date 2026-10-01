@@ -12,7 +12,7 @@ from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Property, QEvent, QObject, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QMouseEvent, QWindow
+from PySide6.QtGui import QGuiApplication, QMouseEvent, QWindow
 
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationHistory, NavigationLocation
@@ -32,6 +32,8 @@ from mtee.persistence.workspace_repository import (
     DEFAULT_COLUMN_PREFERENCES,
     WorkspaceRepository,
 )
+from mtee.services.folder_refresh import refresh_folder
+from mtee.services.folder_watch import FolderWatchService
 from mtee.services.jobs import JobContext, JobService
 from mtee.services.library_scanner import LibraryScanner
 from mtee.services.metadata_reader import MetadataReader
@@ -70,6 +72,7 @@ class WorkspaceModel(QObject):
     trackRevealRequested = Signal(int, str, str)
     batchReady = Signal(str, str, object)
     scanFinished = Signal(str, str, object)
+    folderRefreshed = Signal(str, str, object)
     activationRequested = Signal(str, list)
     playbackChanged = Signal()
     positionChanged = Signal()
@@ -200,6 +203,18 @@ class WorkspaceModel(QObject):
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(90)
         self._refresh_timer.timeout.connect(self._refresh_models)
+        self._folder_refresh_jobs: dict[tuple[str, str], str] = {}
+        self._folder_refresh_pending: set[tuple[str, str]] = set()
+        self._folder_refresh_unstable: dict[tuple[str, str], int] = {}
+        self._active_folder_tabs: set[tuple[str, str]] = set()
+        self._watch_targets: dict[str, tuple[str, str]] = {}
+        self._folder_watch = FolderWatchService(self)
+        self._folder_watch.folderChanged.connect(self._on_folder_watch_changed)
+        self.layoutChanged.connect(self._sync_folder_watches)
+        self.folderRefreshed.connect(self._on_folder_refreshed)
+        app = QGuiApplication.instance()
+        if isinstance(app, QGuiApplication):
+            app.applicationStateChanged.connect(self._on_application_state_changed)
         self.batchReady.connect(self._on_scan_batch)
         self.scanFinished.connect(self._on_scan_finished)
         self.folderRootsReady.connect(self._on_folder_roots_ready)
@@ -1396,6 +1411,7 @@ class WorkspaceModel(QObject):
         for folder_id in self._expanded:
             self._folder_model.set_expanded(folder_id, True)
         self.explorerChanged.emit()
+        self._sync_folder_watches()
         for folder_id in tuple(self._expanded):
             if self._folder_model.is_expanded(folder_id) and not self._folder_model.branch_loaded(
                 folder_id
@@ -1663,6 +1679,7 @@ class WorkspaceModel(QObject):
         self._cancel_explorer_track_action()
         self._capture_navigation()
         if not self._open_folder(*parsed):
+            self._request_folder_refresh(*parsed)
             return
         self._record_navigation()
         self.layoutChanged.emit()
@@ -2739,6 +2756,94 @@ class WorkspaceModel(QObject):
                 self._request_folder_branch(folder_id)
         self.explorerChanged.emit()
 
+    # ------------------------------------------------------------ folder refresh
+
+    def _sync_folder_watches(self) -> None:
+        """Watch the folders of the active tabs and refresh those that just became visible."""
+        active: set[tuple[str, str]] = set()
+        for group in self._groups:
+            tab_id = str(group["active"])
+            if not tab_id.startswith("folder:"):
+                continue
+            with suppress(ValueError):
+                parsed = _parse_folder_id(tab_id)
+                if parsed is not None:
+                    active.add(parsed)
+        targets: dict[str, tuple[str, str]] = {}
+        for root_id, relative in sorted(active):
+            root = self._roots_by_id.get(root_id)
+            if root is not None:
+                path = str(Path(str(root["path"])) / relative)
+                targets[os.path.normcase(os.path.normpath(path))] = (root_id, relative)
+        self._watch_targets = targets
+        self._folder_watch.set_watched(
+            str(Path(str(self._roots_by_id[root_id]["path"])) / relative)
+            for root_id, relative in sorted(active)
+            if root_id in self._roots_by_id
+        )
+        newly_visible = active - self._active_folder_tabs
+        self._active_folder_tabs = active
+        for root_id, relative in sorted(newly_visible):
+            self._request_folder_refresh(root_id, relative)
+
+    def _on_folder_watch_changed(self, path: str) -> None:
+        target = self._watch_targets.get(os.path.normcase(os.path.normpath(path)))
+        if target is not None:
+            self._request_folder_refresh(*target)
+
+    def _on_application_state_changed(self, state: Qt.ApplicationState) -> None:
+        if state == Qt.ApplicationState.ApplicationActive:
+            for root_id, relative in sorted(self._active_folder_tabs):
+                self._request_folder_refresh(root_id, relative)
+
+    def _request_folder_refresh(self, root_id: str, relative: str) -> None:
+        root = self._roots_by_id.get(root_id)
+        if root is None or root_id in self._jobs_by_root or not self._jobs.accepting:
+            return  # a running full scan will see the change
+        key = (root_id, relative)
+        if key in self._folder_refresh_jobs:
+            self._folder_refresh_pending.add(key)
+            return
+        root_path = str(root["path"])
+
+        def task(context: JobContext) -> None:
+            result = refresh_folder(
+                self._library,
+                self._scanner,
+                self._reader,
+                root_id,
+                root_path,
+                relative,
+                wait=context.sleep,
+            )
+            self.folderRefreshed.emit(
+                root_id,
+                relative,
+                {"folders": list(result.folders), "unstable": result.unstable},
+            )
+
+        try:
+            job_id = self._jobs.submit(task, label="Refresh folder", visible=False, priority=1)
+        except RuntimeError:
+            return
+        self._folder_refresh_jobs[key] = str(job_id)
+
+    def _on_folder_refreshed(self, root_id: str, relative: str, payload: object) -> None:
+        key = (root_id, relative)
+        self._folder_refresh_jobs.pop(key, None)
+        detail = payload if isinstance(payload, dict) else {}
+        folders = {str(item) for item in detail.get("folders", [])}
+        if folders:
+            self._refresh_library(root_id, folders | {relative})
+        if detail.get("unstable") and self._folder_refresh_unstable.get(key, 0) < 15:
+            self._folder_refresh_unstable[key] = self._folder_refresh_unstable.get(key, 0) + 1
+            QTimer.singleShot(2_000, lambda: self._request_folder_refresh(root_id, relative))
+        elif not detail.get("unstable"):
+            self._folder_refresh_unstable.pop(key, None)
+        if key in self._folder_refresh_pending:
+            self._folder_refresh_pending.discard(key)
+            self._request_folder_refresh(root_id, relative)
+
     def _on_scan_batch(self, root_id: str, request_id: str, detail: object) -> None:
         if self._requests.get(root_id) != request_id:
             return
@@ -2890,6 +2995,7 @@ class WorkspaceModel(QObject):
         """Persist the latest independent snapshot before SQLite is closed."""
         if self._session_closed:
             return
+        self._folder_watch.close()
         self._session_timer.stop()
         state = self._session_snapshot()
         self._session_closed = True
