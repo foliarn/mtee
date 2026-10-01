@@ -522,3 +522,142 @@ def test_enqueue_without_current_waits_for_explicit_play(qapp, qtbot, tmp_path: 
     _wait_playing(qtbot, service)
     assert service.state.current_entry_id == entry_id
     service.close()
+
+
+def test_transient_silence_cuts_the_sound_without_publishing_volume_or_mute(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    published: list[object] = []
+    service.stateChanged.connect(lambda: published.append(service.state))
+    before = service.state
+
+    service.set_transient_silence(True)
+    assert backend.volume == 0
+    service.set_transient_silence(False)
+    assert backend.volume == before.volume
+
+    assert published == []  # no control of the interface moved
+    assert service.state is before
+    assert service.state.muted is False
+    service.close()
+
+
+def test_transient_silence_respects_a_mute_chosen_by_the_user(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.toggle_mute()
+    assert backend.volume == 0 and service.state.muted
+
+    service.set_transient_silence(True)
+    service.set_transient_silence(False)
+
+    assert backend.volume == 0  # restoring never unmutes
+    assert service.state.muted
+    service.close()
+
+
+def test_the_volume_set_during_a_silence_applies_once_it_is_lifted(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.set_transient_silence(True)
+    service.set_volume(40)
+    assert backend.volume == 0 and service.state.volume == 40
+    service.set_transient_silence(False)
+    assert backend.volume == 40
+    service.close()
+
+
+def test_loading_the_next_track_lifts_the_transient_silence(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=2)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.set_transient_silence(True)
+    service.next()
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[1]
+    assert backend.volume == service.state.volume
+    service.set_transient_silence(True)  # the flag was lifted, so this is a change again
+    assert backend.volume == 0
+    service.close()
+
+
+def test_an_error_lifts_the_transient_silence(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=2)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.set_transient_silence(True)
+    backend.fail_load = True
+    service.next()
+    qtbot.waitUntil(lambda: service.state.status is PlaybackStatus.ERROR)
+    backend.fail_load = False
+    backend.volume = 55
+    service.set_transient_silence(True)
+    assert backend.volume == 0  # the silence had been lifted by the error
+    service.close()
+
+
+def test_scrubbing_through_the_model_seeks_plays_and_never_ends_the_track(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    from mtee.models.player_model import PlayerModel
+
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=2)
+    model = PlayerModel(service)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.pause()
+    assert service.state.status is PlaybackStatus.PAUSED
+    backend.seeks.clear()
+
+    model.scrubPress(0.5, 1000.0)
+    assert model.scrubbing
+    assert backend.seeks == [2_000_000]  # half of the 4 s track
+    assert service.state.status is PlaybackStatus.PLAYING  # a click plays at once
+    model.scrubRelease(0.5)
+    assert not model.scrubbing
+    assert backend.seeks == [2_000_000]  # a still hold adds no seek
+
+    model.scrubPress(1.0, 1000.0)
+    assert backend.seeks[-1] < 4_000_000  # never the very end while the button is down
+    model.scrubRelease(1.0)
+    service.close()
+
+
+def test_scrubbing_beyond_the_end_cuts_the_sound_and_releases_to_the_next_track(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    from mtee.models.player_model import PlayerModel
+
+    service, backend, _access, ids, _tracks = _make_service(qapp, tmp_path, count=2)
+    model = PlayerModel(service)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    model.scrubPress(0.9, 1000.0)
+    seeks = list(backend.seeks)
+    model.scrubMove(1.3)
+    assert backend.volume == 0
+    assert service.state.volume == 72 and not service.state.muted
+    assert backend.seeks == seeks  # no seek past the end
+    model.scrubRelease(1.3)
+    qtbot.waitUntil(lambda: service.state.current_id == ids[1])
+    _wait_playing(qtbot, service)
+    assert backend.volume == service.state.volume
+    service.close()
+
+
+def test_a_scrub_is_ignored_when_the_track_cannot_seek(qapp, qtbot, tmp_path: Path) -> None:
+    from mtee.models.player_model import PlayerModel
+
+    service, backend, _access, _ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    model = PlayerModel(service)
+    model.scrubPress(0.5, 1000.0)  # nothing is playing yet
+    assert not model.scrubbing
+    assert backend.seeks == []
+    service.close()

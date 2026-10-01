@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QByteArray, QElapsedTimer, QObject, QTimer, Signal, Slot
 
+from mtee.domain.playback import PlaybackStatus
+from mtee.domain.scrub import EnsurePlaying, Next, ScrubCommand, ScrubSession, Seek, Silence
 from mtee.models.playback_queue_model import PlaybackQueueModel
 from mtee.models.waveform_model import WaveformModel
 from mtee.services.player_service import PlayerService
 
 __all__ = ["PlayerModel"]
+
+_SCRUB_TICK_MS = 20
+_SEEK_END_GUARD_US = 200_000
 
 
 class PlayerModel(QObject):
@@ -19,6 +24,8 @@ class PlayerModel(QObject):
     playbackChanged = Signal()
     positionChanged = Signal()
     trackAccessReleased = Signal(str)
+    scrubbingChanged = Signal()
+    levelsChanged = Signal()
 
     def __init__(
         self,
@@ -32,6 +39,12 @@ class PlayerModel(QObject):
         self._waveform = waveform
         self._queue_model = PlaybackQueueModel(service, self)
         self._upcoming_queue_model = PlaybackQueueModel(service, self, upcoming_only=True)
+        self._scrub: ScrubSession | None = None
+        self._clock = QElapsedTimer()
+        self._clock.start()
+        self._scrub_timer = QTimer(self)
+        self._scrub_timer.setInterval(_SCRUB_TICK_MS)
+        self._scrub_timer.timeout.connect(self._scrub_tick)
         service.stateChanged.connect(self.playbackChanged.emit)
         service.positionChanged.connect(self.positionChanged.emit)
         service.trackAccessReleased.connect(self.trackAccessReleased.emit)
@@ -180,14 +193,76 @@ class PlayerModel(QObject):
     def error(self) -> str:
         return ""
 
-    @Property(list, notify=playbackChanged)
-    def samples(self) -> list[list[float]]:
-        return []
+    @Property(QByteArray, notify=levelsChanged)
+    def levels(self) -> QByteArray:
+        """Stand-in for ``WaveformModel.levels`` when no waveform model is attached."""
+        return QByteArray()
+
+    @Slot(int)
+    def setBarCount(self, count: int) -> None:
+        return
 
     @Slot(float)
     def seekRatio(self, ratio: float) -> None:
         duration = self._service.state.duration_us or 0
         self._service.seek(round(max(0.0, min(1.0, ratio)) * duration))
+
+    @Property(bool, notify=scrubbingChanged)
+    def scrubbing(self) -> bool:
+        return self._scrub is not None
+
+    @Slot(float, float)
+    def scrubPress(self, ratio: float, width_px: float) -> None:
+        """Start a scrub on the waveform; ``ratio`` is the pressed point, ``width_px`` its width."""
+        if self._scrub is not None or width_px <= 0 or not self._service.state.seekable:
+            return
+        self._scrub = ScrubSession(float(width_px))
+        self.scrubbingChanged.emit()
+        self._scrub_timer.start()
+        self._execute(self._scrub.press(float(ratio), self._now()))
+
+    @Slot(float)
+    def scrubMove(self, ratio: float) -> None:
+        if self._scrub is not None:
+            self._execute(self._scrub.move(float(ratio), self._now()))
+
+    @Slot(float)
+    def scrubRelease(self, ratio: float) -> None:
+        if self._scrub is None:
+            return
+        session, self._scrub = self._scrub, None
+        self._scrub_timer.stop()
+        self._execute(session.release(float(ratio), self._now()))
+        self.scrubbingChanged.emit()
+
+    def _now(self) -> float:
+        return float(self._clock.nsecsElapsed()) / 1_000_000.0
+
+    @Slot()
+    def _scrub_tick(self) -> None:
+        if self._scrub is not None:
+            self._execute(self._scrub.tick(self._now()))
+
+    def _execute(self, commands: list[ScrubCommand]) -> None:
+        for command in commands:
+            if isinstance(command, Seek):
+                duration = self._service.state.duration_us or 0
+                target = round(command.ratio * duration)
+                # A seek to the very end would finish the track while the button is down.
+                self._service.seek(min(target, max(0, duration - _SEEK_END_GUARD_US)))
+            elif isinstance(command, Silence):
+                self._service.set_transient_silence(command.on)
+            elif isinstance(command, EnsurePlaying):
+                self._ensure_playing()
+            elif isinstance(command, Next):
+                self._service.next()
+
+    def _ensure_playing(self) -> None:
+        state = self._service.state
+        if state.status is PlaybackStatus.PAUSED or (
+            state.status is PlaybackStatus.LOADING and self._service.pause_pending
+        ):
+            self._service.resume()
 
     def queue_model(self) -> PlaybackQueueModel:
         return self._queue_model

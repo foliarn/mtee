@@ -344,6 +344,21 @@ class DemoWorkspace(QObject):
         seconds = float(str(self._tracks[self._playing]["seconds"])) if self._playing else 0.0
         self.seek(max(0.0, min(1.0, ratio)) * seconds)
 
+    @Slot(float, float)
+    def scrubPress(self, ratio: float, _width_px: float) -> None:
+        """Illustrative scrub: the press seeks and plays, moves seek, release does nothing."""
+        self.seekRatio(ratio)
+        if self._playing and not self._is_playing:
+            self.togglePlay()
+
+    @Slot(float)
+    def scrubMove(self, ratio: float) -> None:
+        self.seekRatio(ratio)
+
+    @Slot(float)
+    def scrubRelease(self, _ratio: float) -> None:
+        return
+
     @Property(bool, constant=True)
     def hasQueueModel(self) -> bool:
         return False
