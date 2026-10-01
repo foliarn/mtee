@@ -34,6 +34,7 @@ ApplicationWindow {
         property real shadowOpacity: 0.05
         property int pageDuration: 350
         property int peek: 32
+        property int cardExtra: 60           // extra card height, shared between the two gaps
         property string playVariant: "A"     // A white, B black, C light accent
         property string p2Layout: "auto"     // auto, wide, narrow
         readonly property int cardRadius: 16
@@ -178,6 +179,10 @@ ApplicationWindow {
     readonly property real sideMargin: Math.max(48, viewW * 0.06)
     readonly property real cardW: Math.min(tune.cardMaxWidth, viewW - 2 * sideMargin)
     readonly property bool coverVisible: cardW >= tune.coverHideWidth
+    // The extra height is capped so the card never runs into the island.
+    readonly property real baseInner: identity.implicitHeight + tune.waveHeight + tune.playSize + 40
+    readonly property real extraHeight: Math.max(0, Math.min(tune.cardExtra,
+        viewH - reserve - tune.topBlock - 8 - (baseInner + 2 * tune.cardPadding)))
     readonly property real innerH: leftColumn.implicitHeight
     readonly property real cardH: innerH + 2 * tune.cardPadding
     readonly property real cardTop: tune.topBlock + Math.max(0, (viewH - reserve - tune.topBlock - cardH) / 2)
@@ -592,9 +597,10 @@ ApplicationWindow {
                     x: tune.cardPadding
                     y: tune.cardPadding
                     width: root.cardW - 2 * tune.cardPadding - (root.coverVisible ? root.innerH + 24 : 0)
-                    spacing: 20
+                    spacing: 20 + root.extraHeight / 2
 
                     Column {
+                        id: identity
                         width: parent.width
                         spacing: 4
 
@@ -1462,6 +1468,7 @@ ApplicationWindow {
                     onPicked: option => { const v = {"A 2/1": [2, 1], "B 3/2": [3, 2], "C 4/2": [4, 2]}[option]; tune.barWidth = v[0]; tune.barGap = v[1] } }
                 Slide { label: "Bar width (px)"; from: 1; to: 8; value: tune.barWidth; onMoved: v => tune.barWidth = v }
                 Slide { label: "Bar gap (px)"; from: 1; to: 8; value: tune.barGap; onMoved: v => tune.barGap = v }
+                Slide { label: "Card extra height"; from: 0; to: 200; value: tune.cardExtra; onMoved: v => tune.cardExtra = v }
                 Slide { label: "Wave height (px)"; from: 60; to: 200; value: tune.waveHeight; onMoved: v => tune.waveHeight = v }
                 Slide { label: "Gamma"; from: 1; to: 2.5; decimals: 1; value: tune.gamma; onMoved: v => tune.gamma = v }
                 Slide { label: "Fallback shadow"; from: 0; to: 0.5; decimals: 2; value: tune.shadowOpacity; onMoved: v => tune.shadowOpacity = v }
@@ -1483,6 +1490,7 @@ ApplicationWindow {
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     text: "waveBarWidth/waveBarGap " + tune.barWidth + "/" + tune.barGap
+                        + " · cardExtra " + tune.cardExtra
                         + " · waveHeight " + tune.waveHeight
                         + " · waveGamma " + tune.gamma.toFixed(1)
                         + " · fsShadowOpacity " + tune.shadowOpacity.toFixed(2)

@@ -19,7 +19,7 @@ Dans la fenêtre :
 - clic sur la waveform, avec ou sans déplacement, puis relâchement dans la zone ou hors de la zone à gauche et à droite : le scrub est simulé sur l'horloge fictive, sans son. La ligne de titre de la fenêtre indique l'état (maintien, son coupé par un mouvement rapide, reprise, au-delà de la fin, passage au suivant au relâchement) ;
 - cœur, `+`, `…` et les lignes de la file : menus et survols ;
 - île : précédent/suivant changent de piste fictive (fondu de couleur d'environ 1 s) ;
-- `F2` : panneau de réglage (largeur et écart des barres, hauteur, gamma, ombre, durée de transition, `fsPeek`, variante de Play, disposition de la page 2, état de la waveform, erreur de lecture, choix de piste). Il affiche les valeurs courantes pour pouvoir les recopier dans le Decision Log.
+- `F2` : panneau de réglage (largeur et écart des barres, hauteur de la waveform, hauteur supplémentaire de la carte, gamma, ombre, durée de transition, `fsPeek`, variante de Play, disposition de la page 2, état de la waveform, erreur de lecture, choix de piste). Il affiche les valeurs courantes pour pouvoir les recopier dans le Decision Log.
 
 `--audio` décode un fichier local avec le décodeur du projet et calcule, dans le script, un prototype min/max/RMS : la première piste de la maquette prend ses barres de ce fichier. `--covers` extrait la couleur vive de quelques images d'un dossier avec un prototype de l'algorithme d'accent et ajoute une piste par image (le rendu d'une pochette réelle exige la fenêtre native, pas `--capture`). Aucun de ces fichiers n'est copié dans le dépôt ; les captures commitées n'utilisent que des données générées et `--capture` refuse ces deux options.
 
@@ -72,7 +72,7 @@ Le développement fonctionnel de 100.1 à 100.7 attend ces décisions, conformé
 
 1. **Variante de barres** : A (2/1), B (3/2) ou C (4/2) — ou valeurs libres.
 2. **Gamma** : 1,0, 1,6, 2,2 ou autre valeur.
-3. **Hauteur de la waveform** : 128 px proposé.
+3. **Hauteur de la waveform** : 128 px proposé, et hauteur de la carte : 60 px ajoutés à la demande de l'utilisateur (curseur `Card extra height` de `F2`, plafonné pour que la carte ne touche pas l'île ; la pochette carrée grandit avec elle).
 4. **Couleurs grises** : lecture `#7C7C82` et survol `#B9B9BF` proposés.
 5. **Variante de Play** : A (blanc), B (noir) ou C (accent éclairci).
 6. **Ombre du repli** : intensité (5 % proposé) et son aspect.
