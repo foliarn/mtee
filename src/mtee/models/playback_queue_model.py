@@ -27,9 +27,10 @@ class PlaybackQueueModel(QAbstractListModel):
 
     rowsChanged = Signal()
 
-    def __init__(self, service: PlayerService, parent=None) -> None:
+    def __init__(self, service: PlayerService, parent=None, *, upcoming_only: bool = False) -> None:
         super().__init__(parent)
         self._service = service
+        self._upcoming_only = upcoming_only
         self._rows: list[dict[str, Any]] = []
         service.queueChanged.connect(self.refresh)
         self.refresh()
@@ -71,7 +72,7 @@ class PlaybackQueueModel(QAbstractListModel):
         return [dict(row) for row in self._rows]
 
     def refresh(self) -> None:
-        rows = self._service.queue_rows()
+        rows = self._service.up_next() if self._upcoming_only else self._service.queue_rows()
         if rows == self._rows:
             return
         self.beginResetModel()

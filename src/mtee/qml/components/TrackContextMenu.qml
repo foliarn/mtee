@@ -7,6 +7,9 @@ AppMenu {
 
     required property var workspace
     property var trackIds: []
+    property var orderedIds: []
+    property var queueTargets: []
+    property string queueSource: ""
     property string trackId: ""
     property string source: ""
     property string folderId: ""
@@ -15,6 +18,11 @@ AppMenu {
         text: "Play"
         hint: "Enter"
         onTriggered: menu.workspace.playTrack(menu.trackId, menu.source)
+    }
+    AppMenuItem {
+        objectName: "addToQueueAction"
+        text: "Add to queue"
+        onTriggered: menu.workspace.enqueueTracks(menu.queueTargets, menu.queueSource, [])
     }
 
     AppMenuItem {
@@ -83,5 +91,12 @@ AppMenu {
     // The selection when the clicked track is part of it, else the clicked track.
     function targetIds() {
         return trackIds.indexOf(trackId) >= 0 ? trackIds : [trackId]
+    }
+
+    function captureQueueTargets() {
+        const selected = targetIds()
+        queueTargets = orderedIds.filter(identity => selected.indexOf(identity) >= 0)
+        if (queueTargets.length === 0) queueTargets = [trackId]
+        queueSource = source
     }
 }

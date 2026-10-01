@@ -444,7 +444,7 @@ class DemoWorkspace(QObject):
     @Property(list, notify=playbackChanged)
     def upNext(self) -> list[dict[str, object]]:
         if self._playing not in self._queue:
-            return []
+            return [dict(self._tracks[tid]) for tid in self._queue if tid in self._tracks]
         index = self._queue.index(self._playing)
         return [dict(self._tracks[tid]) for tid in self._queue[index + 1 :]]
 
@@ -889,6 +889,22 @@ class DemoWorkspace(QObject):
         self.playbackChanged.emit()
         self.positionChanged.emit()
 
+    @Slot(list, str, list)
+    def enqueueTracks(self, identities: list, source: str, rows: list) -> None:
+        del source, rows
+        additions = [str(identity) for identity in identities if str(identity) in self._tracks]
+        if not additions:
+            return
+        position = self._queue.index(self._playing) + 1 if self._playing in self._queue else 0
+        self._queue[position:position] = additions
+        self.playbackChanged.emit()
+
+    @Slot(str)
+    def enqueuePlaylist(self, identity: str) -> None:
+        playlist = self._playlists.get(identity)
+        if playlist is not None and isinstance(playlist.get("tracks"), list):
+            self.enqueueTracks(playlist["tracks"], "playlist:" + identity, [])
+
     def _push_history(self) -> None:
         if self._playing:
             if self._playing in self._history:
@@ -898,6 +914,11 @@ class DemoWorkspace(QObject):
 
     @Slot()
     def togglePlay(self) -> None:
+        if not self._playing and self._queue:
+            self._playing = self._queue[0]
+            self._is_playing = True
+            self.playbackChanged.emit()
+            return
         if self._playing:
             self._is_playing = not self._is_playing
             self.playbackChanged.emit()

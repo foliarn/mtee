@@ -73,7 +73,7 @@ Item {
             MouseArea {
                 id: hit; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: event => {
-                    if (event.button === Qt.RightButton && entry.modelData.id !== "liked") { pane.contextEntry = entry.modelData; context.popup(entry, event.x, event.y) }
+                    if (event.button === Qt.RightButton && !entry.folder) { pane.contextEntry = entry.modelData; context.popup(entry, event.x, event.y) }
                     else if (entry.folder) pane.playlistsModel.toggleFolder(entry.modelData.id)
                     else pane.workspace.openPlaylist(entry.modelData.id)
                 }
@@ -96,6 +96,7 @@ Item {
     }
     AppMenu {
         id: context
+        AppMenuItem { objectName: "enqueuePlaylistAction"; text: "Add to queue"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.workspace.enqueuePlaylist(pane.contextEntry.id) }
         AppMenuItem { text: "Edit playlist"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.requestUI("edit", pane.contextEntry.id, []) }
         AppMenuItem { text: pane.contextEntry.pinned ? "Unpin" : "Pin playlist"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.pin(pane.contextEntry.id, !pane.contextEntry.pinned) }
         AppMenuItem { text: "Create a copy"; visible: pane.contextEntry.kind !== "folder"; onTriggered: pane.playlistsModel.duplicate(pane.contextEntry.id) }
