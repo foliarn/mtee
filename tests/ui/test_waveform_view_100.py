@@ -24,6 +24,8 @@ class _Waveform(QObject):
         self._levels = QByteArray()
         self.bar_counts: list[int] = []
         self.seeks: list[float] = []
+        self.current_state = "ready"
+        self.retries = 0
 
     @Property(QByteArray, notify=changed)
     def levels(self) -> QByteArray:
@@ -31,7 +33,19 @@ class _Waveform(QObject):
 
     @Property(str, notify=changed)
     def state(self) -> str:
-        return "ready"
+        return self.current_state
+
+    @Property(float, notify=changed)
+    def progress(self) -> float:
+        return 0.42
+
+    @Property(str, notify=changed)
+    def error(self) -> str:
+        return ""
+
+    @Slot()
+    def retry(self) -> None:
+        self.retries += 1
 
     @Slot(int)
     def setBarCount(self, count: int) -> None:  # noqa: N802 - called by name from QML
@@ -52,6 +66,7 @@ class _Playback(QObject):
         super().__init__()
         self._position = 60.0
         self.events: list[tuple[str, float]] = []
+        self.can_seek = True
 
     @Property(float, notify=changed)
     def playbackDuration(self) -> float:  # noqa: N802 - read by name from QML
@@ -63,7 +78,7 @@ class _Playback(QObject):
 
     @Property(bool, notify=changed)
     def seekable(self) -> bool:
-        return True
+        return self.can_seek
 
     @Slot(float, float)
     def scrubPress(self, ratio: float, width_px: float) -> None:  # noqa: N802 - called from QML
@@ -306,3 +321,54 @@ def test_moving_without_the_button_and_other_buttons_do_not_scrub(probe) -> None
     QTest.mouseClick(window, Qt.MouseButton.RightButton, pos=_area_point(window, span * 0.4))
     _settle(qapp, 0.02)
     assert playback.events == []
+
+
+def test_a_track_that_cannot_seek_has_no_hover_and_no_scrub(probe) -> None:
+    qapp, window, _waveform, playback = probe
+    playback.can_seek = False
+    playback.changed.emit()
+    _settle(qapp, 0.05)
+    view = _view(window)
+    span = float(view.property("span"))
+    _hover(qapp, window, view, span / 2)
+    assert view.property("hoverRatio") == -1
+    QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=_area_point(window, span / 2))
+    _settle(qapp, 0.02)
+    QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=_area_point(window, span / 2))
+    assert playback.events == []
+
+
+def _label(window: QQuickWindow, name: str) -> QQuickItem:
+    pending = [window.contentItem()]
+    while pending:
+        item = pending.pop()
+        if item.objectName() == name:
+            return item
+        pending.extend(item.childItems())
+    raise AssertionError(name)
+
+
+def test_a_waveform_being_generated_shows_flat_bars_and_its_progress(probe) -> None:
+    qapp, window, waveform, _playback = probe
+    waveform.current_state = "generating"
+    waveform.changed.emit()
+    _settle(qapp, 0.05)
+    view = _view(window)
+    assert view.property("drawCount") == view.property("barCount")  # flat bars fill the width
+    text = _label(window, "waveformGenerating")
+    assert text.isVisible() and text.property("text") == "Generating waveform \u00b7 42%"
+    assert not _label(window, "waveformUnavailable").isVisible()
+
+
+def test_an_unavailable_waveform_offers_a_retry(probe) -> None:
+    qapp, window, waveform, _playback = probe
+    waveform.current_state = "unavailable"
+    waveform.changed.emit()
+    _settle(qapp, 0.05)
+    row = _label(window, "waveformUnavailable")
+    assert row.isVisible()
+    retry = _label(window, "waveformRetry")
+    point = retry.mapToScene(retry.boundingRect().center()).toPoint()
+    QTest.mouseClick(window, Qt.MouseButton.LeftButton, pos=point)
+    _settle(qapp, 0.02)
+    assert waveform.retries == 1
