@@ -4,6 +4,8 @@ Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d
 
 ## Échantillonnage mapping et tagging — préparation du 2026-10-01
 
+Suite du 2026-10-01 : l'utilisateur clôt les itérations d'étude après `run_followup_02`. Le [plan 103 — Catalogue Artists et revue locale](103-artistes-revue-mapping.md) prépare les maquettes, puis une revue persistante avec correction manuelle et validation par lots. Il intègre les limites du diagnostic ; les maquettes sont à examiner avant le backend. Les écritures de tags et renommages effectifs appartiendront au lot suivant. La description de préparation 102 ci-dessous est historique ; ses propositions ne sont pas devenues des confirmations d'identité.
+
 Le [plan 102 — Échantillon de la collection](102-echantillonnage-mapping-tagging.md) prépare une étude à lancer avec Luna : inventaire local en lecture seule, puis 100 fichiers aléatoires et 50 cas ciblés au maximum, propositions argumentées et rapport à retourner à la conversation de cadrage. La collection annoncée comprend environ 2 850 fichiers MP3/FLAC/WAV/AIFF/M4A pour MTEE et Rekordbox. Aucun accès API SoundCloud ; Spotify en mode développement n'est pas requis pour cette étude. Les pochettes et TIDAL sont reportés. Ce plan ne réactive ni les anciennes intégrations, ni le renommage effectif, ni le développement de l'extension. Il contient une consigne prête à copier dans Luna et les fichiers attendus. Préparation uniquement ; aucun échantillon exécuté ni build Windows.
 
 ## Playlists et interactions des morceaux — préparation du 2026-10-01
