@@ -2,6 +2,12 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Artist manager — préparation du 2026-10-02
+
+Le [plan 104 — Identification des artistes et Artist manager](104-artist-manager-importation.md) est la référence active après le refus des maquettes 103. Il reprend le sketch utilisateur et toutes les décisions : collection complète alimentée par Analysis, inscription unique par morceau, parcours initial en trois étapes, correction par Edit, confirmation du résultat filtré, renommage systématique `Artiste(s) - Titre` et tags facultatifs. Les séparateurs sont uniquement virgule et `&` ; original explicite et remixer sont crédités, les versions restent dans le titre.
+
+Ordre : livraison A (104.1–104.5), tables/backend et interface de traitement intégrée ; retour utilisateur ; livraison B (104.6–104.7), catalogue et pages Artists au-dessus de la même sidebar. Le plan contient la consigne pour exécuter A. Préparation documentaire uniquement ; aucun test UI et aucun build Windows prévus. Le plan 103 et ses captures restent historiques, sans validation acquise. Les paragraphes du 1er octobre ci-dessous ne définissent plus cette implémentation.
+
 ## Échantillonnage mapping et tagging — préparation du 2026-10-01
 
 Suite du 2026-10-01 : l'utilisateur clôt les itérations d'étude après `run_followup_02`. Le [plan 103 — Catalogue Artists et revue locale](103-artistes-revue-mapping.md) prépare les maquettes, puis une revue persistante avec correction manuelle et validation par lots. Il intègre les limites du diagnostic ; les maquettes sont à examiner avant le backend. Les écritures de tags et renommages effectifs appartiendront au lot suivant. La description de préparation 102 ci-dessous est historique ; ses propositions ne sont pas devenues des confirmations d'identité.

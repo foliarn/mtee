@@ -1,5 +1,7 @@
 # Revue des maquettes 103.0 — Artists et Match review
 
+**Maquettes refusées par l'utilisateur le 2026-10-02.** Cette page conserve la revue historique et ses captures ; elle ne constitue pas une validation. Le [plan 104](../../Plans%20d'ex%C3%A9cution/104-artist-manager-importation.md) et le [nouveau sketch utilisateur](104-artist-manager-sketch.png) remplacent cette direction d'interface et son parcours de validation.
+
 ## Ce qui est soumis à validation
 
 Ces maquettes montrent le catalogue `Artists` et la revue `Match review` avec uniquement des données fictives stockées en mémoire. Elles n'ouvrent aucune collection, n'enregistrent pas de décision et ne modifient aucun tag ni fichier. La porte 103.0 s'arrête ici : le backend et la persistance attendent la validation explicite de ces vues.

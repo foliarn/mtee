@@ -1,5 +1,7 @@
 # Étape 103 — Catalogue Artists et revue locale du mapping
 
+**Remplacé le 2026-10-02 par le [plan 104 — Artist manager](104-artist-manager-importation.md).** L'utilisateur a refusé les maquettes de 103 et fourni un nouveau sketch. Leur préparation reste un fait historique ; elles ne sont pas validées et les jalons fonctionnels ci-dessous ne doivent pas être exécutés. Les règles de renommage et d'application ont également changé : suivre 104.
+
 ExecPlan à maintenir selon `PLANS.md`. Il succède à l'étude 102 : l'utilisateur a demandé que `run_followup_02` soit la dernière itération d'échantillonnage et que le projet continue. Ce document prépare la première tranche fonctionnelle ; la revue des maquettes précède son implémentation, conformément à `PLAN.md`.
 
 ## Objectif et résultat observable

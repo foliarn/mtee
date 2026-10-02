@@ -1,7 +1,19 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum Artist manager — 2026-10-02
+
+Le [plan 104 — Identification des artistes et Artist manager](Plans%20d'ex%C3%A9cution/104-artist-manager-importation.md) remplace le plan 103 après le refus de ses maquettes. Le sketch fourni par l'utilisateur et ses réponses fixent la nouvelle interface intégrée : sidebar arborescente, listes pleine largeur et corrections par Edit en modale. La livraison A couvre tables, collection complète, alimentation par Analysis, revue et application ; la livraison B ajoute ensuite le catalogue et les pages artistes sur ce même socle. Cette préparation ne lance pas leur implémentation.
+
+Les catégories `From tags`, `Suggested` et `Needs input` exigent une confirmation. Elles sont séquentielles au premier parcours, puis accessibles librement ; une base déjà peuplée d'artistes établis démarre en mode libre. Le job Analysis inscrit chaque morceau une seule fois dans ce parcours, indépendamment de la validité de son analyse audio. Une réanalyse conserve les décisions. Les listes n'ont aucune checkbox de sélection ; le bouton de confirmation porte sur tous les résultats du filtre courant et annonce leur nombre.
+
+La confirmation renomme **tous les formats** `Artiste(s) - Titre.ext`, sauf nom déjà conforme, et propose une checkbox facultative pour écrire aussi les tags. Une collision reçoit un suffixe numérique automatique sans écrasement. Remix/flip/bootleg restent dans le titre ; le remixer est crédité comme artiste, ainsi que l'original lorsqu'il apparaît explicitement. Seules la virgule et `&` séparent automatiquement les artistes. Les graphies sont regroupées sans fusion approximative ; `MPH` reste en majuscules et un renommage manuel devient prioritaire.
+
+Ces décisions remplacent les restrictions de 103 et l'ancienne règle `Titre.ext` de l'étude 102. Les pochettes, intégrations distantes, genres et TIDAL restent différés. Les contrôles demandés sont compilation/chargement et un test backend simple couvrant les familles de cas ; aucun test UI ni build Windows. Les écritures sont vérifiées sur copies avant usage réel et restent soumises aux confirmations de l'application.
+
 ## Addendum étude mapping et tagging — 2026-10-01
+
+Historique : la trajectoire ci-dessous est remplacée par l'addendum du 2 octobre pour le catalogue, l'interface, le tagging et le renommage.
 
 Suite à l'étude : l'utilisateur demande que `run_followup_02` soit la dernière itération et que le projet continue. Le [plan 103](Plans%20d'ex%C3%A9cution/103-artistes-revue-mapping.md) prépare le catalogue Artists et la revue locale des propositions avec validation par lots. La prochaine étape est la maquette QML ; son accord précède le backend. Les décisions sont d'abord persistées dans MTEE ; leur application aux tags et aux noms de fichiers fera l'objet du lot suivant. Aucun résultat de l'échantillon n'est accepté automatiquement et aucune nouvelle passe de diagnostic n'est requise. Les artistes et le titre sont prioritaires ; les mentions promotionnelles ne deviennent pas des champs produit.
 
