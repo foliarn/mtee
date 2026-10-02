@@ -11,7 +11,7 @@ Le premier résultat examinable est une maquette QML des vues `Artists` et `Matc
 ## Progress
 
 - [x] 2026-10-01 — Préparer le plan suivant après la dernière contre-lecture de l'étude 102.
-- [ ] 103.0 — Préparer et montrer les maquettes QML et leur dossier de revue.
+- [x] 2026-10-02 — 103.0 — Préparer les maquettes QML, le lanceur et les captures synthétiques ; porte de validation utilisateur ouverte.
 - [ ] Consigner la validation utilisateur de ces maquettes avant le code fonctionnel.
 - [ ] 103.1 — Définir les contrats de catalogue, de propositions et les migrations.
 - [ ] 103.2 — Porter les règles utiles du diagnostic dans un service de propositions testé.
@@ -42,6 +42,8 @@ La liste des vingt cas du rapport est filtrée sur la présence d'artistes et de
 2026-10-01, Codex — Conserver les versions musicales identifiantes, comme Remix, Extended, VIP, Sped Up Version et un nom de mix. Retirer les annotations clairement promotionnelles, techniques ou de catalogue. Les chaînes ambiguës restent éditables et signalées ; ne pas effacer automatiquement toutes les parenthèses ou tous les chiffres.
 
 2026-10-01, Codex — Ce lot fonctionne localement. Aucun accès API SoundCloud, aucune dépendance obligatoire à Spotify/Shovel, aucun traitement de pochettes, genres ou téléchargement TIDAL. Les profils Spotify/SoundCloud peuvent être saisis manuellement sous forme de liens ; leur vérification externe reste distincte de l'identité locale.
+
+2026-10-02, Codex — La première maquette réutilise le thème MTEE existant, avec navigation Artists/Match review et scénarios synthétiques. Les actions de correction et de validation ne changent qu'un état de démonstration en mémoire. Le backend, les décisions persistantes et toute lecture/écriture de collection restent hors périmètre jusqu'à la validation explicite des vues.
 
 ## Périmètre et prérequis
 
@@ -126,7 +128,7 @@ Contrôler les seuls fichiers de ce lot, les liens, l'UTF-8 et les diffs. Indexe
 
 ## Outcomes & Retrospective
 
-Préparation documentaire uniquement. Aucun catalogue, modèle Qt, migration ou maquette 103 n'a encore été implémenté. L'étude 102 est suffisante pour cadrer cette tranche ; ses propositions non confirmées et la régression d'extraction sont prises en compte dans les tests et l'interface future.
+Le jalon 103.0 est livré dans `docs/ux/mockups/Mapping103Review.qml`, `scripts/review_mapping_103.py`, `docs/ux/review-103-artistes-mapping.md` et les captures de `docs/ux/review-103-artistes-mapping/`. Les onze scénarios ont été lancés depuis les sources et capturés sans avertissement QML. La maquette présente explicitement A+ et Ev comme artistes séparés, les collaborations et crédits non résolus sans fusion automatique, ainsi que les états de revue demandés. Aucun service, modèle Qt, migration, accès à une collection ou modification de fichier audio n'a été ajouté. Les jalons suivants restent bloqués par la validation de l'interface demandée par `PLAN.md` ; aucune proposition de l'étude 102 n'est confirmée par la maquette.
 
 ## Consigne prête à copier dans Luna
 
