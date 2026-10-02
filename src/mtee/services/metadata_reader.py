@@ -41,7 +41,7 @@ class MetadataReader:
             if source.suffix.casefold() == ".m4a" and not fields["key"]:
                 raw_tags = _read_raw_tags(source)
                 fields["key"] = _read_mp4_initial_key(raw_tags)
-            elif source.suffix.casefold() in {".wav", ".mp3", ".aiff"}:
+            elif source.suffix.casefold() in {".wav", ".mp3", ".aif", ".aiff"}:
                 if not fields["comment"] or not fields["key"]:
                     raw_tags = _read_raw_tags(source)
                     if not fields["comment"]:

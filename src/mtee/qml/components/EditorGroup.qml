@@ -103,7 +103,9 @@ Rectangle {
                         name: tab.modelData.kind === "folder" ? "folder"
                             : tab.modelData.kind === "playlist" ? "playlists"
                             : tab.modelData.kind === "convert" ? "convert"
-                            : tab.modelData.kind === "tasks" ? "tasks" : "settings"
+                            : tab.modelData.kind === "tasks" ? "tasks"
+                            : tab.modelData.kind === "artists" || tab.modelData.kind === "artist" ? "artists"
+                            : "settings"
                         size: 15
                         color: tab.isActive ? Theme.primary : Theme.textMuted
                     }
@@ -174,6 +176,7 @@ Rectangle {
             : group.activeTab.kind === "convert" ? convertComponent
             : group.activeTab.kind === "settings" ? settingsComponent
             : group.activeTab.kind === "tasks" ? tasksComponent
+            : group.activeTab.kind === "artists" ? (group.activeTab.id === "artists:catalog" ? artistCatalogComponent : artistReviewComponent)
             : listComponent
     }
 
@@ -199,6 +202,23 @@ Rectangle {
         id: tasksComponent
         TasksView {
             workspace: group.workspace
+            bottomInset: group.bottomInset
+        }
+    }
+
+    Component {
+        id: artistCatalogComponent
+        ArtistsView {
+            workspace: group.workspace
+            bottomInset: group.bottomInset
+        }
+    }
+
+    Component {
+        id: artistReviewComponent
+        ArtistReviewView {
+            workspace: group.workspace
+            tab: group.activeTab
             bottomInset: group.bottomInset
         }
     }

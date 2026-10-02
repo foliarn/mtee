@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -13,6 +14,7 @@ __all__ = [
     "MetadataEditResult",
     "MetadataFieldCapability",
     "MetadataPatch",
+    "serialize_artists",
 ]
 
 EDITABLE_METADATA_FIELDS: tuple[str, ...] = (
@@ -26,6 +28,16 @@ EDITABLE_METADATA_FIELDS: tuple[str, ...] = (
     "bpm",
     "key",
 )
+
+
+def serialize_artists(names: Sequence[str]) -> str:
+    """Return the credit as one tag value: the names in order, joined by ``", "``.
+
+    Every supported container stores the credit as this single value, so reading it back
+    and splitting on a comma or ``&`` gives the same names in the same order. The
+    identities themselves (UUID and order) stay in the catalog database.
+    """
+    return ", ".join(name for name in names if name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +67,21 @@ class MetadataPatch:
     @classmethod
     def one(cls, field: str, value: str | None, *, replace_aliases: bool = False) -> MetadataPatch:
         return cls(((field, value),), replace_aliases)
+
+    @classmethod
+    def from_credit(
+        cls, artists: Sequence[str] | None, title: str | None = None, *, write_title: bool = True
+    ) -> MetadataPatch:
+        """Write an ordered artist credit, and its title, replacing any previous values.
+
+        ``artists`` of ``None`` or empty removes the artist tag. The credit is stored with
+        ``serialize_artists``; ``replace_aliases`` lets the writer replace an artist field
+        that a file holds as several values or names, which a plain edit refuses to touch.
+        """
+        changes: dict[str, str | None] = {"artist": serialize_artists(artists) if artists else None}
+        if write_title and title is not None:
+            changes["title"] = title
+        return cls(tuple(changes.items()), True)
 
     @classmethod
     def from_mapping(

@@ -31,6 +31,7 @@ Rectangle {
 
         ActivityButton { activity: "explorer"; icon: "explorer"; tip: "Explorer (Ctrl+Shift+E)" }
         ActivityButton { activity: "playlists"; icon: "playlists"; tip: "Playlists" }
+        ActivityButton { activity: "artists"; icon: "artists"; tip: "Artist manager" }
         ActivityButton { activity: "convert"; icon: "convert"; tip: "Convert" }
         ActivityButton { activity: "tasks"; icon: "tasks"; tip: "Tasks"; badge: bar.runningTasks }
         ActivityButton { activity: "plugins"; icon: "plugins"; tip: "Plugins (coming later)" }

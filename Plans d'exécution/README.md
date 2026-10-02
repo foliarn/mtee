@@ -8,6 +8,8 @@ Le [plan 104 — Identification des artistes et Artist manager](104-artist-manag
 
 Ordre : livraison A (104.1–104.5), tables/backend et interface de traitement intégrée ; retour utilisateur ; livraison B (104.6–104.7), catalogue et pages Artists au-dessus de la même sidebar. Le plan contient la consigne pour exécuter A. Préparation documentaire uniquement ; aucun test UI et aucun build Windows prévus. Le plan 103 et ses captures restent historiques, sans validation acquise. Les paragraphes du 1er octobre ci-dessous ne définissent plus cette implémentation.
 
+État du 2 octobre 2026 : A et B sont réalisés dans le code (rapport `docs/validation/104-artist-manager.md`) ; la recette interactive de l'utilisateur reste à faire.
+
 ## Échantillonnage mapping et tagging — préparation du 2026-10-01
 
 Suite du 2026-10-01 : l'utilisateur clôt les itérations d'étude après `run_followup_02`. Le [plan 103 — Catalogue Artists et revue locale](103-artistes-revue-mapping.md) prépare les maquettes, puis une revue persistante avec correction manuelle et validation par lots. Il intègre les limites du diagnostic ; les maquettes sont à examiner avant le backend. Les écritures de tags et renommages effectifs appartiendront au lot suivant. La description de préparation 102 ci-dessous est historique ; ses propositions ne sont pas devenues des confirmations d'identité.

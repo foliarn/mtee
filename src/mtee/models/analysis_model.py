@@ -11,6 +11,7 @@ from mtee.domain.analysis import AnalysisSettings
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.analysis_service import AnalysisService
+from mtee.services.artist_identification_service import ArtistIdentificationService
 from mtee.services.jobs import JobContext, JobService
 
 __all__ = ["AnalysisModel"]
@@ -40,8 +41,10 @@ class AnalysisModel(QObject):
         jobs: JobService,
         settings: AnalysisSettingsModel,
         parent: QObject | None = None,
+        identification: ArtistIdentificationService | None = None,
     ) -> None:
         super().__init__(parent)
+        self._identification = identification
         self._library = library
         self._service = service
         self._jobs = jobs
@@ -76,6 +79,22 @@ class AnalysisModel(QObject):
             bool(force),
         )
 
+    @Slot()
+    def analyzeCollection(self) -> None:
+        """Analyze every registered track once: the first pass of the artist manager.
+
+        The tracks are registered as the initial cohort before any work starts. A track
+        whose audio is current only gets its artist proposal.
+        """
+        identification = self._identification
+
+        def resolve() -> list[str]:
+            if identification is not None:
+                return identification.register_collection()
+            return []
+
+        self._submit("Analyze collection", resolve, False)
+
     def _submit(self, label: str, resolve: Callable[[], list[str]], force: bool) -> None:
         settings: AnalysisSettings = self._settings.settings
 
@@ -83,7 +102,7 @@ class AnalysisModel(QObject):
             candidates = resolve()
             context.raise_if_cancelled()
             if not candidates:
-                self._bridge.notice.emit("No audio track to analyze here.")
+                self._bridge.notice.emit("No audio track to analyze here. Scan your folders first.")
                 return
             todo = self._service.pending(candidates, force=force)
             context.raise_if_cancelled()

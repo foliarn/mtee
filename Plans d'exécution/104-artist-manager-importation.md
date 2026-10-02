@@ -14,13 +14,13 @@ Le [sketch fourni par l'utilisateur](../docs/ux/104-artist-manager-sketch.png) e
 
 - [x] 2026-10-02 — Recueillir les décisions, examiner le socle et rédiger le nouveau plan.
 - [x] 2026-10-02 — Archiver le sketch et signaler que 103 est remplacé.
-- [ ] 104.1 — Créer les contrats, la migration et la persistance.
-- [ ] 104.2 — Alimenter le parcours depuis Analysis sur toute la collection.
-- [ ] 104.3 — Implémenter correction, confirmation, tags et renommage reprenables.
-- [ ] 104.4 — Intégrer l'interface de traitement conforme au sketch.
-- [ ] 104.5 — Vérifier la livraison A et la rendre disponible depuis les sources.
-- [ ] 104.6 — Réaliser la navigation et les pages Artists de la livraison B.
-- [ ] 104.7 — Vérifier B, actualiser la documentation, committer et pousser.
+- [x] 2026-10-02 — 104.1 Contrats (`domain/artists.py`), migration `019_artist_manager.sql` et `persistence/artist_repository.py` créés et exercés.
+- [x] 2026-10-02 — 104.2 Phase artiste branchée dans Analysis (`AnalysisService`, `AnalysisModel.analyzeCollection`, `ArtistIdentificationService`) ; testé par le test de contrat.
+- [x] 2026-10-02 — 104.3 Correction, confirmation de lot, tags facultatifs, renommage, reprise, annulation ciblée et opérations d'artiste (`ArtistManagerService`, `ArtistFileService`) ; testé sur copies, huit formats.
+- [x] 2026-10-02 — 104.4 Interface intégrée : activité, panneau latéral, pages de revue, Edit, confirmation, actions d'artiste ; chargée et observée hors écran.
+- [x] 2026-10-02 — 104.5 Livraison A vérifiée : compilation, test de contrat, smoke, script de chargement des composants. Recette interactive de l'utilisateur non faite.
+- [x] 2026-10-02 — 104.6 Livraison B : section Artists de la sidebar, catalogue, page artiste réutilisant `TrackListView` et un en-tête dérivé de la page playlist.
+- [x] 2026-10-02 — 104.7 Documentation, rapport `docs/validation/104-artist-manager.md`. Commit et push : voir « Outcomes & Retrospective ».
 
 ## Décisions utilisateur et périmètre
 
@@ -237,7 +237,21 @@ Une sauvegarde de base avant migration permet une restauration complète seuleme
 
 2026-10-02, Codex — Séparer la livraison A utilisable et la livraison B de catalogue, avec réemploi des composants. Le sketch et les réponses remplacent la direction de 103 ; aucune validation de ses captures n'est supposée acquise.
 
+2026-10-02 — Les adaptateurs ID3 et MP4 refusaient l'édition d'un champ à plusieurs valeurs. Un patch de crédit (`MetadataPatch.from_credit`) active le remplacement des champs artiste et titre ; le crédit s'écrit comme une valeur unique `A, B`, relue et découpée sur virgule et `&` en redonnant les mêmes noms (test de contrat, huit formats). Preuve : `tests/unit/test_artist_manager_contract.py`, scénario `optional-tags-every-format`.
+
+2026-10-02 — `reuseItems: true` sur la liste de revue laissait afficher des lignes de l'onglet précédent après un changement d'onglet (capture 09 du script de validation avant correction). Retiré des deux listes de revue.
+
+2026-10-02 — La suite `tests/ui` complète plante dans cet environnement (violation d'accès Qt) avec ou sans ce lot ; les échecs de `tests/ui`, `test_icon_provider`, `test_workspace_model`, `test_conversion_queue` et `test_playlist_exchange` sont identiques sur une copie propre de `HEAD`.
+
+2026-10-02, Claude — Livrer A et B ensemble sur demande de l'utilisateur (« va jusqu'au bout du plan »), sans revue intermédiaire de maquette : le sketch fourni sert de contrat. L'annulation ciblée couvre les confirmations ; Rename, Merge et Delete d'artiste ne sont pas annulables.
+
+2026-10-02, Claude — Écriture du crédit en une valeur unique `A, B` pour tous les formats ; les UUID et l'ordre restent dans la base. Un format sans capacité d'écriture n'empêche pas le renommage : l'élément réussit avec un avertissement `Tags not written` visible sur la ligne.
+
+2026-10-02, Claude — Le catalogue et les pages artiste sont lus depuis les crédits confirmés ; `track_locations.metadata_json` n'est jamais modifié par une confirmation sans case tags. Les listes de l'Explorer continuent d'afficher les tags du fichier : elles peuvent distinguer le crédit corrigé par `ArtistRepository.confirmed_credit_names`, sans que ce lot ne change leur affichage.
+
 ## Outcomes & Retrospective
+
+Livraison A et B réalisées le 2 octobre 2026 ; voir `docs/validation/104-artist-manager.md` pour les contrôles réellement exécutés, les limites par format et la recette qui reste à faire par l'utilisateur. Le texte qui suit décrit l'état de la préparation initiale.
 
 Préparation documentaire uniquement. Le schéma, les modules et les commandes de vérification ci-dessus décrivent le travail à venir ; aucune migration, écriture audio ou implémentation de ce plan n'a été exécutée pendant sa rédaction. Le développement doit encore mesurer les capacités réelles par format et réaliser les contrôles indiqués. Les vérifications de cette préparation portent sur l'encodage, les liens, les références existantes et la cohérence du diff.
 
@@ -253,5 +267,7 @@ Contrôles documentaires exécutés le 2026-10-02 : lecture UTF-8 des cinq docum
     Aucun test UI, aucune nouvelle campagne d'échantillonnage, aucun build Windows. Fais les contrôles de compilation/chargement et l'unique test backend paramétré du plan.
     Actualise le plan et le rapport de validation, committe et pousse uniquement les fichiers du lot. Termine par le bilan réel et la recette utilisateur à effectuer.
     La livraison B, jalons 104.6 et 104.7, viendra après le retour sur A.
+
+Révision du 2026-10-02 (exécution) : jalons 104.1 à 104.7 réalisés dans le code, suivi et décisions mis à jour, rapport de validation ajouté. La recette interactive de l'utilisateur n'est pas cochée.
 
 Révision du 2026-10-02 : remplace le plan 103 après rejet de sa maquette et intègre les dernières décisions de renommage, crédits remix et alimentation par Analysis.

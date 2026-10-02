@@ -24,10 +24,11 @@ from mtee.demo.scenarios import DEFAULT_SCENARIO, SCENARIO_NAMES, DemoScenario, 
 from mtee.domain.durations import format_playlist_meta
 from mtee.domain.waveform import WAVEFORM_POINTS, WaveformPoints
 from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
+from mtee.models.artist_manager_model import NullArtistManager
 
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
-ACTIVITIES = ("explorer", "playlists", "convert", "tasks", "plugins", "profile")
+ACTIVITIES = ("explorer", "playlists", "artists", "convert", "tasks", "plugins", "profile")
 TAB_KINDS = ("folder", "playlist", "convert", "settings", "tasks")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")
@@ -124,6 +125,7 @@ class DemoWorkspace(QObject):
     def __init__(self, scenario: str = DEFAULT_SCENARIO, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._analysis_settings: QObject | None = None
+        self._artist_manager: QObject | None = None
         self._tag_conflicts: QObject | None = None
         self._tracks: dict[str, dict[str, object]] = {}
         self._order: list[str] = []
@@ -692,6 +694,20 @@ class DemoWorkspace(QObject):
     @Property(QObject, constant=True)
     def analysisSettings(self) -> QObject:
         return self._analysis_settings if self._analysis_settings is not None else self
+
+    @Property(QObject, constant=True)
+    def artistManager(self) -> QObject:
+        if self._artist_manager is None:
+            self._artist_manager = NullArtistManager(self)
+        return self._artist_manager
+
+    @Slot(str, str)
+    def openArtistView(self, _view: str, _title: str) -> None:
+        """The artist manager works on the real library; the demo has no such page."""
+
+    @Slot(str, str)
+    def openArtistPage(self, _artist_id: str, _name: str) -> None:
+        """The demo has no artist pages."""
 
     @Property(QObject, constant=True)
     def tagConflicts(self) -> QObject:

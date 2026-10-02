@@ -21,6 +21,7 @@ Rectangle {
         anchors.fill: parent
         anchors.rightMargin: 1
         sourceComponent: sidebar.workspace.activity === "playlists" ? playlistsPane
+            : sidebar.workspace.activity === "artists" ? artistsPane
             : sidebar.workspace.activity === "convert" ? convertPane
             : sidebar.workspace.activity === "tasks" ? tasksPane
             : sidebar.workspace.activity === "plugins" ? pluginsPane
@@ -30,6 +31,7 @@ Rectangle {
 
     Component { id: explorerPane; ExplorerPane { workspace: sidebar.workspace } }
     Component { id: playlistsPane; PlaylistsPane { workspace: sidebar.workspace } }
+    Component { id: artistsPane; ArtistManagerPane { workspace: sidebar.workspace } }
     Component { id: convertPane; ConvertPane { workspace: sidebar.workspace } }
     Component { id: tasksPane; TasksPane { workspace: sidebar.workspace } }
     Component {

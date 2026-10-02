@@ -23,6 +23,7 @@ QtObject {
     readonly property color primaryHover: "#D6FF5C"
     readonly property color secondary: "#FF2E88"
     readonly property color danger: "#FF4D4D"
+    readonly property color warning: "#FFB020"
     readonly property color closeHover: "#E81123"
 
     readonly property color hover: surface

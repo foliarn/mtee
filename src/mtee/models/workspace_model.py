@@ -18,6 +18,7 @@ from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationHistory, NavigationLocation
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
+from mtee.models.artist_manager_model import ArtistManagerModel, NullArtistManager
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
@@ -57,7 +58,7 @@ _SORT_KEYS = {
     "fileModifiedAt",
 }
 _COLUMN_KEYS = {key for key, _label in COLUMN_OPTIONS}
-_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins", "profile"}
+_ACTIVITIES = {"explorer", "playlists", "artists", "convert", "tasks", "plugins", "profile"}
 
 
 class WorkspaceModel(QObject):
@@ -108,6 +109,7 @@ class WorkspaceModel(QObject):
         self._analysis_model: AnalysisModel | None = None
         self._analysis_settings: AnalysisSettingsModel | None = None
         self._tag_conflicts: TagConflictsModel | None = None
+        self._artist_manager: ArtistManagerModel | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._shell_reveal = WindowsShellReveal()
@@ -790,6 +792,12 @@ class WorkspaceModel(QObject):
             self.openPlaylist(reference)
             self._select_revealed_row("playlist:" + reference, identity)
             return
+        if kind == "artist" and isinstance(self._artist_manager, ArtistManagerModel):
+            name = self._artist_manager.artist_name(reference)
+            if name:
+                self.openArtistPage(reference, name)
+                self._select_revealed_row("artist:" + reference, identity)
+                return
         if kind == "folder" and self._folder_source_exists(str(source)):
             self.selectExplorerTrack(identity, str(source))
             return
@@ -826,6 +834,10 @@ class WorkspaceModel(QObject):
             self.setFullscreen(False)
         if kind == "playlist" and reference:
             self.openPlaylist(reference)
+        elif kind == "artist" and isinstance(self._artist_manager, ArtistManagerModel):
+            name = self._artist_manager.artist_name(reference)
+            if name:
+                self.openArtistPage(reference, name)
         elif kind == "folder" and self._folder_source_exists(source):
             self.openFolder(source)
 
@@ -1075,6 +1087,12 @@ class WorkspaceModel(QObject):
         return self._analysis_settings if self._analysis_settings is not None else self
 
     @Property(QObject, constant=True)
+    def artistManager(self) -> QObject:
+        if self._artist_manager is None:
+            self._artist_manager = cast(ArtistManagerModel, NullArtistManager(self))
+        return self._artist_manager
+
+    @Property(QObject, constant=True)
     def tagConflicts(self) -> QObject:
         return self._tag_conflicts if self._tag_conflicts is not None else self
 
@@ -1162,6 +1180,22 @@ class WorkspaceModel(QObject):
         self.selectionChanged.connect(self._prepare_visible_metadata)
         editor.refresh_selection()
         self._prepare_visible_metadata()
+
+    def attach_artist_manager(self, model: ArtistManagerModel) -> None:
+        """Attach the artist manager; its file applications refresh the rows and the player."""
+        if self._artist_manager is not None:
+            raise RuntimeError("An artist manager is already attached to this workspace.")
+        self._artist_manager = model
+        model.setParent(self)
+        model.tracksChanged.connect(self._on_artist_files_changed)
+        model.noticeRaised.connect(self._set_message)
+
+    @Slot(list)
+    def _on_artist_files_changed(self, _track_ids: list) -> None:
+        """Files were renamed or tagged: reload the rows, the inspector and the player."""
+        self._reload_analysis_values()
+        if self._player is not None and self._player.playing_id_value():
+            self._player.refreshTrack(self._player.playing_id_value())
 
     def attach_trash_model(self, model: TrashModel) -> None:
         """Attach the dedicated Windows recycle model."""
@@ -1277,7 +1311,7 @@ class WorkspaceModel(QObject):
         if model is None:
             model = TrackListModel(self)
             self._track_models[model_key] = model
-        if kind in {"folder", "playlist"}:
+        if kind in {"folder", "playlist", "artist"}:
             self._request_track_rows(model_key, tab_id, group, kind, ref, sort_key, ascending)
         else:
             model.replace([])
@@ -1314,6 +1348,8 @@ class WorkspaceModel(QObject):
             context.raise_if_cancelled()
             if kind == "playlist" and self._playlists_model is not None:
                 rows = self._playlists_model.service.rows(ref)
+            elif kind == "artist":
+                rows = self._artist_rows(ref)
             else:
                 root_id, relative = _parse_folder_ref(ref)
                 rows = self._library.tracks_in_folder(root_id, relative)
@@ -1375,6 +1411,14 @@ class WorkspaceModel(QObject):
             and pending["rows_generation"] == generation
         ):
             self._complete_explorer_track_action(pending, model)
+
+    def _artist_rows(self, artist_id: str) -> list[dict[str, Any]]:
+        """Rows of the tracks credited to an artist by a confirmed credit."""
+        manager = self._artist_manager
+        if not isinstance(manager, ArtistManagerModel):
+            return []
+        ids = manager.service.repository.catalog_track_ids(artist_id)
+        return self._library.tracks_by_ids(ids)
 
     def _request_folder_roots(self) -> None:
         self._folder_root_generation += 1
@@ -1969,6 +2013,61 @@ class WorkspaceModel(QObject):
         self.layoutChanged.emit()
         self._persist()
 
+    @Slot(str, str)
+    def openArtistView(self, view: str, title: str) -> None:
+        """Open a page of the artist manager (``from_tags.tracks``, ``catalog``…) as a tab."""
+        self._cancel_explorer_track_action()
+        self._capture_navigation()
+        self._activity = "artists"
+        self._sidebar_visible = True
+        self._open_special_tab(f"artists:{view}", title)
+        self._record_navigation()
+        self.layoutChanged.emit()
+        self._persist()
+
+    @Slot(str, str)
+    def openArtistPage(self, artist_id: str, name: str) -> None:
+        """Open the page of one artist: its tracks, listed like a playlist page."""
+        self._cancel_explorer_track_action()
+        self._capture_navigation()
+        self._activity = "artists"
+        self._sidebar_visible = True
+        tab_id = f"artist:{artist_id}"
+        group = self._groups[self._active_group]
+        state = self._ensure_tab(tab_id)
+        state["title"] = name
+        if tab_id not in group["tabs"]:
+            group["tabs"].append(tab_id)
+        group["active"] = tab_id
+        self._load_group_view(self._active_group)
+        self._record_navigation()
+        self._dirty_tabs.add(tab_id)
+        self._refresh_timer.start()
+        self.layoutChanged.emit()
+        self.selectionChanged.emit()
+        self._persist()
+
+    @Slot(str, list, bool)
+    def playArtistRows(self, artist_id: str, rows: list, shuffled: bool) -> None:
+        """Play the tracks of an artist page, in order or shuffled."""
+        import random
+
+        available = [dict(row) for row in rows if isinstance(row, dict) and row.get("id")]
+        if shuffled:
+            random.shuffle(available)
+        if available and self._player is not None:
+            name = (
+                self._artist_manager.artist_name(artist_id)
+                if isinstance(self._artist_manager, ArtistManagerModel)
+                else ""
+            )
+            ids = [str(row["id"]) for row in available]
+            self._player.playQueueWithRows(
+                ids, 0, f"artist:{artist_id}", name or "Artist", available
+            )
+        elif not available:
+            self._set_message("This artist has no track to play.")
+
     @Slot()
     def openTasks(self) -> None:
         """Open the Tasks page as an editor tab, like Settings; Back and Forward replay it."""
@@ -2495,6 +2594,9 @@ class WorkspaceModel(QObject):
                 return Path(relative).name
             root = self._roots_by_id.get(root_id, {})
             return str(root.get("name") or track.get("title") or "Folder")
+        kind, _, reference = source.partition(":")
+        if kind == "artist" and isinstance(self._artist_manager, ArtistManagerModel):
+            return self._artist_manager.artist_name(reference) or "Artist"
         return str(track.get("album") or track.get("title") or "Library")
 
     @Slot()
@@ -2619,8 +2721,12 @@ class WorkspaceModel(QObject):
                     "ref": ref,
                     "title": title,
                     "sortMode": "default",
-                    "sortKey": "index" if kind == "playlist" else "fileCreatedAt",
-                    "sortAscending": kind == "playlist",
+                    "sortKey": "index"
+                    if kind == "playlist"
+                    else "filename"
+                    if kind == "artist"
+                    else "fileCreatedAt",
+                    "sortAscending": kind in {"playlist", "artist"},
                     "view": "list",
                     "searchQuery": "",
                     "selectedIds": [],
@@ -2756,7 +2862,7 @@ class WorkspaceModel(QObject):
                 continue
             state = dict(self._tab_state(tab_id))
             state.update(self._group_tab_states.get((group_index, tab_id), {}))
-            if state.get("kind") not in {"folder", "playlist"}:
+            if state.get("kind") not in {"folder", "playlist", "artist"}:
                 model.replace([])
                 continue
             self._track_request_keys.pop(model_key, None)
@@ -2937,8 +3043,11 @@ class WorkspaceModel(QObject):
     @staticmethod
     def _set_default_sort(state: dict[str, Any]) -> None:
         state["sortMode"] = "default"
-        state["sortKey"] = "index" if state.get("kind") == "playlist" else "fileCreatedAt"
-        state["sortAscending"] = state.get("kind") == "playlist"
+        kind = state.get("kind")
+        state["sortKey"] = (
+            "index" if kind == "playlist" else "filename" if kind == "artist" else "fileCreatedAt"
+        )
+        state["sortAscending"] = kind in {"playlist", "artist"}
 
     def _persist(self) -> None:
         if self._session_closed:

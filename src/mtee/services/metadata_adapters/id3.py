@@ -69,7 +69,7 @@ class Id3WaveAdapter:
     reason_v23_date = "ID3v2.3 Date editing is disabled; the Mutagen round-trip is ambiguous."
 
     def supports_path(self, path: Any) -> bool:
-        return str(path).casefold().endswith((".wav", ".mp3", ".aiff"))
+        return str(path).casefold().endswith((".wav", ".mp3", ".aif", ".aiff"))
 
     def inspect(self, path: Any) -> tuple[Any, str]:
         source = str(path).casefold()
@@ -81,10 +81,10 @@ class Id3WaveAdapter:
                 return audio, self.reason_wave_encoding
         elif not (
             (source.endswith(".mp3") and isinstance(audio, MP3))
-            or (source.endswith(".aiff") and isinstance(audio, AIFF))
+            or (source.endswith((".aif", ".aiff")) and isinstance(audio, AIFF))
         ):
             return audio, self.reason_container
-        elif source.endswith(".aiff"):
+        elif source.endswith((".aif", ".aiff")):
             with open(path, "rb") as stream:
                 header = stream.read(12)
             if len(header) != 12 or header[:4] != b"FORM" or header[8:12] != b"AIFF":
@@ -127,7 +127,7 @@ class Id3WaveAdapter:
         tags = audio.tags
         version = audio.tags.version[1] if audio.tags is not None else 4
         capabilities = {
-            field: self._field_capability(tags, field, version)
+            field: self._field_capability(tags, field, version, replace_aliases)
             for field in EDITABLE_METADATA_FIELDS
         }
         return capabilities
@@ -141,7 +141,9 @@ class Id3WaveAdapter:
         assert isinstance(audio.tags, ID3)
         tags = audio.tags
         for field, _value in patch.changes:
-            editable, reason = self._field_capability(tags, field, tags.version[1])
+            editable, reason = self._field_capability(
+                tags, field, tags.version[1], patch.replace_aliases
+            )
             if not editable:
                 raise ValueError(reason)
         preserved = self._preserved_snapshot(tags, patch)
@@ -150,9 +152,9 @@ class Id3WaveAdapter:
 
     @staticmethod
     def _field_capability(
-        tags: ID3 | None, field: str, version: int | None = None
+        tags: ID3 | None, field: str, version: int | None = None, replace: bool = False
     ) -> tuple[bool, str]:
-        if tags is None:
+        if tags is None or (replace and field in {"artist", "title"}):
             return True, ""
         if field == "date" and version == 3:
             return False, Id3WaveAdapter.reason_v23_date

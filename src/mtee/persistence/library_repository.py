@@ -587,6 +587,37 @@ class LibraryRepository:
         )
         return [_track_dict(row, root_id, display=self._display) for row in rows]
 
+    def tracks_by_ids(self, track_ids: Sequence[str]) -> list[dict[str, Any]]:
+        """Return the rows of these tracks, in the order given, one row per track.
+
+        A track that is no longer listed by any root (recycled or its folder missing)
+        keeps its row with an empty root, so a caller does not lose it silently.
+        """
+        wanted = list(dict.fromkeys(str(value) for value in track_ids))
+        found: dict[str, dict[str, Any]] = {}
+        connection = self._database.connection()
+        for start in range(0, len(wanted), 500):
+            chunk = wanted[start : start + 500]
+            marks = ",".join("?" * len(chunk))
+            rows = connection.execute(
+                "SELECT l.track_id,l.path,l.size_bytes,l.mtime_ns,l.file_id,l.generation,"
+                "l.file_created_at_ns,l.file_modified_at_ns,"
+                f"{_ANALYSIS_COLUMNS}l.status,l.metadata_json,"
+                "COALESCE(rt.relative_path,'') AS relative_path,rt.root_id AS root_id "
+                "FROM track_locations l "
+                "LEFT JOIN root_tracks rt ON rt.track_id=l.track_id AND rt.present=1 "
+                "LEFT JOIN track_analysis a ON a.track_id=l.track_id "
+                f"WHERE l.track_id IN ({marks}) ORDER BY rt.root_id",
+                chunk,
+            ).fetchall()
+            for row in rows:
+                identity = str(row["track_id"])
+                if identity not in found:
+                    found[identity] = _track_dict(
+                        row, str(row["root_id"] or ""), track_id=identity, display=self._display
+                    )
+        return [found[identity] for identity in wanted if identity in found]
+
     def track_ids_in_tree(self, root_id: str, relative_folder: str) -> list[str]:
         """Return every readable track of a folder and of all its sub-folders."""
         prefix = relative_folder.strip("/")
