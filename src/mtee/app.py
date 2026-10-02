@@ -21,6 +21,7 @@ from mtee.cli import AppOptions, parse_arguments
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
+from mtee.models.artist_manager_model import ArtistManagerModel
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.cover_accent_model import CoverAccentModel
@@ -37,6 +38,7 @@ from mtee.models.trash_model import TrashModel
 from mtee.models.waveform_model import WaveformModel
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.analysis_repository import AnalysisRepository
+from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.library_repository import LibraryRepository
@@ -52,6 +54,9 @@ from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.windows_frame import WindowFrame
 from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
+from mtee.services.artist_file_service import ArtistFileService
+from mtee.services.artist_identification_service import ArtistIdentificationService
+from mtee.services.artist_manager_service import ArtistManagerService
 from mtee.services.audio_analyzer import AudioAnalyzer
 from mtee.services.conversion_service import ConversionService
 from mtee.services.file_access import FileAccessCoordinator
@@ -224,16 +229,39 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             analysis_settings=lambda: analysis_settings.settings,
         )
         workspace.attach_metadata_editor(metadata_editor)
+        artist_repository = ArtistRepository(database)
+        identification = ArtistIdentificationService(library, artist_repository)
         analysis_service = AnalysisService(
             library,
             analysis_repository,
             AudioAnalyzer(MediaDecodeService(file_access), file_access),
             metadata_writer,
+            identification,
+        )
+        analysis_model = AnalysisModel(
+            library,
+            analysis_service,
+            jobs,
+            analysis_settings,
+            application,
+            identification=identification,
         )
         workspace.attach_analysis(
             analysis_settings,
-            AnalysisModel(library, analysis_service, jobs, analysis_settings, application),
+            analysis_model,
             TagConflictsModel(jobs, analysis_service.resolve_tag_conflict, application),
+        )
+        workspace.attach_artist_manager(
+            ArtistManagerModel(
+                ArtistManagerService(
+                    artist_repository,
+                    ArtistFileService(
+                        database, library, artist_repository, metadata_writer, file_access
+                    ),
+                ),
+                jobs,
+                analysis_model,
+            )
         )
         conversion_model = ConversionQueueModel(
             library,

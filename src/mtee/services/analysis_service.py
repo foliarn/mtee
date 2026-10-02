@@ -13,9 +13,9 @@ import threading
 import uuid
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from mtee.domain.analysis import AnalysisSettings, TrackAnalysis, format_bpm
 from mtee.domain.conversion import ConversionSource
@@ -27,7 +27,7 @@ from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.library_repository import LibraryRepository, TrackSource
 from mtee.services.audio_analyzer import AudioAnalyzer
 
-__all__ = ["AnalysisBatchError", "AnalysisService", "TagWriter", "TrackReport"]
+__all__ = ["AnalysisBatchError", "AnalysisService", "ArtistIdentifier", "TagWriter", "TrackReport"]
 
 _WHOLE_NUMBER_BPM_SUFFIXES = {".m4a", ".mp4", ".m4b", ".aac"}
 
@@ -36,6 +36,14 @@ class AnalysisBatchError(RuntimeError):
     """Some tracks of a batch failed; the others keep their stored results."""
 
     code = "analysis_incomplete"
+
+
+class ArtistIdentifier(Protocol):
+    """The artist phase run after the audio phases of a track."""
+
+    def needs_identification(self, track_ids: Sequence[str]) -> set[str]: ...
+
+    def identify_track(self, track_id: str) -> Any: ...
 
 
 class TagWriter(Protocol):
@@ -60,6 +68,7 @@ class TrackReport:
     ok: bool
     message: str = ""
     conflict: TagConflict | None = None
+    artists: str = ""
 
 
 class AnalysisService:
@@ -69,29 +78,37 @@ class AnalysisService:
         repository: AnalysisRepository,
         analyzer: AudioAnalyzer,
         tag_writer: TagWriter | None = None,
+        identifier: ArtistIdentifier | None = None,
     ) -> None:
         self._library = library
         self._repository = repository
         self._analyzer = analyzer
         self._tag_writer = tag_writer
+        self._identifier = identifier
 
     def pending(self, track_ids: Sequence[str], *, force: bool) -> list[str]:
-        """Return the tracks that need an analysis; ``force`` keeps them all.
+        """Return the tracks that need work; ``force`` keeps them all.
 
-        A track also needs one when only its waveform is missing or of an older version:
-        it then gets the waveform alone, see ``analyze_track``.
+        A track needs the audio phases when its tempo, key or waveform is missing or of
+        an older version, and the artist phase when it has no artist review yet. The
+        waveform alone is computed when it is the only thing missing, see
+        ``analyze_track``. ``force`` redoes the audio; it never resets an artist review.
         """
         identities = list(dict.fromkeys(track_ids))
         if force:
             return identities
         stored = self._repository.get_many(identities)
+        identifier = getattr(self, "_identifier", None)
+        unreviewed = identifier.needs_identification(identities) if identifier else set()
         pending: list[str] = []
         for track_id in identities:
             record = self._library.source_record(track_id)
             duration = _duration_us(record)
-            if not self._repository.is_current(
-                stored.get(track_id), duration
-            ) or not self._repository.has_current_waveform(track_id, duration):
+            if (
+                track_id in unreviewed
+                or not self._repository.is_current(stored.get(track_id), duration)
+                or not self._repository.has_current_waveform(track_id, duration)
+            ):
                 pending.append(track_id)
         return pending
 
@@ -185,6 +202,40 @@ class AnalysisService:
         report_progress: Callable[[float], None] = lambda _value: None,
         force: bool = False,
     ) -> TrackReport:
+        """Run the phases a track needs: audio when missing or forced, then its artists.
+
+        The artist phase comes after the audio phases (and the optional tag write they
+        do) so that it reads the tags as they are now. A failed audio decoding does not
+        prevent the proposal of artists, and the two outcomes are reported separately.
+        """
+        audio = self._analyze_audio(
+            track_id,
+            settings,
+            is_cancelled=is_cancelled,
+            report_progress=report_progress,
+            force=force,
+        )
+        identifier = getattr(self, "_identifier", None)
+        if identifier is None:
+            return audio
+        if is_cancelled():
+            raise JobCancelledError("analysis cancelled")
+        outcome = identifier.identify_track(track_id)
+        if outcome.ok:
+            return replace(audio, artists="ok")
+        message = f"artists: {outcome.message}" if outcome.message else "artists: failed"
+        combined = f"{audio.message}; {message}" if audio.message else message
+        return replace(audio, ok=False, message=combined, artists="failed")
+
+    def _analyze_audio(
+        self,
+        track_id: str,
+        settings: AnalysisSettings,
+        *,
+        is_cancelled: Callable[[], bool] = lambda: False,
+        report_progress: Callable[[float], None] = lambda _value: None,
+        force: bool = False,
+    ) -> TrackReport:
         """Analyze one track and store the results.
 
         When the tempo and key are current but the stored waveform is missing or of an
@@ -199,11 +250,12 @@ class AnalysisService:
             return TrackReport(track_id, False, "This audio file could not be read.")
         duration = _duration_us(record)
         source = ConversionSource(track_id, record.path, record.revision)
-        waveform_only = (
-            not force
-            and self._repository.is_current(self._repository.get(track_id), duration)
-            and not self._repository.has_current_waveform(track_id, duration)
-        )
+        current = self._repository.is_current(self._repository.get(track_id), duration)
+        waveform_current = self._repository.has_current_waveform(track_id, duration)
+        if not force and current and waveform_current:
+            # Only the artist phase is missing: no audio is decoded.
+            return TrackReport(track_id, True)
+        waveform_only = not force and current and not waveform_current
         try:
             outcome = self._analyzer.analyze(
                 source,

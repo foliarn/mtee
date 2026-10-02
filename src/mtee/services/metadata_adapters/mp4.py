@@ -63,7 +63,10 @@ class MP4MetadataAdapter:
         if reason or audio is None:
             return self._disabled(reason or self.reason_container)
         tags = audio.tags or {}
-        return {field: self._field_capability(tags, field) for field in EDITABLE_METADATA_FIELDS}
+        return {
+            field: self._field_capability(tags, field, replace_aliases)
+            for field in EDITABLE_METADATA_FIELDS
+        }
 
     def prepare(self, path: Any, patch: MetadataPatch) -> tuple[Any, MP4PreservationSnapshot]:
         audio, reason = self.inspect(path)
@@ -75,7 +78,7 @@ class MP4MetadataAdapter:
         if tags is None:
             raise ValueError("Could not create the MP4 metadata atom table.")
         for field, _value in patch.changes:
-            editable, reason = self._field_capability(tags, field)
+            editable, reason = self._field_capability(tags, field, patch.replace_aliases)
             if not editable:
                 raise ValueError(reason)
         expected_changes = tuple(
@@ -133,7 +136,9 @@ class MP4MetadataAdapter:
                 raise ValueError(f"The {field} tag did not match the requested value.")
 
     @classmethod
-    def _field_capability(cls, tags: Any, field: str) -> tuple[bool, str]:
+    def _field_capability(cls, tags: Any, field: str, replace: bool = False) -> tuple[bool, str]:
+        if replace and field in {"artist", "title"}:
+            return True, ""
         values = tags.get(_ATOMS[field])
         if values is None or len(values) <= 1:
             return True, ""

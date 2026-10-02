@@ -47,6 +47,7 @@ FocusScope {
             list.currentIndex = -1
     }
     readonly property bool isPlaylist: tab.kind === "playlist" && modelBacked
+    readonly property bool isArtist: tab.kind === "artist" && modelBacked
     property bool playlistSearchOpen: false
     readonly property var playlistOptions: ["title", "artist", "album", "bpm", "key", "duration"]
     readonly property bool artwork: tab.view === "artwork"
@@ -360,7 +361,8 @@ FocusScope {
     Item {
         id: heading
         width: parent.width
-        height: view.isPlaylist ? (playlistHeader.item ? playlistHeader.item.implicitHeight : 330) : 92
+        height: view.isPlaylist ? (playlistHeader.item ? playlistHeader.item.implicitHeight : 330)
+            : view.isArtist ? (artistHeader.item ? artistHeader.item.implicitHeight : 330) : 92
 
         MouseArea {
             anchors.fill: parent
@@ -375,8 +377,14 @@ FocusScope {
             active: view.isPlaylist
             sourceComponent: Component { PlaylistHeader { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel } }
         }
+        Loader {
+            id: artistHeader
+            anchors.fill: parent
+            active: view.isArtist
+            sourceComponent: Component { ArtistHeader { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel } }
+        }
         Column {
-            visible: !view.isPlaylist
+            visible: !view.isPlaylist && !view.isArtist
             x: view.columns.padding
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 14
@@ -413,7 +421,7 @@ FocusScope {
             anchors.rightMargin: view.columns.padding - 6
             anchors.bottom: parent.bottom
             // On a playlist the controls are centred on the Play button (56 px, 24 from the bottom).
-            anchors.bottomMargin: view.isPlaylist ? 36 : 14
+            anchors.bottomMargin: (view.isPlaylist || view.isArtist) ? 36 : 14
             spacing: 2
 
             TextField {
@@ -542,7 +550,7 @@ FocusScope {
             anchors.rightMargin: view.columns.padding + 76
             width: Math.min(220, parent.width * 0.32)
             height: 28
-            placeholderText: "Search this folder"
+            placeholderText: view.isArtist ? "Search this artist" : "Search this folder"
             text: view.tab.searchQuery || ""
             selectByMouse: true
             color: Theme.textPrimary
