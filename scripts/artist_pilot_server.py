@@ -17,6 +17,15 @@ STATIC = Path(__file__).parent / "artist-pilot-web"
 DECISIONS = {"pending", "keep", "exclude", "uncertain"}
 
 
+def has_correction(record: dict) -> bool:
+    return bool(
+        record.get("saved_at")
+        or record.get("decision", "pending") != "pending"
+        or record.get("notes")
+        or record.get("roles") is not None
+    )
+
+
 class ReviewStore:
     def __init__(self, directory: Path):
         self.directory = directory
@@ -46,7 +55,7 @@ class ReviewStore:
 
     def data(self) -> dict:
         with self.lock:
-            result = {"artists": self.artists, "reviews": self.reviews()}
+            result = {"artists": self.artists, "reviews": self.effective_reviews()}
             for key, filename in {
                 "tracks": "sample.json",
                 "summary": "summary.json",
@@ -60,9 +69,46 @@ class ReviewStore:
             ]
             return result
 
-    def save(self, artist_id: str, value: dict) -> dict:
+    def effective_reviews(self) -> dict:
+        """Accept unchanged proposals; retain provenance and unresolved identities."""
+        observations = {o["artist_id"]: o for o in read_json(self.directory / "observations.json")}
+        saved = self.reviews()
+        result = {}
+        for aid in self.ids:
+            o, r = observations.get(aid, {}), saved.get(aid, {})
+            links = o.get("links", [])
+            record = {
+                "decision": o.get("interest_proposal", "uncertain"),
+                "roles": o.get("roles", []),
+                "bass_related": o.get("bass_related"),
+                "notes": "",
+                "identity_decision": "pending"
+                if o.get("identity_status") not in {"matched", "provisional"}
+                else "accepted",
+                "spotify_url": next(
+                    (link["url"] for link in links if "open.spotify.com/artist/" in link["url"]), ""
+                ),
+                "soundcloud_url": next(
+                    (link["url"] for link in links if "soundcloud.com/" in link["url"]), ""
+                ),
+                "accepted_by_default": True,
+            }
+            if has_correction(r):
+                proposed_decision = record["decision"]
+                record.update(
+                    r if r.get("saved_at") else {k: v for k, v in r.items() if v is not None}
+                )
+                if record["decision"] == "pending":
+                    record["decision"] = proposed_decision
+                record["accepted_by_default"] = False
+            result[aid] = record
+        return result
+
+    def validate(self, artist_id: str, value: dict) -> dict:
         if artist_id not in self.ids:
             raise ValueError("Unknown artist")
+        if not isinstance(value, dict):
+            raise ValueError("Expected an artist correction")
         if value.get("decision") not in DECISIONS:
             raise ValueError("Invalid decision")
         roles = value.get("roles")
@@ -98,15 +144,25 @@ class ReviewStore:
             "identity_decision": identity,
             **profiles,
         }
-        with self.lock:
-            rows = self.reviews()
-            rows[artist_id] = record
-            write_json(self.path, rows)
         return record
+
+    def save_many(self, changes: dict) -> dict:
+        if not isinstance(changes, dict) or not changes or len(changes) > len(self.ids):
+            raise ValueError("Expected known artist corrections")
+        # Validate the entire batch before one atomic write; never save half a batch.
+        records = {aid: self.validate(aid, value) for aid, value in changes.items()}
+        with self.lock:
+            rows = {aid: record for aid, record in self.reviews().items() if has_correction(record)}
+            rows.update(records)
+            write_json(self.path, rows)
+        return records
+
+    def save(self, artist_id: str, value: dict) -> dict:
+        return self.save_many({artist_id: value})[artist_id]
 
     def export(self) -> bytes:
         with self.lock:
-            reviews = self.reviews()
+            reviews = self.effective_reviews()
         observations = {o["artist_id"]: o for o in read_json(self.directory / "observations.json")}
         stream = io.StringIO(newline="")
         writer = csv.writer(stream)
@@ -123,6 +179,7 @@ class ReviewStore:
                 "identity_review",
                 "spotify_url_corrected",
                 "soundcloud_url_corrected",
+                "acceptance",
             ]
         )
         for artist in self.artists:
@@ -140,6 +197,7 @@ class ReviewStore:
                 review.get("identity_decision", "pending"),
                 review.get("spotify_url", ""),
                 review.get("soundcloud_url", ""),
+                "default" if review.get("accepted_by_default") else "correction",
             ]
             # Spreadsheet applications must not interpret user notes as formulas.
             writer.writerow(
@@ -208,17 +266,22 @@ def make_server(directory: Path, port: int = 8765) -> ThreadingHTTPServer:
                 self.send(403, b"Invalid origin", "text/plain")
                 return
             path = urlsplit(self.path).path
-            if not path.startswith("/api/review/"):
+            if path != "/api/reviews" and not path.startswith("/api/review/"):
                 self.send(404, b"Not found", "text/plain")
                 return
             try:
                 size = int(self.headers.get("Content-Length", "0"))
-                if not 0 < size <= 20000 or self.headers.get("Content-Type") != "application/json":
+                limit = 16_000_000 if path == "/api/reviews" else 20000
+                if not 0 < size <= limit or self.headers.get("Content-Type") != "application/json":
                     raise ValueError("Invalid request")
                 payload = json.loads(self.rfile.read(size))
                 if not isinstance(payload, dict):
                     raise ValueError("Expected an object")
-                record = store.save(path.removeprefix("/api/review/"), payload)
+                record = (
+                    store.save_many(payload)
+                    if path == "/api/reviews"
+                    else store.save(path.removeprefix("/api/review/"), payload)
+                )
                 self.send(200, json.dumps(record).encode(), "application/json")
             except (ValueError, TypeError, KeyError) as exc:
                 self.send(400, str(exc).encode(), "text/plain; charset=utf-8")

@@ -176,21 +176,21 @@ L’ambre (`warn`, `warn-bg`, `issues-bg`) distingue les incertitudes et les poi
 - **Label** : labels de champs, notes et en-têtes ; token `label`.
 - **Badge** : petits états de tri et rôles ; token `badge`.
 
-Les paragraphes de contexte et les liens d’export utilisent aussi une taille intermédiaire (14px). Les compteurs de progression sont agrandis (20px). Les nombres des tableaux et du bilan emploient `font-variant-numeric: tabular-nums`. Aucune largeur de lecture maximale en caractères n’est définie.
+Les paragraphes de contexte et les liens d’export utilisent aussi une taille intermédiaire (14px). Le compteur de corrections reste discret (12px). Les nombres des tableaux et du bilan emploient `font-variant-numeric: tabular-nums`.
 
 ## Layout
 
 La page possède un conteneur centré (max-width: 1600px) avec un retrait horizontal de page. Les barres d’outils sont flexibles et leurs contrôles peuvent passer à la ligne. Les espacements sont une échelle pragmatique, pas une grille mathématique uniforme.
 
-Le poste de revue de cette surface associe un tableau à gauche et un dossier à droite : `minmax(500px, 1.3fr) minmax(360px, 1fr)`. Le dossier est sticky (top: 16px), défile dans sa propre zone et utilise une hauteur maximale de `calc(100vh - 35px)`. Les tableaux peuvent défiler horizontalement.
+Depuis la révision par exceptions, le tableau occupe toute la largeur. L'en-tête avec le bouton global reste sticky. Le dossier facultatif est un panneau fixe à droite (16px), de largeur `min(580px, calc(100vw - 32px))` et hauteur `calc(100vh - 32px)`, avec défilement interne. Fermer le panneau conserve les corrections.
 
-À 1100px et moins, les colonnes deviennent `minmax(430px, 1.2fr) minmax(320px, 1fr)`, les retraits diminuent et les cellules se resserrent. À 800px et moins, le poste et les cartes du bilan s’empilent, le dossier perd sa position sticky et sa limite de hauteur, la liste est limitée à 420px avec défilement, la recherche occupe sa ligne et les autres filtres peuvent se répartir sur plusieurs lignes. Ces mesures décrivent cette surface ; elles ne prescrivent pas la composition de toutes les futures pages.
+À 1100px et moins, les retraits et cellules se resserrent. À 800px et moins, l'introduction et les cartes du bilan s'empilent ; la recherche occupe sa ligne. Le tableau reste un tableau à défilement horizontal dans son conteneur, sans débordement de page. Le panneau conserve une largeur bornée au viewport. Le défilement vertical ajoute automatiquement des groupes de 100 artistes.
 
 ## Elevation & Depth
 
-Les surfaces sont planes. La feuille ne définit aucune ombre ; les fonds blancs, les fonds teintés et les bordures fines organisent la profondeur. Le focus clavier est un contour (3px, décalage 3px), pas une ombre.
+Le tableau et les cartes restent plans. Le panneau facultatif utilise une ombre décalée `-8px 8px 28px #20352d26` pour rendre sa superposition visible. Le focus clavier reste un contour (3px, décalage 3px).
 
-**The Flat Surface Rule.** Séparer les zones avec leurs fonds et leurs bordures ; le système observé ne comporte aucune ombre.
+**The Flat Surface Rule.** Garder les surfaces ordinaires planes ; réserver l'ombre à la superposition du dossier.
 
 ## Shapes
 
@@ -202,15 +202,15 @@ Les coins sont légèrement arrondis : badge, contrôle et poste de revue corres
 
 Contrôles familiers et libellés explicites. Le bouton principal utilise l’accent ; le bouton standard reste blanc avec un contour clair. Le survol standard devient teinté, le survol principal plus sombre. Les actions textuelles sont soulignées et transparentes. Les liens de profil réutilisent le contour des boutons avec un retrait plus compact (6px 11px).
 
-Le focus visible est commun à tous les contrôles. Le bouton principal désactivé reçoit une opacité réduite (.6) et un curseur d’attente ; les autres contrôles désactivés conservent le traitement natif du navigateur. Pendant l’enregistrement, tout le formulaire est désactivé et l’état « Enregistrement… » reste écrit à l’écran.
+Le bouton principal global enregistre les seules corrections en un lot. Il est désactivé quand il n'y en a aucune. Pendant la requête, les contrôles du main sont désactivés et l'état « Enregistrement… » est écrit. Aucun bouton Suivant ni confirmation individuelle.
 
 ### Chips
 
-Badges compacts non interactifs, sans bordure. Le tri positif emploie le fond vert, les états réservés l’ambre ; « À faire » est transparent. Un rôle, une catégorie et une décision partagent la même silhouette, mais leurs colonnes et intitulés explicitent le sens.
+Badges compacts non interactifs pour les catégories des morceaux. Dans le tableau artistes, les rôles sont des cases à cocher et le tri une liste ; la provenance « Accepté par défaut », « Corrigé » ou « Correction à enregistrer » est textuelle.
 
 ### Cards / Containers
 
-Les cartes du bilan sont blanches, bordées, légèrement arrondies et utilisent le retrait de section. Le poste de revue est un conteneur bordé à rayon plus large ; il possède une division verticale sur grand écran et horizontale sur petit écran. Aucune carte ne reçoit d’ombre.
+Les cartes du bilan sont blanches et bordées, sans ombre. Le tableau reste un conteneur unique. Le dossier est fermé à l'arrivée et ne partage pas la largeur du tableau.
 
 ### Inputs / Fields
 
@@ -222,7 +222,7 @@ Les trois vues sont des boutons dans une navigation de rapports. L’état actif
 
 ### Tableau et dossier de revue
 
-Les lignes sont séparées par un trait clair ; la sélection teinte la ligne et le survol utilise un autre fond clair. Le nom d’artiste est un bouton de texte renforcé. Le survol passe après la sélection dans la cascade : une ligne sélectionnée survolée prend le fond de survol.
+Les lignes sont séparées par un trait clair ; une correction non enregistrée teinte la ligne en ambre (`#fff7e9`). Le nom ouvre les sources et champs secondaires. Rôles, Bass-related et tri restent éditables dans la ligne ; les profils sont des liens textuels compacts. Les anomalies se lisent sous le nom.
 
 Le dossier juxtapose nom, profils, proposition IA, alertes, sources dépliables et formulaire humain. Les intitulés et les sources rendent la provenance visible. Après sauvegarde, les boutons de profil reflètent les URL retenues par l’utilisateur. Le suivi Spotify reste manuel et n’a aucun état d’action automatisée.
 

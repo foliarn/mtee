@@ -61,6 +61,107 @@ def test_profiles_can_be_corrected_without_changing_evidence(pilot):
     assert (pilot / "observations.json").read_bytes() == before
 
 
+def test_unchanged_proposals_are_effective_without_individual_writes(pilot):
+    write_json(
+        pilot / "observations.json",
+        [
+            {
+                "artist_id": "a",
+                "roles": ["MC"],
+                "interest_proposal": "exclude",
+                "identity_status": "unresolved",
+                "bass_related": True,
+                "links": [{"url": "https://soundcloud.com/example-artist"}],
+            }
+        ],
+    )
+    store = ReviewStore(pilot)
+    record = store.data()["reviews"]["a"]
+    assert record["decision"] == "exclude"
+    assert record["roles"] == ["MC"]
+    assert record["identity_decision"] == "pending"  # no invented identity
+    assert record["accepted_by_default"] is True
+    assert not store.path.exists()
+    row = next(csv.DictReader(io.StringIO(store.export().decode("utf-8-sig"))))
+    assert row["human_decision"] == "exclude"
+    assert row["soundcloud_url_corrected"] == "https://soundcloud.com/example-artist"
+    assert row["acceptance"] == "default"
+
+
+def test_batch_is_atomic_and_preserves_existing_corrections(pilot):
+    write_json(pilot / "artists.json", [{"artist_id": x, "display_name": x} for x in ("a", "b")])
+    store = ReviewStore(pilot)
+    store.save("a", {"decision": "keep", "roles": ["MC"], "notes": "existing"})
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.save_many(
+            {"a": {"decision": "exclude", "roles": []}, "b": {"decision": "delete", "roles": []}}
+        )
+    assert store.path.read_bytes() == before
+    store.save_many({"b": {"decision": "uncertain", "roles": ["DJ"]}})
+    assert store.reviews()["a"]["notes"] == "existing"
+    assert store.data()["reviews"]["b"]["accepted_by_default"] is False
+
+
+def test_two_thousand_artists_need_only_changed_records(pilot):
+    write_json(
+        pilot / "artists.json",
+        [{"artist_id": str(i), "display_name": f"Artist {i}"} for i in range(2000)],
+    )
+    with (pilot / "human-review.csv").open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["artist_id", "human_decision", "roles_corrected", "notes"])
+        writer.writerows([[str(i), "pending", "", ""] for i in range(2000)])
+    store = ReviewStore(pilot)
+    assert len(store.data()["reviews"]) == 2000
+    assert not store.path.exists()
+    store.save_many(
+        {
+            "17": {"decision": "keep", "roles": ["Producer"]},
+            "1999": {"decision": "exclude", "roles": []},
+        }
+    )
+    assert set(store.reviews()) == {"17", "1999"}
+    assert len(list(csv.DictReader(io.StringIO(store.export().decode("utf-8-sig"))))) == 2000
+
+
+def test_legacy_notes_are_preserved_without_a_tri_decision(pilot):
+    (pilot / "human-review.csv").write_text(
+        "artist_id,human_decision,roles_corrected,notes\na,pending,,existing note\n",
+        encoding="utf-8",
+    )
+    assert ReviewStore(pilot).data()["reviews"]["a"]["notes"] == "existing note"
+
+
+def test_explicit_unknown_and_removed_profile_override_proposal(pilot):
+    write_json(
+        pilot / "observations.json",
+        [
+            {
+                "artist_id": "a",
+                "roles": ["MC"],
+                "bass_related": True,
+                "links": [{"url": "https://soundcloud.com/example-artist"}],
+            }
+        ],
+    )
+    store = ReviewStore(pilot)
+    store.save("a", {"decision": "keep", "roles": [], "bass_related": None, "soundcloud_url": ""})
+    record = store.data()["reviews"]["a"]
+    assert record["bass_related"] is None
+    assert record["roles"] == []
+    assert record["soundcloud_url"] == ""
+
+
+def test_old_pending_tri_uses_proposal_and_keeps_corrections(pilot):
+    store = ReviewStore(pilot)
+    store.save("a", {"decision": "pending", "roles": ["DJ"], "notes": "previous correction"})
+    record = store.data()["reviews"]["a"]
+    assert record["decision"] == "uncertain"
+    assert record["roles"] == ["DJ"]
+    assert record["notes"] == "previous correction"
+
+
 @pytest.mark.parametrize(
     "aid,patch",
     [
@@ -115,6 +216,14 @@ def test_http_local_only_static_allowlist_and_same_origin_save(pilot):
         )
         with urlopen(request, timeout=2) as response:
             assert json.load(response)["decision"] == "keep"
+        request = Request(
+            base + "/api/reviews",
+            data=json.dumps({"a": {"decision": "exclude", "roles": []}}).encode(),
+            method="PUT",
+            headers={"Content-Type": "application/json", "Origin": base},
+        )
+        with urlopen(request, timeout=2) as response:
+            assert json.load(response)["a"]["decision"] == "exclude"
         with pytest.raises(HTTPError) as caught:
             urlopen(Request(base + "/api/data", headers={"Host": "foreign.example"}), timeout=2)
         assert caught.value.code == 403

@@ -4,6 +4,8 @@ ExecPlan du 5 octobre 2026, selon `PLANS.md`. Suite du catalogue livré par le [
 
 ## Objectif et périmètre
 
+Révision du 5 octobre après recette utilisateur : le parcours individuel est rejeté. Cette révision remplace les mentions de confirmations obligatoires ci-dessous. Les valeurs inchangées sont désormais acceptées par défaut dans cet outil local ; seules les exceptions sont corrigées et enregistrées en lot. Tableau pleine largeur, rôles/Bass-related/tri éditables, dossiers facultatifs pour sources et liens, aucun Suivant et aucun compteur « à faire ». Les inconnues restent inconnues. Cette acceptation locale n'écrit rien dans MTEE et n'agit pas sur Spotify.
+
 Préparer un échantillon reproductible de 50 morceaux à partir des crédits confirmés, regrouper leurs artistes, rechercher les candidats MusicBrainz puis compléter les informations manquantes sur le web. Livrer des propositions de rôles, de contexte Bass-related et de tri personnel accompagnées de leurs preuves. La revue humaine reste à faire : aucune proposition ne devient une confirmation ou une exclusion dans MTEE.
 
 L'utilisateur suivra les artistes manuellement sur Spotify, après écoute. Ce pilote n'a besoin ni de jeton Spotify ni d'accès Shovel et n'effectue aucune action de suivi. Les liens Spotify/SoundCloud sont des références documentaires. Les genres récupérés restent des observations brutes, sans taxonomie imposée ni propagation des genres d'artiste aux morceaux.
@@ -20,7 +22,9 @@ Les données et rapports personnels restent sous `.local/validation/105/`, ignor
 - [x] 2026-10-05 — Produire le rapport et le front de revue : 36 profils Spotify, 31 SoundCloud proposés ; 33 identités rapprochées, 7 à consolider et 2 non résolues.
 - [x] 2026-10-05 — Vérifier depuis les sources : 22 tests, contrôles Python/JavaScript, recette navigateur sur copie, captures et corrections de revue ; documentation actualisée.
 - [x] 2026-10-05 — Commit détaillé `9595607` et push vers `origin/main` réussis ; seuls les outils, tests et documents du lot autonome sont inclus.
-- [ ] Revue humaine des propositions par l'utilisateur, après livraison.
+- [x] 2026-10-05 — Consigner le rejet utilisateur du parcours individuel et adopter l'acceptation par défaut avec corrections en lot.
+- [x] 2026-10-06 — Vérifier la révision par exceptions : 28 tests, Ruff, Python/JavaScript, recette sur copie et recherche/défilement sur 2 000 artistes fictifs ; rouvrir le pilote réel en conservant sa correction existante.
+- [ ] Publier la révision par exceptions vers origin/main.
 
 ## Contexte et décisions
 
@@ -71,6 +75,8 @@ Les commandes prepare/refaire un échantillon utilisent un nouveau dossier. Les 
 2026-10-05 — Des homonymes et liens communautaires contradictoires rendent la sélection par score dangereuse. Un titre original remixé n'est pas une preuve de mauvais crédit. Les contradictions et identités non résolues restent visibles. Plusieurs rôles de carrière manquent encore de preuve : signalés à consolider, jamais confirmés automatiquement.
 
 ## Decision Log
+
+2026-10-05, utilisateur — « Je change ce que j'ai besoin de changer et si j'ai rien à dire c'est validé » ; refuser 2 000 clics Suivant. Les propositions inchangées sont donc retenues sans écriture par artiste, avec provenance « default » dans l'export. Les corrections sont validées intégralement avant une écriture atomique unique ; une entrée invalide ne sauvegarde pas la moitié du lot. Les corrections antérieures restent prioritaires et les états pending de tri hérités reprennent la proposition sans perdre leurs autres corrections.
 
 2026-10-05, utilisateur — Tester sur un batch de 50 sons regroupant les catégories et choisir manuellement qui suivre sur Spotify.
 

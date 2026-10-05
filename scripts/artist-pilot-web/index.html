@@ -14,8 +14,8 @@
   </header>
   <main>
     <div class="intro">
-      <div><h1>Ta collection, artiste par artiste.</h1><p>Vérifie les profils et les rôles, puis choisis qui garder dans ton catalogue.</p></div>
-      <div class="progress"><strong id="progress">Chargement…</strong><span>décisions de tri enregistrées</span><progress id="meter" max="42" value="0" aria-label="Revue des artistes"></progress></div>
+      <div><h1>Corrige seulement ce qui cloche.</h1><p>Tout ce que tu laisses tel quel est accepté. Aucun artiste à valider individuellement.</p></div>
+      <div class="batch-actions"><span id="progress" role="status">Chargement…</span><button id="save-all" type="button" class="primary" disabled>Enregistrer les corrections</button></div>
     </div>
     <div class="context" id="context">Lecture du pilote…</div>
     <nav class="tabs" aria-label="Rapports">
@@ -28,18 +28,18 @@
         <label class="search">Rechercher<input id="search" type="search" placeholder="Artiste ou morceau…" autocomplete="off"></label>
         <label>Rôle<select id="role" aria-label="Rôle"><option value="">Tous les rôles</option><option>Producer</option><option>DJ</option><option>Singer</option><option>MC</option><option value="unknown">Non établi</option></select></label>
         <label>Proposition IA<select id="proposal" aria-label="Proposition IA"><option value="">Toutes</option><option value="keep">Garder</option><option value="exclude">Bloat possible</option><option value="uncertain">À déterminer</option></select></label>
-        <label>Ma revue<select id="review" aria-label="Ma revue"><option value="">Toutes</option><option value="pending">À faire</option><option value="keep">Garder</option><option value="exclude">Écarter</option><option value="uncertain">Incertain</option></select></label>
+        <label>Tri retenu<select id="review" aria-label="Tri retenu"><option value="">Tous</option><option value="keep">Garder</option><option value="exclude">Écarter</option><option value="uncertain">Incertain</option><option value="modified">Mes corrections</option></select></label>
         <label class="check"><input id="attention" type="checkbox">Cas à vérifier</label>
         <button id="reset" type="button" class="text-button">Réinitialiser</button>
       </div>
       <div class="workspace">
         <div class="list-panel">
           <div class="list-heading"><span id="visible-count"></span><label>Trier<select id="sort"><option value="name">Nom A → Z</option><option value="count">Nombre de morceaux</option><option value="attention">Cas à vérifier d’abord</option></select></label></div>
-          <div class="table-wrap"><table><caption class="sr-only">Artistes du pilote, propositions IA et décisions personnelles</caption><thead><tr><th scope="col">Artiste</th><th scope="col">Rôles</th><th scope="col" class="num">Sons¹</th><th scope="col">Tri proposé</th><th scope="col">Ma revue</th></tr></thead><tbody id="rows"></tbody></table></div>
+          <div class="table-wrap"><table><caption class="sr-only">Artistes, valeurs retenues éditables et anomalies</caption><thead><tr><th scope="col">Artiste / anomalies</th><th scope="col" class="num">Sons¹</th><th scope="col">Profils</th><th scope="col">Rôles</th><th scope="col">Bass-related</th><th scope="col">Tri retenu</th></tr></thead><tbody id="rows"></tbody></table><div id="more-rows" aria-hidden="true"></div></div>
           <p id="empty" class="empty" hidden>Aucun artiste ne correspond à ces filtres. Réinitialise-les pour retrouver le pilote.</p>
-          <p class="footnote">¹ Crédits dans toute ta collection. Les rôles et le tri IA restent des propositions.</p>
+          <p class="footnote">¹ Crédits dans toute ta collection. Valeurs proposées acceptées par défaut ; ouvre un dossier uniquement pour consulter les preuves ou corriger les liens.</p>
         </div>
-        <aside id="detail" aria-label="Dossier de l’artiste"><p class="empty">Sélectionne un artiste pour examiner son dossier.</p></aside>
+        <aside id="detail" aria-label="Dossier de l’artiste" hidden></aside>
       </div>
     </section>
     <section id="tracks" hidden aria-label="Échantillon de morceaux"><div id="track-table" class="table-wrap"></div></section>

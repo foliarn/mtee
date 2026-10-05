@@ -343,7 +343,13 @@
         "purpose": "Rôles et états brefs."
       }
     },
-    "shadows": [],
+    "shadows": [
+      {
+        "name": "drawer",
+        "value": "-8px 8px 28px #20352d26",
+        "purpose": "Superposition du dossier facultatif."
+      }
+    ],
     "motion": [
       {
         "name": "hover-background",
@@ -360,15 +366,16 @@
         "name": "stacked",
         "value": "800px"
       }
-    ]
+    ],
+    "revisedOn": "2026-10-06"
   },
   "components": [
     {
       "name": "Action principale",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Sauvegarde la revue humaine ; désactivation visible pendant l’attente.",
-      "html": "<button class=\"ds-control ds-primary\" type=\"button\">Enregistrer</button>",
+      "description": "Enregistre toutes les corrections ensemble ; désactivé quand il n’y en a aucune ou pendant la requête.",
+      "html": "<button class=\"ds-control ds-primary\" type=\"button\">Enregistrer les corrections</button>",
       "css": ".ds-primary { font: 15px/1.5 \"Segoe UI\", system-ui, sans-serif; padding: 8px 13px; border: 1px solid var(--line, #d5dfd8); border-radius: 5px; cursor: pointer; background: var(--accent, #245d43); color: white; border-color: var(--accent, #245d43); } .ds-primary:hover { background: var(--accent-hover, #174b34); } .ds-primary:disabled { opacity: .6; cursor: wait; } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
     },
     {
@@ -405,8 +412,8 @@
       "name": "Badges d’état",
       "kind": "chip",
       "refersTo": "badge",
-      "description": "État lisible en texte, en vert ou en ambre ; attente neutre.",
-      "html": "<div class=\"ds-badges\"><span class=\"ds-badge ds-keep\">Garder</span><span class=\"ds-badge ds-uncertain\">À déterminer</span><span class=\"ds-badge ds-pending\">À faire</span><span class=\"ds-badge\">Producer</span></div>",
+      "description": "États textuels et catégories ; aucun compteur de revue obligatoire.",
+      "html": "<div class=\"ds-badges\"><span class=\"ds-badge ds-keep\">Garder</span><span class=\"ds-badge ds-uncertain\">À déterminer</span><span class=\"ds-badge ds-pending\">Accepté par défaut</span><span class=\"ds-badge\">Producer</span></div>",
       "css": ".ds-badge { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; display: inline-block; font-size: 11px; padding: 2px 6px; border-radius: 3px; background: var(--badge-neutral, #edf1ee); color: var(--muted, #54685d); margin: 2px 2px 2px 0; white-space: nowrap; } .ds-keep { color: var(--accent, #245d43); background: var(--keep-bg, #e5f0e8); } .ds-uncertain { color: var(--warn, #815720); background: var(--warn-bg, #fff1d9); } .ds-pending { background: transparent; padding-left: 0; }"
     },
     {
@@ -414,25 +421,25 @@
       "kind": "card",
       "refersTo": "report-card",
       "description": "Surface plane de synthèse, bordée sans ombre.",
-      "html": "<section class=\"ds-card\"><h3>Ce qui reste à décider</h3><p>Les profils documentés restent à valider par toi.</p></section>",
+      "html": "<section class=\"ds-card\"><h3>Ton mode de revue</h3><p>Les propositions inchangées sont acceptées par défaut.</p></section>",
       "css": ".ds-card { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; padding: 20px; background: white; border: 1px solid var(--line, #d5dfd8); border-radius: 5px; } .ds-card h3 { font-size: 14px; margin: 0 0 8px; font-weight: 650; } .ds-card p { font-size: 14px; }"
     },
     {
-      "name": "Ligne de revue sélectionnée",
+      "name": "Ligne corrigée",
       "kind": "custom",
-      "description": "Tableau compact avec sélection teintée et bouton d’artiste explicite.",
-      "html": "<table class=\"ds-table\"><thead><tr><th>Artiste</th><th>Ma revue</th></tr></thead><tbody><tr class=\"ds-selected\"><td><button class=\"ds-control ds-artist\" type=\"button\" aria-pressed=\"true\">Artiste</button></td><td>À faire</td></tr></tbody></table>",
-      "css": ".ds-table { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; } .ds-table th { color: var(--muted, #54685d); font-weight: 550; background: var(--table-head, #f0f4f1); font-size: 12px; padding: 10px 14px; border-block: 1px solid var(--line, #d5dfd8); white-space: nowrap; } .ds-table td { padding: 10px 14px; border-bottom: 1px solid var(--row-line, #e5ebe6); vertical-align: middle; } .ds-selected td { background: var(--soft, #e5efe8); } .ds-table tr:hover td { background: var(--row-hover, #f3f7f4); } .ds-artist { font: inherit; color: inherit; border: 0; padding: 4px 0; background: transparent; font-weight: 650; text-align: left; cursor: pointer; } .ds-artist:hover { background: transparent; text-decoration: underline; } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
+      "description": "Tableau éditable ; une correction non enregistrée est signalée en ambre et en texte.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Artiste</th><th>Tri retenu</th></tr></thead><tbody><tr class=\"ds-modified\"><td><button class=\"ds-control ds-artist\" type=\"button\">Artiste</button><br>Correction à enregistrer</td><td><select aria-label=\"Tri — Artiste\"><option>Garder</option><option>Écarter</option><option>Incertain</option></select></td></tr></tbody></table>",
+      "css": ".ds-table { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; } .ds-table th { color: var(--muted, #54685d); font-weight: 550; background: var(--table-head, #f0f4f1); font-size: 12px; padding: 10px 14px; border-block: 1px solid var(--line, #d5dfd8); white-space: nowrap; } .ds-table td { padding: 10px 14px; border-bottom: 1px solid var(--row-line, #e5ebe6); vertical-align: middle; } .ds-modified td { background: var(--issues-bg, #fff7e9); } .ds-table tr:hover td { background: var(--row-hover, #f3f7f4); } .ds-artist { font: inherit; color: inherit; border: 0; padding: 4px 0; background: transparent; font-weight: 650; text-align: left; cursor: pointer; } .ds-artist:hover { background: transparent; text-decoration: underline; } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
     }
   ],
   "narrative": {
     "northStar": "Le poste de revue",
-    "overview": "Un poste de revue lisible et familier : des surfaces claires, une encre vert sombre et des contrôles reconnaissables laissent la place aux noms, aux sources et aux décisions. La densité sert la comparaison ; les états utilisent simultanément du texte, des attributs accessibles et des changements de fond.\n\nCette description enregistre le système observé dans le code du pilote. Elle ne constitue pas une identité visuelle approuvée pour MTEE, une maquette validée ou une préférence de framework. Segoe UI correspond ici à un outil personnel dans un environnement Windows.",
+    "overview": "Tableau pleine largeur pour corriger les exceptions. Les valeurs inchangées sont acceptées par défaut ; le dossier de preuves est facultatif et les corrections sont enregistrées en lot. Palette et typographie restent celles de cet outil local.",
     "keyCharacteristics": [
       "Palette claire vert-gris et ambre pour les réserves.",
       "Typographie familière, hiérarchie compacte et nombres tabulaires.",
       "Surfaces planes, séparateurs fins et coins légèrement arrondis.",
-      "États explicites, focus visible et disposition empilée sur petit écran."
+      "Tableau à défilement continu, provenance explicite et dossier facultatif superposé."
     ],
     "rules": [
       {
@@ -442,7 +449,7 @@
       },
       {
         "name": "The Flat Surface Rule",
-        "body": "Séparer les zones avec leurs fonds et leurs bordures ; le système observé ne comporte aucune ombre.",
+        "body": "Garder les surfaces ordinaires planes ; réserver l’ombre à la superposition du dossier.",
         "section": "elevation"
       }
     ],

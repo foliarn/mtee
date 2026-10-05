@@ -37,6 +37,18 @@ Publication du lot : commit `9595607`, push vers `origin/main` réussi le 5 octo
 
 ## Relancer et poursuivre
 
+### Révision après retour utilisateur — revue par exceptions
+
+Le parcours initial est remplacé : les valeurs inchangées sont acceptées par défaut et exportables immédiatement. L'acceptation par défaut n'est pas une consultation individuelle des preuves ; la provenance est conservée dans la colonne `acceptance` de l'export (`default` ou `correction`). Les identités non résolues restent non résolues et les profils absents restent vides. Les observations IA restent inchangées.
+
+Tableau pleine largeur avec rôles cumulables, Bass-related et tri éditables. Dossier facultatif pour les sources, URLs et notes ; fermeture/changement de dossier conserve les brouillons. Un bouton global enregistre uniquement les artistes modifiés. Aucun Suivant ni compteur à faire. Chargement de 100 lignes à la fois, ajout automatique au défilement et recherche sur le jeu entier.
+
+Recette sur copie : deux artistes corrigés ensemble, notes conservées en changeant de dossier, sauvegarde puis rechargement. Fixture fictive de 2 000 artistes : 100 lignes initiales, 200 après défilement, recherche directe du dernier artiste sans pagination. Captures desktop et mobile sans débordement global ; sur petit écran le tableau défile horizontalement. La base réelle et les décisions utilisateur ne sont pas utilisées comme support d'écriture de recette.
+
+Tests supplémentaires : propositions effectives/export sans 2 000 écritures, lot invalide entièrement refusé, corrections précédentes préservées, retrait explicite d'un profil et retour de Bass-related à inconnu, compatibilité des anciens tris pending. Les contrôles de la version initiale ci-dessus restent historiques ; cette révision a son propre contrôle final et sa publication.
+
+Clôture technique le 6 octobre 2026 : 28 tests passent, Ruff check/format, compilation Python, syntaxe JavaScript et diff sans erreur. La fixture de volume inclut aussi un CSV initial de 2 000 lignes pending : seules les deux corrections sont écrites. Les notes des anciens CSV restent conservées même sans décision de tri. Le pilote réel est rouvert avec ses 50 morceaux et 42 artistes ; sa correction utilisateur préexistante reste prioritaire sur les propositions. Aucun test de sauvegarde sur le dossier réel.
+
 Depuis la racine, après création du pilote :
 
 ```powershell
