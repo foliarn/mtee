@@ -24,7 +24,7 @@ Les données et rapports personnels restent sous `.local/validation/105/`, ignor
 - [x] 2026-10-05 — Commit détaillé `9595607` et push vers `origin/main` réussis ; seuls les outils, tests et documents du lot autonome sont inclus.
 - [x] 2026-10-05 — Consigner le rejet utilisateur du parcours individuel et adopter l'acceptation par défaut avec corrections en lot.
 - [x] 2026-10-06 — Vérifier la révision par exceptions : 28 tests, Ruff, Python/JavaScript, recette sur copie et recherche/défilement sur 2 000 artistes fictifs ; rouvrir le pilote réel en conservant sa correction existante.
-- [ ] Publier la révision par exceptions vers origin/main.
+- [x] 2026-10-06 — Révision publiée : commit `d23c4d8`, push et fetch origin/main réussis, écart local/distant nul.
 
 ## Contexte et décisions
 

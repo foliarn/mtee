@@ -49,6 +49,8 @@ Tests supplémentaires : propositions effectives/export sans 2 000 écritures, l
 
 Clôture technique le 6 octobre 2026 : 28 tests passent, Ruff check/format, compilation Python, syntaxe JavaScript et diff sans erreur. La fixture de volume inclut aussi un CSV initial de 2 000 lignes pending : seules les deux corrections sont écrites. Les notes des anciens CSV restent conservées même sans décision de tri. Le pilote réel est rouvert avec ses 50 morceaux et 42 artistes ; sa correction utilisateur préexistante reste prioritaire sur les propositions. Aucun test de sauvegarde sur le dossier réel.
 
+Révision publiée dans `d23c4d8` le 6 octobre : push vers origin/main et fetch de confirmation réussis, sans divergence. Données/captures restent privées et les changements production préexistants ne sont pas inclus.
+
 Depuis la racine, après création du pilote :
 
 ```powershell
