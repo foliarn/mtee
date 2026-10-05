@@ -77,9 +77,12 @@ class ReviewStore:
         for aid in self.ids:
             o, r = observations.get(aid, {}), saved.get(aid, {})
             links = o.get("links", [])
+            roles = list(o.get("roles", []))
+            if "Producer" in roles and "DJ" not in roles:
+                roles.append("DJ")
             record = {
                 "decision": o.get("interest_proposal", "uncertain"),
-                "roles": o.get("roles", []),
+                "roles": roles,
                 "bass_related": o.get("bass_related"),
                 "notes": "",
                 "identity_decision": "pending"

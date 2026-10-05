@@ -222,7 +222,7 @@ Les trois vues sont des boutons dans une navigation de rapports. L’état actif
 
 ### Tableau et dossier de revue
 
-Les cases et le filtre regroupent Producer et DJ sous « Producer / DJ ». Cette case occupe la première ligne du groupe de rôles ; Singer et MC occupent la seconde. Le dossier reprend ce même regroupement.
+Producer et DJ ont des cases et filtres séparés. Les quatre rôles occupent une grille de deux colonnes dans les lignes. Cocher Producer coche aussi DJ ; DJ reste modifiable séparément. Le dossier suit la même règle.
 
 Les lignes sont séparées par un trait clair ; une correction non enregistrée teinte la ligne en ambre (`#fff7e9`). Le nom ouvre les sources et champs secondaires. Rôles, Bass-related et tri restent éditables dans la ligne ; les profils sont des liens textuels compacts. Les anomalies se lisent sous le nom.
 

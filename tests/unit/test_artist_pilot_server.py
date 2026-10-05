@@ -133,6 +133,17 @@ def test_legacy_notes_are_preserved_without_a_tri_decision(pilot):
     assert ReviewStore(pilot).data()["reviews"]["a"]["notes"] == "existing note"
 
 
+def test_producer_defaults_to_dj_but_explicit_dj_exception_is_kept(pilot):
+    write_json(pilot / "observations.json", [{"artist_id": "a", "roles": ["Producer"]}])
+    before = (pilot / "observations.json").read_bytes()
+    store = ReviewStore(pilot)
+    assert store.data()["reviews"]["a"]["roles"] == ["Producer", "DJ"]
+    assert not store.path.exists()
+    store.save("a", {"decision": "keep", "roles": ["Producer"]})
+    assert store.data()["reviews"]["a"]["roles"] == ["Producer"]
+    assert (pilot / "observations.json").read_bytes() == before
+
+
 def test_explicit_unknown_and_removed_profile_override_proposal(pilot):
     write_json(
         pilot / "observations.json",

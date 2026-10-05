@@ -16,7 +16,7 @@ Front web local autonome pour les rapports, tableaux, sources et revue. MTEE fou
 
 ## Implémentation du pilote
 
-Producer et DJ sont regroupés par défaut en une catégorie « Producer / DJ » dans les cases et le filtre. La présence de l'un suffit à cocher le groupe ; une correction du groupe applique les deux rôles ensemble. Les preuves de carrière d'origine restent consultables.
+Producer et DJ restent deux cases et deux filtres séparés. Par défaut, une proposition Producer coche aussi DJ. Cocher Producer coche DJ dans la ligne et le dossier ; DJ reste modifiable séparément, et une exception enregistrée reste prioritaire. Les preuves de carrière d’origine restent consultables.
 
 Mode de revue demandé le 5 octobre : les propositions inchangées sont acceptées par défaut. L'utilisateur corrige les exceptions dans un tableau pleine largeur, puis enregistre ses corrections en une fois. Aucun compteur de dossiers à traiter, aucune confirmation individuelle et aucun bouton Suivant. Les identités introuvables et informations absentes restent signalées, sans invention. La recherche et le défilement continu doivent rester utilisables pour 2 000 artistes ; seules les corrections sont écrites.
 
