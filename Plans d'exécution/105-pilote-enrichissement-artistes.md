@@ -19,7 +19,7 @@ Les données et rapports personnels restent sous `.local/validation/105/`, ignor
 - [x] 2026-10-05 — Collecte MusicBrainz terminée : 95 appels, 106,015 secondes, 42 recherches réussies dont un résultat vide ; complément web et audit dans la session.
 - [x] 2026-10-05 — Produire le rapport et le front de revue : 36 profils Spotify, 31 SoundCloud proposés ; 33 identités rapprochées, 7 à consolider et 2 non résolues.
 - [x] 2026-10-05 — Vérifier depuis les sources : 22 tests, contrôles Python/JavaScript, recette navigateur sur copie, captures et corrections de revue ; documentation actualisée.
-- [ ] Commit détaillé et push uniquement du lot autonome.
+- [x] 2026-10-05 — Commit détaillé `9595607` et push vers `origin/main` réussis ; seuls les outils, tests et documents du lot autonome sont inclus.
 - [ ] Revue humaine des propositions par l'utilisateur, après livraison.
 
 ## Contexte et décisions

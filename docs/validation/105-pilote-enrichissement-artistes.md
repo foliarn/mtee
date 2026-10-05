@@ -33,6 +33,8 @@ Les profils corrigés remplacent les boutons de profil du dossier après sauvega
 
 Aucun build Windows, test du paquet ni modification de dépendance requis pour ce front autonome. Les fichiers production déjà modifiés dans le workspace appartiennent à un autre travail et ne sont pas inclus dans ce lot.
 
+Publication du lot : commit `9595607`, push vers `origin/main` réussi le 5 octobre 2026. Aucun fichier de collection, rapport personnel, cache fournisseur ou décision utilisateur inclus.
+
 ## Relancer et poursuivre
 
 Depuis la racine, après création du pilote :
