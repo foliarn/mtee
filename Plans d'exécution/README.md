@@ -2,6 +2,10 @@
 
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
+## Pilote autonome d'enrichissement — 2026-10-05
+
+Le [plan 105 — Pilote artistes](105-pilote-enrichissement-artistes.md) couvre un essai de 50 morceaux, les candidats MusicBrainz, un complément web audité et la revue humaine dans un front web local. À la demande de l'utilisateur, ce front est un outil d'étude séparé : aucune intégration à MTEE ni action de suivi Spotify. Les données et décisions personnelles restent ignorées par Git. Ce pilote n'ajoute pas de prérequis aux livraisons applicatives.
+
 ## Artist manager — préparation du 2026-10-02
 
 Le [plan 104 — Identification des artistes et Artist manager](104-artist-manager-importation.md) est la référence active après le refus des maquettes 103. Il reprend le sketch utilisateur et toutes les décisions : collection complète alimentée par Analysis, inscription unique par morceau, parcours initial en trois étapes, correction par Edit, confirmation du résultat filtré, renommage systématique `Artiste(s) - Titre` et tags facultatifs. Les séparateurs sont uniquement virgule et `&` ; original explicite et remixer sont crédités, les versions restent dans le titre.

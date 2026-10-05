@@ -1,0 +1,461 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-05T01:17:19.529Z",
+  "title": "Design System: Revue artistes — pilote local",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Papier vert-gris",
+        "tonalRamp": [
+          "oklch(15.00% 0.0034 145.55)",
+          "oklch(26.43% 0.0034 145.55)",
+          "oklch(37.86% 0.0034 145.55)",
+          "oklch(49.29% 0.0034 145.55)",
+          "oklch(60.71% 0.0034 145.55)",
+          "oklch(72.14% 0.0034 145.55)",
+          "oklch(83.57% 0.0034 145.55)",
+          "oklch(95.00% 0.0034 145.55)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Encre vert sombre",
+        "tonalRamp": [
+          "oklch(15.00% 0.0307 168.41)",
+          "oklch(26.43% 0.0307 168.41)",
+          "oklch(37.86% 0.0307 168.41)",
+          "oklch(49.29% 0.0307 168.41)",
+          "oklch(60.71% 0.0307 168.41)",
+          "oklch(72.14% 0.0307 168.41)",
+          "oklch(83.57% 0.0307 168.41)",
+          "oklch(95.00% 0.0307 168.41)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Encre secondaire",
+        "tonalRamp": [
+          "oklch(15.00% 0.0297 161.05)",
+          "oklch(26.43% 0.0297 161.05)",
+          "oklch(37.86% 0.0297 161.05)",
+          "oklch(49.29% 0.0297 161.05)",
+          "oklch(60.71% 0.0297 161.05)",
+          "oklch(72.14% 0.0297 161.05)",
+          "oklch(83.57% 0.0297 161.05)",
+          "oklch(95.00% 0.0297 161.05)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Contour clair",
+        "tonalRamp": [
+          "oklch(15.00% 0.0143 155.56)",
+          "oklch(26.43% 0.0143 155.56)",
+          "oklch(37.86% 0.0143 155.56)",
+          "oklch(49.29% 0.0143 155.56)",
+          "oklch(60.71% 0.0143 155.56)",
+          "oklch(72.14% 0.0143 155.56)",
+          "oklch(83.57% 0.0143 155.56)",
+          "oklch(95.00% 0.0143 155.56)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Vert de décision",
+        "tonalRamp": [
+          "oklch(15.00% 0.0743 161.05)",
+          "oklch(26.43% 0.0743 161.05)",
+          "oklch(37.86% 0.0743 161.05)",
+          "oklch(49.29% 0.0743 161.05)",
+          "oklch(60.71% 0.0743 161.05)",
+          "oklch(72.14% 0.0743 161.05)",
+          "oklch(83.57% 0.0743 161.05)",
+          "oklch(95.00% 0.0743 161.05)"
+        ]
+      },
+      "soft": {
+        "role": "primary",
+        "displayName": "Fond vert discret",
+        "tonalRamp": [
+          "oklch(15.00% 0.0141 155.58)",
+          "oklch(26.43% 0.0141 155.58)",
+          "oklch(37.86% 0.0141 155.58)",
+          "oklch(49.29% 0.0141 155.58)",
+          "oklch(60.71% 0.0141 155.58)",
+          "oklch(72.14% 0.0141 155.58)",
+          "oklch(83.57% 0.0141 155.58)",
+          "oklch(95.00% 0.0141 155.58)"
+        ]
+      },
+      "warn": {
+        "role": "neutral",
+        "displayName": "Ambre de réserve",
+        "tonalRamp": [
+          "oklch(15.00% 0.0891 69.95)",
+          "oklch(26.43% 0.0891 69.95)",
+          "oklch(37.86% 0.0891 69.95)",
+          "oklch(49.29% 0.0891 69.95)",
+          "oklch(60.71% 0.0891 69.95)",
+          "oklch(72.14% 0.0891 69.95)",
+          "oklch(83.57% 0.0891 69.95)",
+          "oklch(95.00% 0.0891 69.95)"
+        ]
+      },
+      "warn-bg": {
+        "role": "neutral",
+        "displayName": "Fond ambre",
+        "tonalRamp": [
+          "oklch(15.00% 0.0349 81.28)",
+          "oklch(26.43% 0.0349 81.28)",
+          "oklch(37.86% 0.0349 81.28)",
+          "oklch(49.29% 0.0349 81.28)",
+          "oklch(60.71% 0.0349 81.28)",
+          "oklch(72.14% 0.0349 81.28)",
+          "oklch(83.57% 0.0349 81.28)",
+          "oklch(95.00% 0.0349 81.28)"
+        ]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "Surface blanche",
+        "tonalRamp": [
+          "oklch(15.00% 0.0000 89.88)",
+          "oklch(26.43% 0.0000 89.88)",
+          "oklch(37.86% 0.0000 89.88)",
+          "oklch(49.29% 0.0000 89.88)",
+          "oklch(60.71% 0.0000 89.88)",
+          "oklch(72.14% 0.0000 89.88)",
+          "oklch(83.57% 0.0000 89.88)",
+          "oklch(95.00% 0.0000 89.88)"
+        ]
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "Vert de focus",
+        "tonalRamp": [
+          "oklch(15.00% 0.0855 158.69)",
+          "oklch(26.43% 0.0855 158.69)",
+          "oklch(37.86% 0.0855 158.69)",
+          "oklch(49.29% 0.0855 158.69)",
+          "oklch(60.71% 0.0855 158.69)",
+          "oklch(72.14% 0.0855 158.69)",
+          "oklch(83.57% 0.0855 158.69)",
+          "oklch(95.00% 0.0855 158.69)"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Vert appuyé",
+        "tonalRamp": [
+          "oklch(15.00% 0.0682 160.94)",
+          "oklch(26.43% 0.0682 160.94)",
+          "oklch(37.86% 0.0682 160.94)",
+          "oklch(49.29% 0.0682 160.94)",
+          "oklch(60.71% 0.0682 160.94)",
+          "oklch(72.14% 0.0682 160.94)",
+          "oklch(83.57% 0.0682 160.94)",
+          "oklch(95.00% 0.0682 160.94)"
+        ]
+      },
+      "table-head": {
+        "role": "neutral",
+        "displayName": "Fond d’en-tête",
+        "tonalRamp": [
+          "oklch(15.00% 0.0058 153.77)",
+          "oklch(26.43% 0.0058 153.77)",
+          "oklch(37.86% 0.0058 153.77)",
+          "oklch(49.29% 0.0058 153.77)",
+          "oklch(60.71% 0.0058 153.77)",
+          "oklch(72.14% 0.0058 153.77)",
+          "oklch(83.57% 0.0058 153.77)",
+          "oklch(95.00% 0.0058 153.77)"
+        ]
+      },
+      "row-line": {
+        "role": "neutral",
+        "displayName": "Séparateur de ligne",
+        "tonalRamp": [
+          "oklch(15.00% 0.0092 150.69)",
+          "oklch(26.43% 0.0092 150.69)",
+          "oklch(37.86% 0.0092 150.69)",
+          "oklch(49.29% 0.0092 150.69)",
+          "oklch(60.71% 0.0092 150.69)",
+          "oklch(72.14% 0.0092 150.69)",
+          "oklch(83.57% 0.0092 150.69)",
+          "oklch(95.00% 0.0092 150.69)"
+        ]
+      },
+      "row-hover": {
+        "role": "neutral",
+        "displayName": "Survol de ligne",
+        "tonalRamp": [
+          "oklch(15.00% 0.0058 153.78)",
+          "oklch(26.43% 0.0058 153.78)",
+          "oklch(37.86% 0.0058 153.78)",
+          "oklch(49.29% 0.0058 153.78)",
+          "oklch(60.71% 0.0058 153.78)",
+          "oklch(72.14% 0.0058 153.78)",
+          "oklch(83.57% 0.0058 153.78)",
+          "oklch(95.00% 0.0058 153.78)"
+        ]
+      },
+      "badge-neutral": {
+        "role": "neutral",
+        "displayName": "Fond de badge neutre",
+        "tonalRamp": [
+          "oklch(15.00% 0.0058 153.77)",
+          "oklch(26.43% 0.0058 153.77)",
+          "oklch(37.86% 0.0058 153.77)",
+          "oklch(49.29% 0.0058 153.77)",
+          "oklch(60.71% 0.0058 153.77)",
+          "oklch(72.14% 0.0058 153.77)",
+          "oklch(83.57% 0.0058 153.77)",
+          "oklch(95.00% 0.0058 153.77)"
+        ]
+      },
+      "keep-bg": {
+        "role": "primary",
+        "displayName": "Fond de tri positif",
+        "tonalRamp": [
+          "oklch(15.00% 0.0158 154.47)",
+          "oklch(26.43% 0.0158 154.47)",
+          "oklch(37.86% 0.0158 154.47)",
+          "oklch(49.29% 0.0158 154.47)",
+          "oklch(60.71% 0.0158 154.47)",
+          "oklch(72.14% 0.0158 154.47)",
+          "oklch(83.57% 0.0158 154.47)",
+          "oklch(95.00% 0.0158 154.47)"
+        ]
+      },
+      "issues-bg": {
+        "role": "neutral",
+        "displayName": "Fond de points à vérifier",
+        "tonalRamp": [
+          "oklch(15.00% 0.0203 81.78)",
+          "oklch(26.43% 0.0203 81.78)",
+          "oklch(37.86% 0.0203 81.78)",
+          "oklch(49.29% 0.0203 81.78)",
+          "oklch(60.71% 0.0203 81.78)",
+          "oklch(72.14% 0.0203 81.78)",
+          "oklch(83.57% 0.0203 81.78)",
+          "oklch(95.00% 0.0203 81.78)"
+        ]
+      },
+      "failure-ink": {
+        "role": "neutral",
+        "displayName": "Encre d’échec",
+        "tonalRamp": [
+          "oklch(15.00% 0.1354 29.64)",
+          "oklch(26.43% 0.1354 29.64)",
+          "oklch(37.86% 0.1354 29.64)",
+          "oklch(49.29% 0.1354 29.64)",
+          "oklch(60.71% 0.1354 29.64)",
+          "oklch(72.14% 0.1354 29.64)",
+          "oklch(83.57% 0.1354 29.64)",
+          "oklch(95.00% 0.1354 29.64)"
+        ]
+      },
+      "failure-bg": {
+        "role": "neutral",
+        "displayName": "Fond d’échec",
+        "tonalRamp": [
+          "oklch(15.00% 0.0188 46.81)",
+          "oklch(26.43% 0.0188 46.81)",
+          "oklch(37.86% 0.0188 46.81)",
+          "oklch(49.29% 0.0188 46.81)",
+          "oklch(60.71% 0.0188 46.81)",
+          "oklch(72.14% 0.0188 46.81)",
+          "oklch(83.57% 0.0188 46.81)",
+          "oklch(95.00% 0.0188 46.81)"
+        ]
+      },
+      "selection-bg": {
+        "role": "neutral",
+        "displayName": "Sélection de texte",
+        "tonalRamp": [
+          "oklch(15.00% 0.0370 155.34)",
+          "oklch(26.43% 0.0370 155.34)",
+          "oklch(37.86% 0.0370 155.34)",
+          "oklch(49.29% 0.0370 155.34)",
+          "oklch(60.71% 0.0370 155.34)",
+          "oklch(72.14% 0.0370 155.34)",
+          "oklch(83.57% 0.0370 155.34)",
+          "oklch(95.00% 0.0370 155.34)"
+        ]
+      },
+      "selection-ink": {
+        "role": "neutral",
+        "displayName": "Encre de sélection",
+        "tonalRamp": [
+          "oklch(15.00% 0.0492 158.56)",
+          "oklch(26.43% 0.0492 158.56)",
+          "oklch(37.86% 0.0492 158.56)",
+          "oklch(49.29% 0.0492 158.56)",
+          "oklch(60.71% 0.0492 158.56)",
+          "oklch(72.14% 0.0492 158.56)",
+          "oklch(83.57% 0.0492 158.56)",
+          "oklch(95.00% 0.0492 158.56)"
+        ]
+      },
+      "scrollbar-thumb": {
+        "role": "neutral",
+        "displayName": "Curseur de défilement",
+        "tonalRamp": [
+          "oklch(15.00% 0.0278 155.79)",
+          "oklch(26.43% 0.0278 155.79)",
+          "oklch(37.86% 0.0278 155.79)",
+          "oklch(49.29% 0.0278 155.79)",
+          "oklch(60.71% 0.0278 155.79)",
+          "oklch(72.14% 0.0278 155.79)",
+          "oklch(83.57% 0.0278 155.79)",
+          "oklch(95.00% 0.0278 155.79)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Titre de page",
+        "purpose": "Titre fluide de l’introduction."
+      },
+      "title": {
+        "displayName": "Titre de dossier",
+        "purpose": "Nom d’artiste et titre du bilan ; graisse native de h2, non tokenisée."
+      },
+      "section": {
+        "displayName": "Titre de section",
+        "purpose": "Sections de preuves et formulaire."
+      },
+      "body": {
+        "displayName": "Corps",
+        "purpose": "Lecture courante et contrôles standards."
+      },
+      "table": {
+        "displayName": "Texte compact",
+        "purpose": "Tableaux, preuves et décisions."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Labels, en-têtes et notes."
+      },
+      "badge": {
+        "displayName": "Badge",
+        "purpose": "Rôles et états brefs."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "hover-background",
+        "value": "background-color .12s ease",
+        "purpose": "Boutons et liens, seulement sous prefers-reduced-motion: no-preference."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact",
+        "value": "1100px"
+      },
+      {
+        "name": "stacked",
+        "value": "800px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Action principale",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Sauvegarde la revue humaine ; désactivation visible pendant l’attente.",
+      "html": "<button class=\"ds-control ds-primary\" type=\"button\">Enregistrer</button>",
+      "css": ".ds-primary { font: 15px/1.5 \"Segoe UI\", system-ui, sans-serif; padding: 8px 13px; border: 1px solid var(--line, #d5dfd8); border-radius: 5px; cursor: pointer; background: var(--accent, #245d43); color: white; border-color: var(--accent, #245d43); } .ds-primary:hover { background: var(--accent-hover, #174b34); } .ds-primary:disabled { opacity: .6; cursor: wait; } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
+    },
+    {
+      "name": "Bouton secondaire",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Action ordinaire avec contour clair et fond de survol teinté.",
+      "html": "<button class=\"ds-control ds-secondary\" type=\"button\">Réessayer</button>",
+      "css": ".ds-secondary { font: 15px/1.5 \"Segoe UI\", system-ui, sans-serif; padding: 8px 13px; border: 1px solid var(--line, #d5dfd8); border-radius: 5px; cursor: pointer; color: var(--ink, #20352d); background: white; } .ds-secondary:hover { background: var(--soft, #e5efe8); } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
+    },
+    {
+      "name": "Action textuelle",
+      "kind": "button",
+      "description": "Action discrète de la barre d’outils ou du dossier.",
+      "html": "<button class=\"ds-control ds-text\" type=\"button\">Réinitialiser</button>",
+      "css": ".ds-text { font: 15px/1.5 \"Segoe UI\", system-ui, sans-serif; padding: 8px 13px; border: 1px solid var(--line, #d5dfd8); border-radius: 5px; cursor: pointer; color: var(--ink, #20352d); border: 0; background: transparent; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; } .ds-text:hover { background: var(--soft, #e5efe8); } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
+    },
+    {
+      "name": "Champ de recherche",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Label discret au-dessus d’un champ blanc familier.",
+      "html": "<label class=\"ds-field\">Rechercher<input class=\"ds-control ds-input\" type=\"search\" placeholder=\"Artiste ou morceau…\" autocomplete=\"off\"></label>",
+      "css": ".ds-field { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; display: grid; gap: 5px; font-size: 12px; color: var(--muted, #54685d); } .ds-input { font: 15px/1.5 \"Segoe UI\", system-ui, sans-serif; color: var(--ink, #20352d); border: 1px solid var(--line, #d5dfd8); border-radius: 5px; background: white; padding: 8px 10px; min-height: 39px; caret-color: var(--accent, #245d43); } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; }"
+    },
+    {
+      "name": "Navigation de rapports",
+      "kind": "nav",
+      "description": "Onglet actif repéré par texte renforcé et trait vert.",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"Rapports\"><button class=\"ds-control ds-tab\" type=\"button\" aria-pressed=\"true\">Artistes <span>42</span></button><button class=\"ds-control ds-tab\" type=\"button\" aria-pressed=\"false\">Morceaux <span>50</span></button><button class=\"ds-control ds-tab\" type=\"button\" aria-pressed=\"false\">Bilan du pilote</button></nav>",
+      "css": ".ds-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line, #d5dfd8); } .ds-tab { font: 15px/1.5 \"Segoe UI\", system-ui, sans-serif; padding: 8px 13px; border: 1px solid var(--line, #d5dfd8); border-radius: 5px; cursor: pointer; border: none; border-radius: 0; background: transparent; padding: 12px 2px; border-bottom: 3px solid transparent; color: var(--muted, #54685d); } .ds-tab[aria-pressed=true] { border-bottom-color: var(--accent, #245d43); color: var(--ink, #20352d); font-weight: 650; } .ds-tab span { color: var(--muted, #54685d); font-size: 12px; margin-left: 5px; } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
+    },
+    {
+      "name": "Badges d’état",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "État lisible en texte, en vert ou en ambre ; attente neutre.",
+      "html": "<div class=\"ds-badges\"><span class=\"ds-badge ds-keep\">Garder</span><span class=\"ds-badge ds-uncertain\">À déterminer</span><span class=\"ds-badge ds-pending\">À faire</span><span class=\"ds-badge\">Producer</span></div>",
+      "css": ".ds-badge { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; display: inline-block; font-size: 11px; padding: 2px 6px; border-radius: 3px; background: var(--badge-neutral, #edf1ee); color: var(--muted, #54685d); margin: 2px 2px 2px 0; white-space: nowrap; } .ds-keep { color: var(--accent, #245d43); background: var(--keep-bg, #e5f0e8); } .ds-uncertain { color: var(--warn, #815720); background: var(--warn-bg, #fff1d9); } .ds-pending { background: transparent; padding-left: 0; }"
+    },
+    {
+      "name": "Carte de bilan",
+      "kind": "card",
+      "refersTo": "report-card",
+      "description": "Surface plane de synthèse, bordée sans ombre.",
+      "html": "<section class=\"ds-card\"><h3>Ce qui reste à décider</h3><p>Les profils documentés restent à valider par toi.</p></section>",
+      "css": ".ds-card { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; padding: 20px; background: white; border: 1px solid var(--line, #d5dfd8); border-radius: 5px; } .ds-card h3 { font-size: 14px; margin: 0 0 8px; font-weight: 650; } .ds-card p { font-size: 14px; }"
+    },
+    {
+      "name": "Ligne de revue sélectionnée",
+      "kind": "custom",
+      "description": "Tableau compact avec sélection teintée et bouton d’artiste explicite.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Artiste</th><th>Ma revue</th></tr></thead><tbody><tr class=\"ds-selected\"><td><button class=\"ds-control ds-artist\" type=\"button\" aria-pressed=\"true\">Artiste</button></td><td>À faire</td></tr></tbody></table>",
+      "css": ".ds-table { color: var(--ink, #20352d); font-family: \"Segoe UI\", system-ui, sans-serif; line-height: 1.5; border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; } .ds-table th { color: var(--muted, #54685d); font-weight: 550; background: var(--table-head, #f0f4f1); font-size: 12px; padding: 10px 14px; border-block: 1px solid var(--line, #d5dfd8); white-space: nowrap; } .ds-table td { padding: 10px 14px; border-bottom: 1px solid var(--row-line, #e5ebe6); vertical-align: middle; } .ds-selected td { background: var(--soft, #e5efe8); } .ds-table tr:hover td { background: var(--row-hover, #f3f7f4); } .ds-artist { font: inherit; color: inherit; border: 0; padding: 4px 0; background: transparent; font-weight: 650; text-align: left; cursor: pointer; } .ds-artist:hover { background: transparent; text-decoration: underline; } .ds-control:focus-visible { outline: 3px solid var(--focus, #438361); outline-offset: 3px; } @media (prefers-reduced-motion: no-preference) { .ds-control { transition: background-color .12s ease; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Le poste de revue",
+    "overview": "Un poste de revue lisible et familier : des surfaces claires, une encre vert sombre et des contrôles reconnaissables laissent la place aux noms, aux sources et aux décisions. La densité sert la comparaison ; les états utilisent simultanément du texte, des attributs accessibles et des changements de fond.\n\nCette description enregistre le système observé dans le code du pilote. Elle ne constitue pas une identité visuelle approuvée pour MTEE, une maquette validée ou une préférence de framework. Segoe UI correspond ici à un outil personnel dans un environnement Windows.",
+    "keyCharacteristics": [
+      "Palette claire vert-gris et ambre pour les réserves.",
+      "Typographie familière, hiérarchie compacte et nombres tabulaires.",
+      "Surfaces planes, séparateurs fins et coins légèrement arrondis.",
+      "États explicites, focus visible et disposition empilée sur petit écran."
+    ],
+    "rules": [
+      {
+        "name": "The Explicit State Rule",
+        "body": "Associer les couleurs d’état à un libellé ; les propositions IA et la revue humaine gardent des intitulés distincts.",
+        "section": "colors"
+      },
+      {
+        "name": "The Flat Surface Rule",
+        "body": "Séparer les zones avec leurs fonds et leurs bordures ; le système observé ne comporte aucune ombre.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do reprendre les primitives observées pour étendre cet outil et garder les libellés d’état visibles.",
+      "Do conserver le focus visible sur les contrôles et liens.",
+      "Do laisser les textes, les tableaux et les sources porter l’information.",
+      "Do garder les propositions IA et les décisions humaines identifiables par leurs intitulés."
+    ],
+    "donts": [
+      "Don't ajouter des illustrations décoratives dans cet outil de revue.",
+      "Don't présenter une couleur seule comme une décision ou une certitude.",
+      "Don't déduire de ce pilote une identité approuvée pour MTEE ou une préférence de framework."
+    ]
+  }
+}
