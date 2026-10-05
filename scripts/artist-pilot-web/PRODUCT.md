@@ -16,6 +16,8 @@ Front web local autonome pour les rapports, tableaux, sources et revue. MTEE fou
 
 ## Implémentation du pilote
 
+Producer et DJ sont regroupés par défaut en une catégorie « Producer / DJ » dans les cases et le filtre. La présence de l'un suffit à cocher le groupe ; une correction du groupe applique les deux rôles ensemble. Les preuves de carrière d'origine restent consultables.
+
 Mode de revue demandé le 5 octobre : les propositions inchangées sont acceptées par défaut. L'utilisateur corrige les exceptions dans un tableau pleine largeur, puis enregistre ses corrections en une fois. Aucun compteur de dossiers à traiter, aucune confirmation individuelle et aucun bouton Suivant. Les identités introuvables et informations absentes restent signalées, sans invention. La recherche et le défilement continu doivent rester utilisables pour 2 000 artistes ; seules les corrections sont écrites.
 
 HTML/CSS/JavaScript servis par Python standard sur 127.0.0.1. Choix technique ordinaire effectué pour garder l’outil local simple ; la préférence de framework demandée dans la conversation demeure ouverte. Construction directe dans le code pour cet outil de tableaux ; aucun réglage de workflow durable déduit du silence de l’utilisateur.

@@ -222,6 +222,8 @@ Les trois vues sont des boutons dans une navigation de rapports. L’état actif
 
 ### Tableau et dossier de revue
 
+Les cases et le filtre regroupent Producer et DJ sous « Producer / DJ ». Cette case occupe la première ligne du groupe de rôles ; Singer et MC occupent la seconde. Le dossier reprend ce même regroupement.
+
 Les lignes sont séparées par un trait clair ; une correction non enregistrée teinte la ligne en ambre (`#fff7e9`). Le nom ouvre les sources et champs secondaires. Rôles, Bass-related et tri restent éditables dans la ligne ; les profils sont des liens textuels compacts. Les anomalies se lisent sous le nom.
 
 Le dossier juxtapose nom, profils, proposition IA, alertes, sources dépliables et formulaire humain. Les intitulés et les sources rendent la provenance visible. Après sauvegarde, les boutons de profil reflètent les URL retenues par l’utilisateur. Le suivi Spotify reste manuel et n’a aucun état d’action automatisée.

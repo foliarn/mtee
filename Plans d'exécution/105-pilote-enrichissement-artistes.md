@@ -76,6 +76,8 @@ Les commandes prepare/refaire un échantillon utilisent un nouveau dossier. Les 
 
 ## Decision Log
 
+2026-10-06, utilisateur — Regrouper Producer et DJ par défaut : une seule case et une seule entrée de filtre « Producer / DJ ». La case couvre la présence de l'un ou de l'autre ; sa correction traite le groupe ensemble. Les observations sourcées d'origine sont conservées.
+
 2026-10-05, utilisateur — « Je change ce que j'ai besoin de changer et si j'ai rien à dire c'est validé » ; refuser 2 000 clics Suivant. Les propositions inchangées sont donc retenues sans écriture par artiste, avec provenance « default » dans l'export. Les corrections sont validées intégralement avant une écriture atomique unique ; une entrée invalide ne sauvegarde pas la moitié du lot. Les corrections antérieures restent prioritaires et les états pending de tri hérités reprennent la proposition sans perdre leurs autres corrections.
 
 2026-10-05, utilisateur — Tester sur un batch de 50 sons regroupant les catégories et choisir manuellement qui suivre sur Spotify.

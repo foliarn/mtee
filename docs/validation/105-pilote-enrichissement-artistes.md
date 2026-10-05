@@ -51,6 +51,8 @@ Clôture technique le 6 octobre 2026 : 28 tests passent, Ruff check/format, comp
 
 Révision publiée dans `d23c4d8` le 6 octobre : push vers origin/main et fetch de confirmation réussis, sans divergence. Données/captures restent privées et les changements production préexistants ne sont pas inclus.
 
+6 octobre — Producer/DJ regroupés en une case et un filtre communs, dans les lignes et le dossier. Recette sur copie : décocher puis recocher le groupe et sauvegarder ; le filtre retrouve 28 artistes du pilote. Contrôle JavaScript et actualisation du front réel sans écriture de recette sur ce dernier. Les observations IA originales ne sont pas réécrites.
+
 Depuis la racine, après création du pilote :
 
 ```powershell

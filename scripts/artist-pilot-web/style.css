@@ -107,6 +107,7 @@ input, textarea { caret-color: var(--accent); }
 .intro { position: sticky; top: 0; z-index: 2; background: var(--paper); padding: 12px 0; }
 .inline-roles { display: grid; grid-template-columns: auto auto; gap: 2px 8px; }
 .inline-roles label { display: flex; align-items: center; gap: 4px; color: var(--ink); }
+.inline-roles label:first-child { grid-column: 1 / -1; }
 #rows select { min-height: 32px; font-size: 12px; padding: 5px 6px; }
 #rows td:first-child { min-width: 230px; max-width: 330px; }
 #rows .row-state, #rows td:last-child .saved { display: block; }

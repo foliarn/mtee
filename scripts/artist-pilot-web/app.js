@@ -14,6 +14,8 @@ const safeLink = (url, title, className = "") => {
 let data, observations = {}, current = null, filtered = [], dirty = false, decision = "pending", saving = false;
 let drafts = {}, rowLimit = 100, searchTimer;
 const reviewFor = id => drafts[id] ?? data.reviews[id] ?? {};
+const roleGroups = ["Producer / DJ", "Singer", "MC"];
+const roleValues = role => role === "Producer / DJ" ? ["Producer", "DJ"] : [role];
 
 function profileLinks(o, r) {
   const links = [{url:r.spotify_url,label:"Spotify"},{url:r.soundcloud_url,label:"SoundCloud"}].filter(l=>l.url);
@@ -33,7 +35,7 @@ function renderRows() {
   filtered = data.artists.filter(a => {
     const o = observations[a.artist_id] ?? {}, r = reviewFor(a.artist_id), roles = rolesFor(a);
     return (!query || [a.display_name, ...a.representative_titles].join(" ").toLocaleLowerCase("fr").includes(query)) &&
-      (!role || (role === "unknown" ? !roles.length : roles.includes(role))) &&
+      (!role || (role === "unknown" ? !roles.length : roleValues(role).some(value=>roles.includes(value)))) &&
       (!$("proposal").value || (o.interest_proposal ?? "uncertain") === $("proposal").value) &&
       (!$("review").value || ($("review").value === "modified" ? drafts[a.artist_id] || r.saved_at : r.decision === $("review").value)) &&
       (!$("attention").checked || attentionFor(a));
@@ -49,7 +51,7 @@ function rowHTML(a) {
   const o = observations[a.artist_id] ?? {}, r = reviewFor(a.artist_id), roles = rolesFor(a);
   const issues = o.issues ?? [];
   const warning = o.identity_status === "unresolved" ? "Identité introuvable" : issues[0] ?? (o.identity_status !== "matched" ? "Identité à consolider" : "");
-  return `<tr data-row="${esc(a.artist_id)}" class="${drafts[a.artist_id] ? "modified" : ""}"><td><button class="artist-button" data-artist="${esc(a.artist_id)}" aria-label="Dossier de ${esc(a.display_name)}">${esc(a.display_name)}</button>${warning ? `<span class="row-warning" title="${esc(issues.join(" · "))}">${esc(warning)}</span>` : ""}<span class="saved row-state">${drafts[a.artist_id] ? "Correction à enregistrer" : r.saved_at ? "Corrigé" : "Accepté par défaut"}</span></td><td class="num">${a.collection_tracks}</td><td class="row-profiles">${profileLinks(o,r)}</td><td><div class="inline-roles">${["Producer","DJ","Singer","MC"].map(role=>`<label><input type="checkbox" data-field="roles" value="${role}" ${roles.includes(role)?"checked":""} aria-label="${role} — ${esc(a.display_name)}">${role}</label>`).join("")}</div></td><td><select data-field="bass_related" aria-label="Bass-related — ${esc(a.display_name)}"><option value="unknown" ${r.bass_related == null ? "selected" : ""}>Non établi</option><option value="yes" ${r.bass_related === true ? "selected" : ""}>Oui</option><option value="no" ${r.bass_related === false ? "selected" : ""}>Non</option></select></td><td><select data-field="decision" aria-label="Tri — ${esc(a.display_name)}">${Object.entries(labels).filter(([v])=>v!=="pending").map(([v,l])=>`<option value="${v}" ${r.decision === v ? "selected" : ""}>${l}</option>`).join("")}</select><span class="saved">IA : ${esc(proposals[o.interest_proposal ?? "uncertain"])}</span></td></tr>`;
+  return `<tr data-row="${esc(a.artist_id)}" class="${drafts[a.artist_id] ? "modified" : ""}"><td><button class="artist-button" data-artist="${esc(a.artist_id)}" aria-label="Dossier de ${esc(a.display_name)}">${esc(a.display_name)}</button>${warning ? `<span class="row-warning" title="${esc(issues.join(" · "))}">${esc(warning)}</span>` : ""}<span class="saved row-state">${drafts[a.artist_id] ? "Correction à enregistrer" : r.saved_at ? "Corrigé" : "Accepté par défaut"}</span></td><td class="num">${a.collection_tracks}</td><td class="row-profiles">${profileLinks(o,r)}</td><td><div class="inline-roles">${roleGroups.map(role=>`<label><input type="checkbox" data-field="roles" value="${role}" ${roleValues(role).some(value=>roles.includes(value))?"checked":""} aria-label="${role} — ${esc(a.display_name)}">${role}</label>`).join("")}</div></td><td><select data-field="bass_related" aria-label="Bass-related — ${esc(a.display_name)}"><option value="unknown" ${r.bass_related == null ? "selected" : ""}>Non établi</option><option value="yes" ${r.bass_related === true ? "selected" : ""}>Oui</option><option value="no" ${r.bass_related === false ? "selected" : ""}>Non</option></select></td><td><select data-field="decision" aria-label="Tri — ${esc(a.display_name)}">${Object.entries(labels).filter(([v])=>v!=="pending").map(([v,l])=>`<option value="${v}" ${r.decision === v ? "selected" : ""}>${l}</option>`).join("")}</select><span class="saved">IA : ${esc(proposals[o.interest_proposal ?? "uncertain"])}</span></td></tr>`;
 }
 function addRows() {
   if(saving) return;
@@ -91,7 +93,7 @@ function renderDetail() {
     <label>Revue de l’identité<select id="identity" aria-label="Revue de l’identité"><option value="pending" ${(r.identity_decision ?? "pending") === "pending" ? "selected" : ""}>À vérifier</option><option value="accepted" ${r.identity_decision === "accepted" ? "selected" : ""}>Rapprochement correct</option><option value="rejected" ${r.identity_decision === "rejected" ? "selected" : ""}>Mauvais artiste</option></select></label>
     <label>Profil Spotify retenu<input id="spotify-url" type="url" maxlength="500" value="${esc(spotify)}" placeholder="https://open.spotify.com/artist/…"></label>
     <label>Profil SoundCloud retenu<input id="soundcloud-url" type="url" maxlength="500" value="${esc(soundcloud)}" placeholder="https://soundcloud.com/…"></label>
-    <div class="role-checks" role="group" aria-label="Rôles corrigés">${["Producer","DJ","Singer","MC"].map(role=>`<label><input type="checkbox" name="roles" value="${role}" ${roles.includes(role)?"checked":""}>${role}</label>`).join("")}</div>
+    <div class="role-checks" role="group" aria-label="Rôles corrigés">${roleGroups.map(role=>`<label><input type="checkbox" name="roles" value="${role}" ${roleValues(role).some(value=>roles.includes(value))?"checked":""}>${role}</label>`).join("")}</div>
     <label>Bass-related<select id="bass"><option value="unknown" ${bass == null ? "selected" : ""}>Non établi</option><option value="yes" ${bass === true ? "selected" : ""}>Oui</option><option value="no" ${bass === false ? "selected" : ""}>Non</option></select></label>
     <label>Notes personnelles<textarea id="notes" maxlength="4000" placeholder="Lien douteux, crédit à revoir, raison de ton choix…">${esc(r.notes ?? "")}</textarea></label>
     <div class="form-actions"><span id="save-state" class="saved">Les corrections rejoignent le lot à enregistrer.</span></div></form>`;
@@ -106,7 +108,7 @@ function renderDetail() {
   $("close-detail").addEventListener("click",()=>{current=null; $("detail").hidden=true;});
 }
 function markDirty() {
-  const payload = {decision, roles:[...$("review-form").querySelectorAll('[name="roles"]:checked')].map(i=>i.value),
+  const payload = {decision, roles:[...$("review-form").querySelectorAll('[name="roles"]:checked')].flatMap(i=>roleValues(i.value)),
     bass_related: $("bass").value === "unknown" ? null : $("bass").value === "yes", notes:$("notes").value,
     identity_decision:$("identity").value, spotify_url:$("spotify-url").value.trim(), soundcloud_url:$("soundcloud-url").value.trim()};
   setDraft(current,payload); renderRows();
@@ -136,7 +138,7 @@ function renderReport() {
   $("report").innerHTML = `<h2>Ce que l’essai permet de juger</h2><p>Échantillon ciblé pour tester les catégories et les ambiguïtés. Ces résultats ne prédisent pas la couverture des 1 976 artistes.</p><div class="report-grid">
     <div class="report-section"><h3>Résultats du rapprochement</h3><dl><dt>Morceaux distincts</dt><dd>${s.tracks}</dd><dt>Artistes examinés par l’IA</dt><dd>${s.web_audited} / ${s.artists}</dd><dt>Profils Spotify proposés</dt><dd>${spotify.length}</dd><dt>Profils SoundCloud proposés</dt><dd>${soundcloud.length}</dd><dt>Identités non résolues</dt><dd>${data.observations.filter(o=>o.identity_status === "unresolved").length}</dd><dt>Garder / bloat possible / à déterminer</dt><dd>${counts.keep ?? 0} / ${counts.exclude ?? 0} / ${counts.uncertain ?? 0}</dd></dl></div>
     <div class="report-section"><h3>Coût réellement observé</h3><dl><dt>Appels HTTP MusicBrainz</dt><dd>${requests}</dd><dt>Durée de collecte MusicBrainz</dt><dd>${seconds.toFixed(1)} s</dd><dt>Tokens IA</dt><dd>Non exposés</dd><dt>Prix total</dt><dd>Non mesuré</dd></dl><p>La recherche web et l’audit ont été réalisés dans cette session. Le script automatisé couvre MusicBrainz, son cache et sa reprise.</p></div>
-    <div class="report-section"><h3>Ton mode de revue</h3><ul><li>Les valeurs inchangées sont acceptées par défaut. Corrige seulement les exceptions, puis enregistre tes corrections ensemble.</li><li>Écarter ne supprime aucun crédit ni morceau. Producer, DJ, Singer et MC sont cumulables.</li><li>Les identités introuvables restent non résolues ; les champs manquants restent vides. Aucun artiste n’est suivi automatiquement sur Spotify.</li><li>Les images et la taxonomie des genres restent pour la suite.</li></ul></div>
+    <div class="report-section"><h3>Ton mode de revue</h3><ul><li>Les valeurs inchangées sont acceptées par défaut. Corrige seulement les exceptions, puis enregistre tes corrections ensemble.</li><li>Écarter ne supprime aucun crédit ni morceau. Producer / DJ, Singer et MC sont cumulables.</li><li>Les identités introuvables restent non résolues ; les champs manquants restent vides. Aucun artiste n’est suivi automatiquement sur Spotify.</li><li>Les images et la taxonomie des genres restent pour la suite.</li></ul></div>
     <div class="report-section"><h3>Couverture de l’échantillon</h3><p>Les catégories servent à composer le test ; elles ne sont pas une taxonomie de genres.</p><dl>${Object.entries(s.coverage.structural ?? {}).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl><p>Catégories structurelles manquantes : ${esc((s.coverage.missing_structural ?? []).join(", ") || "aucune")}.</p></div>
   </div>`;
 }
@@ -160,7 +162,7 @@ $("reset").addEventListener("click",()=>{ for(const id of ["search","role","prop
 $("rows").addEventListener("click",e=>{const b=e.target.closest("[data-artist]"); if(b) selectArtist(b.dataset.artist);});
 $("rows").addEventListener("change",e=>{
   const field=e.target.dataset.field, row=e.target.closest("[data-row]"); if(!field || !row || saving) return;
-  const id=row.dataset.row, value=field==="roles" ? [...row.querySelectorAll('[data-field="roles"]:checked')].map(i=>i.value) : field==="bass_related" ? e.target.value==="unknown" ? null : e.target.value==="yes" : e.target.value;
+  const id=row.dataset.row, value=field==="roles" ? [...row.querySelectorAll('[data-field="roles"]:checked')].flatMap(i=>roleValues(i.value)) : field==="bass_related" ? e.target.value==="unknown" ? null : e.target.value==="yes" : e.target.value;
   setDraft(id,{[field]:value}); if(current===id) renderDetail();
 });
 $("save-all").addEventListener("click",saveReview);
