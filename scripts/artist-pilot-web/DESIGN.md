@@ -247,3 +247,6 @@ Les composants, breakpoints et états viennent du code ; la documentation n’aj
 
 
 Révision du 6 octobre : suppression des grands titres, bandeaux, notes de bas de page et footer explicatif. Récap sans carte de mode de revue ; entrées filtrantes et alertes de genre par morceau. Onglet Morceaux : tags observés, genres retenus et tags ignorés/contradictoires séparés.
+
+
+Collection complète : navigation Artistes / Validés / Morceaux / Récap, compteurs propres à chaque population. Même tableau et mêmes filtres pour les deux états de revue ; Valider cette page devient Enregistrer cette page dans Validés. Les morceaux ont leur recherche et leur pagination indépendante. Le mot Pilote disparaît de l’en-tête.

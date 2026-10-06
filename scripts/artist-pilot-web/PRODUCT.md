@@ -27,3 +27,8 @@ HTML/CSS/JavaScript servis par Python standard sur 127.0.0.1. Choix technique or
 ## Preuves disponibles
 
 Snapshot privé, échantillon, candidats MusicBrainz et observations IA sourcées dans le dossier de pilote ignoré par Git. Les données personnelles et les captures de recette ne sont pas versionnées. Les décisions humaines sont stockées séparément. Les images, la taxonomie et une automatisation LLM payante ne sont pas validées par ce pilote.
+
+
+## Collection complète et validations
+
+Depuis le 6 octobre, tous les morceaux sont consultables avec recherche et pages de 100. Artistes contient les dossiers non validés ; Validés contient les validations enregistrées, éditables. Le bouton valide uniquement la page et affiche ensuite le lot suivant. SQLite dans la base du catalogue est la source de vérité lorsque --database est fourni ; le pilote JSON reste historique. Les 42 validations préexistantes sont importées sans doublons. Les autres dossiers restent explicitement À enrichir, sans identité inventée.

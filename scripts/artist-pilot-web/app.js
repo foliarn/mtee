@@ -12,7 +12,8 @@ const safeLink = (url, title, className = "") => {
   return `<a class="${esc(className)}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)}</a>`;
 };
 let data, observations = {}, current = null, filtered = [], dirty = false, decision = "pending", saving = false;
-let drafts = {}, page = 1, searchTimer;
+let drafts = {}, page = 1, trackPage = 1, searchTimer, artistScope = "artists", filteredTracks = [];
+let categoryArtists = {}, artistTitles = {};
 const pageArtists = () => filtered.slice((page-1)*100,page*100);
 const triFor = r => r.decision === "exclude" ? "exclude" : "keep";
 const reviewFor = id => drafts[id] ?? data.reviews[id] ?? {};
@@ -29,7 +30,7 @@ function updateProgress() {
   const count = Object.keys(drafts).length;
   dirty = count > 0;
   $("progress").textContent = saving ? "Enregistrement…" : count ? `${count} modification${count > 1 ? "s" : ""}` : "";
-  $("save-all").textContent = `Valider cette page (${pageArtists().length})`;
+  $("save-all").textContent = `${artistScope === "validated" ? "Enregistrer" : "Valider"} cette page (${pageArtists().length})`;
   $("save-all").disabled = saving || !pageArtists().length;
 }
 function matchesRecap(a) {
@@ -38,13 +39,17 @@ function matchesRecap(a) {
   if(value === "bass") return r.bass_related === true;
   if(value === "spotify" || value === "soundcloud") return Boolean(r[`${value}_url`]);
   if(value === "unresolved") return o.identity_status === "unresolved";
-  return data.tracks.some(t=>t.credits.some(c=>c.artist_id === a.artist_id) && t.selection_categories?.includes(value));
+  return categoryArtists[value]?.has(a.artist_id) ?? false;
 }
 function renderRows() {
+  const validated=data.artists.filter(a=>data.reviews[a.artist_id]?.validated_at).length;
+  $("artist-count").textContent=data.artists.length-validated;
+  $("validated-count").textContent=validated;
   const query = $("search").value.trim().toLocaleLowerCase("fr"), role = $("role").value;
   filtered = data.artists.filter(a => {
     const o = observations[a.artist_id] ?? {}, r = reviewFor(a.artist_id), roles = rolesFor(a);
-    return (!query || [a.display_name, ...a.representative_titles].join(" ").toLocaleLowerCase("fr").includes(query)) &&
+    return (Boolean(data.reviews[a.artist_id]?.validated_at) === (artistScope === "validated")) &&
+      (!query || [a.display_name, ...(artistTitles[a.artist_id] ?? a.representative_titles)].join(" ").toLocaleLowerCase("fr").includes(query)) &&
       (!role || (role === "unknown" ? !roles.length : roles.includes(role))) &&
       (!$("proposal").value || (o.interest_proposal === "exclude" ? "exclude" : "keep") === $("proposal").value) &&
       (!$("review").value || ($("review").value === "modified" ? drafts[a.artist_id] || r.saved_at : triFor(r) === $("review").value)) && matchesRecap(a) &&
@@ -64,7 +69,7 @@ function renderRows() {
 function rowHTML(a) {
   const o = observations[a.artist_id] ?? {}, r = reviewFor(a.artist_id), roles = rolesFor(a);
   const issues = o.issues ?? [];
-  const warning = o.identity_status === "unresolved" ? "Identité introuvable" : issues[0] ?? (o.identity_status !== "matched" ? "Identité à consolider" : "");
+  const warning = !o.identity_status ? "À enrichir" : o.identity_status === "unresolved" ? "Identité introuvable" : issues[0] ?? (o.identity_status !== "matched" ? "Identité à consolider" : "");
   return `<tr data-row="${esc(a.artist_id)}" class="${drafts[a.artist_id] ? "modified" : ""}"><td><button class="artist-button" data-artist="${esc(a.artist_id)}" aria-label="Dossier de ${esc(a.display_name)}">${esc(a.display_name)}</button>${warning ? `<span class="row-warning" title="${esc(issues.join(" · "))}">${esc(warning)}</span>` : ""}<span class="saved row-state">${drafts[a.artist_id] ? "Correction à enregistrer" : r.saved_at ? "Corrigé" : "Accepté par défaut"}</span></td><td class="num">${a.collection_tracks}</td><td class="row-profiles">${profileLinks(o,r)}</td><td><div class="inline-roles">${roleGroups.map(role=>`<label><input type="checkbox" data-field="roles" value="${role}" ${roles.includes(role)?"checked":""} aria-label="${role} — ${esc(a.display_name)}">${role}</label>`).join("")}</div></td><td><select data-field="bass_related" aria-label="Bass-related — ${esc(a.display_name)}"><option value="yes" ${r.bass_related === true ? "selected" : ""}>Oui</option><option value="no" ${r.bass_related !== true ? "selected" : ""}>Non</option></select></td><td><select data-field="decision" aria-label="Tri — ${esc(a.display_name)}">${Object.entries(labels).filter(([v])=>v!=="pending").map(([v,l])=>`<option value="${v}" ${triFor(r) === v ? "selected" : ""}>${l}</option>`).join("")}</select><span class="saved">IA : ${esc(proposals[o.interest_proposal ?? "uncertain"])}</span></td></tr>`;
 }
 function setDraft(id, value) {
@@ -87,14 +92,14 @@ function renderDetail() {
   const sampled = data.tracks.filter(t => t.credits.some(c => c.artist_id === current));
   const spotify = r.spotify_url ?? (o.links ?? []).find(l=>l.url.includes("open.spotify.com/artist/"))?.url ?? "";
   const soundcloud = r.soundcloud_url ?? (o.links ?? []).find(l=>l.url.includes("soundcloud.com/"))?.url ?? "";
-  $("detail").innerHTML = `<div class="detail-top"><div><h2 id="detail-title" tabindex="-1">${esc(a.display_name)}</h2><p class="detail-sub">${a.collection_tracks} sons en collection · ${sampled.length} dans ce pilote</p></div><button id="close-detail" type="button">Fermer</button></div>
+  $("detail").innerHTML = `<div class="detail-top"><div><h2 id="detail-title" tabindex="-1">${esc(a.display_name)}</h2><p class="detail-sub">${a.collection_tracks} sons en collection</p></div><button id="close-detail" type="button">Fermer</button></div>
     <div id="profile-links" class="links">${profileLinks(o,r)}</div>
     <p class="detail-sub">${esc(identityLabels[o.identity_status] ?? "Identité à auditer")}</p>
     <p id="human-identity" class="detail-sub">Identité retenue ${r.accepted_by_default ? "par défaut" : "après correction"} : ${esc(humanIdentityLabels[r.identity_decision ?? "pending"])}.</p>
     <h3>Proposition IA : ${esc(proposals[o.interest_proposal ?? "uncertain"])}</h3><p class="reason">${esc(o.reason ?? "Audit non réalisé.")}</p>
     ${(o.issues ?? []).length ? `<div class="issues"><strong>À vérifier</strong>${o.issues.map(i=>`<p>${esc(i)}</p>`).join("")}</div>` : ""}
     <details open><summary>Preuves et sources · ${(o.sources ?? []).length}</summary>${(o.sources ?? []).map(s=>`<p class="source">${safeLink(s.url,s.title)}<small>${esc(s.supports)}</small></p>`).join("")}</details>
-    <details><summary>Sons du pilote · ${sampled.length}</summary><ul>${sampled.map(t=>`<li>${esc(t.title)}<br><span class="saved">${esc(t.credits.map(c=>c.name).join(" · "))}</span></li>`).join("")}</ul></details>
+    <details><summary>Sons · ${sampled.length}</summary><ul>${sampled.map(t=>`<li>${esc(t.title)}<br><span class="saved">${esc(t.credits.map(c=>c.name).join(" · "))}</span></li>`).join("")}</ul></details>
     <details><summary>Autres titres de ta collection</summary><ul>${a.representative_titles.map(t=>`<li>${esc(t)}</li>`).join("")}</ul></details>
     <details><summary>Candidats MusicBrainz et genres bruts</summary><p>Le score mesure la pertinence du nom, pas la certitude d’identité. Les genres d’artiste ne classent pas les morceaux.</p>${(provider.details ?? []).map(d=>`<p class="source">${safeLink(`https://musicbrainz.org/artist/${d.id}`,d.name)}<small>${esc(d.disambiguation || "Sans désambiguïsation")} · ${(o.retained_mbids ?? []).includes(d.id) ? "Rapproché par l’IA" : "Non retenu dans l’audit"}</small><small>Genres bruts : ${esc((d.genres ?? []).map(g=>g.name).join(", ") || "aucun")}</small></p>`).join("") || '<p>Aucun détail de candidat.</p>'}<ul>${(provider.candidates ?? []).map(c=>`<li>${esc(c.name)} — score ${esc(c.score)} ${esc(c.disambiguation ?? "")}</li>`).join("")}</ul></details>
     <form id="review-form" class="review-form"><h3>Corrections facultatives</h3><div class="decisions" aria-label="Choix de tri">${Object.entries(labels).filter(([v])=>v!=="pending").map(([v,l])=>`<button type="button" data-decision="${v}" aria-pressed="${decision === v}">${l}</button>`).join("")}</div>
@@ -133,15 +138,22 @@ async function saveReview() {
     if (response.status === 400) { $("status").textContent="Aucune correction enregistrée. Vérifie les liens : profil d’artiste Spotify et profil SoundCloud uniquement."; return; }
     if (!response.ok) throw new Error(await response.text());
     Object.assign(data.reviews,await response.json()); Object.keys(changes).forEach(id=>delete drafts[id]);
-    $("status").textContent = "Page validée.";
+    $("status").textContent = artistScope === "validated" ? "Page enregistrée." : "Page validée.";
+    current=null; $("detail").hidden=true;
     renderRows(); renderReport(); if(current) renderDetail();
   } catch { $("status").textContent = "Échec de sauvegarde. Tes corrections sont conservées à l’écran ; réessaie."; }
   finally { saving = false; document.querySelectorAll("main input,main select,main textarea,main button").forEach(c=>c.disabled=false); renderRows(); }
 }
 function renderTracks() {
-  $("track-table").innerHTML = `<table><caption class="sr-only">Morceaux sélectionnés</caption><thead><tr><th>#</th><th>Titre</th><th>Artistes</th><th>Genres retenus</th><th>Tags ignorés / à vérifier</th></tr></thead><tbody>${data.tracks.map((t,i)=>{
+  const query=$("track-search").value.trim().toLocaleLowerCase("fr");
+  filteredTracks=data.tracks.filter(t=>!query || [t.title,...t.credits.map(c=>c.name),...(t.observed_artists ?? []),...(t.genre_audit?.retained ?? [])].join(" ").toLocaleLowerCase("fr").includes(query));
+  const pages=Math.max(1,Math.ceil(filteredTracks.length/100)); trackPage=Math.min(trackPage,pages);
+  $("track-page").innerHTML=Array.from({length:pages},(_,i)=>`<option value="${i+1}" ${trackPage===i+1 ? "selected" : ""}>${i+1}</option>`).join("");
+  $("track-pages").textContent=`/ ${pages} · ${filteredTracks.length}`;
+  $("previous-tracks").disabled=trackPage===1; $("next-tracks").disabled=trackPage===pages;
+  $("track-table").innerHTML = `<table><caption class="sr-only">Collection de morceaux</caption><thead><tr><th>#</th><th>Titre</th><th>Artistes</th><th>Genres retenus</th><th>Tags ignorés / à vérifier</th></tr></thead><tbody>${filteredTracks.slice((trackPage-1)*100,trackPage*100).map((t,i)=>{
     const g=t.genre_audit ?? {retained:[],ignored:[],alerts:[]};
-    return `<tr id="track-${esc(t.track_id)}"><td class="num">${i+1}</td><td>${esc(t.title)}<br><span class="saved">Tags : ${esc((t.observed_genres ?? []).join(", ") || "—")}</span></td><td>${t.credits.map(c=>`<button type="button" class="artist-button" data-track-artist="${esc(c.artist_id)}">${esc(c.name)}</button>`).join(" · ")}</td><td title="${esc(g.source)}">${esc(g.retained.join(", ") || "—")}</td><td><span class="saved">${esc(g.ignored.join(", "))}</span>${g.alerts.map(a=>`<p class="genre-alert">${esc(a.tag)} : ${esc(a.reason)}</p>`).join("")}</td></tr>`;
+    return `<tr id="track-${esc(t.track_id)}"><td class="num">${(trackPage-1)*100+i+1}</td><td>${esc(t.title)}<br><span class="saved">Tags : ${esc((t.observed_genres ?? []).join(", ") || "—")}</span></td><td>${t.credits.map(c=>`<button type="button" class="artist-button" data-track-artist="${esc(c.artist_id)}">${esc(c.name)}</button>`).join(" · ") || `${esc((t.observed_artists ?? []).join(" · "))}<span class="saved">Crédits à confirmer</span>`}</td><td title="${esc(g.source)}">${esc(g.retained.join(", ") || "—")}</td><td><span class="saved">${esc(g.ignored.join(", "))}</span>${g.alerts.map(a=>`<p class="genre-alert">${esc(a.tag)} : ${esc(a.reason)}</p>`).join("")}</td></tr>`;
   }).join("")}</tbody></table>`;
 }
 function renderReport() {
@@ -160,12 +172,13 @@ function renderReport() {
   $("recap-filter").value=recapValue;
   const alerts=data.tracks.filter(t=>t.genre_audit?.alerts.length);
   $("report").innerHTML=`<div class="report-grid"><section class="report-section"><h3>Artistes</h3>${metrics.map(m=>button(m.label,m.kind,m.value,data.artists.filter(m.test).length)).join("")}</section>
-    <section class="report-section"><h3>Catégories du test</h3>${categories.map(value=>button(categoryLabels[value] ?? value.replaceAll("_"," "),"recap",value,data.artists.filter(a=>data.tracks.some(t=>t.selection_categories?.includes(value) && t.credits.some(c=>c.artist_id===a.artist_id))).length)).join("")}</section>
+    <section class="report-section"><h3>Catégories</h3>${categories.map(value=>button(categoryLabels[value] ?? value.replaceAll("_"," "),"recap",value,categoryArtists[value]?.size ?? 0)).join("")}</section>
     <section class="report-section genre-report"><h3>Genres à vérifier · ${alerts.length}</h3>${alerts.length ? alerts.map(t=>`<div><button class="artist-button" data-track="${esc(t.track_id)}">${esc(t.title)}</button><span class="saved">${esc(t.credits.map(c=>c.name).join(" · "))}</span>${t.genre_audit.alerts.map(a=>`<p class="genre-alert">${esc(a.tag)} écarté : ${esc(a.reason)}</p>`).join("")}</div>`).join("") : '<span class="saved">Aucun tag contradictoire détecté.</span>'}</section>
     <section class="report-section"><h3>Coût observé</h3><dl><dt>Appels MusicBrainz</dt><dd>${requests}</dd><dt>Collecte</dt><dd>${seconds.toFixed(1)} s</dd><dt>Tokens IA</dt><dd>Non exposés</dd><dt>Prix</dt><dd>Non mesuré</dd></dl></section></div>`;
 }
 function showTab(name) {
-  for (const tab of ["artists","tracks","report"]) $(tab).hidden=tab!==name;
+  if(name === "artists" || name === "validated") {if(artistScope!==name) {artistScope=name; page=1;} if(data) renderRows();}
+  for (const tab of ["artists","tracks","report"]) $(tab).hidden=tab!==name && !(tab==="artists" && name==="validated");
   document.querySelectorAll("[data-tab]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.tab===name)));
 }
 async function load() {
@@ -173,6 +186,8 @@ async function load() {
   try {
     const response=await fetch("/api/data"); if(!response.ok) throw new Error("load");
     data=await response.json(); observations=Object.fromEntries(data.observations.map(o=>[o.artist_id,o]));
+    categoryArtists={}; artistTitles={};
+    for(const t of data.tracks) for(const c of t.credits) { (artistTitles[c.artist_id] ??= []).push(t.title); for(const category of t.selection_categories ?? []) (categoryArtists[category] ??= new Set()).add(c.artist_id); }
     $("artist-count").textContent=data.artists.length; $("track-count").textContent=data.tracks.length;
 
     renderReport(); renderRows(); renderTracks();
@@ -194,12 +209,16 @@ $("next-page").addEventListener("click",()=>{page++; renderRows();});
 $("page-number").addEventListener("change",()=>{page=Number($("page-number").value); renderRows();});
 $("report").addEventListener("click",e=>{
   const filter=e.target.closest("[data-filter-kind]"), track=e.target.closest("[data-track]");
-  if(filter){current=null; $("detail").hidden=true; $("reset").click(); const kind=filter.dataset.filterKind; $(kind==="recap"?"recap-filter":kind).value=filter.dataset.filterValue; $("recap-filter-label").hidden=kind!=="recap"; renderRows(); showTab("artists");}
-  if(track){showTab("tracks"); document.getElementById(`track-${track.dataset.track}`).scrollIntoView({block:"center"});}
+  if(filter){current=null; $("detail").hidden=true; $("reset").click(); const kind=filter.dataset.filterKind; $(kind==="recap"?"recap-filter":kind).value=filter.dataset.filterValue; $("recap-filter-label").hidden=kind!=="recap"; showTab("artists"); if(!filtered.length) showTab("validated");}
+  if(track){$("track-search").value=""; trackPage=Math.floor(data.tracks.findIndex(t=>t.track_id===track.dataset.track)/100)+1; renderTracks(); showTab("tracks"); document.getElementById(`track-${track.dataset.track}`).scrollIntoView({block:"center"});}
 });
 document.querySelector(".export").addEventListener("click",e=>{if(dirty || saving){e.preventDefault(); $("status").textContent="Enregistre tes corrections avant d’exporter.";}});
 
-$("track-table").addEventListener("click",e=>{const b=e.target.closest("[data-track-artist]"); if(b && !saving) { $("reset").click(); page=Math.floor(filtered.findIndex(a=>a.artist_id===b.dataset.trackArtist)/100)+1; renderRows(); current=null; selectArtist(b.dataset.trackArtist,true); showTab("artists"); }});
+$("track-table").addEventListener("click",e=>{const b=e.target.closest("[data-track-artist]"); if(b && !saving) { const scope=data.reviews[b.dataset.trackArtist]?.validated_at ? "validated" : "artists"; showTab(scope); $("reset").click(); page=Math.floor(filtered.findIndex(a=>a.artist_id===b.dataset.trackArtist)/100)+1; renderRows(); current=null; selectArtist(b.dataset.trackArtist,true); }});
+$("track-search").addEventListener("input",()=>{trackPage=1; renderTracks();});
+$("previous-tracks").addEventListener("click",()=>{trackPage--; renderTracks();});
+$("next-tracks").addEventListener("click",()=>{trackPage++; renderTracks();});
+$("track-page").addEventListener("change",()=>{trackPage=Number($("track-page").value); renderTracks();});
 $("retry").addEventListener("click",load);
 document.addEventListener("keydown",e=>{if(e.key==="Escape" && current && !saving){current=null; $("detail").hidden=true;}});
 window.addEventListener("beforeunload",e=>{if(dirty || saving){e.preventDefault(); e.returnValue="";}});

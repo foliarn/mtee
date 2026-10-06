@@ -3,18 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Revue artistes · pilote</title>
+  <title>Revue artistes</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <a class="wordmark" href="/">Revue artistes<span>Pilote local</span></a>
+    <a class="wordmark" href="/">Revue artistes</a>
     <a class="export" href="/export.csv" download="revue-artistes.csv">Exporter la revue</a>
   </header>
   <main>
     <nav class="tabs" aria-label="Rapports">
       <button type="button" data-tab="artists" aria-pressed="true">Artistes <span id="artist-count"></span></button>
+      <button type="button" data-tab="validated" aria-pressed="false">Validés <span id="validated-count"></span></button>
       <button type="button" data-tab="tracks" aria-pressed="false">Morceaux <span id="track-count"></span></button>
       <button type="button" data-tab="report" aria-pressed="false">Récap</button>
     </nav>
@@ -33,13 +34,17 @@
         <div class="list-panel">
           <div class="list-heading"><span id="visible-count"></span><label>Trier<select id="sort"><option value="name">Nom A → Z</option><option value="count">Nombre de morceaux</option><option value="attention">Cas à vérifier d’abord</option></select></label></div>
           <div class="table-wrap"><table><caption class="sr-only">Artistes, valeurs retenues éditables et anomalies</caption><thead><tr><th scope="col">Artiste / anomalies</th><th scope="col" class="num">Sons</th><th scope="col">Profils</th><th scope="col">Rôles</th><th scope="col">Bass-related</th><th scope="col">Tri retenu</th></tr></thead><tbody id="rows"></tbody></table></div>
-          <p id="empty" class="empty" hidden>Aucun artiste ne correspond à ces filtres. Réinitialise-les pour retrouver le pilote.</p>
+          <p id="empty" class="empty" hidden>Aucun artiste dans cette liste.</p>
           <div class="pagination"><button id="previous-page" type="button">Précédente</button><label>Page<select id="page-number" aria-label="Page"></select></label><span id="page-count"></span><button id="next-page" type="button">Suivante</button></div>
         </div>
         <aside id="detail" aria-label="Dossier de l’artiste" hidden></aside>
       </div>
     </section>
-    <section id="tracks" hidden aria-label="Échantillon de morceaux"><div id="track-table" class="table-wrap"></div></section>
+    <section id="tracks" hidden aria-label="Collection de morceaux">
+      <div class="toolbar"><label class="search">Rechercher un morceau<input id="track-search" type="search" placeholder="Titre, artiste ou genre…"></label></div>
+      <div id="track-table" class="table-wrap"></div>
+      <div class="pagination"><button id="previous-tracks" type="button">Précédente</button><label>Page<select id="track-page" aria-label="Page des morceaux"></select></label><span id="track-pages"></span><button id="next-tracks" type="button">Suivante</button></div>
+    </section>
     <section id="report" hidden aria-label="Résultats et limites du pilote"></section>
     <p id="status" role="status" aria-live="polite"></p>
     <div id="failure" role="alert" hidden><p>Le pilote n’a pas pu être chargé.</p><button id="retry" type="button">Réessayer</button></div>

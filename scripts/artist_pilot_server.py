@@ -1,4 +1,4 @@
-"""Local review tool; serves one private pilot directory, never the MTEE database."""
+"""Local review tool with optional validated enrichment persistence in the catalog DB."""
 
 from __future__ import annotations
 
@@ -6,12 +6,14 @@ import argparse
 import csv
 import io
 import json
+import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from artist_enrichment_pilot import ROLES, canonical_profile, motifs, now, read_json, write_json
+from artist_review_database import ReviewDatabase
 from track_genre_audit import audit_track
 
 STATIC = Path(__file__).parent / "artist-pilot-web"
@@ -28,19 +30,20 @@ def has_correction(record: dict) -> bool:
 
 
 class ReviewStore:
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, database: Path | None = None):
         self.directory = directory
         self.lock = threading.Lock()
         self.artists = read_json(directory / "artists.json")
         self.ids = {a["artist_id"] for a in self.artists}
         self.path = directory / "review.json"
+        self.database = ReviewDatabase(database) if database else None
 
     def reviews(self) -> dict:
-        if self.path.exists():
-            return read_json(self.path)
         result = {}
+        if self.path.exists():
+            result = read_json(self.path)
         csv_path = self.directory / "human-review.csv"
-        if csv_path.exists():
+        if not self.path.exists() and csv_path.exists():
             with csv_path.open(encoding="utf-8-sig", newline="") as stream:
                 for row in csv.DictReader(stream):
                     if row["artist_id"] in self.ids:
@@ -52,6 +55,8 @@ class ReviewStore:
                             "notes": row["notes"],
                             "bass_related": None,
                         }
+        if self.database:
+            result.update(self.database.reviews())
         return result
 
     def data(self) -> dict:
@@ -160,13 +165,25 @@ class ReviewStore:
         }
         return record
 
-    def save_many(self, changes: dict) -> dict:
+    def save_many(self, changes: dict, *, validated: bool = False) -> dict:
         if not isinstance(changes, dict) or not changes or len(changes) > len(self.ids):
             raise ValueError("Expected known artist corrections")
         # Validate the entire batch before one atomic write; never save half a batch.
         records = {aid: self.validate(aid, value) for aid, value in changes.items()}
+        if validated or self.database:
+            for record in records.values():
+                record["validated_at"] = now()
         with self.lock:
+            if self.database:
+                observations = {
+                    o["artist_id"]: o for o in read_json(self.directory / "observations.json")
+                }
+                self.database.save(records, observations)
+                return records
             rows = {aid: record for aid, record in self.reviews().items() if has_correction(record)}
+            for aid, record in records.items():
+                if "validated_at" not in record and rows.get(aid, {}).get("validated_at"):
+                    record["validated_at"] = rows[aid]["validated_at"]
             rows.update(records)
             write_json(self.path, rows)
         return records
@@ -177,7 +194,7 @@ class ReviewStore:
     def save_page(self, changes: dict) -> dict:
         if not isinstance(changes, dict) or not 0 < len(changes) <= 100:
             raise ValueError("A page contains 1 to 100 artists")
-        return self.save_many(changes)
+        return self.save_many(changes, validated=True)
 
     def export(self) -> bytes:
         with self.lock:
@@ -200,6 +217,8 @@ class ReviewStore:
                 "soundcloud_url_corrected",
                 "acceptance",
                 "artist_tags",
+                "validation_state",
+                "validated_at",
             ]
         )
         for artist in self.artists:
@@ -219,6 +238,8 @@ class ReviewStore:
                 review.get("soundcloud_url", ""),
                 "default" if review.get("accepted_by_default") else "correction",
                 ";".join(review.get("tags", [])),
+                "validated" if review.get("validated_at") else "pending",
+                review.get("validated_at", ""),
             ]
             # Spreadsheet applications must not interpret user notes as formulas.
             writer.writerow(
@@ -232,8 +253,10 @@ class ReviewStore:
         return ("\ufeff" + stream.getvalue()).encode("utf-8")
 
 
-def make_server(directory: Path, port: int = 8765) -> ThreadingHTTPServer:
-    store = ReviewStore(directory)
+def make_server(
+    directory: Path, port: int = 8765, database: Path | None = None
+) -> ThreadingHTTPServer:
+    store = ReviewStore(directory, database)
 
     class Handler(BaseHTTPRequestHandler):
         def send(self, status: int, payload: bytes, content_type: str) -> None:
@@ -278,7 +301,7 @@ def make_server(directory: Path, port: int = 8765) -> ThreadingHTTPServer:
                     self.send(200, (STATIC / name).read_bytes(), mime + "; charset=utf-8")
                 else:
                     self.send(404, b"Not found", "text/plain")
-            except (OSError, ValueError):
+            except (OSError, ValueError, sqlite3.Error):
                 self.send(500, b"Unable to read pilot files", "text/plain")
 
         def do_PUT(self) -> None:
@@ -307,7 +330,7 @@ def make_server(directory: Path, port: int = 8765) -> ThreadingHTTPServer:
                 self.send(200, json.dumps(record).encode(), "application/json")
             except (ValueError, TypeError, KeyError) as exc:
                 self.send(400, str(exc).encode(), "text/plain; charset=utf-8")
-            except OSError:
+            except (OSError, sqlite3.Error):
                 self.send(500, b"Unable to save; retry before leaving", "text/plain")
 
         def log_message(self, fmt: str, *args: object) -> None:
@@ -320,8 +343,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--database", type=Path)
     args = parser.parse_args()
-    server = make_server(args.output, args.port)
+    server = make_server(args.output, args.port, args.database)
     print(f"Review: http://127.0.0.1:{server.server_port} (Ctrl+C to stop)", flush=True)
     try:
         server.serve_forever()

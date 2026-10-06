@@ -187,6 +187,13 @@ def test_unknown_defaults_and_idgaf_leave_source_records_intact(pilot):
     assert store.reviews()["a"]["tags"] == []
 
 
+def test_editing_a_validated_artist_keeps_its_state_in_standalone_mode(pilot):
+    store = ReviewStore(pilot)
+    original = store.save_page({"a": {"decision": "keep", "roles": []}})["a"]
+    store.save("a", {"decision": "exclude", "roles": ["MC"]})
+    assert store.reviews()["a"]["validated_at"] == original["validated_at"]
+
+
 def test_page_validation_is_bounded_atomic_and_does_not_accept_other_pages(pilot):
     write_json(
         pilot / "artists.json", [{"artist_id": str(i), "display_name": str(i)} for i in range(201)]

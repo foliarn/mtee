@@ -50,7 +50,7 @@ def key(value: str) -> str:
     return " ".join(unicodedata.normalize("NFC", value).casefold().split())
 
 
-def snapshot(database: Path) -> dict[str, Any]:
+def snapshot(database: Path, *, include_unreviewed: bool = False) -> dict[str, Any]:
     """Read the confirmed catalog in one SQLite transaction without app services."""
     connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
@@ -77,23 +77,25 @@ def snapshot(database: Path) -> dict[str, Any]:
                 }
             )
         tracks = []
-        for row in connection.execute(
+        track_query = (
             "SELECT l.track_id,l.path,l.metadata_json,r.confirmed_title "
-            "FROM track_locations l JOIN track_artist_review r USING(track_id) "
-            "WHERE r.review_state='confirmed' ORDER BY l.track_id"
-        ):
-            if row["track_id"] not in credits:
+            "FROM track_locations l LEFT JOIN track_artist_review r USING(track_id) "
+            + ("" if include_unreviewed else "WHERE r.review_state='confirmed' ")
+            + "ORDER BY l.track_id"
+        )
+        for row in connection.execute(track_query):
+            if row["track_id"] not in credits and not include_unreviewed:
                 continue
             metadata = json.loads(row["metadata_json"])
             tracks.append(
                 {
                     "track_id": row["track_id"],
-                    "title": row["confirmed_title"] or "",
+                    "title": row["confirmed_title"] or next(iter(metadata.get("title", [])), ""),
                     "path": row["path"],
                     "format": Path(row["path"]).suffix.lower(),
                     "observed_genres": metadata.get("genre", []),
                     "observed_artists": metadata.get("artist", []),
-                    "credits": credits[row["track_id"]],
+                    "credits": credits.get(row["track_id"], []),
                 }
             )
         return {"created_at": now(), "artists": list(profiles.values()), "tracks": tracks}
@@ -103,7 +105,11 @@ def snapshot(database: Path) -> dict[str, Any]:
 
 def motifs(track: dict) -> set[str]:
     title = track["title"].casefold()
-    found = {"collaboration" if len(track["credits"]) > 1 else "single_credit"}
+    found = (
+        {"collaboration" if len(track["credits"]) > 1 else "single_credit"}
+        if track["credits"]
+        else set()
+    )
     if "remix" in title or any(c["credit_role"] == "remixer" for c in track["credits"]):
         found.add("remix")
     if re.search(r"\b(bootleg|flip|edit|refix)\b", title):
