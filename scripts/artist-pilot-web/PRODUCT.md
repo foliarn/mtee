@@ -34,3 +34,5 @@ Snapshot privé, échantillon, candidats MusicBrainz et observations IA sourcée
 Depuis le 6 octobre, tous les morceaux sont consultables avec recherche et pages de 100. Artistes contient les dossiers non validés ; Validés contient les validations enregistrées, éditables. Le bouton valide uniquement la page et affiche ensuite le lot suivant. SQLite dans la base du catalogue est la source de vérité lorsque --database est fourni ; le pilote JSON reste historique. Les 42 validations préexistantes sont importées sans doublons. Les autres dossiers restent explicitement À enrichir, sans identité inventée.
 
 Onglet Job autonome : démarrage explicite de l'enrichissement, reprise/pause/arrêt, erreurs et journal. Modèle fixé à GPT-6 Luna / low sur abonnement ChatGPT. Les propositions restent à revoir ; aucun lancement automatique ni suivi Spotify. Contrat : AUTOMATION.md.
+
+Révision active : la recherche est pilotée directement par une tâche locale. Job devient un suivi sans lancement de worker, avec actualisation des propositions ; la revue humaine reste identique. Le script gère les lots/MusicBrainz/imports, pas l'IA. Voir RESEARCH-PROMPT.md et AUTOMATION.md.

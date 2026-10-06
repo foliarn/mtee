@@ -1,54 +1,57 @@
-# Enrichissement depuis la revue locale
+# Pilotage depuis une tâche locale
 
-Le serveur `scripts/artist_pilot_server.py` prépare un worker inactif. L'onglet **Job**
-permet de démarrer/reprendre, mettre en pause après le lot, arrêter l'audit en cours
-et réessayer les erreurs. Un redémarrage du serveur ne reprend jamais automatiquement.
+La tâche ChatGPT/Codex locale recherche elle-même les artistes avec ses outils web,
+sur l'abonnement de l'utilisateur. `artist_research_session.py` gère les lots,
+MusicBrainz et l'import contrôlé : aucune invocation IA ni clé API. Le serveur web
+n'a plus de bouton de lancement ni de worker IA branché. Son onglet Job affiche
+la progression et permet de recharger les propositions pour la revue humaine.
+
+Le prompt complet, y compris chemins et commandes, est dans **RESEARCH-PROMPT.md**.
+Sa première phase est un contrôle de statut sans recherche ni écriture ; la tâche
+attend le lancement de l'utilisateur. Après lancement, elle traite la file sans
+demander d'approbation à chaque lot. Les validations restent une étape humaine.
+
+## Script
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/artist_pilot_server.py --output <dossier-collection> --database <base-sqlite> --port 8765
+.\.venv\Scripts\python.exe scripts/artist_research_session.py --output <dossier-collection> --database <base-sqlite> status
 ```
 
-## Contrat
+Remplacer `status` par :
 
-- GPT-6 Luna (`gpt-6-luna`), raisonnement `low`, lots de cinq artistes par défaut
-  (réglables de un à dix), un audit à la fois. Aucun changement automatique de modèle.
-- `codex login status` doit confirmer une connexion ChatGPT. Le worker retire les
-  variables API OpenAI héritées et impose le fournisseur OpenAI et la connexion
-  ChatGPT. Il ne configure aucune clé API et refuse une connexion API.
-- MusicBrainz d'abord : cache, cadence minimale de 1,1 s, délais/reprises du client
-  existant. Les candidats et liens ne deviennent pas automatiquement des identités.
-- Audit par recherche web native de Codex, titres locaux pour les homonymes,
-  réponse structurée et preuves HTTPS pour les propositions et profils.
-  Le prompt reçoit au maximum six titres/collaborations, cinq candidats et deux
-  détails MusicBrainz par artiste ; les réponses complètes restent dans le cache local.
-- Les artistes validés et les observations déjà présentes sont exclus de la file.
-  Les 42 choix historiques restent prioritaires. Une validation pendant un audit
-  empêche la publication de sa proposition. Aucune validation humaine automatique.
-- Les propositions vont dans `observations.json`, les checkpoints MusicBrainz dans
-  `musicbrainz.json`, la file et le journal borné dans `automation.json`. Tous restent
-  privés et ignorés par Git. Les écritures sont atomiques. Un verrou système empêche
-  deux workers de traiter la même collection simultanément.
-- Les corrections humaines restent séparées dans SQLite. Les morceaux, crédits,
-  fichiers audio et suivis Spotify ne sont pas modifiés. Aucun genre de morceau
-  n'est déduit de la carrière de l'artiste.
+- `next --size 5` : réserver ou retrouver le lot actif (un à dix artistes).
+- `collect` : chercher seulement ce lot dans MusicBrainz ; aucune recherche IA.
+- `progress --message "Recherche : artiste"` : journaliser la recherche du chat.
+- `import --result <fichier.json>` : contrôler puis publier les propositions.
+- `pause --message "Raison"` : conserver le lot et noter une interruption.
 
-## Exploitation
+## Reprise et contrôles
 
-La pause termine et publie le lot actif. Arrêter interrompt Codex et remet le lot
-en attente ; une requête MusicBrainz déjà commencée peut finir avant cet arrêt.
-Le résultat d'un audit interrompu n'est pas publié. Les recherches MusicBrainz
-réussies sont réutilisées à la reprise. Une erreur de collecte, de schéma, de quota,
-d'authentification ou de disponibilité du modèle met le job en pause ; aucune
-boucle de relance automatique. « Réessayer les erreurs » remet ces artistes en file.
-Chaque audit est limité à dix minutes.
+Le lot et ses IDs sont persistants. Les réponses sont stockées dans le sous-dossier
+privé `research/`, la session dans `research-session.json` et les données MusicBrainz
+dans le checkpoint/cache existant. Un verrou système protège les commandes concurrentes.
+Les écritures JSON sont atomiques et une interruption entre publication et reçu est
+récupérée par `next`. Une erreur de collecte conserve le lot ; relancer `collect`
+réutilise ses recherches réussies. Aucun redémarrage automatique et aucune boucle
+de relance de l'IA. L'agent peut reprendre un lot après une compaction de contexte.
 
-Le front interroge le statut toutes les deux secondes dans l'onglet Job. Il affiche
-la phase, les artistes du lot, les compteurs, le journal et les tokens que Codex
-expose en fin d'audit. Les tokens indiquent le volume observé, pas les quotas restants
-du compte. « Actualiser les propositions » recharge les données sans supprimer les
-brouillons locaux. La session CLI est éphémère dans un dossier temporaire extérieur
-au dépôt ; elle reçoit les noms/titres et candidats, aucun chemin audio ni contenu
-de la base. Le schéma et le résultat de cette session sont supprimés à sa fermeture.
+Le JSON résultat contient exactement `batch_id` et `observations`. Le lot doit être
+complet, avec IDs uniques, champs/types stricts, profils canoniques, sources HTTPS
+et preuve pour chaque profil. Une identité confirmée nécessite une source ; une
+identité non résolue ne reçoit pas de profil. Le schéma ne garantit pas la vérité
+des pages : l'IA doit les consulter et l'utilisateur révise les propositions.
+Les résultats valides identiques sont idempotents ; un lot clos ne peut être réécrit.
 
-Lancement réel volontairement non effectué pendant la préparation : qualité des
-recherches et disponibilité du modèle sur le compte à vérifier lors du premier lot.
+Les artistes validés et déjà enrichis sont exclus de la file. Une validation survenue
+pendant la recherche reste prioritaire ; l'import ne modifie jamais les tables de
+choix humains, les titres/crédits/audio, les genres des morceaux ni les suivis Spotify.
+Le front conserve les brouillons lors du rechargement volontaire des propositions.
+
+Le prompt propose cinq artistes, jusqu'à six titres/collaborations et cinq candidats
+MusicBrainz par artiste, deux requêtes web usuelles et quatre si ambigu. Ces limites
+visent à borner le temps et le contexte, sans inventer une identité pour remplir une
+colonne. Aucune estimation financière ou mesure de tokens de la tâche n'est inventée.
+
+L'ancien module `artist_enrichment_worker.py` reste dans l'historique de la préparation
+et conserve ses tests, mais le serveur ne l'instancie plus et refuse son endpoint de
+lancement. Aucun audit réel n'a été lancé lors de cette livraison.

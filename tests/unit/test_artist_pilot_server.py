@@ -272,6 +272,20 @@ def test_http_local_only_static_allowlist_and_same_origin_save(pilot):
         with urlopen(base + "/api/data", timeout=2) as response:
             assert response.headers["Cache-Control"] == "no-store"
             assert "path" not in json.load(response)["tracks"][0]
+        with urlopen(base + "/api/automation", timeout=2) as response:
+            assert json.load(response)["mode"] == "local-chat"
+        with pytest.raises(HTTPError) as caught:
+            urlopen(
+                Request(
+                    base + "/api/automation",
+                    data=b'{"action":"start"}',
+                    method="PUT",
+                    headers={"Content-Type": "application/json", "Origin": base},
+                ),
+                timeout=2,
+            )
+        assert caught.value.code == 400
+        assert not (pilot / "research-session.json").exists()
         for path in ["/catalog.json", "/../artist_enrichment_pilot.py", "/review.json"]:
             with pytest.raises(HTTPError) as caught:
                 urlopen(base + path, timeout=2)

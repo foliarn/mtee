@@ -223,28 +223,17 @@ $("track-page").addEventListener("change",()=>{trackPage=Number($("track-page").
 $("retry").addEventListener("click",load);
 document.addEventListener("keydown",e=>{if(e.key==="Escape" && current && !saving){current=null; $("detail").hidden=true;}});
 window.addEventListener("beforeunload",e=>{if(dirty || saving){e.preventDefault(); e.returnValue="";}});
-let jobBusy=false;
 async function pollJob() {
-  if(jobBusy) return;
   try {
     const response=await fetch('/api/automation'); if(!response.ok) throw new Error('Suivi indisponible');
     const job=await response.json();
-    const labels={idle:'Non démarré',checking:'Vérification de la connexion',musicbrainz:'MusicBrainz',audit:'Audit web',pausing:'Pause demandée',stopping:'Arrêt demandé',paused:'En pause',completed:'Terminé'};
+    const labels={idle:'En attente de la tâche',reserved:'Lot réservé',musicbrainz:'MusicBrainz',audit:'Recherche web dans la tâche',paused:'En pause',completed:'Terminé'};
     $('job-state').textContent=[labels[job.status] ?? job.status,...job.current].join(' · ');
-    const active=['checking','musicbrainz','audit','pausing','stopping'].includes(job.status);
-    for(const id of ['job-start','job-retry','job-size']) $(id).disabled=active;
-    for(const id of ['job-pause','job-stop']) $(id).disabled=!active;
-    $('job-counts').innerHTML=Object.entries(job.counts).map(([key,value])=>`<div class="report-section">${esc({queued:'En attente',running:'En cours',ready:'À revoir',error:'Erreurs',validated:'Validés'}[key])} <strong>${value}</strong></div>`).join('')+`<div class="report-section">Tokens : ${esc(Object.entries(job.usage).map(([k,v])=>`${k}: ${v}`).join(' · ') || '—')}<br>MusicBrainz : ${job.http_requests ?? 0} appels · ${job.cache_hits ?? 0} cache</div>`;
+    $('job-counts').innerHTML=Object.entries(job.counts).map(([key,value])=>`<div class="report-section">${esc({queued:'En attente',running:'Lot en cours',ready:'À revoir',error:'Erreurs',validated:'Validés'}[key])} <strong>${value}</strong></div>`).join('')+`<div class="report-section">MusicBrainz : ${job.http_requests ?? 0} appels · ${job.cache_hits ?? 0} cache</div>`;
     $('job-error').textContent=job.error || '';
     $('job-log').innerHTML=[...job.logs].reverse().map(l=>`<tr><td>${esc(new Date(l.at).toLocaleTimeString())}</td><td>${esc(l.message)}</td></tr>`).join('');
   } catch(error) {$('job-error').textContent=error.message;}
 }
-for(const [id,action] of [['job-start','start'],['job-pause','pause'],['job-stop','stop'],['job-retry','retry']]) $(id).addEventListener('click',async()=>{
-  jobBusy=true; $(id).disabled=true;
-  try {const response=await fetch('/api/automation',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,batch_size:Number($('job-size').value)})}); if(!response.ok) throw new Error(await response.text());}
-  catch(error){$('job-error').textContent=error.message;}
-  finally{jobBusy=false; await pollJob();}
-});
 $('job-refresh').addEventListener('click',load);
 setInterval(()=>{if(!$('job').hidden) pollJob();},2000);
 load();

@@ -1,6 +1,7 @@
 :root { color-scheme: light; --paper: #f4f6f4; --ink: #20352d; --muted: #54685d; --line: #d5dfd8; --accent: #245d43; --soft: #e5efe8; --warn: #815720; --warn-bg: #fff1d9; }
 .tabs { flex-wrap: wrap; }
-#job-size { width: 75px; }
+#job-counts { display: flex; flex-wrap: wrap; gap: 12px; }
+#job-counts .report-section { flex: 1 1 160px; padding: 12px; }
 #job-log td { overflow-wrap: anywhere; }
 #job-error { color: var(--warn); }
 * { box-sizing: border-box; }

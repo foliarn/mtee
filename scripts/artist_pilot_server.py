@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from artist_enrichment_pilot import ROLES, canonical_profile, motifs, now, read_json, write_json
-from artist_enrichment_worker import EnrichmentWorker
+from artist_research_session import ResearchSession
 from artist_review_database import ReviewDatabase
 from track_genre_audit import audit_track
 
@@ -258,7 +258,7 @@ def make_server(
     directory: Path, port: int = 8765, database: Path | None = None
 ) -> ThreadingHTTPServer:
     store = ReviewStore(directory, database)
-    worker = EnrichmentWorker(store)
+    session = ResearchSession(store)
 
     class Handler(BaseHTTPRequestHandler):
         def send(self, status: int, payload: bytes, content_type: str) -> None:
@@ -286,7 +286,7 @@ def make_server(
             path = urlsplit(self.path).path
             try:
                 if path == "/api/automation":
-                    self.send(200, json.dumps(worker.snapshot()).encode(), "application/json")
+                    self.send(200, json.dumps(session.status()).encode(), "application/json")
                 elif path == "/api/data":
                     self.send(
                         200,
@@ -328,7 +328,9 @@ def make_server(
                 if not isinstance(payload, dict):
                     raise ValueError("Expected an object")
                 if path == "/api/automation":
-                    record = worker.action(payload)
+                    raise ValueError(
+                        "Pilotage depuis la tâche locale ; worker automatique désactivé"
+                    )
                 elif path == "/api/page":
                     record = store.save_page(payload)
                 elif path == "/api/reviews":
@@ -344,12 +346,7 @@ def make_server(
         def log_message(self, fmt: str, *args: object) -> None:
             pass
 
-    class Server(ThreadingHTTPServer):
-        def server_close(self):
-            worker.close()
-            super().server_close()
-
-    return Server(("127.0.0.1", port), Handler)
+    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
 
 def main() -> None:
