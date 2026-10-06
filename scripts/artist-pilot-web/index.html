@@ -13,31 +13,28 @@
     <a class="export" href="/export.csv" download="revue-artistes.csv">Exporter la revue</a>
   </header>
   <main>
-    <div class="intro">
-      <div><h1>Corrige seulement ce qui cloche.</h1><p>Tout ce que tu laisses tel quel est accepté. Aucun artiste à valider individuellement.</p></div>
-      <div class="batch-actions"><span id="progress" role="status">Chargement…</span><button id="save-all" type="button" class="primary" disabled>Enregistrer les corrections</button></div>
-    </div>
-    <div class="context" id="context">Lecture du pilote…</div>
     <nav class="tabs" aria-label="Rapports">
       <button type="button" data-tab="artists" aria-pressed="true">Artistes <span id="artist-count"></span></button>
       <button type="button" data-tab="tracks" aria-pressed="false">Morceaux <span id="track-count"></span></button>
-      <button type="button" data-tab="report" aria-pressed="false">Bilan du pilote</button>
+      <button type="button" data-tab="report" aria-pressed="false">Récap</button>
     </nav>
     <section id="artists" aria-label="Revue des artistes">
+      <div class="page-actions"><button id="save-all" type="button" class="primary" disabled>Valider cette page</button><span id="progress" role="status"></span></div>
       <div class="toolbar">
         <label class="search">Rechercher<input id="search" type="search" placeholder="Artiste ou morceau…" autocomplete="off"></label>
-        <label>Rôle<select id="role" aria-label="Rôle"><option value="">Tous les rôles</option><option>Producer</option><option>DJ</option><option>Singer</option><option>MC</option><option value="unknown">Non établi</option></select></label>
-        <label>Proposition IA<select id="proposal" aria-label="Proposition IA"><option value="">Toutes</option><option value="keep">Garder</option><option value="exclude">Bloat possible</option><option value="uncertain">À déterminer</option></select></label>
-        <label>Tri retenu<select id="review" aria-label="Tri retenu"><option value="">Tous</option><option value="keep">Garder</option><option value="exclude">Écarter</option><option value="uncertain">Incertain</option><option value="modified">Mes corrections</option></select></label>
+        <label>Rôle<select id="role" aria-label="Rôle"><option value="">Tous les rôles</option><option>Producer</option><option>DJ</option><option>Singer</option><option>MC</option><option value="unknown">Sans rôle</option></select></label>
+        <label>Proposition IA<select id="proposal" aria-label="Proposition IA"><option value="">Toutes</option><option value="keep">Garder</option><option value="exclude">Bloat possible</option></select></label>
+        <label>Tri retenu<select id="review" aria-label="Tri retenu"><option value="">Tous</option><option value="keep">Garder</option><option value="exclude">Écarter (idgaf)</option><option value="modified">Mes corrections</option></select></label>
+        <label id="recap-filter-label" hidden>Filtre du récap<select id="recap-filter" aria-label="Filtre du récap"></select></label>
         <label class="check"><input id="attention" type="checkbox">Cas à vérifier</label>
         <button id="reset" type="button" class="text-button">Réinitialiser</button>
       </div>
       <div class="workspace">
         <div class="list-panel">
           <div class="list-heading"><span id="visible-count"></span><label>Trier<select id="sort"><option value="name">Nom A → Z</option><option value="count">Nombre de morceaux</option><option value="attention">Cas à vérifier d’abord</option></select></label></div>
-          <div class="table-wrap"><table><caption class="sr-only">Artistes, valeurs retenues éditables et anomalies</caption><thead><tr><th scope="col">Artiste / anomalies</th><th scope="col" class="num">Sons¹</th><th scope="col">Profils</th><th scope="col">Rôles</th><th scope="col">Bass-related</th><th scope="col">Tri retenu</th></tr></thead><tbody id="rows"></tbody></table><div id="more-rows" aria-hidden="true"></div></div>
+          <div class="table-wrap"><table><caption class="sr-only">Artistes, valeurs retenues éditables et anomalies</caption><thead><tr><th scope="col">Artiste / anomalies</th><th scope="col" class="num">Sons</th><th scope="col">Profils</th><th scope="col">Rôles</th><th scope="col">Bass-related</th><th scope="col">Tri retenu</th></tr></thead><tbody id="rows"></tbody></table></div>
           <p id="empty" class="empty" hidden>Aucun artiste ne correspond à ces filtres. Réinitialise-les pour retrouver le pilote.</p>
-          <p class="footnote">¹ Crédits dans toute ta collection. Valeurs proposées acceptées par défaut ; ouvre un dossier uniquement pour consulter les preuves ou corriger les liens.</p>
+          <div class="pagination"><button id="previous-page" type="button">Précédente</button><label>Page<select id="page-number" aria-label="Page"></select></label><span id="page-count"></span><button id="next-page" type="button">Suivante</button></div>
         </div>
         <aside id="detail" aria-label="Dossier de l’artiste" hidden></aside>
       </div>
@@ -47,6 +44,5 @@
     <p id="status" role="status" aria-live="polite"></p>
     <div id="failure" role="alert" hidden><p>Le pilote n’a pas pu être chargé.</p><button id="retry" type="button">Réessayer</button></div>
   </main>
-  <footer>Les décisions sont enregistrées localement. Le suivi sur Spotify reste ton choix, après écoute.</footer>
 </body>
 </html>

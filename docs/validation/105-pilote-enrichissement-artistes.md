@@ -66,3 +66,18 @@ Pour un autre échantillon, `prepare` exige un nouveau dossier. Les sélecteurs 
 La prochaine étape utile est la revue des dossiers ambigus et du bloat possible, puis la comparaison des choix personnels avec les propositions. Les corrections d'identité doivent précéder toute utilisation en découverte. Ne pas dériver les genres d'un morceau uniquement des genres de ses artistes. Un rôle Producer n'indique pas automatiquement que l'utilisateur aime toute sa discographie.
 
 Clarification du 6 octobre : le regroupement initial est remplacé par deux cases séparées ; Producer active DJ par défaut et à la coche, avec exception DJ possible. 29 tests passent, dont défaut Producer/DJ, conservation d’une exception enregistrée et des preuves originales ; Ruff et syntaxe JavaScript passent. Recette des cases et sauvegarde sur copie, actualisation du pilote réel sans écriture de recette.
+
+
+## Révision du 6 octobre — pages et genres par morceau
+
+Autorisation utilisateur : préserver sa revue terminée des 42 artistes, retirer les textes redondants, rendre les catégories du Récap cliquables, valider des pages de 100 maximum, conserver les artistes écartés avec idgaf. Les valeurs sans information affichent Non/Garder ; aucune preuve de carrière n'est inventée. Cette demande remplace le défilement continu et la sauvegarde limitée aux seules corrections.
+
+Sauvegarde privée du review.json existant et des 42 valeurs effectives avant édition. Il contient dix corrections explicites ; les autres valeurs étaient acceptées par défaut. Son empreinte SHA-256 reste identique après la recette. Aucune sauvegarde de test sur ce dossier réel. Les valeurs explicites, liens, notes et exceptions Producer/DJ restent prioritaires.
+
+Nouveau endpoint same-origin PUT /api/page : 1 à 100 artistes, validation intégrale puis écriture atomique. Les autres pages restent intactes. idgaf est dérivé du tri dans les lectures/export et enregistré lors d'une validation ; aucun artiste, crédit ni morceau n'est supprimé. La base MTEE n'est pas modifiée.
+
+Politique de genres dans scripts/track_genre_audit.py : découper les tags composés, ignorer Alternative/Dance/Pop/Electronic/Electronica et valeurs génériques, conserver les genres précis. Un contexte de carrière explicite et sourcé peut rejeter House mais ne fournit jamais le genre de remplacement. L'absence de House dans une liste de genres d'artiste ne suffit pas à le rejeter. Le fichier privé genre-rules.json contient les corrections par track_id et contextes facultatifs par artist_id. La correction d'un morceau ne s'étend pas aux autres productions. Phoneline reçoit la correction DnB demandée par l'utilisateur ; son tag House rejeté est signalé au Récap et son tag original reste visible. Aucun classement audio automatique ni taxonomie complète n'est annoncé.
+
+Contrôles : 36 tests passent (limite 100/101, atomicité, autre page préservée, idgaf/export, tags composés, contexte sourcé et correction isolée par morceau), Ruff et syntaxe JavaScript. Recette navigateur sur copie : catégorie Producer puis validation de 27 lignes, catégorie bootleg ouvrant le bon filtre, alerte Phoneline ouvrant sa ligne. Sur 2 000 artistes fictifs : 100 lignes et 20 pages ; validation de la page 2 laissant le brouillon MC de la page 1 en attente, puis validation de celle-ci. Captures desktop dans le panneau et mobile 390 × 844 ; aucun débordement global, tableau horizontal sur mobile. Aucun build Windows.
+
+Test supplémentaire : audit des tags et catégories structurelles servis sans réécriture du snapshot. Recette du filtre Remix : huit artistes du pilote, retour à la liste complète. Bouton de page sticky, accessible en haut sans grand titre.

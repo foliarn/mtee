@@ -11,7 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from artist_enrichment_pilot import ROLES, canonical_profile, now, read_json, write_json
+from artist_enrichment_pilot import ROLES, canonical_profile, motifs, now, read_json, write_json
+from track_genre_audit import audit_track
 
 STATIC = Path(__file__).parent / "artist-pilot-web"
 DECISIONS = {"pending", "keep", "exclude", "uncertain"}
@@ -67,6 +68,14 @@ class ReviewStore:
             result["tracks"] = [
                 {k: v for k, v in t.items() if k != "path"} for t in result["tracks"]
             ]
+            rules_path = self.directory / "genre-rules.json"
+            rules = read_json(rules_path) if rules_path.exists() else {}
+            for track in result["tracks"]:
+                track["genre_audit"] = audit_track(track, rules)
+                if "credits" in track:
+                    track["selection_categories"] = sorted(
+                        set(track.get("selection_categories", [])) | motifs(track)
+                    )
             return result
 
     def effective_reviews(self) -> dict:
@@ -81,9 +90,9 @@ class ReviewStore:
             if "Producer" in roles and "DJ" not in roles:
                 roles.append("DJ")
             record = {
-                "decision": o.get("interest_proposal", "uncertain"),
+                "decision": "exclude" if o.get("interest_proposal") == "exclude" else "keep",
                 "roles": roles,
-                "bass_related": o.get("bass_related"),
+                "bass_related": o.get("bass_related") is True,
                 "notes": "",
                 "identity_decision": "pending"
                 if o.get("identity_status") not in {"matched", "provisional"}
@@ -104,6 +113,7 @@ class ReviewStore:
                 if record["decision"] == "pending":
                     record["decision"] = proposed_decision
                 record["accepted_by_default"] = False
+            record["tags"] = ["idgaf"] if record["decision"] == "exclude" else []
             result[aid] = record
         return result
 
@@ -146,6 +156,7 @@ class ReviewStore:
             "saved_at": now(),
             "identity_decision": identity,
             **profiles,
+            "tags": ["idgaf"] if value["decision"] == "exclude" else [],
         }
         return record
 
@@ -162,6 +173,11 @@ class ReviewStore:
 
     def save(self, artist_id: str, value: dict) -> dict:
         return self.save_many({artist_id: value})[artist_id]
+
+    def save_page(self, changes: dict) -> dict:
+        if not isinstance(changes, dict) or not 0 < len(changes) <= 100:
+            raise ValueError("A page contains 1 to 100 artists")
+        return self.save_many(changes)
 
     def export(self) -> bytes:
         with self.lock:
@@ -183,6 +199,7 @@ class ReviewStore:
                 "spotify_url_corrected",
                 "soundcloud_url_corrected",
                 "acceptance",
+                "artist_tags",
             ]
         )
         for artist in self.artists:
@@ -201,6 +218,7 @@ class ReviewStore:
                 review.get("spotify_url", ""),
                 review.get("soundcloud_url", ""),
                 "default" if review.get("accepted_by_default") else "correction",
+                ";".join(review.get("tags", [])),
             ]
             # Spreadsheet applications must not interpret user notes as formulas.
             writer.writerow(
@@ -269,22 +287,23 @@ def make_server(directory: Path, port: int = 8765) -> ThreadingHTTPServer:
                 self.send(403, b"Invalid origin", "text/plain")
                 return
             path = urlsplit(self.path).path
-            if path != "/api/reviews" and not path.startswith("/api/review/"):
+            if path not in {"/api/reviews", "/api/page"} and not path.startswith("/api/review/"):
                 self.send(404, b"Not found", "text/plain")
                 return
             try:
                 size = int(self.headers.get("Content-Length", "0"))
-                limit = 16_000_000 if path == "/api/reviews" else 20000
+                limit = 16_000_000 if path in {"/api/reviews", "/api/page"} else 20000
                 if not 0 < size <= limit or self.headers.get("Content-Type") != "application/json":
                     raise ValueError("Invalid request")
                 payload = json.loads(self.rfile.read(size))
                 if not isinstance(payload, dict):
                     raise ValueError("Expected an object")
-                record = (
-                    store.save_many(payload)
-                    if path == "/api/reviews"
-                    else store.save(path.removeprefix("/api/review/"), payload)
-                )
+                if path == "/api/page":
+                    record = store.save_page(payload)
+                elif path == "/api/reviews":
+                    record = store.save_many(payload)
+                else:
+                    record = store.save(path.removeprefix("/api/review/"), payload)
                 self.send(200, json.dumps(record).encode(), "application/json")
             except (ValueError, TypeError, KeyError) as exc:
                 self.send(400, str(exc).encode(), "text/plain; charset=utf-8")

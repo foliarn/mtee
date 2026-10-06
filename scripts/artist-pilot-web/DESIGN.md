@@ -182,9 +182,9 @@ Les paragraphes de contexte et les liens d’export utilisent aussi une taille i
 
 La page possède un conteneur centré (max-width: 1600px) avec un retrait horizontal de page. Les barres d’outils sont flexibles et leurs contrôles peuvent passer à la ligne. Les espacements sont une échelle pragmatique, pas une grille mathématique uniforme.
 
-Depuis la révision par exceptions, le tableau occupe toute la largeur. L'en-tête avec le bouton global reste sticky. Le dossier facultatif est un panneau fixe à droite (16px), de largeur `min(580px, calc(100vw - 32px))` et hauteur `calc(100vh - 32px)`, avec défilement interne. Fermer le panneau conserve les corrections.
+Depuis la révision par exceptions, le tableau occupe toute la largeur. La barre compacte de validation de la page reste sticky ; aucun grand titre ni bandeau de contexte. Le dossier facultatif est un panneau fixe à droite (16px), de largeur `min(580px, calc(100vw - 32px))` et hauteur `calc(100vh - 32px)`, avec défilement interne. Fermer le panneau conserve les corrections.
 
-À 1100px et moins, les retraits et cellules se resserrent. À 800px et moins, l'introduction et les cartes du bilan s'empilent ; la recherche occupe sa ligne. Le tableau reste un tableau à défilement horizontal dans son conteneur, sans débordement de page. Le panneau conserve une largeur bornée au viewport. Le défilement vertical ajoute automatiquement des groupes de 100 artistes.
+À 1100px et moins, les retraits et cellules se resserrent. À 800px et moins, les sections du récap s'empilent ; la recherche occupe sa ligne. Le tableau reste un tableau à défilement horizontal dans son conteneur, sans débordement de page. Le panneau conserve une largeur bornée au viewport. La pagination borne chaque page à 100 artistes, avec sélection directe du numéro et boutons Précédente/Suivante.
 
 ## Elevation & Depth
 
@@ -202,11 +202,11 @@ Les coins sont légèrement arrondis : badge, contrôle et poste de revue corres
 
 Contrôles familiers et libellés explicites. Le bouton principal utilise l’accent ; le bouton standard reste blanc avec un contour clair. Le survol standard devient teinté, le survol principal plus sombre. Les actions textuelles sont soulignées et transparentes. Les liens de profil réutilisent le contour des boutons avec un retrait plus compact (6px 11px).
 
-Le bouton principal global enregistre les seules corrections en un lot. Il est désactivé quand il n'y en a aucune. Pendant la requête, les contrôles du main sont désactivés et l'état « Enregistrement… » est écrit. Aucun bouton Suivant ni confirmation individuelle.
+Le bouton principal valide uniquement la page affichée, y compris les valeurs inchangées. Il est désactivé pour une page vide. Pendant la requête, les contrôles du main sont désactivés et l'état « Enregistrement… » est écrit. Aucune confirmation individuelle ; les brouillons hors page sont conservés.
 
 ### Chips
 
-Badges compacts non interactifs pour les catégories des morceaux. Dans le tableau artistes, les rôles sont des cases à cocher et le tri une liste ; la provenance « Accepté par défaut », « Corrigé » ou « Correction à enregistrer » est textuelle.
+Catégories du récap affichées en lignes cliquables, libellé à gauche et nombre à droite. Dans le tableau artistes, les rôles sont des cases à cocher et le tri une liste ; la provenance « Accepté par défaut », « Corrigé » ou « Correction à enregistrer » est textuelle.
 
 ### Cards / Containers
 
@@ -244,3 +244,6 @@ Le dossier juxtapose nom, profils, proposition IA, alertes, sources dépliables 
 - **Don't** déduire de ce pilote une identité approuvée pour MTEE ou une préférence de framework.
 
 Les composants, breakpoints et états viennent du code ; la documentation n’ajoute aucune permission ni validation. Les rampes tonales de la sidecar sont des aperçus synthétiques pour le panneau de documentation et ne sont pas des tokens de l’application.
+
+
+Révision du 6 octobre : suppression des grands titres, bandeaux, notes de bas de page et footer explicatif. Récap sans carte de mode de revue ; entrées filtrantes et alertes de genre par morceau. Onglet Morceaux : tags observés, genres retenus et tags ignorés/contradictoires séparés.

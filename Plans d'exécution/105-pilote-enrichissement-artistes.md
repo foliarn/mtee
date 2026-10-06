@@ -26,6 +26,8 @@ Les données et rapports personnels restent sous `.local/validation/105/`, ignor
 - [x] 2026-10-06 — Vérifier la révision par exceptions : 28 tests, Ruff, Python/JavaScript, recette sur copie et recherche/défilement sur 2 000 artistes fictifs ; rouvrir le pilote réel en conservant sa correction existante.
 - [x] 2026-10-06 — Révision publiée : commit `d23c4d8`, push et fetch origin/main réussis, écart local/distant nul.
 
+- [x] 2026-10-06 — Préserver la revue utilisateur, retirer le bloat visuel, paginer par 100, valider seulement la page et signaler les genres contradictoires par morceau; 36 tests et recette navigateur sur copie/volume réussis.
+
 ## Contexte et décisions
 
 Le schéma 019 distingue `artists`, crédits proposés/confirmés et revue par morceau. Les 382 profils provisoires observés ne font pas partie des 1 976 artistes établis. Lire `artists`, `track_artist_credits`, `track_artist_review` et `track_locations` sans initialiser les services applicatifs ni leur base. Utiliser le titre confirmé et conserver les tags observés séparément.
@@ -89,3 +91,16 @@ Les commandes prepare/refaire un échantillon utilisent un nouveau dossier. Les 
 ## Outcomes & Retrospective
 
 Pilote exécuté, audit IA sourcé et outil de revue autonome disponibles localement. Propositions : 36 garder, 3 bloat possible, 3 à déterminer. MusicBrainz est automatisé ; le complément web et l'audit ont été réalisés par l'agent, pas par un pipeline LLM sans supervision. Images, taxonomie des genres, contrôle du suivi Spotify et recette utilisateur restent hors validation. Les 42 revues réelles sont initialement pending ; les écritures de recette utilisent une copie séparée. Contrôles et publication consignés dans le rapport de validation.
+
+
+## Révision du 6 octobre — pages et genres par morceau
+
+Autorisation utilisateur : préserver sa revue terminée des 42 artistes, retirer les textes redondants, rendre les catégories du Récap cliquables, valider des pages de 100 maximum, conserver les artistes écartés avec idgaf. Les valeurs sans information affichent Non/Garder ; aucune preuve de carrière n'est inventée. Cette demande remplace le défilement continu et la sauvegarde limitée aux seules corrections.
+
+Sauvegarde privée du review.json existant et des 42 valeurs effectives avant édition. Il contient dix corrections explicites ; les autres valeurs étaient acceptées par défaut. Son empreinte SHA-256 reste identique après la recette. Aucune sauvegarde de test sur ce dossier réel. Les valeurs explicites, liens, notes et exceptions Producer/DJ restent prioritaires.
+
+Nouveau endpoint same-origin PUT /api/page : 1 à 100 artistes, validation intégrale puis écriture atomique. Les autres pages restent intactes. idgaf est dérivé du tri dans les lectures/export et enregistré lors d'une validation ; aucun artiste, crédit ni morceau n'est supprimé. La base MTEE n'est pas modifiée.
+
+Politique de genres dans scripts/track_genre_audit.py : découper les tags composés, ignorer Alternative/Dance/Pop/Electronic/Electronica et valeurs génériques, conserver les genres précis. Un contexte de carrière explicite et sourcé peut rejeter House mais ne fournit jamais le genre de remplacement. L'absence de House dans une liste de genres d'artiste ne suffit pas à le rejeter. Le fichier privé genre-rules.json contient les corrections par track_id et contextes facultatifs par artist_id. La correction d'un morceau ne s'étend pas aux autres productions. Phoneline reçoit la correction DnB demandée par l'utilisateur ; son tag House rejeté est signalé au Récap et son tag original reste visible. Aucun classement audio automatique ni taxonomie complète n'est annoncé.
+
+Contrôles : 36 tests passent (limite 100/101, atomicité, autre page préservée, idgaf/export, tags composés, contexte sourcé et correction isolée par morceau), Ruff et syntaxe JavaScript. Recette navigateur sur copie : catégorie Producer puis validation de 27 lignes, catégorie bootleg ouvrant le bon filtre, alerte Phoneline ouvrant sa ligne. Sur 2 000 artistes fictifs : 100 lignes et 20 pages ; validation de la page 2 laissant le brouillon MC de la page 1 en attente, puis validation de celle-ci. Captures desktop dans le panneau et mobile 390 × 844 ; aucun débordement global, tableau horizontal sur mobile. Aucun build Windows.

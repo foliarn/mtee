@@ -168,9 +168,70 @@ def test_old_pending_tri_uses_proposal_and_keeps_corrections(pilot):
     store = ReviewStore(pilot)
     store.save("a", {"decision": "pending", "roles": ["DJ"], "notes": "previous correction"})
     record = store.data()["reviews"]["a"]
-    assert record["decision"] == "uncertain"
+    assert record["decision"] == "keep"
     assert record["roles"] == ["DJ"]
     assert record["notes"] == "previous correction"
+
+
+def test_unknown_defaults_and_idgaf_leave_source_records_intact(pilot):
+    store = ReviewStore(pilot)
+    assert store.data()["reviews"]["a"]["decision"] == "keep"
+    assert store.data()["reviews"]["a"]["bass_related"] is False
+    before = (pilot / "artists.json").read_bytes()
+    store.save("a", {"decision": "exclude", "roles": ["MC"]})
+    assert store.reviews()["a"]["tags"] == ["idgaf"]
+    assert (pilot / "artists.json").read_bytes() == before
+    row = next(csv.DictReader(io.StringIO(store.export().decode("utf-8-sig"))))
+    assert row["artist_tags"] == "idgaf"
+    store.save("a", {"decision": "keep", "roles": ["MC"]})
+    assert store.reviews()["a"]["tags"] == []
+
+
+def test_page_validation_is_bounded_atomic_and_does_not_accept_other_pages(pilot):
+    write_json(
+        pilot / "artists.json", [{"artist_id": str(i), "display_name": str(i)} for i in range(201)]
+    )
+    store = ReviewStore(pilot)
+    store.save("200", {"decision": "exclude", "roles": [], "notes": "Keep prior choice"})
+    original = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.save_page({str(i): {"decision": "keep", "roles": []} for i in range(101)})
+    assert store.path.read_bytes() == original
+    store.save_page({str(i): {"decision": "keep", "roles": []} for i in range(100)})
+    assert len(store.reviews()) == 101
+    assert "100" not in store.reviews()
+    assert store.reviews()["200"]["notes"] == "Keep prior choice"
+
+
+def test_track_audit_and_clickable_categories_preserve_original_tags(pilot):
+    write_json(
+        pilot / "sample.json",
+        [
+            {
+                "track_id": "t",
+                "title": "Test (Remix)",
+                "observed_genres": ["Electronic, House"],
+                "credits": [{"artist_id": "a", "name": "Test", "credit_role": "artist"}],
+            }
+        ],
+    )
+    write_json(
+        pilot / "genre-rules.json",
+        {
+            "tracks": {
+                "t": {
+                    "genres": ["Drum & Bass"],
+                    "rejected_tags": {"house": "User correction"},
+                }
+            }
+        },
+    )
+    before = (pilot / "sample.json").read_bytes()
+    track = ReviewStore(pilot).data()["tracks"][0]
+    assert track["genre_audit"]["retained"] == ["Drum & Bass"]
+    assert "remix" in track["selection_categories"]
+    assert track["observed_genres"] == ["Electronic, House"]
+    assert (pilot / "sample.json").read_bytes() == before
 
 
 @pytest.mark.parametrize(
