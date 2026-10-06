@@ -18,6 +18,7 @@
       <button type="button" data-tab="validated" aria-pressed="false">Validés <span id="validated-count"></span></button>
       <button type="button" data-tab="tracks" aria-pressed="false">Morceaux <span id="track-count"></span></button>
       <button type="button" data-tab="report" aria-pressed="false">Récap</button>
+      <button type="button" data-tab="job" aria-pressed="false">Job</button>
     </nav>
     <section id="artists" aria-label="Revue des artistes">
       <div class="page-actions"><button id="save-all" type="button" class="primary" disabled>Valider cette page</button><span id="progress" role="status"></span></div>
@@ -46,6 +47,20 @@
       <div class="pagination"><button id="previous-tracks" type="button">Précédente</button><label>Page<select id="track-page" aria-label="Page des morceaux"></select></label><span id="track-pages"></span><button id="next-tracks" type="button">Suivante</button></div>
     </section>
     <section id="report" hidden aria-label="Résultats et limites du pilote"></section>
+    <section id="job" hidden aria-label="Suivi de l’enrichissement">
+      <div class="toolbar"><span>GPT-6 Luna · low · Abonnement ChatGPT</span>
+        <label>Artistes par lot<input id="job-size" type="number" min="1" max="10" value="5"></label>
+        <button id="job-start" class="primary" type="button">Démarrer / reprendre</button>
+        <button id="job-pause" type="button">Pause après le lot</button>
+        <button id="job-stop" type="button">Arrêter</button>
+        <button id="job-retry" type="button">Réessayer les erreurs</button>
+        <button id="job-refresh" type="button">Actualiser les propositions</button>
+      </div>
+      <p id="job-state" role="status"></p>
+      <div id="job-counts" class="report-grid"></div>
+      <p id="job-error" role="alert"></p>
+      <div class="table-wrap"><table><caption>Journal</caption><thead><tr><th>Heure</th><th>Étape</th></tr></thead><tbody id="job-log"></tbody></table></div>
+    </section>
     <p id="status" role="status" aria-live="polite"></p>
     <div id="failure" role="alert" hidden><p>Le pilote n’a pas pu être chargé.</p><button id="retry" type="button">Réessayer</button></div>
   </main>

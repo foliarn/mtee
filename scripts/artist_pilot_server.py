@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from artist_enrichment_pilot import ROLES, canonical_profile, motifs, now, read_json, write_json
+from artist_enrichment_worker import EnrichmentWorker
 from artist_review_database import ReviewDatabase
 from track_genre_audit import audit_track
 
@@ -257,6 +258,7 @@ def make_server(
     directory: Path, port: int = 8765, database: Path | None = None
 ) -> ThreadingHTTPServer:
     store = ReviewStore(directory, database)
+    worker = EnrichmentWorker(store)
 
     class Handler(BaseHTTPRequestHandler):
         def send(self, status: int, payload: bytes, content_type: str) -> None:
@@ -283,7 +285,9 @@ def make_server(
                 return
             path = urlsplit(self.path).path
             try:
-                if path == "/api/data":
+                if path == "/api/automation":
+                    self.send(200, json.dumps(worker.snapshot()).encode(), "application/json")
+                elif path == "/api/data":
                     self.send(
                         200,
                         json.dumps(store.data(), ensure_ascii=False).encode(),
@@ -310,7 +314,9 @@ def make_server(
                 self.send(403, b"Invalid origin", "text/plain")
                 return
             path = urlsplit(self.path).path
-            if path not in {"/api/reviews", "/api/page"} and not path.startswith("/api/review/"):
+            if path not in {"/api/reviews", "/api/page", "/api/automation"} and not path.startswith(
+                "/api/review/"
+            ):
                 self.send(404, b"Not found", "text/plain")
                 return
             try:
@@ -321,7 +327,9 @@ def make_server(
                 payload = json.loads(self.rfile.read(size))
                 if not isinstance(payload, dict):
                     raise ValueError("Expected an object")
-                if path == "/api/page":
+                if path == "/api/automation":
+                    record = worker.action(payload)
+                elif path == "/api/page":
                     record = store.save_page(payload)
                 elif path == "/api/reviews":
                     record = store.save_many(payload)
@@ -336,7 +344,12 @@ def make_server(
         def log_message(self, fmt: str, *args: object) -> None:
             pass
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    class Server(ThreadingHTTPServer):
+        def server_close(self):
+            worker.close()
+            super().server_close()
+
+    return Server(("127.0.0.1", port), Handler)
 
 
 def main() -> None:

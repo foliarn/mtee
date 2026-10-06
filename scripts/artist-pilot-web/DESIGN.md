@@ -250,3 +250,5 @@ Révision du 6 octobre : suppression des grands titres, bandeaux, notes de bas d
 
 
 Collection complète : navigation Artistes / Validés / Morceaux / Récap, compteurs propres à chaque population. Même tableau et mêmes filtres pour les deux états de revue ; Valider cette page devient Enregistrer cette page dans Validés. Les morceaux ont leur recherche et leur pagination indépendante. Le mot Pilote disparaît de l’en-tête.
+
+Job reprend la palette, les boutons et les tableaux existants. Barre compacte de commandes, compteurs et journal ; aucun nouveau titre marketing ni carte explicative. Navigation avec retour à la ligne sur mobile, statut interrogé toutes les deux secondes sans recharger les corrections en cours.

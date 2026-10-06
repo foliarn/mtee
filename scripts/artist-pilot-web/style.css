@@ -1,4 +1,8 @@
 :root { color-scheme: light; --paper: #f4f6f4; --ink: #20352d; --muted: #54685d; --line: #d5dfd8; --accent: #245d43; --soft: #e5efe8; --warn: #815720; --warn-bg: #fff1d9; }
+.tabs { flex-wrap: wrap; }
+#job-size { width: 75px; }
+#job-log td { overflow-wrap: anywhere; }
+#job-error { color: var(--warn); }
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.5 "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--paper); }
 button, input, select, textarea { font: inherit; color: inherit; }
