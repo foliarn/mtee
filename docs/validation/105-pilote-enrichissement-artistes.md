@@ -81,3 +81,5 @@ Politique de genres dans scripts/track_genre_audit.py : découper les tags compo
 Contrôles : 36 tests passent (limite 100/101, atomicité, autre page préservée, idgaf/export, tags composés, contexte sourcé et correction isolée par morceau), Ruff et syntaxe JavaScript. Recette navigateur sur copie : catégorie Producer puis validation de 27 lignes, catégorie bootleg ouvrant le bon filtre, alerte Phoneline ouvrant sa ligne. Sur 2 000 artistes fictifs : 100 lignes et 20 pages ; validation de la page 2 laissant le brouillon MC de la page 1 en attente, puis validation de celle-ci. Captures desktop dans le panneau et mobile 390 × 844 ; aucun débordement global, tableau horizontal sur mobile. Aucun build Windows.
 
 Test supplémentaire : audit des tags et catégories structurelles servis sans réécriture du snapshot. Recette du filtre Remix : huit artistes du pilote, retour à la liste complète. Bouton de page sticky, accessible en haut sans grand titre.
+
+Publication : commit 70017b3, push origin/main et fetch confirmés; aucun écart local/distant. Seuls les onze fichiers de l’outil, tests et documents sont inclus; décisions, données et captures restent privées.

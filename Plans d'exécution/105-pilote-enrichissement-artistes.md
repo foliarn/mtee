@@ -28,6 +28,8 @@ Les données et rapports personnels restent sous `.local/validation/105/`, ignor
 
 - [x] 2026-10-06 — Préserver la revue utilisateur, retirer le bloat visuel, paginer par 100, valider seulement la page et signaler les genres contradictoires par morceau; 36 tests et recette navigateur sur copie/volume réussis.
 
+- [x] 2026-10-06 — Révision publiée dans 70017b3; push et fetch origin/main réussis, divergence nulle.
+
 ## Contexte et décisions
 
 Le schéma 019 distingue `artists`, crédits proposés/confirmés et revue par morceau. Les 382 profils provisoires observés ne font pas partie des 1 976 artistes établis. Lire `artists`, `track_artist_credits`, `track_artist_review` et `track_locations` sans initialiser les services applicatifs ni leur base. Utiliser le titre confirmé et conserver les tags observés séparément.
