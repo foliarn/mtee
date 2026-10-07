@@ -75,7 +75,7 @@ def test_roles_and_tags_are_normalized() -> None:
     assert normalize_roles(["producer", "DJ", "Rapper", "dj"]) == ["DJ", "Producer"]
     assert normalize_tags(["  Bass  house ", "bass house", "IDGAF", "", "x" * 80]) == [
         "Bass house",
-        "x" * 40,
+        "x" * 64,
     ]
 
 

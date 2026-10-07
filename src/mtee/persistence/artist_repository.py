@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import PurePath
 from typing import Any
@@ -1313,26 +1313,68 @@ class ArtistRepository:
                     "saved_at": now,
                 }
             )
-            bass = None if bass_related is None else int(bass_related)
-            connection.execute(
-                "INSERT INTO artist_enrichment_reviews(artist_id, decision, roles_json, "
-                "bass_related, spotify_url, soundcloud_url, tags_json, notes, "
-                "identity_decision, validated_at_utc, record_json, observation_json) "
-                "VALUES(?,?,?,?, '', '', ?, '', 'accepted', ?, ?, '{}') "
-                "ON CONFLICT(artist_id) DO UPDATE SET decision=excluded.decision, "
-                "roles_json=excluded.roles_json, bass_related=excluded.bass_related, "
-                "tags_json=excluded.tags_json, record_json=excluded.record_json",
-                (
-                    artist_id,
-                    decision,
-                    json.dumps(clean_roles),
-                    bass,
-                    json.dumps(stored_tags),
-                    now,
-                    json.dumps(record, ensure_ascii=False),
-                ),
+            _upsert_review(
+                connection, artist_id, decision, clean_roles, bass_related, stored_tags, record, now
             )
         return ArtistProfile(clean_roles, bass_related, clean_tags, hidden)
+
+    def set_folder_genres(self, artist_id: str, genres: Mapping[str, int]) -> ArtistProfile:
+        """Give an artist the genres read from the folders, with their track counts.
+
+        The counts are kept in ``record_json`` (``genre_sources``) and the tags this call
+        added in ``genre_added``: the next run removes exactly those, and never a tag the
+        user typed, even one that spells the same as a genre.
+        """
+        ordered = sorted(genres.items(), key=lambda item: (-item[1], item[0].casefold()))
+        now = _now()
+        with self._database.transaction() as connection:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM artists WHERE artist_id=?", (artist_id,)
+                ).fetchone()
+                is None
+            ):
+                raise ValueError("The artist no longer exists.")
+            row = connection.execute(
+                "SELECT decision, roles_json, bass_related, tags_json, record_json "
+                "FROM artist_enrichment_reviews WHERE artist_id=?",
+                (artist_id,),
+            ).fetchone()
+            profile = _profile_from_row(row)
+            record = _record(row["record_json"] if row is not None else "")
+            earlier = record.get("genre_added")
+            earlier_keys = (
+                {str(name).casefold() for name in earlier} if isinstance(earlier, list) else set()
+            )
+            manual = [tag for tag in profile.tags if tag.casefold() not in earlier_keys]
+            manual_keys = {tag.casefold() for tag in manual}
+            tags = normalize_tags([*manual, *(name for name, _ in ordered)])
+            counts = {name: count for name, count in ordered if name in tags}
+            added = [name for name in counts if name.casefold() not in manual_keys]
+            stored_tags = [HIDDEN_TAG, *tags] if profile.hidden else tags
+            decision = str(row["decision"]) if row is not None else "keep"
+            record.update(
+                {
+                    "decision": decision,
+                    "roles": profile.roles,
+                    "bass_related": profile.bass_related,
+                    "tags": stored_tags,
+                    "genre_sources": counts,
+                    "genre_added": added,
+                    "saved_at": now,
+                }
+            )
+            _upsert_review(
+                connection,
+                artist_id,
+                decision,
+                profile.roles,
+                profile.bass_related,
+                stored_tags,
+                record,
+                now,
+            )
+        return ArtistProfile(profile.roles, profile.bass_related, tags, profile.hidden)
 
     def catalog_track_ids(self, artist_id: str) -> list[str]:
         """Return the tracks credited to ``artist_id``, by file name."""
@@ -1364,6 +1406,37 @@ class ArtistRepository:
             .fetchall()
         )
         return [str(row[0]) for row in rows]
+
+
+def _upsert_review(
+    connection: sqlite3.Connection,
+    artist_id: str,
+    decision: str,
+    roles: list[str],
+    bass_related: bool | None,
+    stored_tags: list[str],
+    record: dict[str, Any],
+    now: str,
+) -> None:
+    """Write the editable fields of an enrichment row; links, notes and observations stay."""
+    connection.execute(
+        "INSERT INTO artist_enrichment_reviews(artist_id, decision, roles_json, "
+        "bass_related, spotify_url, soundcloud_url, tags_json, notes, "
+        "identity_decision, validated_at_utc, record_json, observation_json) "
+        "VALUES(?,?,?,?, '', '', ?, '', 'accepted', ?, ?, '{}') "
+        "ON CONFLICT(artist_id) DO UPDATE SET decision=excluded.decision, "
+        "roles_json=excluded.roles_json, bass_related=excluded.bass_related, "
+        "tags_json=excluded.tags_json, record_json=excluded.record_json",
+        (
+            artist_id,
+            decision,
+            json.dumps(roles),
+            None if bass_related is None else int(bass_related),
+            json.dumps(stored_tags),
+            now,
+            json.dumps(record, ensure_ascii=False),
+        ),
+    )
 
 
 def _record(text: str) -> dict[str, Any]:

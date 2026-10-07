@@ -25,7 +25,7 @@ NO_ROLE = "No role"
 HIDDEN_TAG = "idgaf"
 
 _SPACES = re.compile(r"\s+")
-_MAX_TAG_CHARACTERS = 40
+_MAX_TAG_CHARACTERS = 64
 _MAX_TAGS = 20
 
 
