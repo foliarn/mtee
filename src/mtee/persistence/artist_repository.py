@@ -17,6 +17,13 @@ from datetime import UTC, datetime
 from pathlib import PurePath
 from typing import Any
 
+from mtee.domain.artist_profile import (
+    HIDDEN_TAG,
+    ArtistProfile,
+    is_hidden,
+    normalize_roles,
+    normalize_tags,
+)
 from mtee.domain.artists import (
     CATEGORIES,
     RULES_VERSION,
@@ -1226,13 +1233,15 @@ class ArtistRepository:
     # ------------------------------------------------------------------- catalog
 
     def catalog(self) -> list[dict[str, Any]]:
-        """Return the established artists and the number of tracks credited to each."""
+        """Return the established artists, their tracks, roles, tags and hidden state."""
         rows = (
             self._database.connection()
             .execute(
-                "SELECT a.artist_id, a.display_name, COUNT(DISTINCT c.track_id) AS tracks "
+                "SELECT a.artist_id, a.display_name, COUNT(DISTINCT c.track_id) AS tracks, "
+                "r.decision, r.roles_json, r.bass_related, r.tags_json "
                 "FROM artists a JOIN track_artist_credits c ON c.artist_id=a.artist_id "
                 "AND c.confirmed=1 JOIN track_locations l ON l.track_id=c.track_id "
+                "LEFT JOIN artist_enrichment_reviews r ON r.artist_id=a.artist_id "
                 "WHERE a.state='established' GROUP BY a.artist_id "
                 "ORDER BY a.display_name COLLATE NOCASE, a.display_name"
             )
@@ -1243,9 +1252,87 @@ class ArtistRepository:
                 "id": str(row["artist_id"]),
                 "name": str(row["display_name"]),
                 "tracks": int(row["tracks"]),
+                **_profile_from_row(row).as_dict(),
             }
             for row in rows
         ]
+
+    def artist_profile(self, artist_id: str) -> ArtistProfile:
+        """Return the roles, tags and hidden state of an artist (empty when never set)."""
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT decision, roles_json, bass_related, tags_json "
+                "FROM artist_enrichment_reviews WHERE artist_id=?",
+                (artist_id,),
+            )
+            .fetchone()
+        )
+        return _profile_from_row(row)
+
+    def save_artist_profile(
+        self,
+        artist_id: str,
+        *,
+        roles: Iterable[object],
+        bass_related: bool | None,
+        tags: Iterable[object],
+        hidden: bool,
+    ) -> ArtistProfile:
+        """Store the roles, tags and hidden state of an artist.
+
+        ``idgaf`` and the ``exclude`` decision always change together; any other
+        decision (``uncertain``, ``pending``) is kept while the artist stays visible. The
+        links, notes and sourced observations of the row are never touched.
+        """
+        clean_roles = normalize_roles(roles)
+        clean_tags = normalize_tags(tags)
+        stored_tags = [HIDDEN_TAG, *clean_tags] if hidden else clean_tags
+        now = _now()
+        with self._database.transaction() as connection:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM artists WHERE artist_id=?", (artist_id,)
+                ).fetchone()
+                is None
+            ):
+                raise ValueError("The artist no longer exists.")
+            row = connection.execute(
+                "SELECT decision, record_json FROM artist_enrichment_reviews WHERE artist_id=?",
+                (artist_id,),
+            ).fetchone()
+            previous = str(row["decision"]) if row is not None else "keep"
+            decision = "exclude" if hidden else ("keep" if previous == "exclude" else previous)
+            record = _record(row["record_json"] if row is not None else "")
+            record.update(
+                {
+                    "decision": decision,
+                    "roles": clean_roles,
+                    "bass_related": bass_related,
+                    "tags": stored_tags,
+                    "saved_at": now,
+                }
+            )
+            bass = None if bass_related is None else int(bass_related)
+            connection.execute(
+                "INSERT INTO artist_enrichment_reviews(artist_id, decision, roles_json, "
+                "bass_related, spotify_url, soundcloud_url, tags_json, notes, "
+                "identity_decision, validated_at_utc, record_json, observation_json) "
+                "VALUES(?,?,?,?, '', '', ?, '', 'accepted', ?, ?, '{}') "
+                "ON CONFLICT(artist_id) DO UPDATE SET decision=excluded.decision, "
+                "roles_json=excluded.roles_json, bass_related=excluded.bass_related, "
+                "tags_json=excluded.tags_json, record_json=excluded.record_json",
+                (
+                    artist_id,
+                    decision,
+                    json.dumps(clean_roles),
+                    bass,
+                    json.dumps(stored_tags),
+                    now,
+                    json.dumps(record, ensure_ascii=False),
+                ),
+            )
+        return ArtistProfile(clean_roles, bass_related, clean_tags, hidden)
 
     def catalog_track_ids(self, artist_id: str) -> list[str]:
         """Return the tracks credited to ``artist_id``, by file name."""
@@ -1277,6 +1364,33 @@ class ArtistRepository:
             .fetchall()
         )
         return [str(row[0]) for row in rows]
+
+
+def _record(text: str) -> dict[str, Any]:
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _profile_from_row(row: sqlite3.Row | None) -> ArtistProfile:
+    if row is None:
+        return ArtistProfile()
+    try:
+        raw_tags = json.loads(row["tags_json"])
+        raw_roles = json.loads(row["roles_json"])
+    except (TypeError, ValueError):
+        raw_tags, raw_roles = [], []
+    raw_tags = raw_tags if isinstance(raw_tags, list) else []
+    raw_roles = raw_roles if isinstance(raw_roles, list) else []
+    bass = row["bass_related"]
+    return ArtistProfile(
+        roles=normalize_roles(raw_roles),
+        bass_related=None if bass is None else bool(bass),
+        tags=normalize_tags(raw_tags),
+        hidden=is_hidden(str(row["decision"]), raw_tags),
+    )
 
 
 def _revision_json(revision: SourceRevision) -> dict[str, Any]:

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from mtee.domain.artist_profile import ArtistProfile
 from mtee.domain.artists import CATEGORIES, normalize_key
 from mtee.persistence.artist_repository import ArtistRepository, StageResult
 from mtee.services.artist_file_service import ArtistFileService
@@ -247,6 +248,25 @@ class ArtistManagerService:
         if not needle:
             return rows
         return [row for row in rows if needle in normalize_key(row["name"])]
+
+    def artist_profile(self, artist_id: str) -> ArtistProfile:
+        return self._repository.artist_profile(artist_id)
+
+    def save_artist_profile(
+        self,
+        artist_id: str,
+        *,
+        roles: list[str],
+        bass_related: bool | None,
+        tags: list[str],
+        hidden: bool,
+    ) -> ArtistProfile:
+        try:
+            return self._repository.save_artist_profile(
+                artist_id, roles=roles, bass_related=bass_related, tags=tags, hidden=hidden
+            )
+        except ValueError as error:
+            raise ArtistManagerError(str(error)) from error
 
 
 def _matches(row: dict[str, Any], needle: str) -> bool:

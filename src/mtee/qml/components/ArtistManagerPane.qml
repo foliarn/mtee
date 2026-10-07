@@ -16,8 +16,24 @@ Item {
         ? workspace.groups[workspace.activeGroup].active : ""
     property bool identificationOpen: true
     property bool artistsOpen: true
+    // The catalog of the page (filtered by the user) and the unfiltered one of the tree.
     readonly property var catalog: live ? manager.listModel("catalog") : null
-    property var menuArtist: ({ "artistId": "", "name": "" })
+    readonly property var everyone: live ? manager.listModel("catalog.all") : null
+    property var menuArtist: ({ "artistId": "", "name": "", "hidden": false })
+    readonly property var folders: [
+        { "key": "Producer", "label": "Producer", "types": ["Producer"] },
+        { "key": "DJ", "label": "DJ", "types": ["DJ"] },
+        { "key": "Singer", "label": "Singer", "types": ["Singer"] },
+        { "key": "MC", "label": "MC", "types": ["MC"] },
+        { "key": "none", "label": "No role", "types": ["No role"] }
+    ]
+    property var openFolders: ({})
+
+    function openCatalog(types) {
+        if (catalog !== null)
+            catalog.setTypes(types)
+        workspace.openArtistView("catalog", "Artists")
+    }
 
     objectName: "artistManagerPane"
 
@@ -133,52 +149,97 @@ Item {
                 }
             }
 
-            // Artists: the established profiles, alphabetical, in a scrolling list.
+            // Artists: the established profiles, in one folder per type. An artist with
+            // several types appears in each of its folders.
             TreeRow {
                 objectName: "artistsTreeRow"
                 visible: pane.live
                 label: "Artists"
                 chevron: pane.artistsOpen ? "chevron-down" : "chevron-right"
                 strong: true
-                count: pane.catalog ? pane.catalog.count : 0
+                count: pane.everyone ? pane.everyone.count : 0
                 current: pane.activeTabId === "artists:catalog"
+                    && pane.catalog !== null && pane.catalog.types.length === 0
                 onChevronActivated: pane.artistsOpen = !pane.artistsOpen
                 onActivated: {
                     pane.artistsOpen = true
-                    pane.workspace.openArtistView("catalog", "Artists")
+                    pane.openCatalog([])
                 }
             }
 
-            ListView {
-                id: artistTree
-                objectName: "artistTree"
-                visible: pane.live && pane.artistsOpen && pane.catalog !== null && pane.catalog.count > 0
-                width: content.width
-                height: visible ? Math.min(pane.catalog.count, 10) * Theme.treeRowHeight : 0
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                model: pane.catalog
-                ScrollBar.vertical: ThinScrollBar {}
+            Repeater {
+                model: pane.live && pane.artistsOpen ? pane.folders : []
 
-                delegate: TreeRow {
-                    id: node
-                    required property string artistId
-                    required property string name
-                    width: ListView.view.width
-                    height: Theme.treeRowHeight
-                    depth: 1
-                    label: name
-                    current: pane.activeTabId === "artist:" + artistId
-                    onActivated: pane.workspace.openArtistPage(artistId, name)
-                    onContext: (x, y) => {
-                        pane.menuArtist = { "artistId": artistId, "name": name }
-                        artistMenu.popup(node, x, y)
+                delegate: Column {
+                    id: folder
+                    required property var modelData
+                    readonly property var folderModel: pane.manager.listModel("catalog." + modelData.key)
+                    readonly property bool open: pane.openFolders[modelData.key] === true
+
+                    width: content.width
+
+                    TreeRow {
+                        objectName: "artistFolder" + folder.modelData.key
+                        depth: 1
+                        label: folder.modelData.label
+                        chevron: folder.open ? "chevron-down" : "chevron-right"
+                        count: folder.folderModel.count
+                        muted: folder.folderModel.count === 0
+                        current: pane.activeTabId === "artists:catalog" && pane.catalog !== null
+                            && pane.catalog.types.length === 1
+                            && pane.catalog.types[0] === folder.modelData.types[0]
+                        onChevronActivated: {
+                            const next = Object.assign({}, pane.openFolders)
+                            next[folder.modelData.key] = !folder.open
+                            pane.openFolders = next
+                        }
+                        onActivated: {
+                            const next = Object.assign({}, pane.openFolders)
+                            next[folder.modelData.key] = true
+                            pane.openFolders = next
+                            pane.openCatalog(folder.modelData.types)
+                        }
+                    }
+
+                    ListView {
+                        id: folderList
+                        objectName: "artistTree" + folder.modelData.key
+                        visible: folder.open && folder.folderModel.count > 0
+                        width: folder.width
+                        height: visible ? Math.min(folder.folderModel.count, 10) * Theme.treeRowHeight : 0
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: folder.folderModel
+                        ScrollBar.vertical: ThinScrollBar {}
+
+                        WheelScrollHandler {
+                            flickable: folderList
+                            speed: 3
+                        }
+
+                        delegate: TreeRow {
+                            id: node
+                            required property string artistId
+                            required property string name
+                            required property bool hidden
+                            width: ListView.view.width
+                            height: Theme.treeRowHeight
+                            depth: 2
+                            label: name
+                            muted: hidden
+                            current: pane.activeTabId === "artist:" + artistId
+                            onActivated: pane.workspace.openArtistPage(artistId, name)
+                            onContext: (x, y) => {
+                                pane.menuArtist = { "artistId": artistId, "name": name, "hidden": hidden }
+                                artistMenu.popup(node, x, y)
+                            }
+                        }
                     }
                 }
             }
 
             Text {
-                visible: pane.live && pane.artistsOpen && pane.catalog !== null && pane.catalog.count === 0
+                visible: pane.live && pane.artistsOpen && pane.everyone !== null && pane.everyone.count === 0
                 x: 28
                 width: parent.width - 44
                 bottomPadding: 6
@@ -328,11 +389,22 @@ Item {
         id: artistMenu
         implicitWidth: 180
         AppMenuItem { text: "Open"; onTriggered: pane.workspace.openArtistPage(pane.menuArtist.artistId, pane.menuArtist.name) }
+        AppMenuItem { text: "Edit profile…"; onTriggered: profileDialog.show(pane.menuArtist.artistId, pane.menuArtist.name) }
+        AppMenuItem {
+            text: pane.menuArtist.hidden ? "Show artist" : "Hide artist (idgaf)"
+            onTriggered: pane.manager.setArtistHidden(pane.menuArtist.artistId, !pane.menuArtist.hidden)
+        }
         AppMenuSeparator {}
         AppMenuItem { text: "Rename"; onTriggered: actionDialog.show("rename", pane.menuArtist.artistId, pane.menuArtist.name) }
         AppMenuItem { text: "Merge into…"; onTriggered: actionDialog.show("merge", pane.menuArtist.artistId, pane.menuArtist.name) }
         AppMenuSeparator {}
         AppMenuItem { text: "Delete artist"; onTriggered: actionDialog.show("delete", pane.menuArtist.artistId, pane.menuArtist.name) }
+    }
+
+    ArtistProfileDialog {
+        id: profileDialog
+        manager: pane.manager
+        parent: Overlay.overlay
     }
 
     ArtistActionDialog {

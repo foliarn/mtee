@@ -23,6 +23,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from mtee.domain.artist_profile import NO_ROLE, ROLES
 from mtee.domain.artists import normalize_key
 from mtee.domain.jobs import JobState
 from mtee.models.analysis_model import AnalysisModel
@@ -68,21 +69,43 @@ _TRACK_ROLES = (
     "path",
 )
 _ARTIST_ROLES = ("artistId", "name", "tracks", "trackIds", "unavailable")
+_CATALOG_ROLES = (
+    "artistId",
+    "name",
+    "tracks",
+    "roles",
+    "hidden",
+    "tags",
+    "bassRelated",
+    "unavailable",
+)
+_CATALOG_FOLDERS = {"all": (), "none": (NO_ROLE,), **{role: (role,) for role in ROLES}}
+# Above this number of changed rows, the list is reset instead of edited row by row.
+_RESET_THRESHOLD = 40
 
 
 class ArtistListModel(QAbstractListModel):
-    """One list of the manager: tracks or artists of a category, or the catalog."""
+    """One list of the manager: tracks or artists of a category, or the catalog.
+
+    The catalog is ``catalog`` (filtered by the user) or ``catalog.<folder>`` with a
+    fixed role: ``catalog.all``, ``catalog.Producer``, ``catalog.none``... Hidden
+    artists only appear while the manager shows them.
+    """
 
     countChanged = Signal()
     loadingChanged = Signal()
     searchChanged = Signal()
+    filtersChanged = Signal()
 
     def __init__(self, manager: ArtistManagerModel, key: str) -> None:
         super().__init__(manager)
         self._manager = manager
         self._key = key
-        self._kind = "catalog" if key == "catalog" else key.partition(".")[2]
-        self._category = "" if key == "catalog" else key.partition(".")[0]
+        head, _, tail = key.partition(".")
+        self._kind = "catalog" if head == "catalog" else tail
+        self._category = "" if head == "catalog" else head
+        self._types: list[str] = list(_CATALOG_FOLDERS.get(tail, ())) if head == "catalog" else []
+        self._min_tracks = 0
         self._all: list[dict[str, Any]] = []
         self._rows: list[dict[str, Any]] = []
         self._search = ""
@@ -90,7 +113,14 @@ class ArtistListModel(QAbstractListModel):
         self._ascending = True
         self._loading = False
         self._generation = 0
-        names = _TRACK_ROLES if self._kind == "tracks" else _ARTIST_ROLES
+        names = (
+            _TRACK_ROLES
+            if self._kind == "tracks"
+            else _CATALOG_ROLES
+            if self._kind == "catalog"
+            else _ARTIST_ROLES
+        )
+        manager.showHiddenChanged.connect(self._apply)
         self._role_names = {
             Qt.ItemDataRole.UserRole + 1 + index: name for index, name in enumerate(names)
         }
@@ -163,6 +193,55 @@ class ArtistListModel(QAbstractListModel):
         self.searchChanged.emit()
         self._apply()
 
+    @Property("QVariantList", notify=filtersChanged)
+    def types(self) -> list[str]:
+        return list(self._types)
+
+    @Property(int, notify=filtersChanged)
+    def minTracks(self) -> int:
+        return self._min_tracks
+
+    @Property(bool, notify=filtersChanged)
+    def filtered(self) -> bool:
+        return bool(self._types) or self._min_tracks > 0
+
+    @Slot(str)
+    def toggleType(self, role: str) -> None:
+        """Add or remove a type: an artist matches when it has any of the chosen ones."""
+        if role not in (*ROLES, NO_ROLE):
+            return
+        self._types = (
+            [kind for kind in self._types if kind != role]
+            if role in self._types
+            else [*self._types, role]
+        )
+        self.filtersChanged.emit()
+        self._apply()
+
+    @Slot("QVariantList")
+    def setTypes(self, roles: list[str]) -> None:
+        wanted = [role for role in (*ROLES, NO_ROLE) if role in roles]
+        if wanted != self._types:
+            self._types = wanted
+            self.filtersChanged.emit()
+            self._apply()
+
+    @Slot(int)
+    def setMinTracks(self, count: int) -> None:
+        count = max(0, int(count))
+        if count != self._min_tracks:
+            self._min_tracks = count
+            self.filtersChanged.emit()
+            self._apply()
+
+    @Slot()
+    def clearFilters(self) -> None:
+        if self._types or self._min_tracks:
+            self._types = []
+            self._min_tracks = 0
+            self.filtersChanged.emit()
+            self._apply()
+
     @Slot(str)
     def toggleSort(self, key: str) -> None:
         if key == self._sort_key:
@@ -214,6 +293,8 @@ class ArtistListModel(QAbstractListModel):
                 ]
             else:
                 rows = [row for row in rows if needle in normalize_key(row["name"])]
+        if self._kind == "catalog":
+            rows = [row for row in rows if self._catalog_match(row)]
         if self._kind == "tracks":
             if self._sort_key == "artist":
                 rows = sorted(
@@ -233,6 +314,17 @@ class ArtistListModel(QAbstractListModel):
             rows = list(reversed(rows))
         return rows
 
+    def _catalog_match(self, row: dict[str, Any]) -> bool:
+        if row.get("hidden") and not self._manager.show_hidden:
+            return False
+        if int(row.get("tracks", 0)) < self._min_tracks:
+            return False
+        if self._types:
+            roles = row.get("roles") or []
+            if not set(roles) & set(self._types) and not (NO_ROLE in self._types and not roles):
+                return False
+        return True
+
     @staticmethod
     def _identity(row: dict[str, Any]) -> str:
         return str(row.get("trackId") or row.get("id") or "")
@@ -242,6 +334,12 @@ class ArtistListModel(QAbstractListModel):
         old_ids = [self._identity(row) for row in self._rows]
         new_ids = [self._identity(row) for row in new_rows]
         wanted = set(new_ids)
+        if len(wanted.symmetric_difference(old_ids)) > _RESET_THRESHOLD:
+            self.beginResetModel()
+            self._rows = new_rows
+            self.endResetModel()
+            self.countChanged.emit()
+            return
         common_old = [identity for identity in old_ids if identity in wanted]
         known = set(old_ids)
         common_new = [identity for identity in new_ids if identity in known]
@@ -280,6 +378,8 @@ class ArtistManagerModel(QObject):
     noticeRaised = Signal(str)
     confirmationReady = Signal("QVariantMap")
     tracksChanged = Signal(list)
+    showHiddenChanged = Signal()
+    artistProfileChanged = Signal(str)
 
     def __init__(
         self,
@@ -305,6 +405,7 @@ class ArtistManagerModel(QObject):
         self._models: dict[str, ArtistListModel] = {}
         self._analyzing = False
         self._applying = False
+        self._show_hidden = False
         self._changed_tracks: set[str] = set()
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -338,6 +439,21 @@ class ArtistManagerModel(QObject):
     @Property("QVariantMap", notify=stateChanged)
     def state(self) -> dict[str, Any]:
         return self._state
+
+    @Property(bool, notify=showHiddenChanged)
+    def showHidden(self) -> bool:
+        return self._show_hidden
+
+    @property
+    def show_hidden(self) -> bool:
+        return self._show_hidden
+
+    @Slot(bool)
+    def setShowHidden(self, value: bool) -> None:
+        """Show or hide the artists tagged ``idgaf`` in every catalog list."""
+        if bool(value) != self._show_hidden:
+            self._show_hidden = bool(value)
+            self.showHiddenChanged.emit()
 
     @Property(bool, notify=busyChanged)
     def analyzing(self) -> bool:
@@ -491,6 +607,37 @@ class ArtistManagerModel(QObject):
         return {"ok": True, "error": ""}
 
     # ------------------------------------------------------------------ artist actions
+
+    @Slot(str, result="QVariantMap")
+    def artistProfile(self, artist_id: str) -> dict[str, Any]:
+        """Return the types, Bass-related flag, tags and hidden state of an artist."""
+        return dict(self._service.artist_profile(artist_id).as_dict())
+
+    @Slot(str, "QVariantList", int, "QVariantList", bool, result="QVariantMap")
+    def saveArtistProfile(
+        self, artist_id: str, roles: list, bass_related: int, tags: list, hidden: bool
+    ) -> dict[str, Any]:
+        """Store the profile of an artist; ``bass_related`` is -1 (unknown), 0 or 1."""
+        try:
+            self._service.save_artist_profile(
+                artist_id,
+                roles=[str(role) for role in roles],
+                bass_related=None if bass_related < 0 else bool(bass_related),
+                tags=[str(tag) for tag in tags],
+                hidden=bool(hidden),
+            )
+        except ArtistManagerError as error:
+            return {"ok": False, "error": str(error)}
+        self.refresh()
+        self.artistProfileChanged.emit(artist_id)
+        return {"ok": True, "error": ""}
+
+    @Slot(str, bool, result="QVariantMap")
+    def setArtistHidden(self, artist_id: str, hidden: bool) -> dict[str, Any]:
+        """Hide (``idgaf``) or show an artist, leaving its other fields as they are."""
+        profile = self._service.artist_profile(artist_id)
+        bass = -1 if profile.bass_related is None else int(profile.bass_related)
+        return self.saveArtistProfile(artist_id, profile.roles, bass, profile.tags, hidden)
 
     @Slot(str, result="QVariantMap")
     def artistImpact(self, artist_id: str) -> dict[str, Any]:
@@ -662,6 +809,14 @@ class NullArtistManager(QObject):
     @Property(bool, notify=busyChanged)
     def applying(self) -> bool:
         return False
+
+    @Property(bool, constant=True)
+    def showHidden(self) -> bool:
+        return False
+
+    @Slot(bool)
+    def setShowHidden(self, _value: bool) -> None:
+        return None
 
     @Slot(str, result=QObject)
     def listModel(self, _key: str) -> QObject:
