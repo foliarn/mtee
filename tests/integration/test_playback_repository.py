@@ -70,8 +70,8 @@ def test_migration_from_17_keeps_data_and_creates_consistent_backup(tmp_path: Pa
 
     database = Database(path)
     applied = database.migrate()
-    assert [migration.version for migration in applied] == [18, 19]
-    assert database.schema_version() == 19
+    assert [migration.version for migration in applied] == [18, 19, 20]
+    assert database.schema_version() == 20
     assert (
         database.connection()
         .execute("SELECT value FROM settings WHERE key='queue-test-marker'")

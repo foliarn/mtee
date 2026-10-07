@@ -15,6 +15,28 @@ Item {
     readonly property int coverSize: compact ? Theme.playlistCoverCompact : Theme.playlistCoverLarge
     readonly property int playRow: 56
     readonly property int trackCount: trackModel.count
+    readonly property var manager: workspace.artistManager
+    property var profile: ({ "roles": [], "bassRelated": null, "tags": [], "hidden": false })
+    readonly property string profileSummary: {
+        const parts = profile.roles.concat(profile.bassRelated === true ? ["Bass-related"] : [],
+                                           profile.tags, profile.hidden ? ["idgaf"] : [])
+        return parts.length > 0 ? parts.join(" · ") : "No type yet"
+    }
+
+    function reloadProfile() {
+        if (manager && manager.available)
+            profile = manager.artistProfile(tab.ref)
+    }
+
+    Component.onCompleted: reloadProfile()
+
+    Connections {
+        target: header.manager && header.manager.available ? header.manager : null
+        function onArtistProfileChanged(artistId) {
+            if (artistId === header.tab.ref)
+                header.reloadProfile()
+        }
+    }
     // 24 above the cover, the cover, 24, the Play row, 24 below.
     implicitHeight: 24 + coverSize + 24 + playRow + 24
 
@@ -105,6 +127,16 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSecondary
         }
+
+        Text {
+            objectName: "artistProfileSummary"
+            width: parent.width
+            text: header.profileSummary
+            elide: Text.ElideRight
+            color: header.profile.hidden ? Theme.textMuted : Theme.textSecondary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSecondary
+        }
     }
 
     Row {
@@ -135,5 +167,19 @@ Item {
             tip: "Shuffle the tracks of this artist"
             onClicked: header.workspace.playArtistRows(header.tab.ref, header.trackModel.rows, true)
         }
+
+        TextButton {
+            objectName: "artistEditProfile"
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Edit profile"
+            kind: "ghost"
+            onClicked: profileDialog.show(header.tab.ref, header.tab.title)
+        }
+    }
+
+    ArtistProfileDialog {
+        id: profileDialog
+        manager: header.manager
+        parent: Overlay.overlay
     }
 }
