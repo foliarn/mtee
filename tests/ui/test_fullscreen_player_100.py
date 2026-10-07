@@ -182,7 +182,6 @@ def test_the_more_menu_has_six_entries_and_targets_the_playing_track(qapp, tmp_p
                 "playingAddToPlaylist",
                 "playingConvert",
                 "playingAnalyze",
-                "playingReanalyze",
                 "playingShowInExplorer",
             )
         ]
@@ -191,7 +190,6 @@ def test_the_more_menu_has_six_entries_and_targets_the_playing_track(qapp, tmp_p
             "Add to playlist…",
             "Convert…",
             "Analyze",
-            "Re-analyze",
             "Show in Explorer",
         ]
         menu = cast(QObject, _find(root, "playingConvert")).parent()

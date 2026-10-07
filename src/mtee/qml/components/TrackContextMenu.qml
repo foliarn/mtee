@@ -70,12 +70,6 @@ AppMenu {
     }
 
     AppMenuItem {
-        objectName: "reanalyzeAction"
-        text: "Re-analyze"
-        onTriggered: menu.workspace.analyzeTracks(typeof menu.workspace.localTrackIds === "function" ? menu.workspace.localTrackIds(menu.targetIds()) : menu.targetIds(), true)
-    }
-
-    AppMenuItem {
         text: "Show in Explorer"
         onTriggered: menu.workspace.showInExplorer(typeof menu.workspace.localTrackIds === "function" ? menu.workspace.localTrackIds([menu.trackId])[0] || "" : menu.trackId)
     }

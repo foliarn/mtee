@@ -309,3 +309,39 @@ def test_the_model_exposes_counters_cancel_and_failures(qtbot, service: JobServi
     assert model.data(index, int(JobRole.FINISHED_RANK)) == 0
     model.clearFinished()
     assert model.rowCount() == 0
+
+
+def test_a_partial_failure_is_grouped_for_attention_and_a_success_settles(
+    qtbot, service: JobService, monkeypatch
+) -> None:
+    from mtee.models import jobs_model
+    from mtee.models.jobs_model import JobRole
+    from mtee.services.analysis_service import AnalysisBatchError
+
+    monkeypatch.setattr(jobs_model, "SETTLE_SECONDS", 0.3)
+    model = JobsListModel(service)
+
+    def partial(context: JobContext) -> None:
+        context.report_items(25, 25, "last.flac")
+        context.report_failure("bad.mp3", "tags changed while saving")
+        raise AnalysisBatchError("1 of 25 tracks could not be analyzed")
+
+    failed = service.submit(partial, label="Analyze baile")
+    ok = service.submit(lambda _context: None, label="Save metadata")
+    qtbot.waitUntil(lambda: model.finishedCount == 2, timeout=2_000)
+    rows = {model.status_at(row).job_id: row for row in range(model.rowCount())}
+
+    partial_index = model.index(rows[failed], 0)
+    assert model.data(partial_index, int(JobRole.OUTCOME)) == "partial"
+    assert model.data(partial_index, int(JobRole.STATE_LABEL)) == "Completed with errors"
+    assert model.data(partial_index, int(JobRole.ERROR_MESSAGE)) == (
+        "1 of 25 tracks could not be analyzed"
+    )
+    assert model.data(partial_index, int(JobRole.GROUP)) == "attention"
+    assert model.attentionCount == 1
+    assert model.data(model.index(rows[ok], 0), int(JobRole.GROUP)) == "live"
+    assert model.liveCount == 1
+
+    qtbot.waitUntil(lambda: model.settledCount == 1, timeout=2_000)
+    assert model.data(model.index(rows[ok], 0), int(JobRole.GROUP)) == "done"
+    assert model.liveCount == 0 and model.attentionCount == 1

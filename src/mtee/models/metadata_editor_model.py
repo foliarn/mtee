@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import copy
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.domain.analysis import AnalysisSettings, TrackAnalysis, format_bpm
+from mtee.domain.artists import dedupe_names, normalize_key, split_credit
 from mtee.domain.metadata import MetadataSnapshot
-from mtee.domain.metadata_edit import EDITABLE_METADATA_FIELDS, MetadataEditResult, MetadataPatch
+from mtee.domain.metadata_edit import (
+    EDITABLE_METADATA_FIELDS,
+    MetadataEditResult,
+    MetadataPatch,
+    serialize_artists,
+)
 from mtee.domain.musical_key import format_key
+from mtee.domain.tag_values import validate_field
 from mtee.domain.tracks import SourceRevision
 from mtee.models.player_model import PlayerModel
 from mtee.persistence.analysis_repository import AnalysisRepository
@@ -62,6 +70,25 @@ class _EditBatch:
     value: str | None
     targets: tuple[_EditTarget, ...]
     draft_selection: tuple[str, ...]
+    # A batch saved from the staged changes writes several fields in one pass:
+    # ``changes`` holds the plain fields, ``artist_names`` the credit of each track.
+    changes: tuple[tuple[str, str | None], ...] = ()
+    artist_names: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    staged: tuple[tuple[str, Any], ...] = ()
+
+    @property
+    def is_staged(self) -> bool:
+        return self.field == "*"
+
+
+class ArtistTags(Protocol):
+    """The part of the artist catalog the tag editor talks to."""
+
+    def protected_names(self) -> list[str]: ...
+
+    def suggestions(self, query: str, limit: int = 8) -> list[dict[str, object]]: ...
+
+    def sync_tags(self, track_id: str, names: Sequence[str], title: str | None = None) -> bool: ...
 
 
 class MetadataEditorModel(QObject):
@@ -72,6 +99,12 @@ class MetadataEditorModel(QObject):
     batchFinished = Signal(str, object)
     recoveryChecked = Signal(object)
     inspectionFinished = Signal(int, object)
+    stagingChanged = Signal()
+    artistsChanged = Signal()
+    artistsSynced = Signal()
+    noticeRaised = Signal(str)
+    valuesLoaded = Signal(object)
+    valuesChanged = Signal()
 
     def __init__(
         self,
@@ -84,8 +117,14 @@ class MetadataEditorModel(QObject):
         *,
         analysis: AnalysisRepository | None = None,
         analysis_settings: Callable[[], AnalysisSettings] | None = None,
+        artists: ArtistTags | None = None,
     ) -> None:
         super().__init__(parent)
+        self._artists = artists
+        self._staged: dict[tuple[str, ...], dict[str, Any]] = {}
+        self._last_selection: tuple[str, ...] = ()
+        self._value_cache: dict[str, list[str]] = {}
+        self._values_requested = False
         self._library = library
         self._writer = writer
         self._analysis = analysis
@@ -114,7 +153,8 @@ class MetadataEditorModel(QObject):
         self.batchFinished.connect(self._on_batch_finished)
         self.recoveryChecked.connect(self._on_recovery_checked)
         self.inspectionFinished.connect(self._on_inspection_finished)
-        self._jobs.submit(self._inspect_recovery, label="Inspect metadata recovery")
+        self.valuesLoaded.connect(self._on_values_loaded)
+        self._jobs.submit(self._inspect_recovery, label="Inspect metadata recovery", visible=False)
         if player is not None:
             player.trackAccessReleased.connect(self._on_track_access_released)
 
@@ -223,7 +263,9 @@ class MetadataEditorModel(QObject):
                 continue
             if revision is not None and current.revision != revision:
                 continue
-            resolved_snapshot = snapshot if isinstance(snapshot, MetadataSnapshot) else current.snapshot
+            resolved_snapshot = (
+                snapshot if isinstance(snapshot, MetadataSnapshot) else current.snapshot
+            )
             resolved_capabilities = (
                 capabilities
                 if isinstance(capabilities, dict)
@@ -238,14 +280,32 @@ class MetadataEditorModel(QObject):
             )
         self.changed.emit()
 
+    def _cached_inspection(
+        self, source: TrackSource
+    ) -> tuple[MetadataSnapshot, dict[str, tuple[bool, str]]] | None:
+        """Return the inspection of a track, or the last older one while a new one is prepared.
+
+        A save changes the revision; what a file can accept does not change with it, so the
+        fields stay editable instead of waiting for another inspection.
+        """
+        exact = self._inspection_cache.get((source.track_id, source.revision.generation))
+        if exact is not None:
+            return exact
+        older = [
+            generation
+            for track_id, generation in self._inspection_cache
+            if track_id == source.track_id and generation < source.revision.generation
+        ]
+        if not older:
+            return None
+        snapshot, capabilities = self._inspection_cache[(source.track_id, max(older))]
+        return source.snapshot if source.snapshot is not None else snapshot, capabilities
+
     def _fields_for_sources(
         self, sources: list[TrackSource], selected: tuple[str, ...]
     ) -> list[dict[str, Any]]:
         fields: list[dict[str, Any]] = []
-        inspected = [
-            self._inspection_cache.get((source.track_id, source.revision.generation))
-            for source in sources
-        ]
+        inspected = [self._cached_inspection(source) for source in sources]
         capabilities_by_source = [
             result[1]
             if result is not None
@@ -255,8 +315,10 @@ class MetadataEditorModel(QObject):
             }
             for result in inspected
         ]
-        snapshots = [result[0] if result is not None else source.snapshot
-                     for source, result in zip(sources, inspected, strict=True)]
+        snapshots = [
+            result[0] if result is not None else source.snapshot
+            for source, result in zip(sources, inspected, strict=True)
+        ]
         calculated = (
             self._analysis.get_many(source.track_id for source in sources)
             if self._analysis is not None
@@ -276,15 +338,22 @@ class MetadataEditorModel(QObject):
             draft_key = (field, selected)
             if draft_key in self._drafts:
                 value = self._drafts[draft_key] or ""
+            original = value
+            staged = self._staged.get(selected, {}).get(field)
+            if staged is not None and field != "artist":
+                value = staged["text"]
             editable, reason = self._capability(field, sources, capabilities_by_source)
             fields.append(
                 {
                     "key": field,
                     "label": _FIELD_LABELS[field],
                     "value": value,
-                    "mixed": mixed and draft_key not in self._drafts,
+                    "original": original,
+                    "mixed": mixed and draft_key not in self._drafts and staged is None,
                     "editable": editable,
                     "reason": reason,
+                    "dirty": staged is not None,
+                    "error": staged["error"] if staged is not None and field != "artist" else "",
                 }
             )
         return fields
@@ -312,7 +381,261 @@ class MetadataEditorModel(QObject):
 
     def refresh_selection(self) -> None:
         """Refresh the displayed values; drafts remain bound to their captured UUIDs."""
+        selection = self._selection()
+        if selection != self._last_selection:
+            if self._last_selection in self._staged:
+                self.noticeRaised.emit(
+                    "Unsaved tag changes were kept. Select the same tracks again to save them."
+                )
+            self._last_selection = selection
+            self.stagingChanged.emit()
+            self.artistsChanged.emit()
         self.changed.emit()
+
+    # ---------------------------------------------------------------- staged changes
+
+    def _selection(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(str(value) for value in self._selected_ids()))
+
+    def _notation(self) -> str:
+        if self._analysis_settings is None:
+            return "camelot"
+        return self._analysis_settings().notation
+
+    def _protected(self) -> list[str]:
+        if self._artists is None:
+            return []
+        try:
+            return self._artists.protected_names()
+        except Exception:
+            return []
+
+    def _selected_sources(self, selection: tuple[str, ...]) -> list[TrackSource]:
+        sources = [self._library.source_record(track_id) for track_id in selection]
+        return [source for source in sources if source is not None]
+
+    def _snapshot_of(self, source: TrackSource) -> MetadataSnapshot:
+        inspected = self._cached_inspection(source)
+        return inspected[0] if inspected is not None else source.snapshot
+
+    def _original_text(self, field: str, selection: tuple[str, ...]) -> tuple[str, bool]:
+        """Return the shown value of a field and whether the selection disagrees on it."""
+        sources = self._selected_sources(selection)
+        calculated = (
+            self._analysis.get_many(source.track_id for source in sources)
+            if self._analysis is not None
+            else {}
+        )
+        texts = {
+            " / ".join(
+                self._displayed_values(
+                    field, source.track_id, self._snapshot_of(source), calculated
+                )
+            )
+            for source in sources
+        }
+        if len(texts) > 1:
+            return "", True
+        return (next(iter(texts)) if texts else ""), False
+
+    @Property(list, notify=stagingChanged)
+    def dirtyFields(self) -> list[str]:
+        staged = self._staged.get(self._selection(), {})
+        return [field for field in EDITABLE_METADATA_FIELDS if field in staged]
+
+    @Property(int, notify=stagingChanged)
+    def changeCount(self) -> int:
+        return len(self.dirtyFields)
+
+    @Property(bool, notify=stagingChanged)
+    def hasChanges(self) -> bool:
+        return self.changeCount > 0
+
+    @Property("QVariantMap", notify=stagingChanged)
+    def fieldErrors(self) -> dict[str, str]:
+        staged = self._staged.get(self._selection(), {})
+        return {
+            field: str(entry["error"])
+            for field, entry in staged.items()
+            if field != "artist" and entry["error"]
+        }
+
+    @Property(bool, notify=stagingChanged)
+    def canSave(self) -> bool:
+        return self.hasChanges and not self.fieldErrors
+
+    @Slot(str, str)
+    def stageField(self, field: str, text: str) -> None:
+        """Keep what the user typed in a field; nothing is written until ``saveChanges``."""
+        if field not in EDITABLE_METADATA_FIELDS or field == "artist":
+            return
+        selection = self._selection()
+        if not selection:
+            return
+        original, mixed = self._original_text(field, selection)
+        value, error = validate_field(field, text, self._notation())
+        staged = self._staged.setdefault(selection, {})
+        unchanged = (mixed and not text) or (not error and not mixed and value == original)
+        if unchanged:
+            staged.pop(field, None)
+        else:
+            staged[field] = {"text": text, "value": value, "error": error}
+        if not staged:
+            self._staged.pop(selection, None)
+        self.stagingChanged.emit()
+
+    @Slot(str)
+    def revertField(self, field: str) -> None:
+        selection = self._selection()
+        staged = self._staged.get(selection)
+        if staged is None or field not in staged:
+            return
+        del staged[field]
+        if not staged:
+            self._staged.pop(selection, None)
+        self.stagingChanged.emit()
+        self.artistsChanged.emit()
+        self.changed.emit()
+
+    @Slot()
+    def revertAll(self) -> None:
+        if self._staged.pop(self._selection(), None) is not None:
+            self.stagingChanged.emit()
+            self.artistsChanged.emit()
+            self.changed.emit()
+
+    # ---------------------------------------------------------------- artist credits
+
+    def _base_artists(self, source: TrackSource, protected: list[str]) -> list[str]:
+        values = self._snapshot_of(source).artist
+        return dedupe_names(name for value in values for name in split_credit(value, protected))
+
+    def _artist_ops(self, selection: tuple[str, ...]) -> dict[str, list[str]]:
+        entry = self._staged.get(selection, {}).get("artist")
+        if entry is None:
+            return {"add": [], "remove": []}
+        return {"add": list(entry["add"]), "remove": list(entry["remove"])}
+
+    def _names_for(
+        self, source: TrackSource, ops: dict[str, list[str]], protected: list[str]
+    ) -> list[str]:
+        removed = {normalize_key(name) for name in ops["remove"]}
+        kept = [
+            name
+            for name in self._base_artists(source, protected)
+            if normalize_key(name) not in removed
+        ]
+        return dedupe_names([*kept, *ops["add"]])
+
+    @Property(list, notify=artistsChanged)
+    def artistChips(self) -> list[dict[str, Any]]:
+        """The artists of the selection after the staged edits, with how many tracks name each."""
+        selection = self._selection()
+        sources = self._selected_sources(selection)
+        protected = self._protected()
+        ops = self._artist_ops(selection)
+        added = {normalize_key(name) for name in ops["add"]}
+        chips: dict[str, dict[str, Any]] = {}
+        for source in sources:
+            for name in self._names_for(source, ops, protected):
+                chip = chips.setdefault(
+                    normalize_key(name),
+                    {"name": name, "count": 0, "total": len(sources), "added": False},
+                )
+                chip["count"] += 1
+                chip["added"] = normalize_key(name) in added
+        return list(chips.values())
+
+    def _set_artist_ops(self, selection: tuple[str, ...], ops: dict[str, list[str]]) -> None:
+        staged = self._staged.setdefault(selection, {})
+        if ops["add"] or ops["remove"]:
+            staged["artist"] = {**ops, "error": "", "text": ""}
+        else:
+            staged.pop("artist", None)
+        if not staged:
+            self._staged.pop(selection, None)
+        self.artistsChanged.emit()
+        self.stagingChanged.emit()
+
+    @Slot(str)
+    def stageArtistAdd(self, name: str) -> None:
+        selection = self._selection()
+        cleaned = " ".join(str(name).split())
+        if not cleaned or not selection:
+            return
+        key = normalize_key(cleaned)
+        ops = self._artist_ops(selection)
+        if key in {normalize_key(item) for item in ops["remove"]}:
+            ops["remove"] = [item for item in ops["remove"] if normalize_key(item) != key]
+        else:
+            protected = self._protected()
+            sources = self._selected_sources(selection)
+            everywhere = all(
+                key in {normalize_key(item) for item in self._base_artists(source, protected)}
+                for source in sources
+            )
+            if not everywhere and key not in {normalize_key(item) for item in ops["add"]}:
+                ops["add"].append(cleaned)
+        self._set_artist_ops(selection, ops)
+
+    @Slot(str)
+    def stageArtistRemove(self, name: str) -> None:
+        selection = self._selection()
+        key = normalize_key(name)
+        if not key or not selection:
+            return
+        ops = self._artist_ops(selection)
+        if key in {normalize_key(item) for item in ops["add"]}:
+            ops["add"] = [item for item in ops["add"] if normalize_key(item) != key]
+        elif key not in {normalize_key(item) for item in ops["remove"]}:
+            ops["remove"].append(" ".join(str(name).split()))
+        self._set_artist_ops(selection, ops)
+
+    @Slot(str, result=list)
+    def artistSuggestions(self, query: str) -> list[dict[str, Any]]:
+        if self._artists is None or not query.strip():
+            return []
+        try:
+            found = self._artists.suggestions(query, 8)
+        except Exception:
+            return []
+        shown = {normalize_key(chip["name"]) for chip in self.artistChips}
+        return [item for item in found if normalize_key(str(item["name"])) not in shown]
+
+    @Slot(str, result=list)
+    def splitPreview(self, text: str) -> list[str]:
+        """The names a typed credit would give; one name when it is a known artist."""
+        return split_credit(text, self._protected())
+
+    # --------------------------------------------------------- album and genre values
+
+    @Slot(str, str, result=list)
+    def valueSuggestions(self, field: str, query: str) -> list[str]:
+        """Values already used in the library for ``field``, filtered by ``query``."""
+        if field not in {"album", "genre"} or not query.strip():
+            return []
+        if not self._values_requested:
+            self._values_requested = True
+
+            def load(_context: JobContext) -> None:
+                self.valuesLoaded.emit(
+                    {name: self._library.tag_values(name) for name in ("album", "genre")}
+                )
+
+            with suppress(RuntimeError):
+                self._jobs.submit(load, label="Load tag values", visible=False)
+        needle = query.strip().casefold()
+        return [
+            value
+            for value in self._value_cache.get(field, [])
+            if needle in value.casefold() and value.casefold() != needle
+        ][:6]
+
+    @Slot(object)
+    def _on_values_loaded(self, values: object) -> None:
+        if isinstance(values, dict):
+            self._value_cache = {str(key): list(items) for key, items in values.items()}
+            self.valuesChanged.emit()
 
     def _inspect_recovery(self, context: JobContext) -> None:
         try:
@@ -408,6 +731,50 @@ class MetadataEditorModel(QObject):
             self.changed.emit()
 
     @Slot()
+    def saveChanges(self) -> None:
+        """Write every staged change of the selection, one file rewrite per track."""
+        selection = self._selection()
+        staged = self._staged.get(selection)
+        if not staged or not self.canSave:
+            return
+        self._capture_targets("*", "selection:*", list(selection))
+        targets = self._edit_targets.pop("selection:*", ())
+        if not targets:
+            return
+        protected = self._protected()
+        sources = {source.track_id: source for source in self._selected_sources(selection)}
+        artist_names: tuple[tuple[str, tuple[str, ...]], ...] = ()
+        if "artist" in staged:
+            ops = self._artist_ops(selection)
+            artist_names = tuple(
+                (target.track_id, tuple(self._names_for(sources[target.track_id], ops, protected)))
+                for target in targets
+                if target.track_id in sources
+            )
+        changes = tuple(
+            (field, entry["value"] or None) for field, entry in staged.items() if field != "artist"
+        )
+        batch = _EditBatch(
+            batch_id=str(uuid.uuid4()),
+            draft_id=str(uuid.uuid4()),
+            field="*",
+            value=None,
+            targets=targets,
+            draft_selection=selection,
+            changes=changes,
+            artist_names=artist_names,
+            staged=tuple((field, copy.deepcopy(entry)) for field, entry in staged.items()),
+        )
+        self._retry_batch = None
+        self._pending.append(batch)
+        if self._active is None:
+            self._start_next()
+        else:
+            self._save_state = "saving"
+            self._save_message = ""
+            self.changed.emit()
+
+    @Slot()
     def finish_save(self) -> None:
         if self._save_state == "saved":
             self._save_state = "idle"
@@ -472,7 +839,17 @@ class MetadataEditorModel(QObject):
             for index, operation_id in enumerate(operation_ids):
                 try:
                     context.raise_if_cancelled()
-                    results.append(self._writer.undo(operation_id, draft_id))
+                    undone = self._writer.undo(operation_id, draft_id)
+                    results.append(undone)
+                    if undone.status == "saved" and undone.snapshot is not None:
+                        self._sync_artists(
+                            undone,
+                            dedupe_names(
+                                name
+                                for value in undone.snapshot.artist
+                                for name in split_credit(value, self._protected())
+                            ),
+                        )
                     context.report_progress((index + 1) / len(operation_ids))
                     context.report_items(index + 1, len(operation_ids), "Undo")
                 except Exception as error:
@@ -517,14 +894,7 @@ class MetadataEditorModel(QObject):
             ):
                 target = _EditTarget(target.track_id, recent_revision)
             targets.append(target)
-        batch = _EditBatch(
-            batch.batch_id,
-            batch.draft_id,
-            batch.field,
-            batch.value,
-            tuple(targets),
-            batch.draft_selection,
-        )
+        batch = replace(batch, targets=tuple(targets))
         self._active = batch
         self._save_state = "saving"
         self._save_message = "Saving…"
@@ -536,7 +906,19 @@ class MetadataEditorModel(QObject):
             for index, target in enumerate(batch.targets):
                 try:
                     context.raise_if_cancelled()
-                    patch = MetadataPatch.one(batch.field, batch.value)
+                    if batch.is_staged:
+                        fields = dict(batch.changes)
+                        names = dict(batch.artist_names).get(target.track_id)
+                        if names is not None:
+                            fields["artist"] = serialize_artists(names) or None
+                        patch = MetadataPatch.from_mapping(
+                            fields, replace_aliases="artist" in fields
+                        )
+                        edited = set(fields)
+                    else:
+                        patch = MetadataPatch.one(batch.field, batch.value)
+                        names = None
+                        edited = {batch.field}
                     saved = self._writer.save(
                         target.track_id,
                         target.revision,
@@ -544,15 +926,16 @@ class MetadataEditorModel(QObject):
                         batch.draft_id,
                     )
                     results.append(saved)
-                    if (
-                        saved.status == "saved"
-                        and self._analysis is not None
-                        and batch.field in {"bpm", "key"}
-                    ):
-                        # An edit made by the user protects that value from analysis.
-                        self._analysis.mark_user_edited([target.track_id], batch.field)
+                    if saved.status == "saved" and self._analysis is not None:
+                        for field in sorted(edited & {"bpm", "key"}):
+                            # An edit made by the user protects that value from analysis.
+                            self._analysis.mark_user_edited([target.track_id], field)
+                    if saved.status == "saved" and names is not None:
+                        self._sync_artists(saved, names)
                     context.report_progress((index + 1) / total)
-                    context.report_items(index + 1, len(batch.targets), batch.field)
+                    context.report_items(
+                        index + 1, len(batch.targets), "tags" if batch.is_staged else batch.field
+                    )
                     if saved.status != "saved":
                         context.report_failure(target.track_id, saved.message or saved.status)
                 except Exception as error:
@@ -597,6 +980,7 @@ class MetadataEditorModel(QObject):
             self._save_message = (
                 "Undo completed." if not failed else "; ".join(item.message for item in failed)
             )
+            self._seed_inspections(successful)
             if successful:
                 self.sourceChanged.emit()
             self.changed.emit()
@@ -607,6 +991,9 @@ class MetadataEditorModel(QObject):
         for result in successful:
             if result.revision is not None:
                 self._successful_revisions[result.track_id] = result.revision
+        self._seed_inspections(successful)
+        if batch.is_staged and not failed:
+            self._clear_staged(batch)
 
         draft_key = (batch.field, batch.draft_selection)
         newer_same_draft = any(
@@ -624,17 +1011,14 @@ class MetadataEditorModel(QObject):
                 if successful
                 else details or "Could not save the metadata."
             )
-            self._retry_batch = _EditBatch(
+            self._retry_batch = replace(
+                batch,
                 batch_id=str(uuid.uuid4()),
-                draft_id=batch.draft_id,
-                field=batch.field,
-                value=batch.value,
                 targets=tuple(
                     target
                     for target, result in zip(batch.targets, results, strict=False)
                     if result.status != "saved"
                 ),
-                draft_selection=batch.draft_selection,
             )
         else:
             self._save_state = "saved"
@@ -647,6 +1031,50 @@ class MetadataEditorModel(QObject):
         self.changed.emit()
         if self._pending:
             self._start_next()
+
+    def _sync_artists(self, saved: MetadataEditResult, names: Sequence[str]) -> None:
+        """Make the credit just written the confirmed credit of the track in the catalog."""
+        if self._artists is None:
+            return
+        title = None
+        if saved.snapshot is not None and saved.snapshot.title:
+            title = saved.snapshot.title[0]
+        try:
+            self._artists.sync_tags(saved.track_id, list(names), title)
+        except Exception as error:
+            self.noticeRaised.emit(f"The artists catalog could not be updated: {error}")
+            return
+        self.artistsSynced.emit()
+
+    def _seed_inspections(self, saved: list[MetadataEditResult]) -> None:
+        """Carry what a file accepts over to its new revision, so editing never waits."""
+        for result in saved:
+            if result.revision is None or result.snapshot is None:
+                continue
+            older = [
+                generation
+                for track_id, generation in self._inspection_cache
+                if track_id == result.track_id and generation < result.revision.generation
+            ]
+            if older:
+                capabilities = self._inspection_cache[(result.track_id, max(older))][1]
+                self._inspection_cache[(result.track_id, result.revision.generation)] = (
+                    result.snapshot,
+                    capabilities,
+                )
+
+    def _clear_staged(self, batch: _EditBatch) -> None:
+        """Drop the staged fields that were just saved, unless they were edited since."""
+        current = self._staged.get(batch.draft_selection)
+        if current is None:
+            return
+        for field, entry in batch.staged:
+            if current.get(field) == entry:
+                del current[field]
+        if not current:
+            self._staged.pop(batch.draft_selection, None)
+        self.stagingChanged.emit()
+        self.artistsChanged.emit()
 
     @staticmethod
     def _capability(

@@ -131,9 +131,15 @@ class QueueState:
     def play_entry(self, entry_id: str) -> QueueState:
         for index, entry in enumerate(self.upcoming):
             if entry.entry_id == entry_id:
-                past = (*self.past, *((self.current,) if self.current else ()))
-                upcoming = (*self.upcoming[:index], *self.upcoming[index + 1 :])
-                return self._changed(past=past, current=entry, upcoming=upcoming)
+                # Entries jumped over move to the past so playback continues after ``entry``.
+                past = (
+                    *self.past,
+                    *((self.current,) if self.current else ()),
+                    *self.upcoming[:index],
+                )
+                return self._changed(
+                    past=past, current=entry, upcoming=self.upcoming[index + 1 :]
+                )
         return self
 
     def insert_current(self, entry: QueueEntry) -> QueueState:

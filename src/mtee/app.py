@@ -11,7 +11,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from PySide6.QtCore import QCoreApplication, QObject, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, QUrl
 from PySide6.QtGui import QFont, QGuiApplication, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -27,6 +27,7 @@ from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.cover_accent_model import CoverAccentModel
 from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
+from mtee.models.file_move_model import FileMoveModel
 from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.models.jobs_model import JobsListModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
@@ -60,6 +61,7 @@ from mtee.services.artist_manager_service import ArtistManagerService
 from mtee.services.audio_analyzer import AudioAnalyzer
 from mtee.services.conversion_service import ConversionService
 from mtee.services.file_access import FileAccessCoordinator
+from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
 from mtee.services.media_decode_service import MediaDecodeService
 from mtee.services.metadata_writer import MetadataEditService
@@ -137,6 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     exit_code = application.exec()
     _shutdown(runtime)
+    _destroy_windows(runtime)
     return exit_code
 
 
@@ -214,6 +217,8 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         )
         playlists_model.refresh()
         workspace.attach_playlists(playlists_model)
+        artist_repository = ArtistRepository(database)
+        identification = ArtistIdentificationService(library, artist_repository)
         metadata_writer = MetadataEditService(
             library,
             MetadataHistoryRepository(database),
@@ -227,10 +232,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             player=player_model,
             analysis=analysis_repository,
             analysis_settings=lambda: analysis_settings.settings,
+            artists=identification,
         )
         workspace.attach_metadata_editor(metadata_editor)
-        artist_repository = ArtistRepository(database)
-        identification = ArtistIdentificationService(library, artist_repository)
         analysis_service = AnalysisService(
             library,
             analysis_repository,
@@ -281,6 +285,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             player=player_model,
         )
         workspace.attach_trash_model(trash_model)
+        workspace.attach_file_move_model(
+            FileMoveModel(FileMoveService(database, library, file_access), jobs)
+        )
         artwork_provider = ArtworkProvider(library)
     frame = WindowFrame()
     controller = ShellController(
@@ -344,6 +351,17 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     if isinstance(workspace, WorkspaceModel):
         workspace.resumeRoots()
     return runtime
+
+
+def _destroy_windows(runtime: _Runtime) -> None:
+    """Delete the QML windows while the context still holds the models.
+
+    Letting the engine tear everything down at exit nulls the context properties first,
+    so the bindings of the still living window log a TypeError each.
+    """
+    for window in runtime.engine.rootObjects():
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def _shutdown(runtime: _Runtime) -> None:

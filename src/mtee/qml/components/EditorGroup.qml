@@ -90,6 +90,11 @@ Rectangle {
                         else
                             group.workspace.activateTab(group.groupIndex, tab.modelData.id)
                     }
+                    onDoubleClicked: (event) => {
+                        if (event.button === Qt.LeftButton && tab.modelData.preview
+                                && typeof group.workspace.keepTab === "function")
+                            group.workspace.keepTab(group.groupIndex, tab.modelData.id)
+                    }
                 }
 
                 Row {
@@ -114,6 +119,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: Math.min(implicitWidth, 150)
                         text: tab.modelData.title
+                        font.italic: tab.modelData.preview === true
                         elide: Text.ElideRight
                         color: tab.isActive ? Theme.textPrimary : Theme.textSecondary
                         font.family: Theme.fontFamily
@@ -162,6 +168,18 @@ Rectangle {
                 active: group.groupCount > 1
                 tip: group.groupCount > 1 ? "Join editor groups (Ctrl+\\)" : "Split editor (Ctrl+\\)"
                 onClicked: group.workspace.toggleSplit()
+            }
+
+            IconButton {
+                objectName: "toggleRightPanel"
+                visible: group.groupIndex === group.groupCount - 1
+                width: 28
+                height: 28
+                icon: "panel-right"
+                iconSize: 16
+                active: group.workspace.rightPanelVisible
+                tip: group.workspace.rightPanelVisible ? "Hide side panel" : "Show side panel"
+                onClicked: group.workspace.toggleRightPanel(group.workspace.rightPanelTab)
             }
         }
     }

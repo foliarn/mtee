@@ -245,6 +245,11 @@ Window {
     Shortcut { sequence: "Ctrl+,"; enabled: !root.textInputFocused(); onActivated: root.ws.openSettings() }
     Shortcut { sequence: "Ctrl+Right"; enabled: !root.textInputFocused(); onActivated: root.ws.next() }
     Shortcut { sequence: "Ctrl+Left"; enabled: !root.textInputFocused(); onActivated: root.ws.previous() }
+    Shortcut {
+        sequence: "Ctrl+W"
+        enabled: root.ws.groups.length > 0 && root.ws.groups[root.ws.activeGroup].active.length > 0
+        onActivated: root.ws.closeTab(root.ws.activeGroup, root.ws.groups[root.ws.activeGroup].active)
+    }
     Shortcut { sequence: "Ctrl+Z"; enabled: !root.textInputFocused(); onActivated: root.ws.undoSave() }
     Shortcut {
         sequence: "Del"

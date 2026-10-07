@@ -112,10 +112,41 @@ def normalize_key(name: str) -> str:
     return clean_name(name).casefold()
 
 
-def split_credit(text: str) -> list[str]:
-    """Split a credit on a comma and on ``&`` only; empty names are dropped."""
-    names = (clean_name(part) for part in _SEPARATORS.split(text))
-    return [name for name in names if name]
+def split_credit(text: str, protected: Iterable[str] = ()) -> list[str]:
+    """Split a credit on a comma and on ``&`` only; empty names are dropped.
+
+    A name of ``protected`` (a known artist whose own name holds a comma or ``&``) is
+    never cut: ``Nikita, the Wicked, Hedex`` gives two names when that artist is known.
+    The longest protected name wins, and only when it stands between separators.
+    """
+    names = sorted(
+        {clean_name(name) for name in protected if clean_name(name)},
+        key=lambda name: (-len(name), name),
+    )
+    text = clean_name(text)
+    found: list[str] = []
+    position = 0
+    while position < len(text):
+        remaining = text[position:]
+        for name in names:
+            if remaining[: len(name)].casefold() != name.casefold():
+                continue
+            rest = remaining[len(name) :]
+            separator = _SEPARATORS.match(rest)
+            if rest and separator is None:
+                continue
+            found.append(name)
+            position += len(name) + (separator.end() if separator else 0)
+            break
+        else:
+            separator = _SEPARATORS.search(remaining)
+            if separator is None:
+                found.append(remaining)
+                position = len(text)
+            else:
+                found.append(remaining[: separator.start()])
+                position += separator.end()
+    return [name for name in (clean_name(part) for part in found) if name]
 
 
 def dedupe_names(names: Iterable[str]) -> list[str]:
@@ -139,14 +170,14 @@ def split_file_stem(stem: str) -> tuple[str, str]:
     return clean_name(stem[:index]), clean_name(stem[index + 3 :])
 
 
-def extract_remixers(title: str) -> list[str]:
+def extract_remixers(title: str, protected: Iterable[str] = ()) -> list[str]:
     """Return the artists named by ``(X Remix)``, ``(X Flip)`` or ``(X Bootleg)``."""
     names: list[str] = []
     for found in _VERSION.finditer(title):
         who = clean_name(found.group("who"))
         if not who or who.casefold() in _GENERIC_VERSIONS:
             continue
-        names.extend(split_credit(who))
+        names.extend(split_credit(who, protected))
     return dedupe_names(names)
 
 
@@ -161,9 +192,16 @@ def _usable_prefix(prefix: str) -> bool:
     return any(character.isalnum() for character in prefix)
 
 
-def propose(artist_values: Sequence[str], title_values: Sequence[str], file_stem: str) -> Proposal:
+def propose(
+    artist_values: Sequence[str],
+    title_values: Sequence[str],
+    file_stem: str,
+    protected: Sequence[str] = (),
+) -> Proposal:
     """Build the proposal of a track from its tags and its file name."""
-    tag_names = dedupe_names(name for value in artist_values for name in split_credit(str(value)))
+    tag_names = dedupe_names(
+        name for value in artist_values for name in split_credit(str(value), protected)
+    )
     tag_title = clean_name(title_values[0]) if title_values else ""
     prefix, stem_title = split_file_stem(file_stem)
     prefix_usable = _usable_prefix(prefix)
@@ -174,13 +212,13 @@ def propose(artist_values: Sequence[str], title_values: Sequence[str], file_stem
         source = "tags"
         note = ""
         if prefix_usable:
-            file_names = dedupe_names(split_credit(prefix))
+            file_names = dedupe_names(split_credit(prefix, protected))
             if {normalize_key(name) for name in file_names} != {
                 normalize_key(name) for name in tag_names
             }:
                 note = f"The file name says “{prefix}”."
     elif prefix_usable:
-        original = dedupe_names(split_credit(prefix))
+        original = dedupe_names(split_credit(prefix, protected))
         category = CATEGORY_SUGGESTED
         source = "filename"
         note = ""
@@ -191,7 +229,7 @@ def propose(artist_values: Sequence[str], title_values: Sequence[str], file_stem
         note = ""
     entries = [CreditEntry(name) for name in original]
     known = {normalize_key(name) for name in original}
-    for remixer in extract_remixers(title):
+    for remixer in extract_remixers(title, protected):
         if normalize_key(remixer) not in known:
             known.add(normalize_key(remixer))
             entries.append(CreditEntry(remixer, ROLE_REMIXER))

@@ -20,6 +20,7 @@ from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artist_manager_model import ArtistManagerModel, NullArtistManager
 from mtee.models.conversion_queue_model import ConversionQueueModel
+from mtee.models.file_move_model import FileMoveModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
@@ -106,6 +107,7 @@ class WorkspaceModel(QObject):
         self._metadata_editor: MetadataEditorModel | None = None
         self._conversion_model: ConversionQueueModel | None = None
         self._trash_model: TrashModel | None = None
+        self._file_move_model: FileMoveModel | None = None
         self._analysis_model: AnalysisModel | None = None
         self._analysis_settings: AnalysisSettingsModel | None = None
         self._tag_conflicts: TagConflictsModel | None = None
@@ -149,6 +151,7 @@ class WorkspaceModel(QObject):
         self._fullscreen = False
         self._fullscreen_page = 0
         self._island_enabled = bool(self._state.get("islandEnabled", True))
+        self._preview_tabs = bool(self._state.get("previewTabs", True))
         self._settings_pages = ["general" for _ in self._groups]
         self._navigation_scroll: dict[tuple[int, str, str], float] = {}
         self._navigation_anchor: dict[tuple[int, str, str], tuple[str, float]] = {}
@@ -557,6 +560,10 @@ class WorkspaceModel(QObject):
     def fullscreenPage(self) -> int:
         """Page of the fullscreen player: 0 for the card, 1 for queue and track details."""
         return self._fullscreen_page
+
+    @Property(bool, notify=layoutChanged)
+    def previewTabs(self) -> bool:
+        return self._preview_tabs
 
     @Property(bool, notify=layoutChanged)
     def islandEnabled(self) -> bool:
@@ -1136,7 +1143,6 @@ class WorkspaceModel(QObject):
             ("Date modified", "fileModifiedAtText"),
             ("Filename", "filename"),
             ("Path", "path"),
-            ("Status", "status"),
         )
         return [{"label": label, "value": str(track.get(key, "") or "—")} for label, key in labels]
 
@@ -1176,10 +1182,19 @@ class WorkspaceModel(QObject):
         editor.setParent(self)
         editor.changed.connect(self.metadataChanged.emit)
         editor.sourceChanged.connect(self._on_metadata_changed)
+        editor.noticeRaised.connect(self._set_message)
+        editor.artistsSynced.connect(self._on_editor_artists_synced)
         self.selectionChanged.connect(editor.refresh_selection)
         self.selectionChanged.connect(self._prepare_visible_metadata)
         editor.refresh_selection()
         self._prepare_visible_metadata()
+
+    @Slot()
+    def _on_editor_artists_synced(self) -> None:
+        """A credit saved from the tag editor changed the artists catalog."""
+        if self._artist_manager is not None:
+            self._artist_manager.refresh()
+        self._reload_analysis_values()
 
     def attach_artist_manager(self, model: ArtistManagerModel) -> None:
         """Attach the artist manager; its file applications refresh the rows and the player."""
@@ -1204,6 +1219,39 @@ class WorkspaceModel(QObject):
         self._trash_model = model
         model.setParent(self)
         model.tracksRecycled.connect(self._on_tracks_recycled)
+
+    def attach_file_move_model(self, model: FileMoveModel) -> None:
+        """Attach the model that moves dragged files between library folders."""
+        if self._file_move_model is not None:
+            raise RuntimeError("A file move model is already attached to this workspace.")
+        self._file_move_model = model
+        model.setParent(self)
+        model.tracksMoved.connect(self._on_tracks_moved)
+        model.noticeRaised.connect(self._set_message)
+
+    @Slot(list, str)
+    def moveTracksToFolder(self, track_ids: list, folder_id: str) -> None:
+        """Move the files of these tracks into a library folder, without overwriting."""
+        if self._file_move_model is None:
+            self._set_message("Moving files is not available.")
+            return
+        try:
+            parsed = _parse_folder_id(str(folder_id))
+        except ValueError:
+            parsed = None
+        if parsed is None:
+            self._set_message("Drop the files on a folder of the library.")
+            return
+        root_id, relative = parsed
+        root = self._roots_by_id.get(root_id, {})
+        name = relative.rpartition("/")[2] if relative else str(root.get("name", "this folder"))
+        self._file_move_model.move_tracks(track_ids, root_id, relative, name)
+
+    @Slot(object)
+    def _on_tracks_moved(self, _moved: object) -> None:
+        """Files changed folder: reload the tree, the open lists and the inspector."""
+        self._refresh_library()
+        self.metadataChanged.emit()
 
     def attach_analysis(
         self,
@@ -1730,7 +1778,7 @@ class WorkspaceModel(QObject):
             return
         self._cancel_explorer_track_action()
         self._capture_navigation()
-        if not self._open_folder(*parsed):
+        if not self._open_folder(*parsed, preview=True):
             self._request_folder_refresh(*parsed)
             return
         self._record_navigation()
@@ -1769,7 +1817,7 @@ class WorkspaceModel(QObject):
         self._cancel_explorer_track_action()
         generation = self._explorer_activation_generation
         self._capture_navigation()
-        if self._open_folder(root_id, relative):
+        if self._open_folder(root_id, relative, preview=True):
             self._record_navigation()
             self.layoutChanged.emit()
             self.selectionChanged.emit()
@@ -1926,7 +1974,7 @@ class WorkspaceModel(QObject):
         if pending is not None and pending["tab_id"] == tab_id:
             self._cancel_explorer_track_action()
 
-    def _open_folder(self, root_id: str, relative: str) -> bool:
+    def _open_folder(self, root_id: str, relative: str, *, preview: bool = False) -> bool:
         ref = f"{root_id}/{relative}"
         tab_id = f"folder:{ref}"
         group = self._groups[self._active_group]
@@ -1934,8 +1982,7 @@ class WorkspaceModel(QObject):
         if not changed:
             return False
         self._ensure_tab(tab_id)
-        if tab_id not in group["tabs"]:
-            group["tabs"].append(tab_id)
+        self._place_tab(self._active_group, tab_id, preview=preview)
         group["active"] = tab_id
         self._load_group_view(self._active_group)
         key = (self._active_group, tab_id)
@@ -1980,8 +2027,7 @@ class WorkspaceModel(QObject):
         tab_id = "playlist:" + _playlist_id
         group = self._groups[self._active_group]
         self._ensure_tab(tab_id)["title"] = details["name"]
-        if tab_id not in group["tabs"]:
-            group["tabs"].append(tab_id)
+        self._place_tab(self._active_group, tab_id, preview=True)
         group["active"] = tab_id
         self._load_group_view(self._active_group)
         self._record_navigation()
@@ -2036,8 +2082,7 @@ class WorkspaceModel(QObject):
         group = self._groups[self._active_group]
         state = self._ensure_tab(tab_id)
         state["title"] = name
-        if tab_id not in group["tabs"]:
-            group["tabs"].append(tab_id)
+        self._place_tab(self._active_group, tab_id, preview=True)
         group["active"] = tab_id
         self._load_group_view(self._active_group)
         self._record_navigation()
@@ -2130,6 +2175,18 @@ class WorkspaceModel(QObject):
             self._capture_navigation()
         old_index = tabs.index(tab_id)
         tabs.remove(tab_id)
+        self._forget_tab(group_index, tab_id)
+        if group["active"] == tab_id:
+            group["active"] = tabs[min(old_index, len(tabs) - 1)] if tabs else ""
+        if group_index == self._active_group:
+            self._load_group_view(group_index)
+            self._record_navigation()
+        self.layoutChanged.emit()
+        self.selectionChanged.emit()
+        self._persist()
+
+    def _forget_tab(self, group_index: int, tab_id: str) -> None:
+        """Release what a tab that left its group held: rows, jobs and saved state."""
         model_key = self._model_key(group_index, tab_id)
         model = self._track_models.pop(model_key, None)
         if model is not None:
@@ -2142,8 +2199,6 @@ class WorkspaceModel(QObject):
             with suppress(LookupError, ValueError):
                 self._jobs.cancel(JobId.parse(job_id))
         self._track_request_keys.pop(model_key, None)
-        if group["active"] == tab_id:
-            group["active"] = tabs[min(old_index, len(tabs) - 1)] if tabs else ""
         if not any(tab_id in item["tabs"] for item in self._groups):
             self._tab_states.pop(tab_id, None)
             self._group_tab_states = {
@@ -2155,12 +2210,6 @@ class WorkspaceModel(QObject):
             self._anchor_by_tab = {
                 key: value for key, value in self._anchor_by_tab.items() if key[1] != tab_id
             }
-        if group_index == self._active_group:
-            self._load_group_view(group_index)
-            self._record_navigation()
-        self.layoutChanged.emit()
-        self.selectionChanged.emit()
-        self._persist()
 
     @Slot()
     def toggleSplit(self) -> None:
@@ -2222,6 +2271,7 @@ class WorkspaceModel(QObject):
         if key not in _COLUMN_KEYS:
             return
         self._cancel_explorer_track_action_for_tab(tab_id)
+        self._keep(tab_id)
         state = self._ensure_tab(tab_id)
         if state.get("sortMode") != "manual" or state.get("sortKey") != key:
             state["sortMode"] = "manual"
@@ -2342,6 +2392,7 @@ class WorkspaceModel(QObject):
     def setTabView(self, tab_id: str, view: str) -> None:
         if view not in {"list", "artwork"}:
             return
+        self._keep(tab_id)
         self._tab_state(tab_id)["view"] = view
         self._capture_navigation()
         self.layoutChanged.emit()
@@ -2350,6 +2401,7 @@ class WorkspaceModel(QObject):
     @Slot(str, str)
     def setSearch(self, tab_id: str, query: str) -> None:
         self._cancel_explorer_track_action_for_tab(tab_id)
+        self._keep(tab_id)
         self._tab_state(tab_id)["searchQuery"] = query[:256]
         self._capture_navigation()
         self._revision += 1
@@ -2409,6 +2461,45 @@ class WorkspaceModel(QObject):
         self._record_navigation()
         self._prepare_visible_metadata()
         self.layoutChanged.emit()
+
+    @Slot(bool)
+    def setPreviewTabs(self, enabled: bool) -> None:
+        """Browsing opens one replaceable preview tab; off keeps every opened tab."""
+        self._preview_tabs = bool(enabled)
+        if not self._preview_tabs:
+            for state in self._tab_states.values():
+                state.pop("preview", None)
+        self.layoutChanged.emit()
+        self._persist()
+
+    @Slot(int, str)
+    def keepTab(self, group_index: int, tab_id: str) -> None:
+        """Turn a preview tab into a permanent one."""
+        if 0 <= group_index < len(self._groups) and self._tab_state(tab_id).pop("preview", None):
+            self.layoutChanged.emit()
+            self._persist()
+
+    def _keep(self, tab_id: str) -> None:
+        """Working in a tab (sorting, searching, changing its view) makes it permanent."""
+        if self._tab_state(tab_id).pop("preview", None):
+            self.layoutChanged.emit()
+
+    def _place_tab(self, group_index: int, tab_id: str, *, preview: bool) -> None:
+        """Add a tab to a group; a preview tab takes the place of the group's other one."""
+        group = self._groups[group_index]
+        if tab_id in group["tabs"]:
+            return
+        if not (preview and self._preview_tabs):
+            group["tabs"].append(tab_id)
+            return
+        self._tab_state(tab_id)["preview"] = True
+        old = next((item for item in group["tabs"] if self._tab_state(item).get("preview")), None)
+        if old is None:
+            group["tabs"].append(tab_id)
+            return
+        group["tabs"].insert(group["tabs"].index(old), tab_id)
+        group["tabs"].remove(old)
+        self._forget_tab(group_index, old)
 
     @Slot(bool)
     def setIslandEnabled(self, enabled: bool) -> None:
@@ -3080,6 +3171,7 @@ class WorkspaceModel(QObject):
             "sidebarWidth": self._sidebar_width,
             "rightPanelWidth": self._right_panel_width,
             "islandEnabled": self._island_enabled,
+            "previewTabs": self._preview_tabs,
             "columnPreferences": _copy_column_preferences(self._column_preferences),
         }
 

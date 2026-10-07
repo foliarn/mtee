@@ -57,6 +57,36 @@ Rectangle {
         }
     }
 
+    TextField {
+        id: searchField
+        objectName: "artistsSearchField"
+        visible: page.catalog !== null && typeof page.catalog.setSearch === "function"
+        anchors.top: parent.top
+        anchors.topMargin: 14
+        anchors.right: parent.right
+        anchors.rightMargin: page.padding
+        width: Math.min(260, parent.width * 0.4)
+        height: 28
+        placeholderText: "Search artists"
+        text: page.catalog ? page.catalog.searchText : ""
+        selectByMouse: true
+        color: Theme.textPrimary
+        placeholderTextColor: Theme.textMuted
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSizeSmall
+        onTextEdited: page.catalog.setSearch(text)
+        Keys.onEscapePressed: event => {
+            text = ""
+            page.catalog.setSearch("")
+            event.accepted = true
+        }
+        background: Rectangle {
+            color: Theme.surface
+            border.width: 1
+            border.color: searchField.activeFocus ? Theme.focus : Theme.separator
+        }
+    }
+
     Row {
         id: columns
         anchors.top: head.bottom
@@ -197,7 +227,7 @@ Rectangle {
             Text {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
-                text: "No artist yet"
+                text: page.catalog && page.catalog.searchText ? "No matching artist" : "No artist yet"
                 color: Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeTitle
@@ -208,7 +238,9 @@ Rectangle {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                text: "Artists appear here once their tracks are confirmed in the Artist manager."
+                text: page.catalog && page.catalog.searchText
+                    ? "Try another name."
+                    : "Artists appear here once their tracks are confirmed in the Artist manager."
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary

@@ -65,8 +65,8 @@ _DEFAULT_COLUMN_WIDTHS = {
     "format": 72,
     "filename": 180,
     "bitrate": 78,
-    "fileCreatedAt": 155,
-    "fileModifiedAt": 155,
+    "fileCreatedAt": 110,
+    "fileModifiedAt": 110,
 }
 DEFAULT_COLUMN_PREFERENCES: dict[str, Any] = {
     "order": list(_DEFAULT_COLUMN_ORDER),
@@ -89,6 +89,7 @@ DEFAULT_WORKSPACE: dict[str, Any] = {
     "sidebarWidth": 240,
     "rightPanelWidth": 360,
     "islandEnabled": True,
+    "previewTabs": True,
     "columnPreferences": deepcopy(DEFAULT_COLUMN_PREFERENCES),
 }
 
@@ -209,6 +210,7 @@ def _validated(value: Any) -> dict[str, Any]:
     }:
         result["rightPanelTab"] = "info"
     result["islandEnabled"] = bool(result.get("islandEnabled", True))
+    result["previewTabs"] = bool(result.get("previewTabs", True))
     return result
 
 

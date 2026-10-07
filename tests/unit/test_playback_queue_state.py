@@ -37,6 +37,16 @@ def test_fifo_duplicates_and_context_change_preserve_manual_occurrences() -> Non
     assert nine in queue.upcoming and another_nine not in queue.upcoming
 
 
+def test_play_entry_skips_over_intermediate_entries() -> None:
+    entries = context("1", "2", "3", "4", "5", "6", "7")
+    queue = QueueState().start_context(entries, 0, source="folder:test")
+    queue = queue.play_entry(entries[4].entry_id)
+    assert queue.current is entries[4]
+    assert names(queue.past) == ["1", "2", "3", "4"]
+    assert names(queue.upcoming) == ["6", "7"]
+    assert queue.next().current is entries[5]
+
+
 def test_move_reorders_both_origins_and_stale_targets_do_nothing() -> None:
     first = context("1", "2", "3")
     nine = manual("9")[0]

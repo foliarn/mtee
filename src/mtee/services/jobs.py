@@ -18,6 +18,7 @@ from mtee.domain.jobs import (
     ERROR_CANCELLED,
     ERROR_INTERRUPTED,
     ERROR_UNHANDLED,
+    PARTIAL_ERROR_CODES,
     JobCancelledError,
     JobError,
     JobId,
@@ -136,11 +137,11 @@ class _JobRunnable(QRunnable):
             code = getattr(error, "code", ERROR_UNHANDLED)
             if not isinstance(code, str) or not code:
                 code = ERROR_UNHANDLED
-            service.finish(
-                job_id,
-                JobState.FAILED,
-                JobError(code=code, message=f"{type(error).__name__}: {error}"),
+            # A partial failure reads as a sentence; the failed items carry the detail.
+            message = (
+                str(error) if code in PARTIAL_ERROR_CODES else f"{type(error).__name__}: {error}"
             )
+            service.finish(job_id, JobState.FAILED, JobError(code=code, message=message))
         else:
             service.finish(job_id, JobState.SUCCEEDED, None)
 

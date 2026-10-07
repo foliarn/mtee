@@ -41,6 +41,28 @@ class ArtistIdentificationService:
         self._repository = repository
         self._reader = reader or MetadataReader()
 
+    def protected_names(self) -> list[str]:
+        """Return the artist names that hold a comma or ``&`` and are never cut."""
+        return self._repository.protected_names()
+
+    def suggestions(self, query: str, limit: int = 8) -> list[dict[str, object]]:
+        """Return the known artists whose name contains ``query``."""
+        return self._repository.artist_names(query, limit=limit)
+
+    def sync_tags(self, track_id: str, names: Sequence[str], title: str | None = None) -> bool:
+        """Record the credit written to the tags of ``track_id`` as its confirmed credit."""
+        record = self._library.source_record(track_id)
+        if record is None:
+            return False
+        self._repository.record_tag_credit(
+            track_id,
+            names,
+            title,
+            revision=record.revision,
+            original_artists=record.snapshot.artist,
+        )
+        return True
+
     def needs_identification(self, track_ids: Sequence[str]) -> set[str]:
         """Return the tracks that have no review row yet."""
         return set(self._repository.missing_reviews(list(track_ids)))
@@ -83,7 +105,12 @@ class ArtistIdentificationService:
             return IdentificationResult(
                 track_id, False, message=f"{record.path.name}: the file changed while it was read."
             )
-        proposal = propose(snapshot.artist, snapshot.title, record.path.stem)
+        proposal = propose(
+            snapshot.artist,
+            snapshot.title,
+            record.path.stem,
+            self._repository.protected_names(),
+        )
         created = self._repository.ingest(
             track_id,
             proposal,

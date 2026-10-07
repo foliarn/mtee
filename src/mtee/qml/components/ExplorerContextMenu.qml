@@ -15,20 +15,13 @@ AppMenu {
         objectName: "analyzeAction"
         text: menu.forFolder ? "Analyze folder" : "Analyze"
         hint: menu.forFolder ? "with sub-folders" : ""
-        onTriggered: menu.run(false)
+        onTriggered: menu.run()
     }
 
-    AppMenuItem {
-        objectName: "reanalyzeAction"
-        text: menu.forFolder ? "Re-analyze folder" : "Re-analyze"
-        hint: menu.forFolder ? "with sub-folders" : ""
-        onTriggered: menu.run(true)
-    }
-
-    function run(force) {
+    function run() {
         if (forFolder)
-            workspace.analyzeFolder(folderId, force)
+            workspace.analyzeFolder(folderId, false)
         else
-            workspace.analyzeTracks(trackIds, force)
+            workspace.analyzeTracks(trackIds, false)
     }
 }

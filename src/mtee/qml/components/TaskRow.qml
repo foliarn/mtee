@@ -10,6 +10,7 @@ Column {
     property string jobId: ""
     property string label: ""
     property string jobState: "running"
+    property string outcome: ""
     property string stateLabel: ""
     property real progress: 0
     property int completed: -1
@@ -26,10 +27,17 @@ Column {
     signal cancelRequested()
 
     readonly property bool active: jobState === "running" || jobState === "queued"
-    readonly property string barStatus: jobState === "failed" ? "error" : active ? "running" : "done"
+    readonly property bool partial: outcome === "partial"
+    readonly property bool failed: jobState === "failed" && !partial
+    readonly property color accent: failed ? Theme.danger : partial ? Theme.warning
+        : active ? Theme.primary : Theme.textSecondary
+    readonly property string barStatus: failed ? "error" : partial ? "warning" : active ? "running" : "done"
     readonly property string countLine: {
         const where = task.detail.length > 0 ? task.detail : ""
         let head = ""
+        if (task.partial && task.total > 0)
+            return (task.total - task.failureCount) + " / " + task.total + " done · "
+                + task.failureCount + " failed"
         if (task.total > 0)
             head = task.completed + " / " + task.total
         else if (task.completed >= 0)
@@ -84,7 +92,7 @@ Column {
             anchors.verticalCenter: parent.verticalCenter
             name: "alert"
             size: 14
-            color: Theme.danger
+            color: task.accent
         }
 
         Text {
@@ -108,8 +116,7 @@ Column {
             anchors.rightMargin: cancelButton.visible ? 4 : 0
             anchors.verticalCenter: parent.verticalCenter
             text: task.stateLabel
-            color: task.jobState === "failed" ? Theme.danger
-                : task.active ? Theme.primary : Theme.textSecondary
+            color: task.accent
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSmall
         }
@@ -159,7 +166,7 @@ Column {
         width: parent.width
         text: task.errorMessage
         wrapMode: Text.WordWrap
-        color: Theme.danger
+        color: task.accent
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontSizeSmall
     }
@@ -183,7 +190,7 @@ Column {
             anchors.leftMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             text: task.failureCount + (task.failureCount === 1 ? " item failed" : " items failed")
-            color: Theme.danger
+            color: task.accent
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSmall
         }

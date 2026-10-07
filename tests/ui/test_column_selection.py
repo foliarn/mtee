@@ -129,3 +129,62 @@ def test_column_menu_updates_a_real_live_header(qapp, tmp_path: Path, monkeypatc
     finally:
         _shutdown(runtime)
         application.quit()
+
+
+def test_dragging_a_header_over_another_moves_the_column(qapp, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("mtee.app.MpvBackend", _Backend)
+    library_path = tmp_path / "library"
+    audio_path = library_path / "one.wav"
+    _write_wav(audio_path)
+    database = Database(tmp_path / "data" / "mtee.sqlite3")
+    database.migrate()
+    library = LibraryRepository(database)
+    root_record = library.add_root(library_path)
+    generation = library.begin_scan(root_record["id"])
+    library.upsert_location(
+        root_record["id"],
+        "one.wav",
+        audio_path,
+        SourceRevision.observe(audio_path),
+        MetadataSnapshot(),
+        generation,
+    )
+    library.finish_scan(root_record["id"], generation, complete=True)
+    database.close()
+
+    application = create_application(["mtee"])
+    runtime = _build_runtime(application, AppOptions(data_dir=tmp_path / "data"))
+    assert runtime is not None
+    root = runtime.engine.rootObjects()[0]
+    assert isinstance(root, QQuickWindow)
+    workspace = runtime.workspace
+    assert isinstance(workspace, WorkspaceModel)
+    assert runtime.jobs.wait_for_done(5_000)
+    try:
+        workspace.openFolder(f"root:{root_record['id']}")
+        QCoreApplication.processEvents()
+        QTest.qWait(200)
+        source = _find(root, "columnHeader_bpm")
+        target = _find(root, "columnHeader_artist")
+        assert source is not None and target is not None
+        order = list(workspace.columnPreferences["order"])
+        assert order.index("artist") < order.index("bpm")
+
+        start = source.mapToScene(source.boundingRect().center()).toPoint()
+        end = target.mapToScene(target.boundingRect().center()).toPoint()
+        end.setX(int(target.mapToScene(target.boundingRect().topLeft()).x()) + 8)  # left half
+        QTest.mousePress(root, Qt.MouseButton.LeftButton, pos=start)
+        for step in range(1, 13):
+            point = start + (end - start) * step / 12
+            QTest.mouseMove(root, point)
+            QCoreApplication.processEvents()
+            QTest.qWait(15)
+        QTest.mouseRelease(root, Qt.MouseButton.LeftButton, pos=end)
+        QCoreApplication.processEvents()
+        QTest.qWait(100)
+
+        order = list(workspace.columnPreferences["order"])
+        assert order.index("bpm") < order.index("artist")
+    finally:
+        _shutdown(runtime)
+        application.quit()

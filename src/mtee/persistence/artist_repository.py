@@ -322,6 +322,148 @@ class ArtistRepository:
             "manual": row["name_origin"] == "manual",
         }
 
+    def protected_names(self) -> list[str]:
+        """Return the names, and former spellings, of the profiles that hold a comma or ``&``.
+
+        Such a profile is one artist: reading a credit never cuts it.
+        """
+        rows = (
+            self._database.connection()
+            .execute(
+                "SELECT a.display_name AS name FROM artists a WHERE a.state<>'retired' "
+                "UNION SELECT al.spelling FROM artist_aliases al "
+                "JOIN artists a ON a.artist_id=al.artist_id WHERE a.state<>'retired'"
+            )
+            .fetchall()
+        )
+        return sorted(
+            {str(row[0]) for row in rows if "," in str(row[0]) or "&" in str(row[0])},
+            key=str.casefold,
+        )
+
+    def record_tag_credit(
+        self,
+        track_id: str,
+        names: Sequence[str],
+        title: str | None,
+        *,
+        revision: SourceRevision,
+        original_artists: Sequence[str] = (),
+    ) -> list[str]:
+        """Make the credit just written to the tags the confirmed credit of a track.
+
+        The track leaves every artist it no longer names; an artist left with no track
+        at all is retired. Returns the ids of the profiles that were touched.
+        """
+        wanted = [clean_name(name) for name in names if clean_name(name)]
+        with self._database.transaction() as connection:
+            if (
+                connection.execute("SELECT 1 FROM tracks WHERE track_id=?", (track_id,)).fetchone()
+                is None
+            ):
+                return []
+            old_ids = [
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT DISTINCT artist_id FROM track_artist_credits WHERE track_id=?",
+                    (track_id,),
+                )
+            ]
+            roles = {
+                str(row["artist_id"]): str(row["role"])
+                for row in connection.execute(
+                    "SELECT artist_id, role FROM track_artist_credits WHERE track_id=? "
+                    "ORDER BY confirmed",
+                    (track_id,),
+                )
+            }
+            new_ids: list[str] = []
+            spellings: dict[str, str] = {}
+            for name in wanted:
+                artist_id = self._resolve_artist(connection, name, manual=True)
+                if artist_id is not None and artist_id not in new_ids:
+                    new_ids.append(artist_id)
+                    spellings[artist_id] = name
+            self._ensure_workflow(connection)
+            now = _now()
+            category = "from_tags" if new_ids else "needs_input"
+            state = "confirmed" if new_ids else "pending"
+            apply = "succeeded" if new_ids else "none"
+            row = connection.execute(
+                "SELECT confirmed_title, proposed_title FROM track_artist_review WHERE track_id=?",
+                (track_id,),
+            ).fetchone()
+            if row is None:
+                shown = clean_name(title or "")
+                connection.execute(
+                    "INSERT INTO track_artist_review(track_id,category,initial_category,"
+                    "review_state,apply_state,source_size_bytes,source_mtime_ns,"
+                    "source_generation,original_artists_json,original_title,proposal_source,"
+                    "proposed_title,confirmed_title,rules_version,created_at_utc,"
+                    "updated_at_utc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        track_id,
+                        category,
+                        category,
+                        state,
+                        apply,
+                        revision.size_bytes,
+                        revision.mtime_ns,
+                        revision.generation,
+                        json.dumps(list(original_artists), ensure_ascii=False),
+                        shown,
+                        "tags",
+                        shown,
+                        shown if new_ids else None,
+                        RULES_VERSION,
+                        now,
+                        now,
+                    ),
+                )
+            else:
+                shown = (
+                    clean_name(title)
+                    if title
+                    else str(row["confirmed_title"] or row["proposed_title"] or "")
+                )
+                connection.execute(
+                    "UPDATE track_artist_review SET category=?, review_state=?, apply_state=?, "
+                    "apply_error='', apply_note='', proposed_title=?, confirmed_title=?, "
+                    "decision_version=decision_version+1, updated_at_utc=? WHERE track_id=?",
+                    (category, state, apply, shown, shown if new_ids else None, now, track_id),
+                )
+            self._write_credits(connection, track_id, 1, new_ids, roles)
+            self._write_credits(connection, track_id, 0, new_ids, roles)
+            marks = ",".join("?" * len(new_ids))
+            connection.execute(
+                "DELETE FROM artist_name_observations WHERE track_id=? "
+                + (f"AND (artist_id NOT IN ({marks}) OR provenance='manual')" if new_ids else ""),
+                (track_id, *new_ids),
+            )
+            for artist_id, spelling in spellings.items():
+                connection.execute(
+                    "INSERT OR IGNORE INTO artist_name_observations"
+                    "(artist_id,track_id,spelling,provenance) VALUES(?,?,?,?)",
+                    (artist_id, track_id, spelling, "manual"),
+                )
+            touched = set(old_ids) | set(new_ids)
+            for artist_id in set(old_ids) - set(new_ids):
+                used = connection.execute(
+                    "SELECT 1 FROM track_artist_credits WHERE artist_id=? LIMIT 1", (artist_id,)
+                ).fetchone()
+                if used is None:
+                    connection.execute(
+                        "DELETE FROM artist_name_observations WHERE artist_id=?", (artist_id,)
+                    )
+                    connection.execute(
+                        "UPDATE artists SET state='retired', updated_at_utc=? WHERE artist_id=?",
+                        (now, artist_id),
+                    )
+            for artist_id in new_ids:
+                self._refresh_spelling(connection, artist_id)
+            self._refresh_states(connection)
+            return sorted(touched)
+
     # -------------------------------------------------------------------- review
 
     def ingest(

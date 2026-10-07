@@ -187,10 +187,7 @@ class AnalysisService:
                 raise
         failed = [report for report in reports if not report.ok]
         if failed:
-            first = failed[0].message or "unknown error"
-            raise AnalysisBatchError(
-                f"{len(failed)} of {total} tracks could not be analyzed: {first}"
-            )
+            raise AnalysisBatchError(f"{len(failed)} of {total} tracks could not be analyzed")
         return reports
 
     def analyze_track(
@@ -353,8 +350,11 @@ class AnalysisService:
             MetadataPatch.from_mapping(changes),
             str(uuid.uuid4()),
         )
-        message = "" if result.status == "saved" else (result.message or result.status)
-        return message, conflict
+        if result.status in ("saved", "unsupported"):
+            # A file the tag writer refuses by design (a WAV that is not plain PCM, an old
+            # ID3 version) keeps its analysis in MTEE; that is not a failed analysis.
+            return "", conflict
+        return result.message or result.status, conflict
 
 
 def bpm_tag_text(bpm: float, path: Path) -> str:

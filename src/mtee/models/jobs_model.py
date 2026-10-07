@@ -26,7 +26,7 @@ from PySide6.QtCore import (
 from mtee.domain.jobs import JobId, JobState, JobStatus, remaining_seconds
 from mtee.services.jobs import JobService, UnknownJobError
 
-__all__ = ["JobRole", "JobsListModel", "label_for_status"]
+__all__ = ["JobRole", "JobsListModel", "label_for_status", "outcome_for_status"]
 
 
 class JobRole(IntEnum):
@@ -50,6 +50,8 @@ class JobRole(IntEnum):
     FAILURE_COUNT = int(Qt.ItemDataRole.UserRole) + 16
     CAN_CANCEL = int(Qt.ItemDataRole.UserRole) + 17
     FINISHED_RANK = int(Qt.ItemDataRole.UserRole) + 18
+    OUTCOME = int(Qt.ItemDataRole.UserRole) + 19
+    GROUP = int(Qt.ItemDataRole.UserRole) + 20
 
 
 _STATE_LABELS = {
@@ -69,7 +71,23 @@ def label_for_status(status: JobStatus) -> str:
     """
     if status.is_interrupted:
         return "Interrupted"
+    if status.is_partial:
+        return "Completed with errors"
     return _STATE_LABELS[status.state]
+
+
+def outcome_for_status(status: JobStatus) -> str:
+    """Return the outcome that colours and words a job: ``partial`` is not ``failed``."""
+    if status.is_interrupted:
+        return "interrupted"
+    if status.is_partial:
+        return "partial"
+    return status.state.value
+
+
+# A job that just succeeded stays with the running ones for a few seconds, so the
+# user sees it complete, then settles into the finished list.
+SETTLE_SECONDS = 6.0
 
 
 class JobsListModel(QAbstractListModel):
@@ -89,6 +107,9 @@ class JobsListModel(QAbstractListModel):
         self._clock = QTimer(self)
         self._clock.setInterval(1000)
         self._clock.timeout.connect(self._tick)
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.timeout.connect(self._regroup)
 
     def rowCount(self, parent: QModelIndex | QPersistentModelIndex | None = None) -> int:
         if parent is not None and parent.isValid():
@@ -115,6 +136,8 @@ class JobsListModel(QAbstractListModel):
             int(JobRole.FAILURE_COUNT): QByteArray(b"failureCount"),
             int(JobRole.CAN_CANCEL): QByteArray(b"canCancel"),
             int(JobRole.FINISHED_RANK): QByteArray(b"finishedRank"),
+            int(JobRole.OUTCOME): QByteArray(b"outcome"),
+            int(JobRole.GROUP): QByteArray(b"group"),
         }
 
     def data(
@@ -165,6 +188,10 @@ class JobsListModel(QAbstractListModel):
                 if not status.is_terminal:
                     return -1
                 return sum(item.is_terminal for item in self._statuses[: index.row()])
+            case JobRole.OUTCOME:
+                return outcome_for_status(status)
+            case JobRole.GROUP:
+                return _group(status, time.time())
             case _:
                 return None
 
@@ -183,6 +210,25 @@ class JobsListModel(QAbstractListModel):
     @Property(int, notify=countsChanged)
     def finishedCount(self) -> int:
         return sum(status.is_terminal for status in self._statuses)
+
+    @Property(int, notify=countsChanged)
+    def liveCount(self) -> int:
+        """Jobs shown with the running ones: unfinished, or succeeded a moment ago."""
+        return self._count_group("live")
+
+    @Property(int, notify=countsChanged)
+    def attentionCount(self) -> int:
+        """Finished jobs that failed, wholly or in part."""
+        return self._count_group("attention")
+
+    @Property(int, notify=countsChanged)
+    def settledCount(self) -> int:
+        """Finished jobs that went well or were cancelled, past the settle delay."""
+        return self._count_group("done")
+
+    def _count_group(self, group: str) -> int:
+        now = time.time()
+        return sum(_group(status, now) == group for status in self._statuses)
 
     @Slot(str)
     def cancel(self, job_id: str) -> None:
@@ -248,10 +294,34 @@ class JobsListModel(QAbstractListModel):
             self.runningCountChanged.emit()
         if was_terminal != status.is_terminal or was_running != (status.state is JobState.RUNNING):
             self._sync_clock()
+            if status.state is JobState.SUCCEEDED:
+                self._settle.start(int((SETTLE_SECONDS + 0.1) * 1000))
             self.countsChanged.emit()
+
+    def _regroup(self) -> None:
+        """Move the jobs whose settle delay is over from the live list to the finished one."""
+        if self._statuses:
+            self.dataChanged.emit(
+                self.index(0, 0), self.index(len(self._statuses) - 1, 0), [int(JobRole.GROUP)]
+            )
+        self.countsChanged.emit()
 
     def _reindex(self) -> None:
         self._rows_by_id = {status.job_id: row for row, status in enumerate(self._statuses)}
+
+
+def _group(status: JobStatus, now: float) -> str:
+    if not status.is_terminal:
+        return "live"
+    if status.state is JobState.FAILED:
+        return "attention"
+    if (
+        status.state is JobState.SUCCEEDED
+        and status.finished_at is not None
+        and now - status.finished_at < SETTLE_SECONDS
+    ):
+        return "live"
+    return "done"
 
 
 def _elapsed(status: JobStatus) -> float:

@@ -33,11 +33,11 @@ class FileDates:
 
 
 def format_file_timestamp(timestamp_ns: int | None) -> str:
-    """Format a UTC timestamp in the local time zone for the English UI."""
+    """Format a UTC timestamp as a local date (no time of day) for the English UI."""
     if timestamp_ns is None:
         return "—"
     try:
         instant = datetime.fromtimestamp(timestamp_ns / 1_000_000_000, tz=UTC).astimezone()
     except (OverflowError, OSError, ValueError):
         return "—"
-    return instant.strftime("%Y-%m-%d %H:%M:%S")
+    return instant.strftime("%Y-%m-%d")
