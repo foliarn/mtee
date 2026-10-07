@@ -16,7 +16,8 @@ La réorganisation future des dossiers physiques en fonction de cette taxonomie 
 
 - [x] 2026-10-07 — Lire les règles, le brief 108, le plan 107 et les contrats de 10 ; confronter les points d'intégration aux sources et tests existants.
 - [x] 2026-10-07 — Rédiger le plan en deux lots, consigner les décisions finales et actualiser les références documentaires.
-- [ ] 109.0 — Préparer les maquettes QML ciblées et consigner leur revue avant le code fonctionnel.
+- [x] 2026-10-07 — 109.0 : préparer le prototype QML isolé, son lanceur, 16 captures et le dossier de revue.
+- [ ] 109.0 — Obtenir et consigner la revue utilisateur des maquettes avant le code fonctionnel.
 - [ ] 109.1 — Créer le socle de taxonomie, le journal d'opérations et l'amorçage reproductible ; vérifier sur base temporaire et copie.
 - [ ] 109.2 — Présenter le tableau d'amorçage, appliquer le lot validé sur la base réelle sauvegardée, vérifier la persistance.
 - [ ] 109.3 — Livrer le Genre manager complet et la création rapide.
@@ -347,3 +348,14 @@ Avant publication, `git fetch origin` puis comparer `HEAD...origin/main` ; trait
 2026-10-07 — Préparation documentaire : les deux lots et leurs critères sont définis ; les corrections finales remplacent les options contradictoires du brief 108. Le manager reste central, le pinceau est l'unique mode de tri spécifique retenu, les filtres supportent ET/OU/exclusion, et l'amorçage précis est une opération confirmée par lot. Les commandes futures et points d'intégration sont identifiés.
 
 Développement, maquettes exécutables, revue visuelle, migrations, sauvegardes personnelles, association effective des genres, nettoyage artistes, recette applicative et packaging : **non réalisés par cette préparation**. Le [rapport documentaire](../docs/validation/109-genres-morceaux-manager-tri.md) consigne les contrôles du plan ; la preuve de publication du commit de préparation est fournie dans le compte rendu de la tâche, sans hash auto-référentiel dans ce fichier.
+
+
+## Révision d’exécution du 7 octobre 2026 — 109.0
+
+Demande utilisateur : « Exécute le plan 109 ». La mention de préparation seule en introduction décrit la demande historique ; cette révision commence son exécution.
+
+Surprises & Discoveries : le répertoire proposé `src/mtee/qml/prototypes/` n’existait pas ; créé pour ce prototype. Les composants existants sont sous `qml/components/`, le thème sous `qml/Mtee/`. Le graphe consulté décrit une révision antérieure ; les chemins ont été vérifiés dans les sources. HEAD initial `2f46b789`, synchronisé avec origin/main après fetch.
+
+Decision Log : Codex, 2026-10-07 — préparer uniquement les surfaces à données fictives avant la revue imposée. Réutiliser Theme, FilterChip et WheelScrollHandler ; lanceur autonome sans runtime applicatif, base ni lecteur audio. Les presets fixes de filtres illustrent les combinaisons avant leur éditeur générique. Ne pas interpréter la demande d’exécution comme un accord visuel absent.
+
+Outcomes & Retrospective : prototype, captures et [dossier de revue](../docs/ux/review-109-genres.md) prêts ; 16 scènes chargées sans avertissement QML, contrôles Ruff propres et sondes d’interactions en mémoire réussies. Inspection visuelle des captures réalisée ; recette interactive native et accord utilisateur non réalisés. Les jalons 109.1–109.7 attendent cette revue. Aucun schéma, donnée personnelle ni audio modifié ; aucun packaging. La publication du sous-jalon est vérifiée et rapportée dans le compte rendu après push.

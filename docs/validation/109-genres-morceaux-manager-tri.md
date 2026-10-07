@@ -19,3 +19,14 @@ Aucun code applicatif ni test nouveau créé. Aucun test pytest, lancement appli
 ## À renseigner pendant l'exécution
 
 Consigner pour chaque sous-jalon les commandes réellement exécutées, les versions et l'environnement, les résultats de tests, les erreurs préexistantes comparées, les mesures sur fixtures et copie, les sauvegardes vérifiées et identifiants d'opérations (détails personnels dans les rapports locaux ignorés par Git). Distinguer aperçu d'amorçage, application sur copie et application réelle. Consigner séparément captures hors écran, recette manuelle depuis les sources et revue interactive de l'utilisateur. Ne jamais remplir cette section à partir de résultats seulement attendus.
+
+
+## Exécution du prérequis visuel 109.0 — 7 octobre 2026
+
+Création de trois composants QML isolés sous `src/mtee/qml/prototypes/genres/`, du lanceur `scripts/review_genres_109.py`, de 16 captures synthétiques et du [dossier de revue](../ux/review-109-genres.md). Aucun branchement à la base, aux migrations ou au lecteur de production. Le code métier de 109.1 et les lots réels ne sont pas commencés. La revue utilisateur reste en attente conformément au plan.
+
+Environnement observé : Windows, Python 3.12.14, PySide6 6.9.3 ; dimensions 1440 × 900 et 960 × 720 pour narrow. Commande `uv run python scripts/review_genres_109.py --capture-dir docs/ux/genres-109-2026-10-07` : code 0, 16 PNG générés, aucun avertissement QML. Captures examinées visuellement ; correction du rendu des contrôles, du parent de création et de la scène de rétention.
+
+`uv run ruff check scripts/review_genres_109.py` et `uv run ruff format --check scripts/review_genres_109.py` : passent après formatage. Sonde locale ignorée par Git `.local/validation/109/probe.py` : 10 contrôles du prototype réussis (compteur, filtre, coche, critère, annulation, sélection multiple, lot, annulation de lot, retour manager et split), lecteur fictif inchangé après affectations, aucun avertissement QML. La première tentative de sonde utilisait un contexte QML sans les identifiants du composant ; corrigée pour utiliser son contexte propre puis relancée avec succès. Ces sondes ne vérifient pas les futurs services de persistance.
+
+Recette manuelle native de MTEE, accord utilisateur, application sur copie ou base réelle, nettoyage 107 et packaging : non effectués. Aucun fichier audio ni base personnelle ouvert ou modifié. Aucun pytest applicatif requis pour ce prototype isolé ; la capture de toutes les scènes vérifie leur chargement effectif depuis les sources. Git diff/check et publication : preuve dans le compte rendu de livraison.
