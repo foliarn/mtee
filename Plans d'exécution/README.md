@@ -1,5 +1,11 @@
 # MTEE — index des plans d'exécution
 
+## Genres des morceaux et workflow de tri — préparation du 2026-10-07
+
+Le [plan 109 — Genres des morceaux, manager et tri](109-genres-morceaux-manager-tri.md) est la référence opérationnelle issue du [brief 108](../docs/decisions/108-arbre-des-genres.md) et des clarifications du 7 octobre. Il comporte deux lots : **1. Associer les genres précis des dossiers aux morceaux ; 2. Implémenter le manager complet, la création rapide, le pinceau et les filtres ET/OU/exclusion, puis retirer les anciens genres d'artistes de 107**. Les tags locaux, méta-familles, Ctrl+Z, sauvegardes et suppression forcée depuis les paramètres sont inclus.
+
+Prérequis : socle actuel et lecture des contrats 10, 106 et 107 ; maquettes ciblées et revue avant le code fonctionnel, tableau réel vérifié avant application groupée. Le vocabulaire et le classement sans genre principal sont validés. Aucun suivi d'écoute, lecture automatique ni variante de puces par ligne. Aucun fichier de la collection n'est modifié ; son rangement physique viendra plus tard. Cette préparation ne lance pas l'implémentation. [Rapport documentaire](../docs/validation/109-genres-morceaux-manager-tri.md).
+
 Ces plans traduisent `PLAN.md` en étapes de développement vérifiables. Lire d'abord [les règles d'exécution](../PLANS.md). Les fichiers décrivent l'implémentation à venir : leur préparation ne signifie pas que l'application existe déjà.
 
 ## Pilote autonome d'enrichissement — 2026-10-05

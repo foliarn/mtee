@@ -1,6 +1,15 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum genres des morceaux — préparation du 2026-10-07
+
+Le [plan 109 — Genres des morceaux, manager et tri](Plans%20d'ex%C3%A9cution/109-genres-morceaux-manager-tri.md) reprend le brief 108 avec les décisions finales de l'utilisateur. Ordre demandé : associer d'abord les genres précis des dossiers aux morceaux après vérification du tableau et application en un lot, puis implémenter le Genre manager, la création à la volée, les tags locaux, le tri au pinceau, les filtres combinables et le retrait ciblé des anciens genres d'artistes du plan 107.
+
+Les familles seules sont des classements valides ; les sous-genres s'affichent avec leur famille et les hybrides n'ont pas de genre principal. Le mode pinceau des dossiers et playlists ne déclenche ni lecture ni passage au suivant et n'enregistre aucun suivi d'écoute. Retirer le dernier sous-genre conserve sa famille. Les puces interactives par ligne sont écartées. Les filtres combinent ET, OU et exclusion, notamment sans le genre du pinceau et sans aucun sous-genre ; les familles de base ne comptent pas comme sous-genres et ne sont pas excluables dans leur propre contexte de dossier. Ctrl+Z et sauvegardes protègent les décisions ; la suppression forcée complète est isolée dans les paramètres.
+
+Cette livraison conserve intégralement les fichiers et dossiers de la collection ; genres et tags restent dans la base MTEE. La réorganisation physique future des dossiers, l'agrégation par artiste et les intégrations distantes sont différées. Le vocabulaire est validé, les maquettes ciblées restent à préparer et examiner avant le code fonctionnel. La demande actuelle est documentaire : aucune migration ni association réelle n'est réalisée par la rédaction du plan.
+
+
 ## Addendum Artist manager — 2026-10-02
 
 Le [plan 104 — Identification des artistes et Artist manager](Plans%20d'ex%C3%A9cution/104-artist-manager-importation.md) remplace le plan 103 après le refus de ses maquettes. Le sketch fourni par l'utilisateur et ses réponses fixent la nouvelle interface intégrée : sidebar arborescente, listes pleine largeur et corrections par Edit en modale. La livraison A couvre tables, collection complète, alimentation par Analysis, revue et application ; la livraison B ajoute ensuite le catalogue et les pages artistes sur ce même socle. Cette préparation ne lance pas leur implémentation.
