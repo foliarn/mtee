@@ -653,6 +653,22 @@ class LibraryRepository:
         )
         return int(row[0]), int(row[1]), int(row[2])
 
+    def tag_values(self, field: str, limit: int = 5000) -> list[str]:
+        """Return the distinct values of ``album`` or ``genre`` used in the library."""
+        if field not in {"album", "genre"}:
+            return []
+        rows = (
+            self._database.connection()
+            .execute(
+                f"SELECT DISTINCT json_extract(metadata_json,'$.{field}[0]') AS value "
+                "FROM track_locations WHERE value IS NOT NULL AND value<>'' "
+                "ORDER BY value COLLATE NOCASE LIMIT ?",
+                (limit,),
+            )
+            .fetchall()
+        )
+        return [str(row[0]) for row in rows]
+
     def track_folder(self, track_id: str) -> tuple[str, str] | None:
         """Return the ``(root_id, relative_folder)`` that lists the track, if it is present."""
         row = (

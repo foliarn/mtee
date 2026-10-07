@@ -221,18 +221,14 @@ def test_right_clicking_a_track_analyzes_it_and_re_analyze_forces_it(qapp, tmp_p
         assert repository.get(one).bpm == pytest.approx(128.0, abs=0.05)
         assert all(repository.get(other) is None for other in others)  # only the clicked track
 
-        # "Analyze" again is a no-op; "Re-analyze" runs the job again.
+        # "Analyze" again is a no-op: the track already has its result.
         _click(window, _items(window.contentItem(), "trackRow_1")[0], Qt.MouseButton.RightButton)
         _click(window, _visible_action(window, "analyzeAction"))
         assert runtime.jobs.wait_for_done(20_000)
         QTest.qWait(200)
         assert "Nothing to analyze" in workspace.message
-        _click(window, _items(window.contentItem(), "trackRow_1")[0], Qt.MouseButton.RightButton)
-        _click(window, _visible_action(window, "reanalyzeAction"))
-        assert runtime.jobs.wait_for_done(60_000)
-        QTest.qWait(200)
         jobs = [s for s in runtime.jobs.statuses() if s.label == "Analyze 1 track"]
-        assert len(jobs) == 3 and all(job.state.value == "succeeded" for job in jobs)
+        assert len(jobs) == 2 and all(job.state.value == "succeeded" for job in jobs)
     finally:
         _shutdown(runtime)
 

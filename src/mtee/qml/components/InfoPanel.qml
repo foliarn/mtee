@@ -11,6 +11,12 @@ Item {
     readonly property var selection: workspace.selectedIds
     readonly property var first: (workspace.revision, selection.length > 0 ? workspace.track(selection[0]) : ({}))
     readonly property bool multiple: selection.length > 1
+    readonly property var editor: workspace.metadataEditor
+    // The real editor stages every change and writes it with Save; the demo keeps the
+    // older behaviour of saving when a field is left.
+    readonly property bool drafting: !!editor && typeof editor.stageField === "function"
+    readonly property bool hasChanges: drafting && editor.hasChanges
+    readonly property bool saving: workspace.saveState === "saving"
 
     function recoveryForSelection() {
         if (info.workspace.metadataEditable === false)
@@ -23,28 +29,21 @@ Item {
 
     objectName: "infoPanel"
 
+    Shortcut {
+        sequence: StandardKey.Save
+        enabled: info.visible && info.hasChanges && info.editor.canSave
+        onActivated: info.editor.saveChanges()
+    }
+
     Timer {
         interval: 1000
         running: info.workspace.saveState === "saved"
         onTriggered: info.workspace.finishSave()
     }
 
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        acceptedButtons: Qt.LeftButton
-        onClicked: info.workspace.clearSelection(info.workspace.activeGroup)
-    }
-
     Flickable {
         id: scroller
         visible: info.selection.length > 0
-        MouseArea {
-            anchors.fill: parent
-            z: -1
-            acceptedButtons: Qt.LeftButton
-            onClicked: info.workspace.clearSelection(info.workspace.activeGroup)
-        }
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
@@ -143,16 +142,49 @@ Item {
             Repeater {
                 visible: info.workspace.metadataEditable !== false
                 model: info.workspace.infoFields
-                delegate: FieldEditor {
+                delegate: Loader {
+                    id: slot
+
                     required property var modelData
+                    property string query: ""
+                    readonly property bool artistRow: info.drafting && modelData.key === "artist"
+
                     width: body.width
-                    label: modelData.label
-                    value: modelData.value
-                    mixed: modelData.mixed
-                    editable: modelData.editable
-                    reason: modelData.reason
-                    onEditingStarted: info.workspace.beginFieldEdit(modelData.key)
-                    onCommitted: (value, remove) => info.workspace.commitField(modelData.key, value, remove)
+                    sourceComponent: artistRow ? artistComponent : fieldComponent
+
+                    Component {
+                        id: artistComponent
+
+                        ArtistField {
+                            editor: info.editor
+                            editable: slot.modelData.editable
+                            reason: slot.modelData.reason
+                        }
+                    }
+
+                    Component {
+                        id: fieldComponent
+
+                        FieldEditor {
+                            drafting: info.drafting
+                            label: slot.modelData.label
+                            value: slot.modelData.value
+                            mixed: slot.modelData.mixed
+                            editable: slot.modelData.editable
+                            reason: slot.modelData.reason
+                            multiline: slot.modelData.key === "comment"
+                            dirty: info.drafting && info.editor.dirtyFields.indexOf(slot.modelData.key) >= 0
+                            error: info.drafting ? (info.editor.fieldErrors[slot.modelData.key] || "") : ""
+                            suggestions: info.drafting
+                                && (slot.modelData.key === "genre" || slot.modelData.key === "album")
+                                ? info.editor.valueSuggestions(slot.modelData.key, slot.query) : []
+                            onQueryChanged: (text) => slot.query = text
+                            onEditingStarted: info.workspace.beginFieldEdit(slot.modelData.key)
+                            onCommitted: (value, remove) => info.workspace.commitField(slot.modelData.key, value, remove)
+                            onEdited: (text) => info.editor.stageField(slot.modelData.key, text)
+                            onReverted: info.editor.revertField(slot.modelData.key)
+                        }
+                    }
                 }
             }
 
@@ -242,17 +274,19 @@ Item {
             }
 
             Text {
-                width: footer.width - 180
+                width: footer.width - (info.hasChanges ? 190 : 180)
                 anchors.verticalCenter: parent.verticalCenter
                 text: info.workspace.metadataEditable === false ? "Metadata is read-only in this step."
+                    : info.hasChanges ? info.editor.changeCount + (info.editor.changeCount === 1 ? " unsaved change" : " unsaved changes")
                     : info.workspace.saveState === "saving" ? "Saving…"
                     : info.workspace.saveState === "saved" ? "Saved"
                     : info.workspace.saveState === "busy" ? info.workspace.saveMessage
                     : info.workspace.saveState === "error" || info.workspace.saveState === "recovery"
                         ? (info.workspace.saveMessage || "Could not save")
+                    : info.drafting ? "Edit a field, then save"
                     : "Changes save when you leave a field"
                 color: info.workspace.saveState === "error" || info.workspace.saveState === "recovery" ? Theme.danger
-                    : info.workspace.saveState === "idle" ? Theme.textMuted : Theme.textPrimary
+                    : info.workspace.saveState === "idle" && !info.hasChanges ? Theme.textMuted : Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
             }
@@ -263,6 +297,26 @@ Item {
             anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
+
+            TextButton {
+                visible: info.hasChanges
+                objectName: "revertChanges"
+                implicitHeight: 28
+                kind: "ghost"
+                text: "Revert"
+                onClicked: info.editor.revertAll()
+            }
+
+            TextButton {
+                visible: info.hasChanges
+                objectName: "saveChanges"
+                implicitHeight: 28
+                kind: "primary"
+                text: info.saving ? "Saving…" : "Save"
+                enabledAction: info.editor.canSave && !info.saving
+                tip: info.editor.canSave ? "Save (Ctrl+S)" : "Fix the highlighted fields to save"
+                onClicked: info.editor.saveChanges()
+            }
 
             TextButton {
                 visible: (info.workspace.saveState === "error" || info.workspace.saveState === "busy")

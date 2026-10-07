@@ -47,3 +47,35 @@ def test_the_counter_grows_to_the_total_and_failures_carry_the_file_name() -> No
     assert counters[-1] == (3, 3, "c.flac")
     assert all(total == 3 for _done, total, _name in counters)
     assert failures == [("b.flac", "could not decode")]
+
+
+def test_a_file_the_tag_writer_refuses_is_not_a_failed_analysis() -> None:
+
+    class Writer:
+        def __init__(self, status: str) -> None:
+            self.status = status
+
+        def tag_conflicts(self, _track_id, _fields):
+            return {}
+
+        def save(self, track_id, _revision, _patch, _draft_id):
+            return SimpleNamespace(
+                status=self.status, message="Only PCM WAV files have been verified."
+            )
+
+    record = SimpleNamespace(
+        track_id="a",
+        path=Path("music/a.wav"),
+        revision="r",
+        snapshot=SimpleNamespace(bpm=(), key=()),
+    )
+    stored = SimpleNamespace(bpm=120.0, bpm_user_edited=False, key=None, key_user_edited=False)
+    settings = AnalysisSettings(write_tags=True)
+
+    for status, expected in (("unsupported", ""), ("failed", "Only PCM WAV")):
+        service = object.__new__(AnalysisService)
+        service._tag_writer = Writer(status)  # type: ignore[attr-defined]
+        service._library = SimpleNamespace(source_record=lambda _id: record)  # type: ignore[attr-defined]
+        message, conflict = service._write_tags(record, stored, settings)  # type: ignore[arg-type]
+        assert conflict is None
+        assert message.startswith(expected)

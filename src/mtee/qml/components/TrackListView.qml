@@ -85,7 +85,7 @@ FocusScope {
         const labels = ({})
         for (const option of options)
             labels[option.key] = option.label
-        const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180, bitrate: 78, fileCreatedAt: 155, fileModifiedAt: 155 })
+        const baseWidths = ({ title: 0, artist: 150, album: 150, genre: 110, bpm: 52, key: 52, duration: 70, format: 72, filename: 180, bitrate: 78, fileCreatedAt: 110, fileModifiedAt: 110 })
         const fallbackPreferences = {
             order: ["title", "artist", "fileCreatedAt", "bpm", "key", "album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"],
             hidden: ["album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"],
@@ -586,7 +586,16 @@ FocusScope {
             height: parent.height
             spacing: view.columns.gap
 
-            Item { width: view.columns.playSlot; height: parent.height }
+            Text {
+                width: view.columns.playSlot
+                height: parent.height
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                text: "#"
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSecondary
+            }
 
             Repeater {
                 model: view.columns.items
@@ -1022,14 +1031,38 @@ FocusScope {
         readonly property bool sorted: view.tab.sortMode === "manual"
             && view.tab.sortKey === sortKey && sortKey.length > 0
 
-        Drag.active: columnDragHandler.active
-        Drag.source: cell
-        Drag.keys: ["mtee-column"]
-        Drag.supportedActions: Qt.MoveAction
-        Drag.hotSpot.x: cell.width / 2
-        Drag.hotSpot.y: cell.height / 2
-
         height: parent.height
+
+        // The header being dragged: a copy follows the pointer over the other headers, which
+        // hold the drop areas. The cell itself stays in its row until the drop.
+        Rectangle {
+            id: dragGhost
+            property string columnKey: cell.columnKey
+            // Hidden by opacity, not visibility: hiding the source ends the drag before its drop.
+            opacity: columnDragHandler.active ? 0.92 : 0
+            z: 10
+            width: cell.width
+            height: cell.height
+            x: columnDragHandler.active ? columnDragHandler.centroid.position.x - width / 2 : 0
+            color: Theme.surface
+            border.width: 1
+            border.color: Theme.primary
+            Drag.active: columnDragHandler.active
+            Drag.source: dragGhost
+            Drag.keys: ["mtee-column"]
+            Drag.supportedActions: Qt.MoveAction
+            Drag.hotSpot.x: width / 2
+            Drag.hotSpot.y: height / 2
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                text: cell.label
+                color: Theme.textPrimary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+        }
 
         Row {
             anchors.verticalCenter: parent.verticalCenter
@@ -1097,6 +1130,8 @@ FocusScope {
                     view.dropTargetKey = ""
                     view.columnDragCancelled = false
                 } else if (view.draggedColumnKey === cell.columnKey) {
+                    // Releasing the pointer must drop explicitly; ending the drag only cancels it.
+                    dragGhost.Drag.drop()
                     view.draggedColumnKey = ""
                     view.dropTargetKey = ""
                 }

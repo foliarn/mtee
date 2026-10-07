@@ -10,6 +10,7 @@ __all__ = [
     "ERROR_CANCELLED",
     "ERROR_INTERRUPTED",
     "ERROR_UNHANDLED",
+    "PARTIAL_ERROR_CODES",
     "TERMINAL_STATES",
     "JobCancelledError",
     "JobError",
@@ -23,6 +24,8 @@ __all__ = [
 ERROR_CANCELLED = "cancelled"
 ERROR_INTERRUPTED = "interrupted"
 ERROR_UNHANDLED = "unhandled_exception"
+# Codes of a job that went through every element but could not handle some of them.
+PARTIAL_ERROR_CODES = frozenset({"analysis_incomplete", "artist_apply_incomplete"})
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -123,6 +126,11 @@ class JobStatus:
     @property
     def is_terminal(self) -> bool:
         return self.state in TERMINAL_STATES
+
+    @property
+    def is_partial(self) -> bool:
+        """Return whether the job handled its elements but some of them failed."""
+        return self.error is not None and self.error.code in PARTIAL_ERROR_CODES
 
     @property
     def is_interrupted(self) -> bool:

@@ -45,8 +45,13 @@ Rectangle {
             width: Math.min(900, scroller.width - 48)
             spacing: 18
 
+            // Heading placed like the folder page, at the page padding rather than
+            // inside the centred content column; the summary sits under the title.
             Item {
-                width: parent.width
+                readonly property int pagePadding: scroller.width < 600 ? 12 : 24
+
+                x: pagePadding - column.x
+                width: scroller.width - 2 * pagePadding
                 height: 92
 
                 Column {
@@ -183,6 +188,7 @@ Rectangle {
         required property string jobId
         required property string label
         required property string jobState
+        required property string outcome
         required property string stateLabel
         required property real progress
         required property int completed
@@ -208,6 +214,7 @@ Rectangle {
             jobId: card.jobId
             label: card.label
             jobState: card.jobState
+            outcome: card.outcome
             stateLabel: card.stateLabel
             progress: card.progress
             completed: card.completed

@@ -65,11 +65,21 @@ Rectangle {
 
     height: Theme.rowHeight
     opacity: available ? 1 : 0.55
-    color: selected ? Theme.selection : hovered ? Theme.surface : "transparent"
+    color: "transparent"
     Accessible.name: row.track.title + (row.track.artist.length > 0 ? " — " + row.track.artist : "")
 
+    // Highlight and focus frame span the table columns, not the whole viewport.
     Rectangle {
-        anchors.fill: parent
+        x: row.columns.padding
+        width: row.width - 2 * row.columns.padding
+        height: parent.height
+        color: row.selected ? Theme.selection : row.hovered ? Theme.surface : "transparent"
+    }
+
+    Rectangle {
+        x: row.columns.padding
+        width: row.width - 2 * row.columns.padding
+        height: parent.height
         color: "transparent"
         border.width: 1
         border.color: Theme.focus
@@ -104,6 +114,20 @@ Rectangle {
         hoverColor: row.playing ? Theme.primary : Theme.textPrimary
         tip: row.playing && !row.paused ? "Pause" : "Play"
         onClicked: row.playing ? row.toggleRequested() : row.activated()
+    }
+
+    Text {
+        objectName: "trackNumber"
+        x: row.columns.padding
+        width: row.columns.playSlot
+        anchors.verticalCenter: parent.verticalCenter
+        visible: !playButton.visible && row.track.number !== undefined
+        horizontalAlignment: Text.AlignHCenter
+        text: row.track.number !== undefined ? String(row.track.number) : ""
+        color: row.playing ? Theme.primary : Theme.textSecondary
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSizeSecondary
+        font.features: { "tnum": 1 }
     }
 
     Row {

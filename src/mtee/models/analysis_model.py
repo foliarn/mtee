@@ -107,10 +107,7 @@ class AnalysisModel(QObject):
             todo = self._service.pending(candidates, force=force)
             context.raise_if_cancelled()
             if not todo:
-                self._bridge.notice.emit(
-                    "Nothing to analyze: every track already has its result. "
-                    "Use Re-analyze to compute them again."
-                )
+                self._bridge.notice.emit("Nothing to analyze: every track already has its result.")
                 return
             self._service.run_batch(
                 todo,

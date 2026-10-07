@@ -10,13 +10,6 @@ Rectangle {
 
     color: Theme.sidebar
 
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        acceptedButtons: Qt.LeftButton
-        onClicked: sidebar.workspace.clearSelection(sidebar.workspace.activeGroup)
-    }
-
     Loader {
         anchors.fill: parent
         anchors.rightMargin: 1

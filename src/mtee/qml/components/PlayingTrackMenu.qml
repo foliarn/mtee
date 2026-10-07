@@ -32,11 +32,6 @@ AppMenu {
         onTriggered: menu.workspace.analyzeTracks([menu.trackId], false)
     }
     AppMenuItem {
-        objectName: "playingReanalyze"
-        text: "Re-analyze"
-        onTriggered: menu.workspace.analyzeTracks([menu.trackId], true)
-    }
-    AppMenuItem {
         objectName: "playingShowInExplorer"
         text: "Show in Explorer"
         onTriggered: menu.workspace.showInExplorer(menu.trackId)

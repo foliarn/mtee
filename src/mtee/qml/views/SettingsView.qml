@@ -128,6 +128,17 @@ Rectangle {
                     onToggled: (checked) => settings.rememberQueue = checked
                 }
 
+                Group { title: "Tabs"; visible: typeof settings.workspace.setPreviewTabs === "function" }
+
+                ToggleRow {
+                    objectName: "previewTabsSetting"
+                    visible: typeof settings.workspace.setPreviewTabs === "function"
+                    label: "Open folders and playlists in preview tabs"
+                    description: "Browsing reuses one italic tab instead of adding a new one each time. Double-click the tab, or sort, search or change its view, to keep it."
+                    checked: settings.workspace.previewTabs === true
+                    onToggled: (checked) => settings.workspace.setPreviewTabs(checked)
+                }
+
                 Group { title: "Library" }
 
                 ValueRow { label: "Folders"; value: "Music"; action: "Add folder" }

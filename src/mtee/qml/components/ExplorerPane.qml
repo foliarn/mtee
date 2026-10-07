@@ -12,18 +12,123 @@ Item {
     required property var workspace
 
     objectName: "explorerPane"
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        acceptedButtons: Qt.LeftButton
-        onClicked: pane.workspace.clearSelection(pane.workspace.activeGroup)
-    }
     readonly property var treeModel: typeof workspace.folderTreeModel === "object"
         ? workspace.folderTreeModel : null
     property string scrollAnchorId: ""
     property string scrollAnchorFallbackId: ""
     property real scrollAnchorViewportY: 0
     property bool clickedAnchorPending: false
+    readonly property bool canMoveFiles: typeof workspace.moveTracksToFolder === "function"
+    property bool trackDragActive: false
+    property var trackDragRow: null
+    property string dragTitle: ""
+    property string dragArtist: ""
+    property int dragCount: 0
+    property real dragX: 0
+    property real dragY: 0
+
+    // A root is listed as "root:<id>" in the tree but a track in its top level
+    // reports "folder:<id>/", so both spellings must compare equal.
+    function folderKey(identity) {
+        const text = String(identity || "")
+        return text.startsWith("folder:") && text.endsWith("/") ? "root:" + text.slice(7, -1) : text
+    }
+
+    function beginTrackDrag(row) {
+        const id = String(row.modelData.id)
+        const selected = Array.from(workspace.selectedIds)
+        const ids = selected.indexOf(id) >= 0 ? selected : [id]
+        const info = typeof workspace.track === "function" ? workspace.track(id) : ({})
+        dragSession.dragTrackIds = ids
+        dragSession.dragEntryIds = []
+        dragSession.dragCanAdd = true
+        dragSession.dragSource = String(row.modelData.folder || "")
+        pane.trackDragRow = row
+        pane.dragCount = ids.length
+        pane.dragTitle = info.title || String(row.modelData.name)
+        pane.dragArtist = info.artist || ""
+        pane.trackDragActive = true
+    }
+
+    function moveTrackDrag(row, x, y) {
+        const point = row.mapToItem(pane, x, y)
+        pane.dragX = point.x
+        pane.dragY = point.y
+    }
+
+    function endTrackDrag() {
+        pane.trackDragActive = false
+        pane.trackDragRow = null
+    }
+
+    function finishTrackDrag() {
+        if (pane.trackDragActive)
+            dragSession.Drag.drop()
+        pane.endTrackDrag()
+    }
+
+    function cancelTrackDrag() {
+        if (pane.trackDragActive)
+            dragSession.Drag.cancel()
+        pane.endTrackDrag()
+    }
+
+    Component.onDestruction: cancelTrackDrag()
+
+    Shortcut {
+        sequence: "Escape"
+        enabled: pane.trackDragActive
+        onActivated: pane.cancelTrackDrag()
+    }
+
+    Connections {
+        target: pane.Window.window
+        function onActiveChanged() {
+            if (!pane.Window.window.active)
+                pane.cancelTrackDrag()
+        }
+    }
+
+    Timer {
+        interval: 35
+        repeat: true
+        running: pane.trackDragActive
+        onTriggered: {
+            const point = pane.mapToItem(tree, pane.dragX, pane.dragY)
+            if (point.y < 28 && point.y >= -12)
+                tree.contentY = Math.max(0, tree.contentY - 12)
+            else if (point.y > tree.height - 28 && point.y <= tree.height + 12)
+                tree.contentY = Math.min(Math.max(0, tree.contentHeight - tree.height), tree.contentY + 12)
+        }
+    }
+
+    TrackDragPreview {
+        objectName: "explorerDragPreview"
+        parent: Overlay.overlay
+        visible: pane.trackDragActive
+        trackTitle: pane.dragTitle
+        artist: pane.dragArtist
+        count: pane.dragCount
+        readonly property var pointer: pane.mapToItem(parent, pane.dragX, pane.dragY)
+        x: Math.max(8, Math.min(parent.width - width - 8, pointer.x + 16))
+        y: Math.max(8, Math.min(parent.height - height - 8, pointer.y + 16))
+    }
+
+    Item {
+        id: dragSession
+        parent: Overlay.overlay
+        width: 1; height: 1
+        readonly property var pointer: pane.mapToItem(parent, pane.dragX, pane.dragY)
+        x: pointer.x; y: pointer.y
+        property var dragTrackIds: []
+        property var dragEntryIds: []
+        property string dragSource: ""
+        property bool dragCanAdd: false
+        Drag.active: pane.trackDragActive
+        Drag.source: dragSession
+        Drag.keys: ["mtee-tracks"]
+        Drag.supportedActions: Qt.MoveAction | Qt.CopyAction
+    }
 
     function parentFolderId(rowData) {
         if (rowData.kind !== "folder")
@@ -134,17 +239,6 @@ Item {
         reuseItems: true
         model: pane.treeModel || pane.workspace.explorerRows
         ScrollBar.vertical: ThinScrollBar {}
-        MouseArea {
-            parent: tree
-            x: 0
-            y: Math.min(tree.height, Math.max(0, tree.contentHeight - tree.contentY))
-            width: tree.width
-            height: Math.max(0, tree.height - y)
-            z: 10
-            acceptedButtons: Qt.LeftButton
-            onClicked: pane.workspace.clearSelection(pane.workspace.activeGroup)
-        }
-
         WheelScrollHandler {
             flickable: tree
         }
@@ -160,10 +254,51 @@ Item {
             readonly property bool selected: !isFolder && pane.workspace.selectedIds.indexOf(modelData.id) >= 0
             readonly property bool playing: !isFolder && pane.workspace.playingId === modelData.id
             readonly property string availability: isFolder ? (modelData.availability || "") : (modelData.status || "")
+            property bool dropValid: false
 
             width: tree.width
             height: Theme.treeRowHeight
-            color: selected ? Theme.selection : rowMouse.containsMouse ? Theme.surface : "transparent"
+            color: dropValid || selected ? Theme.selection : rowMouse.containsMouse ? Theme.surface : "transparent"
+            border.width: dropValid ? 2 : 0
+            border.color: Theme.primary
+            ListView.onReused: dropValid = false
+
+            DragHandler {
+                id: fileDrag
+                target: null
+                acceptedButtons: Qt.LeftButton
+                enabled: pane.canMoveFiles && !row.isFolder && !row.isLoading
+                    && row.availability === "readable"
+                onTranslationChanged: {
+                    if (active)
+                        pane.moveTrackDrag(row, centroid.position.x, centroid.position.y)
+                }
+                onActiveChanged: {
+                    if (active) {
+                        pane.beginTrackDrag(row)
+                        pane.moveTrackDrag(row, centroid.position.x, centroid.position.y)
+                    } else if (pane.trackDragRow === row) {
+                        pane.finishTrackDrag()
+                    }
+                }
+            }
+
+            DropArea {
+                anchors.fill: parent
+                keys: ["mtee-tracks"]
+                enabled: pane.canMoveFiles && row.isFolder
+                onEntered: drag => {
+                    row.dropValid = !!(drag.source && drag.source.dragCanAdd
+                        && pane.folderKey(drag.source.dragSource) !== pane.folderKey(row.modelData.id))
+                }
+                onExited: row.dropValid = false
+                onDropped: drop => {
+                    const valid = row.dropValid
+                    row.dropValid = false
+                    if (valid)
+                        pane.workspace.moveTracksToFolder(drop.source.dragTrackIds, String(row.modelData.id))
+                }
+            }
 
             Icon {
                 id: chevron
