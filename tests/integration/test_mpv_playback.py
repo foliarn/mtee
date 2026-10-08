@@ -173,3 +173,51 @@ def test_player_service_starts_next_track_after_a_native_pause(qapp, qtbot, tmp_
         )
     finally:
         service.close()
+
+
+@pytest.mark.native_audio
+def test_native_stream_released_after_a_long_pause_resumes_and_skips(tmp_path: Path) -> None:
+    first_path = tmp_path / "keep A.wav"
+    second_path = tmp_path / "keep B.wav"
+    _write_tone(first_path, duration_seconds=6.0, frequency_hz=440)
+    _write_tone(second_path, duration_seconds=6.0, frequency_hz=660)
+    events: list[BackendEvent] = []
+    packaged_runtime = os.environ.get("MTEE_TEST_MPV_LIBRARY")
+    backend = MpvBackend(
+        Path(packaged_runtime) if packaged_runtime else None,
+        audio_output="null",
+        keep_stream_alive=True,
+        pause_release_seconds=0.2,
+    )
+    backend.set_event_handler(events.append)
+
+    def wait_for(condition: object, timeout: float = 5.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if callable(condition) and condition():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def loaded(session: int) -> bool:
+        return any(e.name == "loaded" and e.session_id == session for e in list(events))
+
+    try:
+        backend.load(first_path, 1)
+        assert wait_for(lambda: loaded(1))
+        backend.set_paused(True)
+        time.sleep(0.8)  # long enough for the device release to have fired
+        paused_at = backend.position_us() or 0
+        backend.set_paused(False)
+        assert wait_for(lambda: (backend.position_us() or 0) > paused_at + 150_000)
+
+        backend.set_paused(True)
+        time.sleep(0.8)
+        backend.set_paused(False)  # a skip after a long pause takes the device back first
+        backend.load(second_path, 2)
+        assert wait_for(lambda: loaded(2))
+        start = backend.position_us() or 0
+        assert wait_for(lambda: (backend.position_us() or 0) > start + 150_000)
+        assert not any(e.name == "error" for e in list(events))
+    finally:
+        backend.close()
