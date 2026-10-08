@@ -70,12 +70,19 @@ class Taxonomy:
         """Ordinary removal falls back to the root of an otherwise emptied family."""
         before = self.normalize(assigned)
         removed_ids = set(removed)
-        remaining = before - removed_ids
-        for identity in before & removed_ids:
+        removed_values = {
+            value
+            for value in before
+            if value in removed_ids or set(self.ancestors(value)) & removed_ids
+        }
+        remaining = before - removed_values
+        for identity in removed_values:
             ancestors = self.ancestors(identity)
             if not ancestors:  # Removing an explicit root can leave a track unassigned.
                 continue
             family = ancestors[-1]
+            if family in removed_ids:
+                continue
             if not any(value == family or family in self.ancestors(value) for value in remaining):
                 remaining.add(family)
         return self.normalize(remaining)

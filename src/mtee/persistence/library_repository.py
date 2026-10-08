@@ -697,7 +697,7 @@ class LibraryRepository:
             return None
         return str(row["root_id"]), _folder_of(str(row["relative_path"]))
 
-    def track(self, track_id: str) -> dict[str, Any]:
+    def track(self, track_id: str, *, include_local_genres: bool = True) -> dict[str, Any]:
         row = (
             self._database.connection()
             .execute(
@@ -715,9 +715,10 @@ class LibraryRepository:
         )
         if row is None:
             return {}
-        return self._with_local_genres(
-            [_track_dict(row, str(row["root_id"] or ""), track_id=track_id, display=self._display)]
-        )[0]
+        result = _track_dict(
+            row, str(row["root_id"] or ""), track_id=track_id, display=self._display
+        )
+        return self._with_local_genres([result])[0] if include_local_genres else result
 
     def source_record(self, track_id: str) -> TrackSource | None:
         """Return the path, cached metadata, and exact stored source revision."""

@@ -157,6 +157,16 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
             }
+            SectionLabel { text: "Local tags" }
+            Text {
+                objectName: "infoLocalTags"
+                width: body.width
+                text: info.multiple ? "See each track for its local tags" : Array.from(info.first.localTags || []).join(" · ") || "None"
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSecondary
+            }
             SectionLabel { visible: info.workspace.metadataEditable !== false; text: "Tags" }
             SectionLabel { visible: info.workspace.metadataEditable === false; text: "Metadata (read-only)" }
 

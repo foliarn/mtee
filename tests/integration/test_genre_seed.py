@@ -131,7 +131,7 @@ def test_stale_or_tampered_or_other_database_plan_cannot_write(tmp_path: Path) -
     service = GenreSeedService(path)
     plan = service.preview(root)
     altered = copy.deepcopy(plan)
-    altered["rows"][0]["genres"] = [genre_id("House")]
+    altered["rows"][0]["genres"] = ["tampered-uuid"]
     with pytest.raises(GenreError, match="stale"):
         service.apply(altered)
     duplicate = tmp_path / "other.sqlite3"

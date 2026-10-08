@@ -20,11 +20,12 @@ La réorganisation future des dossiers physiques en fonction de cette taxonomie 
 - [x] 2026-10-08 — 109.0 : accord utilisateur « Je valide ces maquettes, go » ; obtenir et consigner la revue utilisateur des maquettes avant le code fonctionnel.
 - [x] 2026-10-08 — 109.1 : créer le socle de taxonomie, le journal d'opérations et l'amorçage reproductible ; vérifier sur base temporaire et copie.
 - [x] 2026-10-08 — 109.2 : présenter le tableau d'amorçage, appliquer le lot validé sur la base réelle sauvegardée, vérifier la persistance.
-- [ ] 109.3 — Livrer le Genre manager complet et la création rapide.
-- [ ] 109.4 — Livrer la palette, le tri sélectif et le mode pinceau sans lecture automatique.
-- [ ] 109.5 — Livrer les filtres combinables et la stabilité des listes pendant le tri.
-- [ ] 109.6 — Retirer les anciens genres d'artistes du plan 107 de façon ciblée et réversible.
-- [ ] 109.7 — Terminer tests, recette depuis les sources, documentation et publication de l'implémentation.
+- [x] 2026-10-08 — 109.3 : manager genres/méta-familles/tags, création rapide, alias, déplacement et ordre, archivage, suppression sûre et récupération livrés.
+- [x] 2026-10-08 — 109.4 : palette, pinceau indépendant de la sélection/lecture, lots, erreurs/reprise et annulation livrés.
+- [x] 2026-10-08 — 109.5 : filtres versionnés ET/OU/exclusions, contexte protégé, préférences par vue et rétention des lignes livrés.
+- [x] 2026-10-08 — 109.6 : retrait historique prouvé testé sur copie, appliqué avec sauvegarde puis vérifié ; cas ambigus préservés.
+- [x] 2026-10-08 — 109.7 partiel : tests ciblés, interactions QTest depuis les sources, mesures et documentation réalisés ; publication consignée dans le compte rendu de tâche.
+- [ ] 109.7 — Achever la recette interactive native complète ; aucun paquet Windows validé dans cette livraison.
 
 ## Surprises & Discoveries
 
@@ -368,3 +369,11 @@ Surprises & Discoveries : les effectifs ont changé depuis le brief. Le lot rée
 Decision Log : utilisateur — après examen du tableau réel, exclure « hard house - nu trance - bouncy stuff » et « techno, trance ». Ces deux dossiers (116 présents) sont exclus du mapping, sans retirer les définitions de taxonomie. Codex — appliquer ce tableau avec ces corrections après fermeture confirmée des deux outils utilisant la base ; copie cohérente vérifiée avant migration et amorçage réel.
 
 Outcomes & Retrospective : migration 021, arbre initial, liens locaux distincts des métadonnées, aperçu reproductible, application atomique, marqueurs durables de corrections manuelles et annulation ciblée livrés. Base réelle rouverte : quick_check OK, aucune erreur de clés étrangères, liens et exclusions conformes. Comparaison avec sauvegarde : locations, analyses et revues artistes identiques. Les genres locaux apparaissent en lecture seule dans la liste et Info. Manager, pinceau, filtres et nettoyage 107 restent à réaliser. Contrôles et limites dans le rapport de validation.
+
+## Révision d’exécution du 8 octobre 2026 — 109.3 à 109.7
+
+Surprises & Discoveries : les dates de deux transactions rapides peuvent être identiques ; l'annulation successive utilise désormais l'ordre d'insertion du journal et vérifie les inverses ciblés, sans accepter une modification externe. Le timestamp de validation d'une revue artiste n'est pas actualisé lors de l'import 107 : la preuve compare ce champ au témoin antérieur, et la fenêtre d'import porte sur `saved_at`. Les 13 profils sans témoin suffisant restent intacts. La création répétée de runtimes Qt dans le même fichier de recette a provoqué un arrêt natif ; un runtime partagé, nettoyé et remis à l'état initial entre scénarios, permet de vérifier les sept interactions.
+
+Decision Log : Codex — charger catalogues et affectations groupées dans les tâches de fond ; Info réutilise le cache local au lieu d'une nouvelle requête de genres sur le thread graphique. Les préférences versionnées distinguent groupe et onglet. L'annulation des genres/tags est prioritaire dans ce parcours et conserve les contrôles de révision. Les déplacements disposent du glisser-déposer et d'une alternative explicite au clavier ; aucun assistant d'impact supplémentaire. Le retrait 107 exige l'égalité des autres champs avec une sauvegarde témoin, l'exactitude des marqueurs et des tags ajoutés et la fenêtre temporelle d'import.
+
+Outcomes & Retrospective : manager, pinceau, tags indépendants, méta-familles, filtres et rétention livrés. Sept tests QML depuis les sources vérifient coche, annulation, filtre, création, deux panneaux, conservation de la file simulée, erreur/reprise, paramètres Advanced et déplacement par souris. Retrait réel : 2 528 anciens ajouts sur 1 590 artistes, 13 ambiguïtés préservées ; copie, récupération et sauvegarde vérifiées, aucun audio modifié. Les tables de locations, analyses, genres de morceaux et tags locaux restent identiques à la sauvegarde du retrait ; décisions, rôles, masquage et champs manuels artistes sont préservés. Le [guide](../docs/usage/genres-locaux.md) et le [rapport](../docs/validation/109-genres-morceaux-manager-tri.md) détaillent usage, commandes, mesures et limites. La recette automatisée depuis les sources est effectuée ; la recette interactive native complète reste ouverte. Aucun build ou smoke de paquet Windows lancé.

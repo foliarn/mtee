@@ -7,7 +7,7 @@ from PySide6.QtQuick import QQuickWindow
 from tests.integration.test_genre_seed import fixture_library
 from tests.ui.test_analysis_ui import _items, _wait_for
 
-from mtee.app import _build_runtime, _shutdown
+from mtee.app import _build_runtime, _destroy_windows, _shutdown
 from mtee.cli import parse_arguments
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.services.genre_seed_service import GenreSeedService
@@ -51,3 +51,4 @@ def test_seeded_local_genres_are_readable_in_list_and_info(
         assert not workspace.isPlaying
     finally:
         _shutdown(runtime)
+        _destroy_windows(runtime)

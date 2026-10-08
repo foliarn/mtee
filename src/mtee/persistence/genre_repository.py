@@ -133,11 +133,25 @@ class GenreRepository:
         try:
             taxonomy = self.taxonomy_from(connection)
             states = self.states_from(connection, ids)
+            tags_by_track = {identity: [] for identity in ids}
+            tag_names = {}
+            for row in connection.execute("SELECT tag_id,name FROM local_tags"):
+                tag_names[row["tag_id"]] = row["name"]
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                marks = ",".join("?" for _ in chunk)
+                for row in connection.execute(
+                    f"SELECT track_id,tag_id FROM track_local_tags WHERE track_id IN ({marks})",
+                    chunk,
+                ):
+                    tags_by_track[row["track_id"]].append(row["tag_id"])
             result = {}
             for identity, state in states.items():
                 assigned = [link["genre_id"] for link in state["links"]]
                 result[identity] = {
                     "genreIds": assigned,
+                    "localTagIds": sorted(tags_by_track[identity]),
+                    "localTags": sorted(tag_names[i] for i in tags_by_track[identity]),
                     "mteeGenres": sorted(taxonomy.path(value) for value in assigned),
                     "genreFamilies": sorted(
                         taxonomy.path(value) for value in taxonomy.families(assigned)
@@ -220,7 +234,11 @@ class GenreRepository:
         with self.database.transaction() as connection:
             taxonomy = self.taxonomy_from(connection)
             taxonomy.normalize(values)
-            if enabled and any(taxonomy.nodes[value].archived for value in values):
+            if enabled and any(
+                taxonomy.nodes[i].archived
+                for value in values
+                for i in (value, *taxonomy.ancestors(value))
+            ):
                 raise GenreError("Archived genres cannot receive new assignments")
             before = self.states_from(connection, identities)
             after = {}
@@ -265,6 +283,50 @@ class GenreRepository:
                 cancel()
         return operation_id
 
+    @staticmethod
+    def undo_state_matches(
+        connection: sqlite3.Connection,
+        target: str,
+        current: dict[str, Any],
+        expected: dict[str, Any],
+        operation: sqlite3.Row,
+    ) -> bool:
+        """Accept revision advances caused solely by proven targeted inverses."""
+        aliases = [target]
+        plain = target.split(":", 1)[1] if target.startswith(("track:", "tagtrack:")) else target
+        if ":" not in plain:
+            aliases = [plain, "track:" + plain, "tagtrack:" + plain]
+        marks = ",".join("?" for _ in aliases)
+        later = connection.execute(
+            "SELECT o.operation_id,o.status,i.expected_revision FROM genre_operations o "
+            "JOIN genre_operation_items i USING(operation_id) "
+            f"WHERE i.target_id IN ({marks}) AND o.rowid>"
+            "(SELECT rowid FROM genre_operations WHERE operation_id=?) ORDER BY o.rowid",
+            [*aliases, operation["operation_id"]],
+        ).fetchall()
+        inverse_ids = {
+            r[0]
+            for r in connection.execute(
+                "SELECT inverse_operation_id FROM genre_operations WHERE status='undone'"
+            )
+        }
+        if any(
+            row["status"] != "undone" and row["operation_id"] not in inverse_ids for row in later
+        ):
+            return False
+        if current == expected:
+            return True
+        left = json.loads(encode(current))
+        right = json.loads(encode(expected))
+        left["revision"] = right["revision"] = 0
+        if left.get("row"):
+            left["row"]["revision"] = 0
+        if right.get("row"):
+            right["row"]["revision"] = 0
+        return (
+            left == right and bool(later) and later[-1]["expected_revision"] == current["revision"]
+        )
+
     def undo(self, operation_id: str, *, cancel: Callable[[], None] | None = None) -> str:
         inverse_id = str(uuid4())
         with self.database.transaction() as connection:
@@ -281,7 +343,13 @@ class GenreRepository:
             taxonomy = self.taxonomy_from(connection)
             for item in items:
                 identity = str(item["target_id"])
-                if current[identity] != json.loads(item["after_json"]):
+                if not self.undo_state_matches(
+                    connection,
+                    identity,
+                    current[identity],
+                    json.loads(item["after_json"]),
+                    operation,
+                ):
                     raise GenreError(f"Undo conflict: {identity}")
                 if not connection.execute(
                     "SELECT 1 FROM tracks WHERE track_id=?", (identity,)
