@@ -199,6 +199,18 @@ Rectangle {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSecondary
                     }
+
+                    Text {
+                        objectName: "trackLocalGenres"
+                        visible: row.track.mteeGenres !== undefined
+                        width: parent.width
+                        text: "MTEE genres: " + (row.track.mteeGenres && row.track.mteeGenres.length
+                            ? Array.from(row.track.mteeGenres).join(" · ") : "None")
+                        elide: Text.ElideRight
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeCaption
+                    }
                 }
 
                 KeyBadge {

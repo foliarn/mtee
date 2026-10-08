@@ -136,6 +136,27 @@ Item {
                 font.pixelSize: Theme.fontSizeSmall
             }
 
+            SectionLabel { text: "MTEE genres (local)" }
+            Text {
+                objectName: "infoLocalGenres"
+                width: body.width
+                text: info.multiple ? "See each track for its local assignments"
+                    : (info.first.mteeGenres && info.first.mteeGenres.length
+                        ? Array.from(info.first.mteeGenres).join("\n") : "None")
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSecondary
+            }
+            Text {
+                visible: !info.multiple && !!info.first.genreSeedFolder
+                width: body.width
+                text: "Seed folder: " + (info.first.genreSeedFolder || "")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
             SectionLabel { visible: info.workspace.metadataEditable !== false; text: "Tags" }
             SectionLabel { visible: info.workspace.metadataEditable === false; text: "Metadata (read-only)" }
 

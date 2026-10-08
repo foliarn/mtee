@@ -17,9 +17,9 @@ La réorganisation future des dossiers physiques en fonction de cette taxonomie 
 - [x] 2026-10-07 — Lire les règles, le brief 108, le plan 107 et les contrats de 10 ; confronter les points d'intégration aux sources et tests existants.
 - [x] 2026-10-07 — Rédiger le plan en deux lots, consigner les décisions finales et actualiser les références documentaires.
 - [x] 2026-10-07 — 109.0 : préparer le prototype QML isolé, son lanceur, 16 captures et le dossier de revue.
-- [ ] 109.0 — Obtenir et consigner la revue utilisateur des maquettes avant le code fonctionnel.
-- [ ] 109.1 — Créer le socle de taxonomie, le journal d'opérations et l'amorçage reproductible ; vérifier sur base temporaire et copie.
-- [ ] 109.2 — Présenter le tableau d'amorçage, appliquer le lot validé sur la base réelle sauvegardée, vérifier la persistance.
+- [x] 2026-10-08 — 109.0 : accord utilisateur « Je valide ces maquettes, go » ; obtenir et consigner la revue utilisateur des maquettes avant le code fonctionnel.
+- [x] 2026-10-08 — 109.1 : créer le socle de taxonomie, le journal d'opérations et l'amorçage reproductible ; vérifier sur base temporaire et copie.
+- [x] 2026-10-08 — 109.2 : présenter le tableau d'amorçage, appliquer le lot validé sur la base réelle sauvegardée, vérifier la persistance.
 - [ ] 109.3 — Livrer le Genre manager complet et la création rapide.
 - [ ] 109.4 — Livrer la palette, le tri sélectif et le mode pinceau sans lecture automatique.
 - [ ] 109.5 — Livrer les filtres combinables et la stabilité des listes pendant le tri.
@@ -359,3 +359,12 @@ Surprises & Discoveries : le répertoire proposé `src/mtee/qml/prototypes/` n�
 Decision Log : Codex, 2026-10-07 — préparer uniquement les surfaces à données fictives avant la revue imposée. Réutiliser Theme, FilterChip et WheelScrollHandler ; lanceur autonome sans runtime applicatif, base ni lecteur audio. Les presets fixes de filtres illustrent les combinaisons avant leur éditeur générique. Ne pas interpréter la demande d’exécution comme un accord visuel absent.
 
 Outcomes & Retrospective : prototype, captures et [dossier de revue](../docs/ux/review-109-genres.md) prêts ; 16 scènes chargées sans avertissement QML, contrôles Ruff propres et sondes d’interactions en mémoire réussies. Inspection visuelle des captures réalisée ; recette interactive native et accord utilisateur non réalisés. Les jalons 109.1–109.7 attendent cette revue. Aucun schéma, donnée personnelle ni audio modifié ; aucun packaging. La publication du sous-jalon est vérifiée et rapportée dans le compte rendu après push.
+
+
+## Révision d’exécution du 8 octobre 2026 — 109.1 et 109.2
+
+Surprises & Discoveries : les effectifs ont changé depuis le brief. Le lot réel corrigé porte sur 2 456 morceaux, 2 472 liens directs, 8 hybrides ; 358 présents restent sans genre, 2 absents sont ignorés. La règle donne 56 Jungle, 18 Breaks et un BPM manquant. Les rapports personnels sont conservés localement hors Git.
+
+Decision Log : utilisateur — après examen du tableau réel, exclure « hard house - nu trance - bouncy stuff » et « techno, trance ». Ces deux dossiers (116 présents) sont exclus du mapping, sans retirer les définitions de taxonomie. Codex — appliquer ce tableau avec ces corrections après fermeture confirmée des deux outils utilisant la base ; copie cohérente vérifiée avant migration et amorçage réel.
+
+Outcomes & Retrospective : migration 021, arbre initial, liens locaux distincts des métadonnées, aperçu reproductible, application atomique, marqueurs durables de corrections manuelles et annulation ciblée livrés. Base réelle rouverte : quick_check OK, aucune erreur de clés étrangères, liens et exclusions conformes. Comparaison avec sauvegarde : locations, analyses et revues artistes identiques. Les genres locaux apparaissent en lecture seule dans la liste et Info. Manager, pinceau, filtres et nettoyage 107 restent à réaliser. Contrôles et limites dans le rapport de validation.

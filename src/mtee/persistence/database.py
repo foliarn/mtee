@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 __all__ = [
     "MIGRATIONS_DIR",
@@ -156,11 +157,15 @@ class Database:
     def backup_to(self, destination: Path) -> Path:
         """Write a consistent copy of the database to ``destination``."""
         destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.touch(exist_ok=False)
         target = sqlite3.connect(destination)
         try:
             self.connection().backup(target)
         finally:
             target.close()
+        with sqlite3.connect(destination) as check:
+            if check.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise DatabaseError("The backup could not be verified; no migration was applied.")
         return destination
 
     def migrate(self) -> list[Migration]:
@@ -240,7 +245,7 @@ class Database:
     def backup_path_for(self, version: int) -> Path:
         """Return where the safety copy of schema ``version`` is written."""
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        return self._path.with_name(f"{self._path.name}.v{version}.{stamp}.backup")
+        return self._path.with_name(f"{self._path.name}.v{version}.{stamp}.{uuid4().hex}.backup")
 
     def close(self) -> None:
         """Close every connection opened by this instance."""

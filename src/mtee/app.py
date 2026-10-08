@@ -42,6 +42,7 @@ from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
+from mtee.persistence.genre_repository import GenreRepository
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
 from mtee.persistence.playback_repository import (
@@ -171,6 +172,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace = DemoWorkspace(options.scenario)
         workspace.attach_analysis_settings(analysis_settings, TagConflictsModel(parent=application))
     else:
+        GenreRepository(database).initialize()
         library = LibraryRepository(database)
         analysis_repository = AnalysisRepository(database)
         workspace_repository = WorkspaceRepository(database)
