@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import Mtee
+import "../components"
 
 // Settings editor tab, as in VS Code, with a General and an Analysis page. In
 // General only the player island switch acts on the prototype; the other entries
@@ -140,6 +141,12 @@ Rectangle {
                 }
 
                 Group { title: "Library" }
+                TextButton {
+                    objectName: "settingsGenreManager"
+                    visible: typeof settings.workspace.genreModel !== "undefined"
+                    text: "Genres · Manager and Advanced"
+                    onClicked: genreManager.open()
+                }
 
                 ValueRow { label: "Folders"; value: "Music"; action: "Add folder" }
 
@@ -510,4 +517,14 @@ Rectangle {
             }
         }
     }
+    Loader {
+        active: typeof settings.workspace.genreModel !== "undefined"
+        sourceComponent: Component { GenreManager { id: genreManagerPopup; model: settings.workspace.genreModel; advancedAllowed: true; parent: Overlay.overlay } }
+        id: genreManagerLoader
+    }
+    QtObject {
+        id: genreManager
+        function open() { if (genreManagerLoader.item) genreManagerLoader.item.open() }
+    }
+
 }

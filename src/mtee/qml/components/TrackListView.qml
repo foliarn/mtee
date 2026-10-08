@@ -573,10 +573,20 @@ FocusScope {
         }
     }
 
+    Loader {
+        id: genreBar
+        anchors.top: heading.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: active ? 182 : 0
+        active: !view.isArtist && view.modelBacked && typeof view.workspace.genreModel !== "undefined"
+        sourceComponent: Component { GenreBrushBar { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel; groupIndex: view.groupIndex } }
+    }
+
     Item {
         id: columnHeader
         visible: !view.artwork
-        anchors.top: heading.bottom
+        anchors.top: genreBar.bottom
         x: -tableViewport.contentX
         width: tableViewport.contentWidth
         height: visible ? 34 : 0
@@ -736,6 +746,9 @@ FocusScope {
                     groupIndex: view.groupIndex
                     separateArtist: view.modelBacked
                     selected: view.selectionIds.indexOf(modelData.id) >= 0
+                    brushId: genreBar.item ? genreBar.item.brush : ""
+                    brushEnabled: !!brushId && !view.workspace.genreModel.busy
+                    onBrushRequested: enabled => view.workspace.applyGenreBrush(view.tab.id,view.groupIndex,[modelData.id],enabled)
                     playing: view.workspace.playingId === (modelData.trackId || modelData.id)
                     paused: !view.workspace.isPlaying
                     current: view.activeFocus && list.currentIndex === index && view.selectionIds.length > 0
@@ -820,7 +833,7 @@ FocusScope {
                 contentY, anchorId, item ? contentY - item.y : 0)
         }
         visible: view.artwork
-        anchors.top: heading.bottom
+        anchors.top: genreBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
