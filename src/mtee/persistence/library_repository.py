@@ -19,6 +19,7 @@ from mtee.domain.metadata import MetadataSnapshot, format_bitrate
 from mtee.domain.musical_key import MusicalKey, format_key, parse_key
 from mtee.domain.tracks import SourceRevision, TrackId, sha256_of_file
 from mtee.persistence.database import Database
+from mtee.persistence.genre_repository import GenreRepository
 
 __all__ = ["LibraryRepository"]
 
@@ -58,6 +59,14 @@ class LibraryRepository:
     def set_analysis_display(self, notation: str, decimals: int) -> None:
         """Choose the key notation and BPM decimals of the rows built from now on."""
         self._display = AnalysisDisplay(notation, decimals)
+
+    def _with_local_genres(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows or self._database.schema_version() < 21:
+            return rows
+        assignments = GenreRepository(self._database).track_assignments(
+            [str(row["id"]) for row in rows]
+        )
+        return [dict(row, **assignments[str(row["id"])]) for row in rows]
 
     def add_root(self, path: Path | str) -> dict[str, Any]:
         source = Path(path).expanduser().resolve(strict=False)
@@ -585,7 +594,9 @@ class LibraryRepository:
             )
             .fetchall()
         )
-        return [_track_dict(row, root_id, display=self._display) for row in rows]
+        return self._with_local_genres(
+            [_track_dict(row, root_id, display=self._display) for row in rows]
+        )
 
     def tracks_by_ids(self, track_ids: Sequence[str]) -> list[dict[str, Any]]:
         """Return the rows of these tracks, in the order given, one row per track.
@@ -616,7 +627,9 @@ class LibraryRepository:
                     found[identity] = _track_dict(
                         row, str(row["root_id"] or ""), track_id=identity, display=self._display
                     )
-        return [found[identity] for identity in wanted if identity in found]
+        return self._with_local_genres(
+            [found[identity] for identity in wanted if identity in found]
+        )
 
     def track_ids_in_tree(self, root_id: str, relative_folder: str) -> list[str]:
         """Return every readable track of a folder and of all its sub-folders."""
@@ -702,7 +715,9 @@ class LibraryRepository:
         )
         if row is None:
             return {}
-        return _track_dict(row, str(row["root_id"] or ""), track_id=track_id, display=self._display)
+        return self._with_local_genres(
+            [_track_dict(row, str(row["root_id"] or ""), track_id=track_id, display=self._display)]
+        )[0]
 
     def source_record(self, track_id: str) -> TrackSource | None:
         """Return the path, cached metadata, and exact stored source revision."""
@@ -734,7 +749,8 @@ class LibraryRepository:
         """Hide confirmed recycled memberships only when the source snapshot still matches."""
         with self._database.transaction() as connection:
             row = connection.execute(
-                "SELECT size_bytes,mtime_ns,file_id,generation FROM track_locations WHERE track_id=?",
+                "SELECT size_bytes,mtime_ns,file_id,generation FROM track_locations "
+                "WHERE track_id=?",
                 (track_id,),
             ).fetchone()
             if row is None:
