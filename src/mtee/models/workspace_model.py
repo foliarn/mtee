@@ -822,6 +822,16 @@ class WorkspaceModel(QObject):
         self.revealTrack(track_id, source)
         self.showRightPanel("info")
 
+    @Slot(str, result=list)
+    def trackArtists(self, track_id: str) -> list[dict[str, str]]:
+        """Return the confirmed artists credited on a track, as {"id", "name"} in credit order."""
+        manager = self._artist_manager
+        if not isinstance(manager, ArtistManagerModel) or not track_id:
+            return []
+        identity = str(track_id)
+        credits = manager.service.repository.confirmed_credit_names([identity]).get(identity, [])
+        return [{"id": str(item["id"]), "name": str(item["name"])} for item in credits]
+
     @Slot(list)
     def addTracksToConvert(self, track_ids: list) -> None:
         """Queue these tracks, given by their library identity, for conversion and open it."""
@@ -3265,6 +3275,21 @@ def _local_path(value: str) -> str:
     return value.strip()
 
 
+_CAMELOT_CODE = re.compile(r"^(\d{1,2})([AaBb])$")
+
+
+def _camelot_order(row: dict[str, Any]) -> tuple[int, int] | None:
+    """Return the Camelot position of a row as (number, letter), or None without a code.
+
+    Within a number, A sorts before B, and 10 comes after 9.
+    """
+    for value in (row.get("keyCamelot"), row.get("key")):
+        match = _CAMELOT_CODE.match(str(value or "").strip())
+        if match is not None and 1 <= int(match.group(1)) <= 12:
+            return int(match.group(1)), 0 if match.group(2).upper() == "A" else 1
+    return None
+
+
 def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[dict[str, Any]]:
     if key not in _SORT_KEYS or key == "index":
         return list(rows)
@@ -3277,6 +3302,16 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
     present: list[tuple[object, str, str, dict[str, Any]]] = []
     missing = []
     for row in rows:
+        if key == "key":
+            # Camelot codes sort by number, then letter: 9B before 10A.
+            order = _camelot_order(row)
+            if order is None:
+                missing.append(row)
+            else:
+                present.append(
+                    (order, str(row.get("title", "")).casefold(), str(row.get("id", "")), row)
+                )
+            continue
         value = row.get(field)
         if value is None or value == "":
             missing.append(row)

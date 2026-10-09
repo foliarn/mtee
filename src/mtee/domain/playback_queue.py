@@ -89,17 +89,21 @@ class QueueState:
         *,
         source: str = "",
         source_title: str = "",
+        rng: random.Random | None = None,
     ) -> QueueState:
         if not entries or not 0 <= start_index < len(entries):
             raise ValueError("Invalid context start")
         if any(entry.origin != "context" for entry in entries):
             raise ValueError("Context contains manual occurrences")
         manual = tuple(entry for entry in self.upcoming if entry.origin == "manual")
+        following = list(entries[start_index + 1 :])
+        if self.shuffle:
+            (rng or random).shuffle(following)
         past = (*self.past, *((self.current,) if self.current else ()), *entries[:start_index])
         return self._changed(
             past=past,
             current=entries[start_index],
-            upcoming=(*manual, *entries[start_index + 1 :]),
+            upcoming=(*manual, *following),
             context_order=tuple(entries),
             source=source,
             source_title=source_title,
@@ -137,9 +141,7 @@ class QueueState:
                     *((self.current,) if self.current else ()),
                     *self.upcoming[:index],
                 )
-                return self._changed(
-                    past=past, current=entry, upcoming=self.upcoming[index + 1 :]
-                )
+                return self._changed(past=past, current=entry, upcoming=self.upcoming[index + 1 :])
         return self
 
     def insert_current(self, entry: QueueEntry) -> QueueState:
@@ -208,9 +210,17 @@ class QueueState:
             raise ValueError("Unknown repeat mode")
         return self if repeat == self.repeat else self._changed(repeat=repeat)
 
-    def repeat_all(self) -> QueueState:
+    def repeat_all(self, *, rng: random.Random | None = None) -> QueueState:
+        """Begin the cycle again from its first occurrence, reshuffled when shuffle is on.
+
+        Without a known context, the whole queue restarts in its current order.
+        """
         if not self.context_order:
-            return self
-        return self._changed(
-            past=(), current=self.context_order[0], upcoming=self.context_order[1:]
-        )
+            order = (*self.past, *((self.current,) if self.current else ()), *self.upcoming)
+            if not order:
+                return self
+            return self._changed(past=(), current=order[0], upcoming=order[1:])
+        cycle = list(self.context_order)
+        if self.shuffle:
+            (rng or random).shuffle(cycle)
+        return self._changed(past=(), current=cycle[0], upcoming=tuple(cycle[1:]))

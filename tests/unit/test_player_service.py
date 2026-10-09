@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 import pytest
 
+from mtee.domain import playback_queue
 from mtee.domain.playback import PlaybackStatus
+from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
+from mtee.persistence.database import Database
+from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
+from mtee.persistence.settings_repository import SettingsRepository
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.player_backend import BackendEvent, BackendEventHandler
 from mtee.services.player_service import PlayerService
@@ -812,3 +818,291 @@ def test_player_model_exposes_the_history_as_a_list_model(qapp, qtbot, tmp_path:
     qtbot.waitUntil(lambda: service.state.current_id == ids[0])
     qtbot.waitUntil(lambda: history.count == 2)
     service.close()
+
+
+def test_repeat_all_next_on_last_track_wraps_to_first(qapp, qtbot, tmp_path: Path) -> None:
+    service, _backend, _access, ids, _ = _make_service(qapp, tmp_path, count=3)
+    service.play_queue(ids, 2)
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    assert service.state.repeat == "all"
+    service.next()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[0], timeout=2000)
+    _wait_playing(qtbot, service)
+    assert [row["trackId"] for row in service.up_next()] == [ids[1], ids[2]]
+    service.close()
+
+
+def test_repeat_all_natural_end_without_context_restarts_the_whole_queue(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=2)
+    first, second = service.enqueue_tracks(ids)
+    service.toggle_play()
+    _wait_playing(qtbot, service)
+    assert service.queue_state.context_order == ()
+    service.cycle_repeat()
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[1]
+
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[0]
+    assert service.state.current_entry_id == first
+    assert [row["entryId"] for row in service.up_next()] == [second]
+    service.close()
+
+
+def test_repeat_one_natural_end_replays_and_next_previous_still_move(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=3)
+    service.play_queue(ids, 1)
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    service.cycle_repeat()
+    assert service.state.repeat == "one"
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[1]
+
+    service.next()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[2], timeout=2000)
+    _wait_playing(qtbot, service)
+    service.previous()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[1], timeout=2000)
+    _wait_playing(qtbot, service)
+    service.close()
+
+
+def test_repeat_all_single_track_loops_and_next_stays_on_it(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=1)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[0]
+
+    service.next()
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 2, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[0]
+    service.close()
+
+
+@pytest.mark.parametrize(
+    ("mode", "start_index", "expected_index"),
+    [("one", 0, 0), ("all", 2, 0)],
+    ids=["one", "all"],
+)
+def test_restored_session_honours_repeat_on_the_first_natural_end(
+    qapp, qtbot, tmp_path: Path, mode: str, start_index: int, expected_index: int
+) -> None:
+    service, _backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=3)
+    database = Database(tmp_path / "playback.sqlite3")
+    database.migrate()
+    repository = PlaybackRepository(database)
+    entries = [QueueEntry.create(track_id, "context") for track_id in ids]
+    queue = QueueState().start_context(entries, start_index).set_repeat(mode)  # type: ignore[arg-type]
+    repository.save(PlaybackSession(queue=queue, write_sequence=1))
+    service.close()
+
+    backend = FakeBackend()
+    restored = PlayerService(
+        lambda track_id: dict(tracks.get(track_id, {})),
+        FileAccessCoordinator(),
+        backend,
+        parent=qapp,
+    )
+    restored.attach_session(repository, repository.load())
+    qtbot.waitUntil(lambda: restored.state.status is PlaybackStatus.PAUSED, timeout=2000)
+    restored.resume()
+    _wait_playing(qtbot, restored)
+    assert restored.state.repeat == mode
+
+    loads = len(backend.loads)
+    backend.emit("eof", restored.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, restored)
+    assert restored.state.current_id == ids[expected_index]
+    restored.close()
+    database.close()
+
+
+def test_repeat_mode_survives_starting_another_context(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=4)
+    service.play_queue(ids[:2])
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    service.play_queue(ids[2:4], 1)
+    _wait_playing(qtbot, service)
+    assert service.state.repeat == "all"
+    assert service.queue_state.repeat == "all"
+
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[2]
+    service.close()
+
+
+def test_repeat_all_natural_end_with_context_wraps_to_first(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=2)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    loads = len(backend.loads)
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[0]
+    assert [row["trackId"] for row in service.up_next()] == [ids[1]]
+    service.close()
+
+
+def test_shuffle_orders_the_rest_of_a_new_context_and_off_restores_it(
+    qapp, qtbot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _backend, _access, ids, _ = _make_service(qapp, tmp_path, count=5)
+    expected = list(ids[2:])
+    random.Random(0).shuffle(expected)
+    assert expected != ids[2:]
+    monkeypatch.setattr(playback_queue, "random", random.Random(0))
+    service.toggle_shuffle()
+    assert service.state.shuffle is True
+
+    service.play_queue(ids, 1)
+    _wait_playing(qtbot, service)
+
+    assert [row["trackId"] for row in service.up_next()] == expected
+    assert [entry.track_id for entry in service.queue_state.context_order] == ids
+
+    monkeypatch.undo()
+    service.toggle_shuffle()
+    assert [row["trackId"] for row in service.up_next()] == ids[2:]
+    service.close()
+
+
+def _settings(tmp_path: Path) -> tuple[Database, SettingsRepository]:
+    database = Database(tmp_path / "settings.sqlite3")
+    database.migrate()
+    return database, SettingsRepository(database)
+
+
+def _restarted_service(qapp, tracks, backend: FakeBackend) -> PlayerService:
+    return PlayerService(
+        lambda track_id: dict(tracks.get(track_id, {})),
+        FileAccessCoordinator(),
+        backend,
+        parent=qapp,
+    )
+
+
+def test_volume_and_mute_are_restored_after_a_restart(qapp, qtbot, tmp_path: Path) -> None:
+    database, settings = _settings(tmp_path)
+    service, _backend, _access, _ids, tracks = _make_service(qapp, tmp_path, count=1)
+    service.attach_settings(settings)
+    service.set_volume(35)
+    service.set_volume(40)
+    service.toggle_mute()
+    service.close()
+
+    backend = FakeBackend()
+    restarted = _restarted_service(qapp, tracks, backend)
+    restarted.attach_settings(settings)
+
+    assert restarted.state.volume == 40
+    assert restarted.state.muted is True
+    assert backend.volume == 0
+    assert restarted.state.status is PlaybackStatus.IDLE
+    assert backend.loads == []
+    restarted.toggle_mute()
+    assert restarted.state.muted is False
+    assert backend.volume == 40
+    restarted.close()
+    database.close()
+
+
+@pytest.mark.parametrize(
+    ("volume", "muted"),
+    [("loud", "yes"), (150, 1), (-3, None), (True, "true"), (12.5, 0)],
+)
+def test_invalid_stored_volume_or_mute_keep_the_defaults(
+    qapp, tmp_path: Path, volume: object, muted: object
+) -> None:
+    database, settings = _settings(tmp_path)
+    settings.set_json("player.volume", volume)
+    settings.set_json("player.muted", muted)
+    service, backend, _access, _ids, _tracks = _make_service(qapp, tmp_path, count=1)
+
+    service.attach_settings(settings)
+
+    assert service.state.volume == 72
+    assert service.state.muted is False
+    assert backend.volume == 72
+    service.close()
+    database.close()
+
+
+def test_slider_moves_are_saved_once_after_the_debounce_or_at_close(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    database, settings = _settings(tmp_path)
+    service, _backend, _access, _ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    service.attach_settings(settings)
+    for value in (10, 20, 30):
+        service.set_volume(value)
+    assert settings.get_json("player.volume") is None
+
+    qtbot.waitUntil(lambda: settings.get_json("player.volume") == 30, timeout=2000)
+    service.set_volume(40)
+    assert settings.get_json("player.volume") == 30
+    service.close()
+    assert settings.get_json("player.volume") == 40
+    database.close()
+
+
+def test_flush_session_writes_the_pending_mute(qapp, tmp_path: Path) -> None:
+    database, settings = _settings(tmp_path)
+    service, _backend, _access, _ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    service.attach_settings(settings)
+    service.toggle_mute()
+
+    service.flush_session()
+
+    assert settings.get_json("player.muted") is True
+    service.close()
+    database.close()
+
+
+class _FailingSettings:
+    def get_json(self, key: str, default: object = None) -> object:
+        return default
+
+    def set_json(self, key: str, value: object) -> None:
+        raise OSError("disk full")
+
+
+def test_a_failed_volume_save_never_reaches_the_ui(qapp, tmp_path: Path) -> None:
+    service, _backend, _access, _ids, _tracks = _make_service(qapp, tmp_path, count=1)
+    service.attach_settings(_FailingSettings())  # type: ignore[arg-type]
+
+    service.set_volume(20)
+    service.close()
+
+    assert service.state.volume == 20
