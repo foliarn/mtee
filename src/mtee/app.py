@@ -53,6 +53,7 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.windows_frame import WindowFrame
+from mtee.plugins.registry import load_plugin
 from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.artist_file_service import ArtistFileService
@@ -208,6 +209,11 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             session=workspace_repository,
             jobs=jobs,
             player=player_model,
+        )
+        workspace.attach_genre_manager_factory(
+            lambda: load_plugin(
+                "genre_manager", database, library, PlaylistsRepository(database), file_access
+            )
         )
         playlist_service = PlaylistService(PlaylistsRepository(database), library)
         playlists_model = PlaylistsModel(

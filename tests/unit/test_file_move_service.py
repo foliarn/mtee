@@ -144,6 +144,35 @@ def test_a_database_failure_puts_the_file_back(lib: _Library, monkeypatch) -> No
     assert lib.library.track_folder(track_id) == (lib.root_id, "")
 
 
+def test_journal_hook_observes_disk_move_before_catalog_update(lib: _Library) -> None:
+    track_id = lib.add_track("a.wav")
+    destination = lib.service.resolve_folder(lib.root_id, "sub")
+    phases: list[str] = []
+
+    def journal() -> None:
+        assert not (lib.music / "a.wav").exists()
+        assert (lib.music / "sub" / "a.wav").is_file()
+        assert lib.library.source_record(track_id).path == (lib.music / "a.wav").resolve()
+        phases.append("disk")
+
+    result = lib.service.move(track_id, destination, on_disk_moved=journal)
+    assert result.status == "moved"
+    assert phases == ["disk"]
+
+
+def test_failing_journal_hook_rolls_the_file_back(lib: _Library) -> None:
+    track_id = lib.add_track("a.wav")
+    destination = lib.service.resolve_folder(lib.root_id, "sub")
+
+    def fail() -> None:
+        raise RuntimeError("journal unavailable")
+
+    result = lib.service.move(track_id, destination, on_disk_moved=fail)
+    assert result.status == "failed"
+    assert (lib.music / "a.wav").is_file()
+    assert not (lib.music / "sub" / "a.wav").exists()
+
+
 def test_unknown_or_escaping_folders_are_refused(lib: _Library) -> None:
     with pytest.raises(FileMoveError):
         lib.service.resolve_folder("00000000-0000-0000-0000-000000000000", "")

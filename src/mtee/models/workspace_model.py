@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
@@ -101,6 +102,8 @@ class WorkspaceModel(QObject):
         self._jobs = jobs
         self._player = player
         self._playlists_model: PlaylistsModel | None = None
+        self._genre_manager_factory: Callable[[], QObject] | None = None
+        self._genre_manager_model: QObject | None = None
         self._enqueue_sequence = 0
         self._enqueue_next_to_apply = 1
         self._enqueue_ready: dict[int, dict[str, Any]] = {}
@@ -1214,6 +1217,33 @@ class WorkspaceModel(QObject):
         model.setParent(self)
         model.tracksChanged.connect(self._on_artist_files_changed)
         model.noticeRaised.connect(self._set_message)
+
+    @Property(QObject, notify=layoutChanged)
+    def genreManager(self) -> QObject | None:
+        """The plugin model is absent until the user opens Genre Manager."""
+        return self._genre_manager_model
+
+    def attach_genre_manager_factory(self, factory: Callable[[], QObject]) -> None:
+        self._genre_manager_factory = factory
+
+    @Slot(str, str)
+    def openGenreManagerView(self, view: str, title: str) -> None:
+        if view not in {"classify", "genres", "uncertain", "organize"}:
+            return
+        if self._genre_manager_model is None:
+            if self._genre_manager_factory is None:
+                self._set_message("Genre Manager is unavailable in this workspace.")
+                return
+            self._genre_manager_model = self._genre_manager_factory()
+            self._genre_manager_model.setParent(self)
+        self._cancel_explorer_track_action()
+        self._capture_navigation()
+        self._activity = "plugins"
+        self._sidebar_visible = True
+        self._open_special_tab(f"genre_manager:{view}", title)
+        self._record_navigation()
+        self.layoutChanged.emit()
+        self._persist()
 
     @Slot(list)
     def _on_artist_files_changed(self, _track_ids: list) -> None:
@@ -3226,6 +3256,10 @@ class WorkspaceModel(QObject):
         """Persist the latest independent snapshot before SQLite is closed."""
         if self._session_closed:
             return
+        if self._genre_manager_model is not None:
+            closer = getattr(self._genre_manager_model, "close", None)
+            if callable(closer):
+                closer()
         self._folder_watch.close()
         self._session_timer.stop()
         state = self._session_snapshot()
