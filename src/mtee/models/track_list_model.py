@@ -10,9 +10,9 @@ from PySide6.QtCore import (
     QByteArray,
     QModelIndex,
     QPersistentModelIndex,
-    Slot,
     Qt,
     Signal,
+    Slot,
 )
 
 __all__ = ["TrackListModel"]
@@ -71,6 +71,31 @@ class TrackListModel(QAbstractListModel):
     def rowForId(self, identity: str) -> int:
         """Expose the row lookup to QML while keeping a Python-style helper."""
         return self.row_for_id(identity)
+
+    @Slot(list, bool, result=dict)
+    def dragPayload(self, selected_ids: list, is_playlist: bool) -> dict[str, Any]:
+        """Describe the selected rows in one call; iterating the lists from QML is quadratic."""
+        selected = {str(identity) for identity in selected_ids}
+        chosen = [row for row in self._rows if str(row["id"]) in selected]
+        entry_ids: list[Any] = []
+        track_ids: list[Any] = []
+        for row in chosen:
+            entry_id = row.get("entryId")
+            if entry_id:
+                entry_ids.append(entry_id)
+            track_id = row.get("trackId") if is_playlist else row.get("id")
+            if track_id:
+                track_ids.append(track_id)
+        first = chosen[0] if chosen else {}
+        return {
+            "entryIds": entry_ids,
+            "trackIds": track_ids,
+            "canAdd": len(track_ids) == len(chosen)
+            and all(row.get("available") is not False for row in chosen),
+            "count": len(chosen),
+            "title": str(first.get("title") or ""),
+            "artist": str(first.get("artist") or ""),
+        }
 
     @Property(int, notify=rowsChanged)
     def count(self) -> int:
@@ -134,7 +159,9 @@ class TrackListModel(QAbstractListModel):
             start = previous = changed_rows[0]
             for row_index in changed_rows[1:]:
                 if row_index != previous + 1:
-                    self.dataChanged.emit(self.index(start, 0), self.index(previous, 0), [_DATA_ROLE])
+                    self.dataChanged.emit(
+                        self.index(start, 0), self.index(previous, 0), [_DATA_ROLE]
+                    )
                     start = row_index
                 previous = row_index
             self.dataChanged.emit(self.index(start, 0), self.index(previous, 0), [_DATA_ROLE])

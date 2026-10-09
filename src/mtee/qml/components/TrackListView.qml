@@ -141,13 +141,16 @@ FocusScope {
         workspace.selectAll(orderedIds)
     }
 
+    // Indexing the model-backed id list from QML re-reads it for every step, so ask the model.
+    function indexOfTrack(trackId) {
+        return modelBacked ? trackModel.rowForId(trackId) : orderedIds.indexOf(trackId)
+    }
+
     function focusedIndex() {
         const selected = selectionIds
         if (selected.length === 0)
             return -1
-        return modelBacked
-            ? trackModel.rowForId(selected[selected.length - 1])
-            : orderedIds.indexOf(selected[selected.length - 1])
+        return indexOfTrack(selected[selected.length - 1])
     }
 
     function press(index, event) {
@@ -168,6 +171,15 @@ FocusScope {
         const mode = (event.modifiers & Qt.ShiftModifier) ? "range"
             : (event.modifiers & Qt.ControlModifier) ? "toggle" : "single"
         workspace.selectTrack(trackId, mode, orderedIds)
+    }
+
+    // A plain click that ends without a drag collapses a multi-row selection to the clicked row.
+    function clickTrack(index, event) {
+        if (event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))
+            return
+        const trackId = orderedIds[index]
+        if (selectionIds.length > 1 && selectionIds.indexOf(trackId) >= 0)
+            workspace.selectTrack(trackId, "single", [])
     }
 
     function play(index) {
@@ -206,18 +218,28 @@ FocusScope {
         playlistMenu.popup(anchor, 0, anchor.height)
     }
 
-    function selectedDragIds(trackId) {
-        const selected = selectionIds.indexOf(trackId) >= 0 ? selectionIds : [trackId]
-        return Array.from(view.orderedIds).filter(id => selected.indexOf(id) >= 0)
+    // One Python call for the model-backed list: walking its rows from QML is quadratic.
+    function dragPayload(selected) {
+        if (view.modelBacked)
+            return view.trackModel.dragPayload(selected, view.isPlaylist)
+        const chosen = Array.from(view.rows).filter(row => selected.indexOf(row.id) >= 0)
+        const trackIds = chosen.map(row => view.isPlaylist ? row.trackId : row.id).filter(Boolean)
+        return {
+            entryIds: chosen.map(row => row.entryId || "").filter(Boolean),
+            trackIds: trackIds,
+            canAdd: trackIds.length === chosen.length && chosen.every(row => row.available !== false),
+            count: chosen.length,
+            title: chosen.length ? String(chosen[0].title) : "",
+            artist: chosen.length ? String(chosen[0].artist) : ""
+        }
     }
 
     function prepareTrackDrag(item, track) {
-        const ids = selectedDragIds(track.id)
-        const snapshot = view.modelBacked ? Array.from(view.trackModel.rows) : Array.from(view.rows)
-        const chosen = snapshot.filter(row => ids.indexOf(row.id) >= 0)
-        item.dragEntryIds = chosen.map(row => row.entryId || "").filter(Boolean)
-        item.dragTrackIds = chosen.map(row => view.isPlaylist ? row.trackId : row.id).filter(Boolean)
-        item.dragCanAdd = item.dragTrackIds.length === chosen.length && chosen.every(row => row.available !== false)
+        const selected = selectionIds.indexOf(track.id) >= 0 ? selectionIds : [track.id]
+        const payload = dragPayload(selected)
+        item.dragEntryIds = payload.entryIds
+        item.dragTrackIds = payload.trackIds
+        item.dragCanAdd = payload.canAdd
         item.dragSource = view.source
         item.dragVersion = view.isPlaylist ? Number(view.workspace.playlistModel.details(view.tab.ref).version) : -1
         item.dragPrepared = true
@@ -228,9 +250,9 @@ FocusScope {
         dragSession.dragVersion = item.dragVersion
         view.trackDragSource = item
         view.trackDragActive = true
-        view.dragCount = chosen.length
-        view.dragTitle = chosen.length ? chosen[0].title : track.title
-        view.dragArtist = chosen.length ? chosen[0].artist : track.artist
+        view.dragCount = payload.count
+        view.dragTitle = payload.count ? payload.title : track.title
+        view.dragArtist = payload.count ? payload.artist : track.artist
     }
 
     function moveTrackDrag(item, x, y) {
@@ -337,6 +359,11 @@ FocusScope {
                 view.forceActiveFocus()
                 event.accepted = true
             }
+            return
+        }
+        if (event.key === Qt.Key_Escape && !playlistSearch.activeFocus) {
+            workspace.clearSelection(view.groupIndex)
+            event.accepted = true
             return
         }
         const count = orderedIds.length
@@ -598,14 +625,19 @@ FocusScope {
             }
 
             Repeater {
-                model: view.columns.items
+                // Driven by the column count only: a model rebuilt on every width change would
+                // destroy the resize handle, and with it the pointer grab, in the middle of a drag.
+                model: view.columns.items.length
                 HeaderCell {
-                    required property var modelData
-                    width: modelData.width
-                    label: modelData.label
-                    sortKey: modelData.sortKey
-                    columnKey: modelData.key
-                    alignRight: modelData.key === "bpm" || modelData.key === "duration"
+                    required property int index
+                    readonly property var spec: index < view.columns.items.length
+                        ? view.columns.items[index]
+                        : ({ key: "", label: "", sortKey: "", width: 0 })
+                    width: spec.width
+                    label: spec.label
+                    sortKey: spec.sortKey
+                    columnKey: spec.key
+                    alignRight: spec.key === "bpm" || spec.key === "duration"
                 }
             }
             Item { width: view.columns.actions; height: parent.height }
@@ -653,7 +685,7 @@ FocusScope {
                     if (navigationRestored || count === 0) return
                     const saved = view.workspace.navigationScroll(view.groupIndex, view.tab.id, "list")
                     const anchor = view.workspace.navigationAnchor(view.groupIndex, view.tab.id, "list")
-                    const index = view.orderedIds.indexOf(anchor.id)
+                    const index = view.indexOfTrack(anchor.id)
                     if (index >= 0) {
                         positionViewAtIndex(index, ListView.Beginning)
                         contentY += anchor.offset
@@ -739,6 +771,7 @@ FocusScope {
                     playing: view.workspace.playingId === (modelData.trackId || modelData.id)
                     paused: !view.workspace.isPlaying
                     current: view.activeFocus && list.currentIndex === index && view.selectionIds.length > 0
+                    focusFrame: view.activeFocus
                     inPlaylist: view.workspace.playlistsContaining(modelData.trackId || modelData.id, view.workspace.revision).length > 0
                     onDragStarted: view.prepareTrackDrag(trackRow, modelData)
                     onDragMoved: (x, y) => view.moveTrackDrag(trackRow, x, y)
@@ -767,6 +800,7 @@ FocusScope {
                         }
                     }
                     onPressed: (event) => view.press(index, event)
+                    onLeftClicked: (event) => view.clickTrack(index, event)
                     onActivated: view.play(index)
                     onToggleRequested: view.workspace.togglePlay()
                     onInfoRequested: {
@@ -801,7 +835,7 @@ FocusScope {
             if (navigationRestored || count === 0) return
             const saved = view.workspace.navigationScroll(view.groupIndex, view.tab.id, "artwork")
             const anchor = view.workspace.navigationAnchor(view.groupIndex, view.tab.id, "artwork")
-            const index = view.orderedIds.indexOf(anchor.id)
+            const index = view.indexOfTrack(anchor.id)
             if (index >= 0) {
                 positionViewAtIndex(index, GridView.Beginning)
                 contentY += anchor.offset
@@ -1176,34 +1210,70 @@ FocusScope {
             color: Theme.primary
         }
 
-        MouseArea {
-            id: resizeHandle
-            visible: view.modelBacked && cell.columnKey.length > 0
-            z: 2
-            width: 8
+        // Guide line on the cell's right edge: shown while the handle is hovered or dragged.
+        Rectangle {
+            id: resizeGuide
+            visible: resizeHandle.visible && (resizeHandle.containsMouse || resizeHandle.pressed)
+            z: 3
+            width: 2
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: parent.bottom
+            color: resizeHandle.pressed ? Theme.primary : Theme.separator
+        }
+
+        // Grab zone: the cell's right 10 px, above the sort area (which stops 8 px short of the
+        // edge). It stays inside the cell so it never takes clicks from the next column's sort area.
+        MouseArea {
+            id: resizeHandle
+            objectName: "columnResizeHandle_" + cell.columnKey
+            visible: view.modelBacked && cell.columnKey.length > 0
+            z: 3
+            width: 10
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            hoverEnabled: true
             acceptedButtons: Qt.LeftButton
             cursorShape: Qt.SizeHorCursor
+            // Keeps the column reorder DragHandler from taking the press while a resize is active.
+            preventStealing: true
             property real startX: 0
-            property int startWidth: 0
+            property real startWidth: 0
+            property bool moved: false
+
+            // Pointer x in the list, not in this handle: the handle moves as the column grows.
+            function viewX(mouse) {
+                return resizeHandle.mapToItem(view, mouse.x, 0).x
+            }
 
             onPressed: (mouse) => {
-                startX = mouse.x
+                startX = viewX(mouse)
                 startWidth = cell.width
+                moved = false
             }
             onPositionChanged: (mouse) => {
-                if (pressed) {
-                    const resized = Math.max(44, startWidth + mouse.x - startX)
-                    const next = Object.assign({}, view.localColumnWidths)
-                    next[cell.columnKey] = resized
-                    view.localColumnWidths = next
-                }
+                if (!pressed)
+                    return
+                const currentX = viewX(mouse)
+                if (currentX !== startX)
+                    moved = true
+                const resized = Math.min(640, Math.max(44, Math.round(startWidth + currentX - startX)))
+                const next = Object.assign({}, view.localColumnWidths)
+                next[cell.columnKey] = resized
+                view.localColumnWidths = next
             }
+            // Only a real drag writes a width; a plain click leaves the stored widths alone.
             onReleased: {
-                const resized = Number(view.localColumnWidths[cell.columnKey] || cell.width)
-                view.workspace.resizeColumn(view.tab.id, cell.columnKey, Math.round(resized))
+                if (moved) {
+                    const resized = Number(view.localColumnWidths[cell.columnKey] || cell.width)
+                    view.workspace.resizeColumn(view.tab.id, cell.columnKey, Math.round(resized))
+                }
+                moved = false
+                view.localColumnWidths = ({})
+            }
+            onCanceled: {
+                moved = false
                 view.localColumnWidths = ({})
             }
         }
