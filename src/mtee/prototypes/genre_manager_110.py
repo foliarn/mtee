@@ -23,7 +23,32 @@ from mtee.services.mpv_backend import MpvBackend
 from mtee.services.player_backend import PlayerBackendError
 from mtee.services.player_service import PlayerService
 
-GENRES = ["House", "Deep House", "Minimal House", "Disco House", "UK Garage", "Breaks"]
+GENRE_TREE = {
+    "House": ["Deep House", "Minimal House", "Disco House", "Afro House", "Bass House"],
+    "Techno": ["Melodic Techno", "Hard Techno", "Dub Techno"],
+    "Garage": ["UK Garage", "Speed Garage", "2-Step"],
+    "Breaks": ["Jungle", "Drum & Bass", "Breakbeat"],
+    "Ambient": ["Downtempo", "Chillout"],
+    "Disco": ["Nu Disco"],
+    "Trance": ["Progressive Trance"],
+    "Hip-Hop": [],
+    "Soul": [],
+    "Funk": [],
+    "Pop": [],
+}
+GENRES = [genre for root, children in GENRE_TREE.items() for genre in [root, *children]]
+SOURCES = [
+    {"id": "house", "kind": "folder", "name": "House", "count": 100, "completion": 0},
+    {"id": "batch", "kind": "folder", "name": "Reviewed batch", "count": 100, "completion": 80},
+    {"id": "new", "kind": "folder", "name": "New tracks", "count": 10, "completion": 0},
+    {
+        "id": "playlist",
+        "kind": "playlist",
+        "name": "Evening rotation",
+        "count": 18,
+        "completion": 0,
+    },
+]
 TITLES = [
     "Midnight Transit",
     "Paper Lanterns",
@@ -81,10 +106,15 @@ class GenreReviewPrototype(QObject):
         self._brush_kind = "genre"
         self._brush_value = "Deep House"
         self._genres = list(GENRES)
+        self._genre_parents = {
+            child: root for root, children in GENRE_TREE.items() for child in children
+        }
         self._archived_genres: list[str] = []
         self._tags: list[str] = []
         self._tracks = self._make_tracks()
-        self._history: list[tuple[list[dict[str, Any]], list[str], list[str], list[str]]] = []
+        self._history: list[
+            tuple[list[dict[str, Any]], list[str], list[str], list[str], dict[str, str]]
+        ] = []
         self._message = "Choose a source, then select tracks or a brush. Play is always explicit."
         self._error = ""
         self._fail_next = False
@@ -100,11 +130,13 @@ class GenreReviewPrototype(QObject):
         tracks = []
         for index in range(count):
             identity = str(uuid5(NAMESPACE_URL, f"mtee-110-review-{index}"))
-            genres = [] if self._scenario == "new" else (["House"] if index % 7 else [])
-            if index % 11 == 0 and self._scenario != "new":
-                genres = ["Deep House", "UK Garage"]
-            if self._scenario == "batch" and index < 80 and not genres:
-                genres = ["House"]
+            # A source's name never authorizes genre assignment. The batch fixture
+            # represents decisions already made in a separate example session.
+            genres = (
+                ["Deep House" if index % 5 else "House"]
+                if self._scenario == "batch" and index < 80
+                else []
+            )
             tracks.append(
                 {
                     "id": identity,
@@ -162,6 +194,30 @@ class GenreReviewPrototype(QObject):
         return self._scenario
 
     @Property(str, notify=changed)
+    def sourceName(self) -> str:
+        return next(source["name"] for source in SOURCES if source["id"] == self._scenario)
+
+    @Property(str, notify=changed)
+    def sourceKind(self) -> str:
+        return next(source["kind"] for source in SOURCES if source["id"] == self._scenario)
+
+    @Property(list, notify=changed)
+    def sourceOptions(self) -> list[dict[str, Any]]:
+        return [
+            {
+                **source,
+                "completion": (
+                    round(
+                        100 * sum(bool(row["reviewed"]) for row in self._tracks) / len(self._tracks)
+                    )
+                    if source["id"] == self._scenario and self._tracks
+                    else source["completion"]
+                ),
+            }
+            for source in SOURCES
+        ]
+
+    @Property(str, notify=changed)
     def section(self) -> str:
         return self._section
 
@@ -192,6 +248,20 @@ class GenreReviewPrototype(QObject):
     @Property(list, notify=changed)
     def genres(self) -> list[str]:
         return list(self._genres)
+
+    @Property(list, notify=changed)
+    def genreRows(self) -> list[dict[str, Any]]:
+        rows = []
+        for genre in self._genres:
+            if genre in self._genre_parents:
+                continue
+            rows.append({"name": genre, "parent": "", "root": True})
+            rows.extend(
+                {"name": child, "parent": genre, "root": False}
+                for child in self._genres
+                if self._genre_parents.get(child) == genre
+            )
+        return rows
 
     @Property(list, notify=changed)
     def archivedGenres(self) -> list[str]:
@@ -303,6 +373,7 @@ class GenreReviewPrototype(QObject):
                 list(self._tags),
                 list(self._genres),
                 list(self._archived_genres),
+                dict(self._genre_parents),
             )
         )
         if len(self._history) > 30:
@@ -358,6 +429,22 @@ class GenreReviewPrototype(QObject):
             self._apply(kind, value, list(self._selected))
 
     @Slot(str)
+    def tagFolderSongs(self, genre: str) -> None:
+        """Explicitly set a folder's songs to a chosen main genre in memory."""
+        if self.sourceKind != "folder" or genre not in self._genres:
+            return
+        self._save_state()
+        changed = 0
+        for row in self._tracks:
+            if row["genres"] and row["genres"][0] == genre:
+                continue
+            row["genres"] = [genre, *[item for item in row["genres"] if item != genre]]
+            row["reviewed"] = False
+            changed += 1
+        self._message = f"{genre} set as main genre for {changed} song(s) by your choice."
+        self.changed.emit()
+
+    @Slot(str)
     def paintTrack(self, identity: str) -> None:
         row = next((item for item in self._tracks if item["id"] == identity), None)
         if row is None:
@@ -408,11 +495,15 @@ class GenreReviewPrototype(QObject):
     @Slot(str, str)
     def createGenre(self, name: str, parent: str) -> None:
         name = name.strip()
+        if parent and parent not in self._genres:
+            return
         if parent == "House" and name and not name.casefold().endswith("house"):
             name += " House"
         if name and name not in self._genres and name not in self._archived_genres:
             self._save_state()
             self._genres.append(name)
+            if parent:
+                self._genre_parents[name] = parent
             self._message = f"Genre {name} created in the prototype catalogue."
             self.changed.emit()
 
@@ -423,6 +514,11 @@ class GenreReviewPrototype(QObject):
             return
         self._save_state()
         self._genres[self._genres.index(old)] = new
+        if old in self._genre_parents:
+            self._genre_parents[new] = self._genre_parents.pop(old)
+        self._genre_parents = {
+            name: new if parent == old else parent for name, parent in self._genre_parents.items()
+        }
         for row in self._tracks:
             if old in row["genres"]:
                 row["genres"][row["genres"].index(old)] = new
@@ -432,6 +528,13 @@ class GenreReviewPrototype(QObject):
     @Slot(str)
     def archiveGenre(self, name: str) -> None:
         if name in self._genres:
+            if any(
+                child in self._genres and parent == name
+                for child, parent in self._genre_parents.items()
+            ):
+                self._message = "Move or archive child genres before archiving this root."
+                self.changed.emit()
+                return
             self._save_state()
             self._genres.remove(name)
             self._archived_genres.append(name)
@@ -464,7 +567,9 @@ class GenreReviewPrototype(QObject):
         if not self._history:
             self._message = "Nothing to undo."
         else:
-            self._tracks, self._tags, self._genres, self._archived_genres = self._history.pop()
+            self._tracks, self._tags, self._genres, self._archived_genres, self._genre_parents = (
+                self._history.pop()
+            )
             self._message = "Last prototype action undone."
             self._error = ""
         self.changed.emit()

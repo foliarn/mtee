@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QEvent, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 
 from mtee.assets import qml_dir
+from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.prototypes import genre_manager_110 as review_module
 from mtee.services.player_backend import PlayerBackendError
 
@@ -25,7 +26,7 @@ def test_house_refinement_and_review_are_explicit(qapp, monkeypatch, tmp_path: P
     prototype = _prototype(monkeypatch, tmp_path)
     try:
         row = prototype._tracks[1]
-        assert row["genres"] == ["House"]
+        assert row["genres"] == []
         prototype.selectTrack(row["id"], 0)
         prototype.paletteAction("genre", "Deep House")
         assert row["genres"] == ["Deep House"]
@@ -40,6 +41,64 @@ def test_house_refinement_and_review_are_explicit(qapp, monkeypatch, tmp_path: P
         assert not row["reviewed"]
         prototype.makePrimary(row["id"], "Minimal House")
         assert row["genres"] == ["Minimal House", "Deep House"]
+    finally:
+        prototype.close()
+
+
+def test_source_selection_does_not_infer_genre_and_bulk_choice_is_explicit(
+    qapp, monkeypatch, tmp_path: Path
+) -> None:
+    prototype = _prototype(monkeypatch, tmp_path)
+    try:
+        assert prototype.sourceName == "House"
+        assert prototype.sourceKind == "folder"
+        assert all(not row["genres"] for row in prototype._tracks)
+        assert len([row for row in prototype.sourceOptions if row["kind"] == "folder"]) == 3
+        prototype.setScenario("playlist")
+        assert prototype.sourceKind == "playlist"
+        assert all(not row["genres"] for row in prototype._tracks)
+        prototype.tagFolderSongs("House")
+        assert all(not row["genres"] for row in prototype._tracks)
+        prototype.setScenario("house")
+        prototype.tagFolderSongs("Deep House")
+        assert all(row["genres"] == ["Deep House"] for row in prototype._tracks)
+        assert prototype.reviewedCount == 0
+        assert (
+            next(source for source in prototype.sourceOptions if source["id"] == "house")[
+                "completion"
+            ]
+            == 0
+        )
+        prototype.selectTrack(prototype._tracks[0]["id"], 0)
+        prototype.markReviewed()
+        assert (
+            next(source for source in prototype.sourceOptions if source["id"] == "house")[
+                "completion"
+            ]
+            == 1
+        )
+        prototype.undo()
+        prototype.undo()
+        assert all(not row["genres"] for row in prototype._tracks)
+    finally:
+        prototype.close()
+
+
+def test_catalogue_scales_and_creates_under_selected_root(
+    qapp, monkeypatch, tmp_path: Path
+) -> None:
+    prototype = _prototype(monkeypatch, tmp_path)
+    try:
+        assert len(prototype.genreRows) > 20
+        assert {row["name"] for row in prototype.genreRows if row["root"]} >= {"House", "Techno"}
+        prototype.archiveGenre("House")
+        assert "House" in prototype.genres
+        prototype.createGenre("Electro", "")
+        prototype.createGenre("Electro Swing", "Electro")
+        child = next(row for row in prototype.genreRows if row["name"] == "Electro Swing")
+        assert child["parent"] == "Electro"
+        prototype.undo()
+        assert "Electro Swing" not in prototype.genres
     finally:
         prototype.close()
 
@@ -91,6 +150,7 @@ def test_qml_sections_load_at_reference_and_reduced_widths(
     prototype = _prototype(monkeypatch, tmp_path)
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(qml_dir()))
+    engine.addImageProvider(ICON_PROVIDER_ID, IconProvider())
     engine.rootContext().setContextProperty("prototype", prototype)
     engine.load(
         QUrl.fromLocalFile(str(qml_dir() / "prototypes/genre_manager_110/ReviewWindow.qml"))
@@ -106,9 +166,19 @@ def test_qml_sections_load_at_reference_and_reduced_widths(
             QCoreApplication.processEvents()
         window.setWidth(1100)
         window.setHeight(760)
+        prototype.setSection("Genres")
+        QCoreApplication.processEvents()
+        genre_list = window.findChild(QObject, "genreTreeList")
+        assert genre_list is not None
+        assert genre_list.property("contentHeight") > genre_list.property("height")
         prototype.setVariant("brush")
         prototype.setSection("Classify")
         QCoreApplication.processEvents()
+        assert window.findChild(QObject, "sourceButton") is not None
+        window.openSourcePicker()
+        QCoreApplication.processEvents()
+        picker = window.findChild(QObject, "sourcePicker")
+        assert picker is not None and picker.property("visible")
         assert window.objectName() == "genreManager110Review"
     finally:
         prototype.close()

@@ -13,6 +13,7 @@ from PySide6.QtQuick import QQuickWindow
 
 from mtee.assets import qml_dir
 from mtee.fonts import register_fonts, resolve_ui_family
+from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.prototypes.genre_manager_110 import GenreReviewPrototype
 
 
@@ -32,6 +33,8 @@ def main() -> int:
         default="Classify",
     )
     parser.add_argument("--verify-playback", action="store_true")
+    parser.add_argument("--show-source-picker", action="store_true")
+    parser.add_argument("--show-folder-tag", action="store_true")
     options = parser.parse_args()
     application = QGuiApplication(sys.argv[:1])
     application.setFont(QFont(resolve_ui_family(register_fonts()), 10))
@@ -47,6 +50,7 @@ def main() -> int:
         prototype.setSection(options.section)
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(qml_dir()))
+    engine.addImageProvider(ICON_PROVIDER_ID, IconProvider())
     engine.rootContext().setContextProperty("prototype", prototype)
     source = qml_dir() / "prototypes" / "genre_manager_110" / "ReviewWindow.qml"
     engine.load(QUrl.fromLocalFile(str(source)))
@@ -59,6 +63,14 @@ def main() -> int:
         if isinstance(window, QQuickWindow):
             window.setWidth(width)
             window.setHeight(height)
+
+    def open_review_popup(name: str) -> None:
+        getattr(engine.rootObjects()[0], name)()
+
+    if options.show_source_picker:
+        QTimer.singleShot(100, lambda: open_review_popup("openSourcePicker"))
+    if options.show_folder_tag:
+        QTimer.singleShot(100, lambda: open_review_popup("openFolderTagPopup"))
     if options.capture:
 
         def capture() -> None:

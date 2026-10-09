@@ -21,6 +21,7 @@ Le parcours doit aussi permettre de classer quelques nouveaux morceaux sans reco
 - [x] 2026-10-09 — Rédiger le plan de remplacement et actualiser la référence produit ainsi que l'index.
 - [x] 2026-10-09 — 110.0 : établir l'état de départ, les copies 020/021 et les mesures de référence sur données isolées.
 - [x] 2026-10-09 — 110.1 : produire les deux maquettes QML manipulables, leurs états, captures et dossier de revue.
+- [x] 2026-10-09 — Réviser les maquettes après le premier retour 110.2 : cadre MTEE, sources, catalogue défilant, listes et pied de page ; préparer six nouvelles captures.
 - [ ] 110.2 — Faire essayer les variantes par l'utilisateur, consigner ses choix et réviser le contrat visuel.
 - [ ] 110.3 — Livrer le module interne, les migrations compatibles, le domaine et la persistance sur copies.
 - [ ] 110.4 — Brancher le classement, le catalogue, les tags, la revue et la reprise de session selon les maquettes retenues.
@@ -48,6 +49,8 @@ Le 9 octobre, durant l'exécution de 110.0–110.1, deux autres commits ont int�
 
 La lecture native du WAV fictif a atteint l'état `Playing` dans le lanceur avec sortie audio de test silencieuse. Le son audible, la fluidité interactive et les gestes au pointeur doivent encore être examinés par l'utilisateur dans les deux variantes. Les captures QML à 1440 × 900 et 1100 × 760 montrent des surfaces chargées, sans constituer cet accord.
 
+Premier retour 110.2 : les captures initiales ne ressemblaient pas suffisamment à MTEE et des textes étaient mal centrés. Le contrôle visuel de la révision compare donc le cadre de fenêtre, la barre d'activité, l'onglet, le titre de dossier, les listes et le lecteur à la capture de l'application fournie par l'utilisateur. Le catalogue fictif contient désormais 29 genres dans une liste défilante. La source House n'attribue aucun genre à l'ouverture ; seule l'action explicite de lot modifie les morceaux. La revue de confort et le choix final entre sélection et pinceau restent ouverts.
+
 ## Decision Log
 
 2026-10-09 — Utilisateur — Remplacer la barre intrusive de 109 par un plugin accessible dans Plugins. L'objectif principal est une remise en ordre ponctuelle de la bibliothèque, puis un parcours simple pour les nouveaux morceaux. Les dossiers et playlists sont les unités de travail.
@@ -74,6 +77,8 @@ La lecture native du WAV fictif a atteint l'état `Playing` dans le lanceur avec
 
 2026-10-09 — Exécution 110.1 — Garder les maquettes dans un lanceur séparé qui réutilise `Theme.qml` et `PlayerService`. Le branchement de l'entrée Plugins au produit attend la revue 110.2. Les sources House, playlist et nouveaux titres, les tags, Reviewed, Undo, erreur/retry et l'aperçu sont des états fictifs réinitialisés au changement de source ; les variantes partagent l'état de leur session courante. Ce choix préserve les modifications locales puis publiées du lecteur et des listes pendant le travail de maquette.
 
+2026-10-09 — Utilisateur, premier retour 110.2 — Conserver la navigation latérale, mais réaligner les maquettes sur le style et les listes de MTEE et corriger le centrage des textes. Pour les sources, garder `FOLDER` et faire du nom le bouton ouvrant une fenêtre interne à onglets Dossiers/Playlists, avec pourcentage de progression ; supprimer les boutons de source concurrents. Un dossier House ne classe rien automatiquement ; proposer une attribution de genre à ses morceaux, choisie explicitement. Mettre les commandes du plugin sous le titre et retirer la palette latérale droite. Prévoir 20+ genres défilants, `New root genre` et un `+` ancré à droite de chaque racine. Placer `Move files` dans le pied de page près de `Undo`. Le retour ne valide pas encore la variante d'interaction ni les destinations physiques.
+
 ## Périmètre et points qui remplacent 109
 
 Ce plan réactive explicitement le rangement physique et l'agrégation prudente par artiste, qui étaient hors de 109. Il remplace aussi les genres de même poids par un ordre principal/secondaires, et l'absence de suivi par un état Reviewed. Cet état signifie « classement vérifié », jamais « morceau écouté ». Aucune écoute automatique ni transition forcée au morceau suivant n'est ajoutée par le plugin ; les fonctions normales de la file de lecture restent disponibles.
@@ -92,7 +97,7 @@ Cliquer Plugins montre la liste des modules, dont Genre Manager. Ouvrir ce derni
 
 Proposition de composition : la sidebar porte `Classify`, `Genres` et `Uncertain`, la page Classify porte le choix du dossier ou de la playlist et la liste, une palette compacte sert à l'attribution. Le catalogue occupe une page entière. Tester cette composition à 1440 × 900 et à largeur réduite ; le placement exact de la palette n'est pas imposé. Conserver le vocabulaire graphique de MTEE, la police et les composants natifs QML.
 
-À la première ouverture, choisir une source existante. Ensuite, proposer la dernière session et un changement de source facilement accessible. Afficher le périmètre et son nombre de morceaux ; la récursion d'un dossier doit être explicite, sans inclure à l'insu de l'utilisateur toute sa racine. La proposition par défaut est le contenu direct, avec `Include subfolders` facultatif. Une playlist est une liste de références aux fichiers existants, pas une destination physique.
+À la première ouverture, choisir une source existante. Ensuite, proposer la dernière session et un changement de source par clic sur son nom dans l'en-tête, sous le libellé `FOLDER` ou `PLAYLIST`. Une fenêtre interne à MTEE propose deux onglets et affiche la progression en pourcentage dans les listes de sources. Afficher le périmètre et son nombre de morceaux ; la récursion d'un dossier doit être explicite, sans inclure à l'insu de l'utilisateur toute sa racine. La proposition par défaut est le contenu direct, avec `Include subfolders` facultatif. Une playlist est une liste de références aux fichiers existants, pas une destination physique. Le nom d'un dossier, même House, ne décide jamais le genre principal d'un morceau. Une action distincte permet de choisir puis d'appliquer un genre aux morceaux du dossier, sans taguer le dossier lui-même.
 
 La session conserve les identifiants de ses morceaux, son ordre, ses filtres et sa progression. Les déplacements ne vident pas au milieu d'une opération le lot que l'utilisateur examine. Un rechargement de source est explicite ; les nouveaux morceaux apparaissent à vérifier. On peut reprendre la revue après fermeture. Une même piste présente dans plusieurs playlists partage ses genres et son statut, tandis que la sélection et le pinceau sont propres à la session.
 
