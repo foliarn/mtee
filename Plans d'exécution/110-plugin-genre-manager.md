@@ -2,7 +2,7 @@
 
 ExecPlan préparé le 9 octobre 2026 selon [PLANS.md](../PLANS.md). Référence produit : [PLAN.md](../PLAN.md). Il remplace le [plan 109](109-genres-morceaux-manager-tri.md) pour les genres des morceaux et leur interface. Les réponses utilisateur de cette conversation sont transcrites ci-dessous ; les propositions de conception sont identifiées comme telles.
 
-**Portée de la demande actuelle : préparation documentaire seulement.** Ce document ne lance ni maquette, ni développement fonctionnel, ni migration, ni modification de collection. Lors d'une exécution ultérieure, produire et faire essayer les deux variantes de classement avant de brancher les fonctions réelles. L'accord sur ce plan ne vaut pas accord sur les maquettes.
+**Historique du cadrage du 9 octobre : préparation documentaire seulement.** L'exécution ultérieure a produit les deux maquettes comparables ; leur revue explicite 110.2 reste nécessaire avant le branchement fonctionnel. L'accord sur ce plan ne vaut pas accord sur les maquettes.
 
 ## Objectif et résultat observable
 
@@ -19,8 +19,8 @@ Le parcours doit aussi permettre de classer quelques nouveaux morceaux sans reco
 - [x] 2026-10-09 — Recueillir les décisions utilisateur et distinguer les questions de disposition laissées aux maquettes.
 - [x] 2026-10-09 — Lire les règles et le plan 109, actualiser le graphe et vérifier les points d'intégration dans les sources et tests pertinents.
 - [x] 2026-10-09 — Rédiger le plan de remplacement et actualiser la référence produit ainsi que l'index.
-- [ ] 110.0 — Établir l'état de départ, la compatibilité des données et les mesures de référence sur données isolées.
-- [ ] 110.1 — Produire les deux maquettes QML manipulables, leurs états et le dossier de revue.
+- [x] 2026-10-09 — 110.0 : établir l'état de départ, les copies 020/021 et les mesures de référence sur données isolées.
+- [x] 2026-10-09 — 110.1 : produire les deux maquettes QML manipulables, leurs états, captures et dossier de revue.
 - [ ] 110.2 — Faire essayer les variantes par l'utilisateur, consigner ses choix et réviser le contrat visuel.
 - [ ] 110.3 — Livrer le module interne, les migrations compatibles, le domaine et la persistance sur copies.
 - [ ] 110.4 — Brancher le classement, le catalogue, les tags, la revue et la reprise de session selon les maquettes retenues.
@@ -43,6 +43,10 @@ Les migrations présentes vont jusqu'à `020_artist_enrichment.sql`. `Database.m
 `track_artist_credits` distingue `artist` et `remixer`, avec un état `confirmed`. Les rôles Producer/DJ/Singer/MC des profils sont d'une autre nature. La liste d'artistes corrigée manuellement et les genres éventuellement présents historiquement dans leurs profils doivent rester séparés des nouvelles contributions calculées.
 
 Le soupçon de lag est un retour utilisateur, **pas un diagnostic établi**. Aucun lancement, benchmark, test applicatif, accès à la base personnelle ou build Windows n'a été effectué pour cette préparation documentaire. Le graphe aide à localiser les sources ; ses résultats partiels, notamment QML, ne prouvent pas l'absence d'un comportement.
+
+Le 9 octobre, durant l'exécution de 110.0–110.1, deux autres commits ont intégré les corrections locales du lecteur et des listes (`fb71560`, `ec31b84`). Les maquettes ont été créées dans `src/mtee/qml/prototypes/genre_manager_110/` avec un contrôleur en mémoire, hors application principale. Les mesures ont été reprises sur `ec31b84` avec 2 800 références fictives : médianes de cinq passes, démarrage de démonstration hors écran 1 994 ms, dossier House de 340 pistes 21 ms, playlist de 2 800 pistes 965 ms. Sur la fenêtre QML de l'application courante, l'ouverture d'un dossier a pris 350 ms et celle de la playlist 2 144 ms dans un essai chacune. Cinq gestes programmatiques suivis d'un `grabWindow` donnent 35 ms de médiane pour le scroll et 4 ms pour la sélection ; ils ne mesurent pas le clic au pointeur. Cinq commandes Play sur un WAV fictif, avec la sortie native silencieuse, atteignent `Playing` en médiane 30 ms. Ces chiffres ne prouvent ni l'écoute audible ni la fluidité interactive sur machine utilisateur. Les bases 020 et 021 historiques synthétiques passent `PRAGMA integrity_check`, mais l'adaptation 021 vers 110 n'a pas été exécutée.
+
+La lecture native du WAV fictif a atteint l'état `Playing` dans le lanceur avec sortie audio de test silencieuse. Le son audible, la fluidité interactive et les gestes au pointeur doivent encore être examinés par l'utilisateur dans les deux variantes. Les captures QML à 1440 × 900 et 1100 × 760 montrent des surfaces chargées, sans constituer cet accord.
 
 ## Decision Log
 
@@ -67,6 +71,8 @@ Le soupçon de lag est un retour utilisateur, **pas un diagnostic établi**. Auc
 2026-10-09 — Conception du plan — Proposer un espace Classify, un catalogue Genres avec administration des tags, et Uncertain. Source de travail, palette et commandes sont contextualisées. La disposition et les gestes secondaires restent à éprouver en 110.1–110.2, pas acquis par ce texte.
 
 2026-10-09 — Conception du plan — Conserver les données anciennes avant toute adaptation. Restaurer le contrat SQL historique 021 sans lui donner une nouvelle signification, puis ajouter des migrations nouvelles pour les invariants 110. L'ancien ordre arbitraire des hybrides ne devient jamais une décision utilisateur de genre principal.
+
+2026-10-09 — Exécution 110.1 — Garder les maquettes dans un lanceur séparé qui réutilise `Theme.qml` et `PlayerService`. Le branchement de l'entrée Plugins au produit attend la revue 110.2. Les sources House, playlist et nouveaux titres, les tags, Reviewed, Undo, erreur/retry et l'aperçu sont des états fictifs réinitialisés au changement de source ; les variantes partagent l'état de leur session courante. Ce choix préserve les modifications locales puis publiées du lecteur et des listes pendant le travail de maquette.
 
 ## Périmètre et points qui remplacent 109
 
@@ -281,7 +287,7 @@ Mettre à jour le guide, la spécification de la surface et le rapport, exercer 
 
 ## Commandes futures et preuves de recette
 
-Toutes les commandes partent de la racine du dépôt. Les scripts et tests propres à 110 ci-dessous **n'existent pas encore** ; leurs jalons de création sont indiqués ci-dessus. Elles ne doivent pas être exécutées lors de cette préparation documentaire.
+Toutes les commandes partent de la racine du dépôt. Les deux scripts de 110.0–110.1 existent depuis l'exécution du 9 octobre et s'appliquent aux données isolées ; les tests et fonctions de 110.3–110.7 ci-dessous restent futurs. Les commandes n'étaient pas à exécuter lors de la préparation documentaire initiale.
 
 Après 110.1, essais séparés des deux variantes, avec données isolées :
 
@@ -302,7 +308,7 @@ Compléter par les régressions des composants effectivement touchés : listes, 
 
 Après création du script en 110.0 puis extension en 110.7, mesures comparables :
 
-    uv run python scripts/measure_genre_manager_110.py --mode baseline --data-dir .local/validation/110/perf-baseline
+    uv run python scripts/measure_genre_manager_110.py --mode baseline --data-dir .local/validation/110/perf-baseline --with-ui
     uv run python scripts/measure_genre_manager_110.py --mode plugin --data-dir .local/validation/110/perf-plugin
 
 Le script génère ou utilise des fixtures synthétiques équivalentes, étiquette l'état du plugin et la révision testée, écrit les mesures hors Git et ne modifie pas la collection personnelle. Il ne lance aucune conversion, analyse musicale ou reconstruction d'EXE.
@@ -355,3 +361,5 @@ Faire fetch, vérifier la divergence, puis pousser vers la branche autorisée sa
 Cette préparation ne livre aucune fonctionnalité et ne garantit aucun gain de performance. Maquettes, choix définitif de variante, migrations, recette applicative, déplacements réels et packaging restent non réalisés. La prochaine exécution commence par 110.0–110.1 et s'arrête à la revue 110.2 avant le branchement fonctionnel.
 
 Révision du 2026-10-09 : création du plan après la série de questions utilisateur, avec remplacement explicite des contrats incompatibles de 109. Contrôles documentaires et publication : voir le rapport et le compte rendu de cette préparation.
+
+Révision du 2026-10-09, exécution : 110.0 et 110.1 sont prêts pour l'essai comparatif. Les deux maquettes QML, le lanceur, quatre captures et [le dossier de revue](../docs/ux/review-110-genre-manager.md) sont livrables. Le banc a préparé des copies synthétiques 020/021 et établi des temps sur les services, la fenêtre QML et la lecture native silencieuse, avec les limites indiquées ci-dessus. La revue 110.2, les choix visuels, les migrations, le rangement et les contributions artistes restent non réalisés. Aucun fichier musical personnel n'a été modifié.

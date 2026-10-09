@@ -1,0 +1,1 @@
+"""Isolated product-review prototypes."""

@@ -26,12 +26,38 @@ Contrôles exécutés le 9 octobre : lecture UTF-8 des cinq documents de cette p
 
 Le message final de la tâche donnera la preuve de publication sans ajouter un commit uniquement pour y inscrire son propre hash. Les changements applicatifs préexistants continuent d'évoluer pendant cette préparation ; seuls les cinq fichiers documentaires sont destinés à son commit.
 
-## Ce qui reste non réalisé
+## Ce qui restait non réalisé après la préparation documentaire
 
 Aucun prototype créé ou lancé, aucune maquette approuvée, aucun changement Python/QML, aucune migration exécutée, aucun test applicatif, aucun benchmark et aucune recette du lecteur ne sont réalisés par cette préparation. Aucun fichier musical n'a été déplacé, renommé ou réécrit. Aucun build ni smoke-test du paquet Windows.
 
 Le soupçon de lag reste à mesurer. Le protocole de 110.0/110.7 doit séparer le socle, le plugin inutilisé, le plugin actif et la reprise après fermeture. Les anciens résultats de 109 ne valent pas mesures de 110.
 
-## Prochaine étape
+## Point de départ indiqué avant l'exécution
 
 Lors d'une demande d'exécution, commencer par 110.0 puis préparer 110.1 sur données fictives et fichiers synthétiques. Faire essayer les deux variantes avec les mêmes tâches, recueillir les réponses textuellement et consigner la revue 110.2 avant le branchement fonctionnel. Le présent rapport sera ensuite enrichi avec les résultats réels de chaque jalon, en séparant tests automatisés, observations de l'agent, retours utilisateur et opérations sur données personnelles.
+
+## Exécution du 9 octobre 2026 — 110.0 et 110.1 prêts pour la revue
+
+Le dépôt a été réexaminé avant modification. Les travaux locaux du lecteur et des listes présents au démarrage ont ensuite été publiés séparément sous `fb71560` et `ec31b84`; ils n'entrent pas dans le diff du prototype. Le graphe code-review-graph a été mis à jour, puis le code effectif de `PlayerService`, du backend libmpv, du thème QML, de `LibraryRepository`, de `PlaylistService` et de `Database` a été lu. La migration 021 a été prélevée dans le commit historique `4de9320` uniquement pour créer une copie synthétique de compatibilité hors Git.
+
+Le lanceur [review_genre_manager_110.py](../../scripts/review_genre_manager_110.py) charge deux variantes d'une même maquette QML dans une fenêtre séparée. Son contrôleur produit dix WAV fictifs sous `.local/validation/110/` et maintient les classements en mémoire. La page Classify montre dossiers, playlist, nouveaux morceaux, recherche, sous-dossiers optionnels, sélection multiple, pinceau, principal/secondaires, tags initialement absents, revue All tracks/To review, erreur/retry/Undo et aperçu. La page Genres est manipulable pour créer, renommer et archiver des définitions fictives ; Uncertain est une proposition visuelle ; Organize montre 80 destinations simulées pour 80 pistes vérifiées sur 100. Aucun fichier n'est déplacé. [Le dossier de revue](../ux/review-110-genre-manager.md) sépare les gestes à essayer des choix encore ouverts.
+
+Captures générées et examinées à 1440 × 900 et 1100 × 760 : [sélection](../ux/review-110-selection.png), [pinceau](../ux/review-110-brush.png), [catalogue](../ux/review-110-catalogue.png), [aperçu](../ux/review-110-organize.png). Elles montrent le chargement des quatre surfaces sans erreur QML bloquante. Le `PlayerService` partagé a atteint `Playing` sur le WAV synthétique avec sortie libmpv silencieuse et le lanceur s'est fermé avec code 0. Une exécution avec sortie WASAPI a aussi affiché `Playing`, mais le processus autonome a retourné 1 après fermeture ; aucune conclusion sur l'écoute audible n'est tirée de cet essai. Le prototype interactif est prêt pour une écoute et une critique utilisateur depuis les sources.
+
+Le banc [measure_genre_manager_110.py](../../scripts/measure_genre_manager_110.py) a créé et contrôlé deux bases fictives isolées : schémas 020 et 021 historique, `PRAGMA integrity_check = ok`. Aucune base personnelle n'a été ouverte. Dernière mesure sur la révision `ec31b848661f7dc6b1589ab7c09d3cd6b6c04f5e`, checkout encore modifié par ce jalon, Windows 11 `10.0.26200`, Python 3.12.14, AMD Ryzen 7 7735HS. Les opérations de service et les gestes QML sont répétés cinq fois ; l'ouverture de chaque vue QML est un essai distinct :
+
+| Opération | Médiane | Minimum–maximum | Portée |
+|---|---:|---:|---|
+| Démarrage de l'application en démo hors écran | 1 994 ms | 1 881–2 943 ms | fenêtre chargée puis quittée, sans lecture |
+| Lecture du dossier House, 340 pistes fictives | 21 ms | 18,6–24,5 ms | repository et projection Python, sans rendu |
+| Lecture d'une playlist de 2 800 références fictives | 965 ms | 943–1 016 ms | service actuel, chemins non présents |
+| Relecture du dossier puis extraction de 340 identifiants | 22 ms | 18,6–23,3 ms | préparation des identifiants, **pas** un clic de sélection |
+| Ouverture et rendu du dossier House dans MTEE | 350 ms | un essai | application depuis les sources, hors écran |
+| Ouverture et rendu de la playlist dans MTEE | 2 144 ms | un essai | application depuis les sources, hors écran |
+| Scroll programmatique et capture d'une image | 35 ms | 26–121 ms | cinq positions, `grabWindow`, **pas** une mesure du geste au pointeur |
+| Sélection programmatique et capture d'une image | 4 ms | 3–13 ms | cinq pistes, `grabWindow`, **pas** le délai du clic |
+| Play explicite jusqu'à `Playing` | 30 ms | 25–33 ms | cinq WAV fictifs, libmpv avec sortie silencieuse |
+
+La playlist fictive volontairement grande expose le coût de son accès piste par piste ; cette mesure ne prouve pas une régression du plugin, qui n'est pas branché. Le script conserve les résultats détaillés dans `.local/validation/110/perf-baseline/baseline-results.json`, ignoré par Git. Le passage du pointeur au feedback et l'écoute audible restent à observer pendant l'essai utilisateur ; la mesure comparative avec plugin actif est prévue en 110.7. Le maximum de scroll ci-dessus inclut le coût de `grabWindow` hors écran et ne se compare pas directement au seuil de pause du thread graphique proposé pour 110.7.
+
+Contrôles réellement effectués : quatre tests du prototype Qt/QML passés, tests de fumée de l'application et tests des migrations terminés avec code 0, Ruff et Pyright sans erreur sur les fichiers nouveaux, chargement des deux variantes et des pages depuis les sources, inspection des captures, lecture native silencieuse atteignant `Playing`, contrôle d'intégrité des copies 020/021. La suite de fumée de l'application a émis un diagnostic Windows non fatal lié au backend natif pendant le chargement ; il n'est pas présenté comme une validation de l'écoute. Le build Windows et le smoke-test du paquet n'ont pas été lancés. La revue utilisateur 110.2 n'a pas eu lieu ; aucun choix de variante ni de destination n'est présenté comme validé. Les migrations et services fonctionnels 110.3–110.6 restent à créer après cette revue.
