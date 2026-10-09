@@ -110,6 +110,7 @@ Rectangle {
                             : tab.modelData.kind === "convert" ? "convert"
                             : tab.modelData.kind === "tasks" ? "tasks"
                             : tab.modelData.kind === "artists" || tab.modelData.kind === "artist" ? "artists"
+                            : tab.modelData.kind === "genre_manager" ? "plugins"
                             : "settings"
                         size: 15
                         color: tab.isActive ? Theme.primary : Theme.textMuted
@@ -195,6 +196,7 @@ Rectangle {
             : group.activeTab.kind === "settings" ? settingsComponent
             : group.activeTab.kind === "tasks" ? tasksComponent
             : group.activeTab.kind === "artists" ? (group.activeTab.id === "artists:catalog" ? artistCatalogComponent : artistReviewComponent)
+            : group.activeTab.kind === "genre_manager" ? genreManagerComponent
             : listComponent
     }
 
@@ -235,6 +237,15 @@ Rectangle {
     Component {
         id: artistReviewComponent
         ArtistReviewView {
+            workspace: group.workspace
+            tab: group.activeTab
+            bottomInset: group.bottomInset
+        }
+    }
+
+    Component {
+        id: genreManagerComponent
+        GenreManagerView {
             workspace: group.workspace
             tab: group.activeTab
             bottomInset: group.bottomInset

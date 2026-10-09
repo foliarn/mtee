@@ -1,6 +1,19 @@
 # Revue UX — Genre Manager 110
 
-Date : 9 octobre 2026. Statut : **maquettes révisées après un premier retour ; validation finale 110.2 attendue**. Les deux variantes partagent les mêmes données fictives. La fenêtre reprend le cadre, l'onglet, les listes et le lecteur de MTEE ; ce n'est toujours pas le plugin branché à l'application principale.
+Date : 9 octobre 2026. Statut historique de ce dossier : maquettes révisées après un premier retour. L'utilisateur a ensuite autorisé l'implémentation fidèle au front MTEE ; les captures du plugin réellement branché figurent ci-dessous. Les deux variantes du prototype partagent les mêmes données fictives.
+
+## Captures de l'interface branchée
+
+Les huit captures suivantes proviennent de l'application lancée depuis les sources sur une base isolée et 28 WAV synthétiques, dont huit Reviewed. Elles servent à comparer les alignements à deux tailles de fenêtre ; l'essai au pointeur sur la collection personnelle reste à faire.
+
+| Page | 1440 × 900 | 1100 × 760 |
+|---|---|---|
+| Classify | [capture](genre-manager-110-classify-1440x900.png) | [capture](genre-manager-110-classify-1100x760.png) |
+| Genres & tags | [capture](genre-manager-110-catalogue-1440x900.png) | [capture](genre-manager-110-catalogue-1100x760.png) |
+| Organize files | [capture](genre-manager-110-organize-1440x900.png) | [capture](genre-manager-110-organize-1100x760.png) |
+| Uncertain | [capture](genre-manager-110-uncertain-1440x900.png) | [capture](genre-manager-110-uncertain-1100x760.png) |
+
+L'inspection a fait corriger un titre de source tronqué, la largeur des colonnes de l'aperçu et le titre des lignes Uncertain privées de revue d'artiste. La liste du catalogue gère plus de vingt genres et une profondeur d'arbre arbitraire ; `New root genre` reste en haut et le `+` des racines est ancré à droite. Les pieds de page et les colonnes utilisent les couleurs, polices et composants actuels de MTEE.
 
 ## Ouvrir les deux variantes
 

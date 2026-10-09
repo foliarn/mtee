@@ -29,11 +29,7 @@ Rectangle {
     Component { id: tasksPane; TasksPane { workspace: sidebar.workspace } }
     Component {
         id: pluginsPane
-        PlaceholderPane {
-            title: "Plugins"
-            icon: "plugins"
-            message: "Plugins aren't available yet. This space is reserved for them."
-        }
+        PluginsPane { workspace: sidebar.workspace }
     }
     Component {
         id: profilePane

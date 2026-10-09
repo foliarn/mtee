@@ -17,6 +17,7 @@ Item {
     readonly property int trackCount: trackModel.count
     readonly property var manager: workspace.artistManager
     property var profile: ({ "roles": [], "bassRelated": null, "tags": [], "hidden": false })
+    property var calculatedGenres: []
     readonly property string profileSummary: {
         const parts = profile.roles.concat(profile.bassRelated === true ? ["Bass-related"] : [],
                                            profile.tags, profile.hidden ? ["idgaf"] : [])
@@ -26,6 +27,8 @@ Item {
     function reloadProfile() {
         if (manager && manager.available)
             profile = manager.artistProfile(tab.ref)
+        if (workspace.genreManager)
+            calculatedGenres = workspace.genreManager.artistGenres(tab.ref)
     }
 
     Component.onCompleted: reloadProfile()
@@ -36,6 +39,10 @@ Item {
             if (artistId === header.tab.ref)
                 header.reloadProfile()
         }
+    }
+    Connections {
+        target: header.workspace.genreManager
+        function onChanged() { header.reloadProfile() }
     }
     // 24 above the cover, the cover, 24, the Play row, 24 below.
     implicitHeight: 24 + coverSize + 24 + playRow + 24
@@ -134,6 +141,15 @@ Item {
             text: header.profileSummary
             elide: Text.ElideRight
             color: header.profile.hidden ? Theme.textMuted : Theme.textSecondary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSecondary
+        }
+        Text {
+            visible: header.calculatedGenres.length > 0
+            width: parent.width
+            text: "Calculated genres · " + header.calculatedGenres.map(g => g.name).join(" · ")
+            elide: Text.ElideRight
+            color: Theme.textSecondary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSecondary
         }

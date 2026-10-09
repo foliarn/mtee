@@ -10,6 +10,7 @@ silently. Playlists, analyses and tag history keep following the UUID.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,7 +61,13 @@ class FileMoveService:
             raise FileMoveError("The destination is not a folder.")
         return resolved
 
-    def move(self, track_id: str, folder: Path) -> FileMoveResult:
+    def move(
+        self,
+        track_id: str,
+        folder: Path,
+        *,
+        on_disk_moved: Callable[[], None] | None = None,
+    ) -> FileMoveResult:
         """Move one track's file into ``folder`` without replacing anything."""
         record = self._library.source_record(track_id)
         if record is None or record.status != "readable":
@@ -113,6 +120,11 @@ class FileMoveService:
                     return FileMoveResult(
                         track_id, name, "failed", f"The file could not be moved: {error}"
                     )
+                if on_disk_moved is not None:
+                    try:
+                        on_disk_moved()
+                    except Exception as error:
+                        return self._rollback(track_id, name, current, target, error)
                 try:
                     self._record(record, track_id, target)
                 except Exception as error:

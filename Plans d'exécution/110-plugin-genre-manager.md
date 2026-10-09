@@ -24,10 +24,10 @@ Le parcours doit aussi permettre de classer quelques nouveaux morceaux sans reco
 - [x] 2026-10-09 — Réviser les maquettes après le premier retour 110.2 : cadre MTEE, sources, catalogue défilant, listes et pied de page ; préparer six nouvelles captures.
 - [x] 2026-10-09 — 110.2 : revue utilisateur des maquettes corrigées et accord pour appliquer le plan ; conserver les deux gestes proposés en attendant l'usage réel.
 - [x] 2026-10-09 — 110.3 : livrer le registre différé, le domaine, la migration 022, les décisions et sessions persistées sur copies, avec refus sûr de l'ancienne 021.
-- [ ] 110.4 — Brancher le classement, le catalogue, les tags, la revue et la reprise de session selon les maquettes retenues.
-- [ ] 110.5 — Livrer l'aperçu et le rangement physique récupérable, vérifiés sur copies.
-- [ ] 110.6 — Livrer les genres déduits des artistes et la vue Uncertain, sans écraser les crédits manuels.
-- [ ] 110.7 — Achever la recette depuis les sources, les mesures, la documentation et la publication.
+- [x] 2026-10-09 — 110.4 : brancher Classify, Genres & tags, les deux gestes, la revue, Undo et la reprise de session dans le cadre MTEE.
+- [x] 2026-10-09 — 110.5 : livrer l'aperçu, les correspondances explicites, le journal, la reprise et le retour inverse, vérifiés sur WAV synthétiques.
+- [x] 2026-10-09 — 110.6 : livrer les contributions calculées et Uncertain avec abstention conservatrice et choix manuel limité aux crédits confirmés.
+- [x] 2026-10-09 — 110.7 : effectuer les contrôles depuis les sources, les mesures synthétiques, l'inspection des captures et la documentation ; les essais auditifs et au pointeur restent signalés comme non réalisés.
 
 ## Surprises & Discoveries
 
@@ -52,6 +52,8 @@ La lecture native du WAV fictif a atteint l'état `Playing` dans le lanceur avec
 Premier retour 110.2 : les captures initiales ne ressemblaient pas suffisamment à MTEE et des textes étaient mal centrés. Le contrôle visuel de la révision compare donc le cadre de fenêtre, la barre d'activité, l'onglet, le titre de dossier, les listes et le lecteur à la capture de l'application fournie par l'utilisateur. Le catalogue fictif contient désormais 29 genres dans une liste défilante. La source House n'attribue aucun genre à l'ouverture ; seule l'action explicite de lot modifie les morceaux. La revue de confort et le choix final entre sélection et pinceau restent ouverts.
 
 ## Decision Log
+
+2026-10-09 — Exécution 110.4–110.7 — Le code fonctionnel reprend le chrome, les listes, les espacements et les composants du thème MTEE. La source se choisit par son titre, la progression apparaît dans les deux onglets du sélecteur, le catalogue de 31 genres reste défilant et le déplacement se confirme depuis le pied de page. Une migration 023, distincte de 021 et de 022 déjà publiée, stocke uniquement la décision manuelle d'attribution aux artistes avec signature des crédits. Une correction des crédits invalide cette décision. Le fichier audio n'est pas retagué ; la destination est choisie par racine et genre avant le mouvement. Le journal conserve une preuve SHA-256 pour la reprise et prépare les mouvements inverses des seules réussites. Le verrou local sérialise les changements de classement avec le rangement ; les comparaisons de révisions et de chemins protègent également l'exécution. L'ancienne 021 reste absente et refusée ; aucune base personnelle n'est ouverte.
 
 2026-10-09 — Exécution 110.3 — Le schéma 022 a été créé sans fichier 021 dans l'arbre actif. `Database.migrate()` conserve son contrôle strict de l'historique : une ancienne 021 n'est ni acceptée ni écrasée. Le banc historique 110 utilise désormais une copie de schéma 020 figée dans son répertoire isolé ; il ne recrée plus de fixture 021. Le plugin ne s'instancie pas lors des parcours ordinaires : le registre n'expose alors que ses métadonnées. Le catalogue de 31 genres est semé en une transaction à la première ouverture, et les tags restent vides. Les sessions gardent le lot, le filtre et le mode ; les lectures de playlist sont groupées. La revue impose un genre explicite et ne démarre jamais depuis un nom de dossier.
 
@@ -367,11 +369,13 @@ Faire fetch, vérifier la divergence, puis pousser vers la branche autorisée sa
 
 ## Outcomes & Retrospective
 
-2026-10-09 — 110.3 est livré sur bases synthétiques : migration 022, 31 genres initiaux, zéro tag libre, décisions avec révisions, reprise de session et chargement groupé des sources. Les 31 tests ciblés passés, Ruff, Pyright et une exécution manuelle sur base temporaire sont consignés dans le rapport. La base personnelle n'a pas été touchée. Les jalons 110.4–110.7 restent ouverts ; les conclusions historiques de préparation ci-dessous décrivent leur état à leurs dates respectives.
+2026-10-09 — 110.4–110.7 ont été exercés sur une base et des WAV synthétiques : affichage natif des quatre pages à 1440 × 900 et 1100 × 760, classement/revue/Undo, playlist multi-racines, collision, piste occupée, interruption, reprise, annulation des fichiers suivants et retour inverse. La comparaison hors écran sur 340, 2 800 et 10 000 références est détaillée dans le rapport ; elle ne mesure ni l'écoute audible ni le délai réel du pointeur. Des tests ordinaires de playlists et de navigation ont montré des échecs indépendants des fichiers du plugin, consignés sans les masquer. La livraison ne comprend ni conversion d'une ancienne 021, ni mouvement de collection personnelle, ni paquet Windows.
+
+Historique à la clôture de 110.3 — Migration 022, 31 genres initiaux, zéro tag libre, décisions avec révisions, reprise de session et chargement groupé des sources avaient été livrés sur bases synthétiques. Les 31 tests ciblés passés, Ruff, Pyright et une exécution manuelle sur base temporaire sont consignés dans le rapport. La base personnelle n'a pas été touchée.
 
 2026-10-09 — Le cadrage décrit maintenant un espace de travail dédié, deux variantes à essayer, des genres ordonnés, une revue explicite, un rangement des seuls morceaux vérifiés et des attributions artistes prudentes. Il distingue les décisions utilisateur des propositions d'interaction encore à confronter aux maquettes. Le rollback de 109, les modifications locales en cours et les limites des primitives de fichiers sont pris en compte.
 
-Cette préparation ne livre aucune fonctionnalité et ne garantit aucun gain de performance. Maquettes, choix définitif de variante, migrations, recette applicative, déplacements réels et packaging restent non réalisés. La prochaine exécution commence par 110.0–110.1 et s'arrête à la revue 110.2 avant le branchement fonctionnel.
+Constat historique de la préparation initiale — Elle ne livrait encore aucune fonctionnalité et ne garantissait aucun gain de performance. La suite a été exécutée après la revue 110.2, comme décrit ci-dessus.
 
 Révision du 2026-10-09 : création du plan après la série de questions utilisateur, avec remplacement explicite des contrats incompatibles de 109. Contrôles documentaires et publication : voir le rapport et le compte rendu de cette préparation.
 

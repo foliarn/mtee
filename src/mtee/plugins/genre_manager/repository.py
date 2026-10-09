@@ -6,6 +6,8 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from functools import wraps
+from threading import RLock
 from typing import Any
 
 from mtee.persistence.database import Database
@@ -15,6 +17,20 @@ from mtee.plugins.genre_manager.domain import validate_order
 
 class StaleDecisionError(RuntimeError):
     """The track changed after the caller displayed it."""
+
+
+GENRE_ORGANIZATION_LOCK = RLock()
+
+
+def serialized_decision(method: Any) -> Any:
+    """Serialize local classification writes with Genre Manager file movements."""
+
+    @wraps(method)
+    def locked(*args: Any, **kwargs: Any) -> Any:
+        with GENRE_ORGANIZATION_LOCK:
+            return method(*args, **kwargs)
+
+    return locked
 
 
 def _now() -> str:
@@ -68,6 +84,9 @@ class GenreManagerRepository:
             )
         ]
 
+    def operation_exists(self, operation_id: str) -> bool:
+        return self._already_applied(self._database.connection(), operation_id)
+
     def create_genre(
         self, name: str, parent_id: str | None = None, *, genre_id: str | None = None
     ) -> str:
@@ -106,6 +125,26 @@ class GenreManagerRepository:
             ).rowcount
             if changed != 1:
                 raise KeyError(genre_id)
+
+    def set_genre_archived(self, genre_id: str, archived: bool) -> None:
+        """Archive or restore a branch without losing existing assignments."""
+        with self._database.transaction() as connection:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM gm_genres WHERE genre_id=?", (genre_id,)
+                ).fetchone()
+                is None
+            ):
+                raise KeyError(genre_id)
+            connection.execute(
+                "WITH RECURSIVE branch(genre_id) AS ("
+                "SELECT genre_id FROM gm_genres WHERE genre_id=? "
+                "UNION ALL SELECT child.genre_id FROM gm_genres child "
+                "JOIN branch ON child.parent_id=branch.genre_id) "
+                "UPDATE gm_genres SET archived=?,updated_at_utc=? "
+                "WHERE genre_id IN (SELECT genre_id FROM branch)",
+                (genre_id, int(archived), _now()),
+            )
 
     def create_tag(self, name: str, *, tag_id: str | None = None) -> str:
         clean = name.strip()
@@ -151,6 +190,7 @@ class GenreManagerRepository:
             "reviewed": bool(state is not None and state[2] == genre_revision),
         }
 
+    @serialized_decision
     def set_genres(
         self,
         track_id: str,
@@ -169,11 +209,17 @@ class GenreManagerRepository:
                 raise StaleDecisionError("The track's genres changed. Refresh before saving.")
             parents = {
                 str(row[0]): str(row[1]) if row[1] is not None else None
-                for row in connection.execute(
-                    "SELECT genre_id,parent_id FROM gm_genres WHERE archived=0"
-                )
+                for row in connection.execute("SELECT genre_id,parent_id FROM gm_genres")
             }
             ordered = validate_order(genres, parents)
+            newly_assigned = set(ordered) - set(before["genres"])
+            if newly_assigned:
+                marks = ",".join("?" * len(newly_assigned))
+                if connection.execute(
+                    f"SELECT 1 FROM gm_genres WHERE genre_id IN ({marks}) AND archived=1 LIMIT 1",
+                    list(newly_assigned),
+                ).fetchone():
+                    raise ValueError("Archived genres cannot be newly assigned")
             if list(ordered) == before["genres"]:
                 return before
             connection.execute("DELETE FROM gm_track_genres WHERE track_id=?", (track_id,))
@@ -247,6 +293,7 @@ class GenreManagerRepository:
             )
             return after
 
+    @serialized_decision
     def mark_reviewed(
         self, track_id: str, *, expected_revision: int, operation_id: str
     ) -> dict[str, Any]:
@@ -278,6 +325,7 @@ class GenreManagerRepository:
             )
             return after
 
+    @serialized_decision
     def undo(self, operation_id: str) -> dict[str, Any]:
         """Restore one decision only while its result is still current."""
         with self._database.transaction() as connection:

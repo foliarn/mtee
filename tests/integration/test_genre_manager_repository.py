@@ -121,3 +121,22 @@ def test_undo_refuses_a_newer_genre_decision(
     with pytest.raises(StaleDecisionError):
         repository.undo("first")
     assert repository.track("track-a")["genres"] == [deep, minimal]
+
+
+def test_archiving_a_branch_keeps_existing_assignments_but_blocks_new_ones(
+    module: tuple[Database, GenreManagerRepository, GenreManagerService],
+) -> None:
+    database, repository, service = module
+    house = _genre(repository, "House")
+    deep = _genre(repository, "Deep House")
+    service.assign_genre("track-a", deep, expected_revision=0)
+    repository.set_genre_archived(house, True)
+    assert repository.track("track-a")["genres"] == [deep]
+    assert next(item for item in repository.genres() if item["genre_id"] == deep)["archived"]
+    database.connection().execute("INSERT INTO tracks(track_id) VALUES('track-b')")
+    with pytest.raises(ValueError, match="Archived genres"):
+        repository.set_genres(
+            "track-b", [deep], expected_revision=0, operation_id="archive-refused"
+        )
+    repository.set_genre_archived(house, False)
+    assert not next(item for item in repository.genres() if item["genre_id"] == deep)["archived"]

@@ -1,7 +1,7 @@
 
 # MTEE — Plan de conception et de développement
 
-## Addendum Genre Manager en plugin — préparation du 2026-10-09
+## Addendum Genre Manager en plugin — 2026-10-09
 
 Le [plan 110 — Genre Manager en plugin](Plans%20d'ex%C3%A9cution/110-plugin-genre-manager.md) remplace le plan 109 après le refus de son UX et le retrait de son implémentation. L'objectif est de remettre en ordre la bibliothèque dossier par dossier ou depuis une playlist, puis de classer facilement de nouveaux morceaux. L'entrée est `Plugins > Genre Manager`, avec une navigation dédiée, une page de catalogue et une vue proposée `Uncertain`. Le module interne est chargé à son ouverture ; l'interface ordinaire ne reçoit plus de barre de classement permanente. Aucun système public d'extensions n'est demandé.
 
@@ -17,7 +17,7 @@ Révision du 9 octobre après cette revue : l'utilisateur demande d'appliquer le
 
 Les genres déduits des artistes sont séparés de leurs données manuelles. Les crédits de remixeurs et les mentions Remix/Flip/Bootleg du titre servent à attribuer prudemment les contributions ; un remix de Madonna ne fait pas d'elle une artiste UKG. En cas d'incertitude, aucune attribution automatique ; la vue Uncertain ne bloque pas le classement ni le rangement. Les tags libres restent sur les morceaux. L'affichage futur des genres et tags dans Info et les listes ordinaires est reporté à de nouvelles maquettes de l'utilisateur.
 
-Cette préparation est documentaire. Les maquettes QML des deux variantes et leur essai utilisateur précèdent le branchement fonctionnel ; l'accord sur un plan ne vaut pas revue visuelle. Les décisions encore ouvertes et la compatibilité des bases éventuellement passées par 109 sont explicitées dans 110. Aucun déplacement, migration, développement ou build Windows n'est réalisé par cette rédaction.
+Les maquettes corrigées ont été approuvées pour implémentation, puis le module a été branché à l'application. Les contrôles et leurs limites figurent dans le rapport 110. La collection personnelle n'a pas été déplacée ni convertie ; aucun paquet Windows n'a été construit.
 
 ## Addendum genres des morceaux — préparation du 2026-10-07
 

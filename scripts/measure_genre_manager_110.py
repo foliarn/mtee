@@ -14,7 +14,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
@@ -158,7 +158,7 @@ def _measure_ui(
     from mtee.models.track_list_model import TrackListModel
     from mtee.models.workspace_model import WorkspaceModel
 
-    runtime_dir = data_dir / "ui-runtime"
+    runtime_dir = data_dir / f"ui-runtime-{uuid4().hex[:8]}"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     database.backup_to(runtime_dir / "mtee.sqlite3")
     application = create_application(["mtee-110-baseline"])
@@ -290,6 +290,116 @@ def _measure_native_playback(data_dir: Path) -> dict[str, float]:
     }
 
 
+def _measure_plugin_ui(
+    data_dir: Path, database: Database, root_id: str, count: int
+) -> dict[str, object]:
+    """Time the real plugin page on a separate synthetic database copy."""
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtQuick import QQuickItem, QQuickWindow
+
+    from mtee.app import _build_runtime, _destroy_windows, _shutdown, create_application
+    from mtee.cli import AppOptions
+    from mtee.models.track_list_model import TrackListModel
+    from mtee.models.workspace_model import WorkspaceModel
+    from mtee.plugins.genre_manager.models import GenreManagerModel
+
+    runtime_dir = data_dir / f"plugin-ui-{uuid4().hex[:8]}"
+    runtime_dir.mkdir(parents=True)
+    database.backup_to(runtime_dir / "mtee.sqlite3")
+    application = create_application(["mtee-110-plugin-measure"])
+    runtime = _build_runtime(application, AppOptions(data_dir=runtime_dir))
+    if runtime is None:
+        raise RuntimeError("Could not open the plugin on the synthetic database")
+    if not isinstance(runtime.workspace, WorkspaceModel):
+        raise RuntimeError("Could not bind the plugin to the source workspace")
+    window = runtime.engine.rootObjects()[0]
+    if not isinstance(window, QQuickWindow):
+        raise RuntimeError("The source application did not create a Quick window")
+    window.resize(1440, 900)
+    workspace = runtime.workspace
+
+    def wait_ready(expected: int) -> float:
+        started = time.perf_counter()
+        while time.perf_counter() - started < 20:
+            QCoreApplication.processEvents()
+            manager = cast(GenreManagerModel | None, workspace.genreManager)
+            if (
+                manager is not None
+                and not cast(dict[str, object], manager.state)["busy"]
+                and cast(dict[str, object], manager.state)["total"] == expected
+            ):
+                window.grabWindow()
+                return (time.perf_counter() - started) * 1000
+            time.sleep(0.005)
+        raise TimeoutError(f"Genre Manager did not show {expected} synthetic rows")
+
+    try:
+        lazy_before_open = workspace.genreManager is None
+        started = time.perf_counter()
+        workspace.openGenreManagerView("classify", "Genre Manager")
+        manager = cast(GenreManagerModel | None, workspace.genreManager)
+        while manager is not None and cast(dict[str, object], manager.state)["busy"]:
+            if time.perf_counter() - started > 20:
+                raise TimeoutError("Genre Manager did not load")
+            QCoreApplication.processEvents()
+            time.sleep(0.005)
+        if manager is None:
+            raise RuntimeError("Genre Manager was not created")
+        opened_ms = (time.perf_counter() - started) * 1000
+        manager.openSource("folder", "House", root_id, False)
+        folder_ms = wait_ready(340)
+        pending: list[QQuickItem] = [window.contentItem()]
+        listing = None
+        while pending:
+            item = pending.pop()
+            if item.objectName() == "genreTrackList":
+                listing = item
+                break
+            pending.extend(item.childItems())
+        if listing is None:
+            raise RuntimeError("Genre Manager track list was not rendered")
+        scroll_samples = []
+        for offset in (800, 1600, 2400, 3200, 0):
+            start = time.perf_counter_ns()
+            listing.setProperty("contentY", offset)
+            QCoreApplication.processEvents()
+            window.grabWindow()
+            scroll_samples.append((time.perf_counter_ns() - start) / 1_000_000)
+        ids = cast(TrackListModel, manager.rowsModel).track_ids_snapshot()
+        feedback_samples = []
+        for identity in ids[:5]:
+            start = time.perf_counter_ns()
+            manager.selectTrack(identity, False, False)
+            QCoreApplication.processEvents()
+            window.grabWindow()
+            feedback_samples.append((time.perf_counter_ns() - start) / 1_000_000)
+        playlist_id = str(uuid5(NAMESPACE_URL, "mtee-110-playlist"))
+        manager.openSource("playlist", playlist_id, "", False)
+        playlist_ms = wait_ready(count)
+        return {
+            "lazy_before_open": lazy_before_open,
+            "plugin_open_ms": round(opened_ms, 3),
+            "folder_open_to_render_ms": round(folder_ms, 3),
+            "playlist_open_to_render_ms": round(playlist_ms, 3),
+            "scroll_render_ms": _summary(scroll_samples),
+            "selection_render_ms": _summary(feedback_samples),
+            "note": "Offscreen programmatic timings including grabWindow; no pointer timing",
+        }
+    finally:
+        _shutdown(runtime)
+        _destroy_windows(runtime)
+        application.quit()
+
+
+def _summary(samples: list[float]) -> dict[str, float]:
+    return {
+        "median_ms": round(statistics.median(samples), 3),
+        "min_ms": round(min(samples), 3),
+        "max_ms": round(max(samples), 3),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("baseline", "plugin"), default="baseline")
@@ -297,12 +407,18 @@ def main() -> int:
     parser.add_argument("--count", type=int, choices=(340, 2800, 10000), default=2800)
     parser.add_argument("--with-ui", action="store_true", help="Probe QML with this synthetic copy")
     options = parser.parse_args()
-    if options.mode == "plugin":
-        parser.error("plugin measurements begin after the functional module exists in 110.7")
     data_dir = options.data_dir.resolve()
     fixtures = prepare_fixtures(data_dir)
-    database = Database(fixtures["020"])
-    root_id, playlist_id = _populate(database, data_dir, options.count)
+    base = Database(fixtures["020"])
+    root_id, playlist_id = _populate(base, data_dir, options.count)
+    if options.mode == "plugin":
+        plugin_path = data_dir / f"synthetic-plugin-{uuid4().hex[:8]}.sqlite"
+        base.backup_to(plugin_path)
+        base.close()
+        database = Database(plugin_path)
+        database.migrate()
+    else:
+        database = base
     library = LibraryRepository(database)
     playlists = PlaylistService(PlaylistsRepository(database), library)
     measures: dict[str, object] = {
@@ -313,11 +429,31 @@ def main() -> int:
             lambda: [row["id"] for row in library.tracks_in_folder(root_id, "House")[:340]]
         ),
     }
-    if options.with_ui:
-        measures["source_ui_offscreen"] = _measure_ui(
-            data_dir, database, root_id, playlist_id, options.count
+    if options.mode == "plugin":
+        from mtee.plugins.genre_manager.repository import GenreManagerRepository
+        from mtee.plugins.genre_manager.sessions import GenreSessionRepository
+
+        repository = GenreManagerRepository(database)
+        repository.ensure_catalogue()
+        sessions = GenreSessionRepository(database, library, PlaylistsRepository(database))
+        folder_session = sessions.open_source("folder", "House", root_id=root_id)
+        playlist_session = sessions.open_source("playlist", playlist_id)
+        measures["catalogue"] = _sample(repository.genres)
+        measures["source_options"] = _sample(sessions.source_options)
+        measures["classify_340_rows"] = _sample(lambda: sessions.rows(folder_session["session_id"]))
+        measures["large_playlist_rows"] = _sample(
+            lambda: sessions.rows(playlist_session["session_id"])
         )
-        measures["native_play_to_playing_null_audio"] = _measure_native_playback(data_dir)
+    if options.with_ui:
+        if options.mode == "plugin":
+            measures["plugin_ui_offscreen"] = _measure_plugin_ui(
+                data_dir, database, root_id, options.count
+            )
+        else:
+            measures["source_ui_offscreen"] = _measure_ui(
+                data_dir, database, root_id, playlist_id, options.count
+            )
+            measures["native_play_to_playing_null_audio"] = _measure_native_playback(data_dir)
     result = {
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "revision": _git("rev-parse", "HEAD"),
@@ -326,7 +462,7 @@ def main() -> int:
         "platform": platform.platform(),
         "mode": options.mode,
         "synthetic_count": options.count,
-        "schema_020": database.schema_version(),
+        "schema_version": database.schema_version(),
         "measurements": measures,
         "not_measured": (
             ["audible output", "pointer-to-feedback timing"]
@@ -335,7 +471,7 @@ def main() -> int:
         ),
     }
     database.close()
-    output = data_dir / "baseline-results.json"
+    output = data_dir / f"{options.mode}-results.json"
     output.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
     return 0
