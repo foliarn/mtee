@@ -25,10 +25,14 @@ def _track_id(row: QQuickItem) -> str:
     return str(cast(dict, row.property("modelData"))["id"])
 
 
-def _frame_visible(row: QQuickItem) -> bool:
+def _frame(row: QQuickItem) -> QQuickItem:
     frames = [item for item in row.childItems() if item.objectName() == "trackFocusFrame"]
     assert len(frames) == 1
-    return frames[0].isVisible()
+    return frames[0]
+
+
+def _frame_visible(row: QQuickItem) -> bool:
+    return _frame(row).isVisible()
 
 
 def _started(tmp_path: Path, monkeypatch, count: int):
@@ -57,6 +61,13 @@ def test_left_margin_is_not_part_of_the_row(qapp, qtbot, tmp_path: Path, monkeyp
         QTest.mouseDClick(window, Qt.MouseButton.LeftButton, pos=_point(margin))
         QTest.qWait(300)
         assert workspace.selectedIds == []
+        assert workspace.playingId == ""
+
+        # A single click in the margin clears an existing selection without playing.
+        workspace.selectTrack(_track_id(row), "single", [])
+        qtbot.waitUntil(lambda: workspace.selectedIds == [_track_id(row)])
+        QTest.mouseClick(window, Qt.MouseButton.LeftButton, pos=_point(margin))
+        qtbot.waitUntil(lambda: workspace.selectedIds == [], timeout=5_000)
         assert workspace.playingId == ""
 
         inside = row.mapToScene(QPointF(row.width() / 2, row.height() / 2))
@@ -98,6 +109,38 @@ def test_selected_rows_share_the_frame_and_escape_or_a_plain_click_clears(
         )
         QTest.mouseClick(window, Qt.MouseButton.LeftButton, pos=_point(target))
         qtbot.waitUntil(lambda: workspace.selectedIds == [second])
+    finally:
+        _shutdown(runtime)
+        application.quit()
+
+
+def test_contiguous_selection_is_framed_as_one_block(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    application, runtime, window, workspace, track_ids = _started(tmp_path, monkeypatch, 3)
+    try:
+        qtbot.waitUntil(lambda: row_item(window, 3) is not None, timeout=10_000)
+        rows = [cast(QQuickItem, row_item(window, number)) for number in (1, 2, 3)]
+        view = _find(window, "trackListView")
+        assert view is not None
+        first, second, third = track_ids
+
+        # Rows 1 to 3 form one block: only the outer ends get top and bottom edges.
+        workspace.selectTrack(first, "single", [])
+        workspace.selectTrack(third, "range", track_ids)
+        view.forceActiveFocus()
+        qtbot.waitUntil(lambda: all(_frame_visible(row) for row in rows))
+        edges = [
+            (_frame(row).property("edgeTop"), _frame(row).property("edgeBottom")) for row in rows
+        ]
+        assert edges == [(True, False), (False, False), (False, True)]
+
+        # A lone selected row keeps the full frame.
+        workspace.selectTrack(second, "single", [])
+        qtbot.waitUntil(lambda: _frame_visible(rows[1]) and not _frame_visible(rows[0]))
+        assert not _frame_visible(rows[2])
+        lone = _frame(rows[1])
+        assert (lone.property("edgeTop"), lone.property("edgeBottom")) == (True, True)
     finally:
         _shutdown(runtime)
         application.quit()

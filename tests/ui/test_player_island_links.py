@@ -73,6 +73,17 @@ def _click(window: QQuickWindow, item: QQuickItem) -> None:
     QTest.qWait(60)
 
 
+def _visible_texts(item: QQuickItem) -> str:
+    """Joined text of the visible Text items under item, in visual order."""
+    if not item.isVisible():
+        return ""
+    text = item.property("text")
+    found = text if isinstance(text, str) else ""
+    for child in item.childItems():
+        found += _visible_texts(child)
+    return found
+
+
 def _active_tab(workspace: WorkspaceModel) -> str:
     typed = cast(Any, workspace)
     return str(typed.groups[typed.activeGroup]["active"])
@@ -171,8 +182,9 @@ def test_one_credited_artist_opens_its_page_from_the_artist_link(
     root.resize(1440, 900)
     try:
         workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
-        link = _find(root, "playerIslandArtist")
-        assert link is not None and link.property("enabled")
+        link = _find(root, "playerIslandArtist_0")
+        assert link is not None and link.property("text") == "Hedex"
+        assert _find(root, "playerIslandArtist_1") is None
 
         _click(root, link)
         qtbot.waitUntil(
@@ -182,7 +194,9 @@ def test_one_credited_artist_opens_its_page_from_the_artist_link(
         _shutdown(runtime)
 
 
-def test_several_credited_artists_open_a_menu(qapp, qtbot, tmp_path: Path, monkeypatch) -> None:
+def test_several_credited_artists_are_separate_links(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
     data_dir, tracks, _artists = _seed(tmp_path)
     runtime = _start(qapp, monkeypatch, data_dir)
     root = runtime.engine.rootObjects()[0]
@@ -190,16 +204,23 @@ def test_several_credited_artists_open_a_menu(qapp, qtbot, tmp_path: Path, monke
     root.resize(1440, 900)
     try:
         workspace = _play(runtime, root, tracks["root"], tracks["Bravo"])
-        link = _find(root, "playerIslandArtist")
-        assert link is not None and link.property("enabled")
-        before = _active_tab(workspace)
+        credits = workspace.trackArtists(tracks["Bravo"])
+        assert len(credits) == 2
+        first, second = _find(root, "playerIslandArtist_0"), _find(root, "playerIslandArtist_1")
+        assert first is not None and second is not None
+        assert _find(root, "playerIslandArtist_2") is None
+        assert first.property("text") == credits[0]["name"]
+        assert second.property("text") == credits[1]["name"]
 
-        _click(root, link)
-        menu = cast(QObject, root.findChild(QObject, "playerIslandArtistMenu"))
-        qtbot.waitUntil(lambda: bool(menu.property("opened")), timeout=5000)
-        assert menu.property("count") == 2
-        assert _active_tab(workspace) == before
+        # Names are shown in credit order, comma separated, with no trailing comma.
+        row = _find(root, "playerIslandArtists")
+        assert row is not None and row.isVisible()
+        assert _visible_texts(row) == f"{credits[0]['name']}, {credits[1]['name']}"
+        assert root.findChild(QObject, "playerIslandArtistMenu") is None
 
+        _click(root, second)
+        target = f"artist:{credits[1]['id']}"
+        qtbot.waitUntil(lambda: _active_tab(workspace) == target, timeout=5000)
     finally:
         _shutdown(runtime)
 
@@ -212,16 +233,17 @@ def test_track_without_credits_has_no_artist_link(qapp, qtbot, tmp_path: Path, m
     root.resize(1440, 900)
     try:
         workspace = _play(runtime, root, tracks["root"], tracks["Charlie"])
-        link = _find(root, "playerIslandArtist")
-        assert link is not None
-        assert not link.property("enabled")
+        plain = _find(root, "playerIslandArtistText")
+        assert plain is not None and plain.isVisible()
+        assert plain.property("text") == "Example"
+        row = _find(root, "playerIslandArtists")
+        assert row is not None and not row.isVisible()
+        assert _find(root, "playerIslandArtist_0") is None
         before = _active_tab(workspace)
 
-        _click(root, link)
+        _click(root, plain)
         QTest.qWait(100)
         assert _active_tab(workspace) == before
-        menu = cast(QObject, root.findChild(QObject, "playerIslandArtistMenu"))
-        assert not menu.property("opened")
     finally:
         _shutdown(runtime)
 

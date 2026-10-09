@@ -526,7 +526,10 @@ class PlayerService(QObject):
     def next(self) -> None:
         if self._queue.current is None and not self._queue.upcoming:
             return
-        if self._queue.upcoming:
+        if self._queue.repeat == "one" and self._queue.current is not None:
+            # Repeat one: Next restarts the same track, like a natural end.
+            self._open_index(self._state.current_index)
+        elif self._queue.upcoming:
             self._queue = self._queue.next()
             self._open_queue_current()
         elif self._queue.repeat == "all":

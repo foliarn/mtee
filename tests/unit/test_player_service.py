@@ -873,10 +873,59 @@ def test_repeat_one_natural_end_replays_and_next_previous_still_move(
     _wait_playing(qtbot, service)
     assert service.state.current_id == ids[1]
 
+    # Next under repeat one restarts the same track: queue and history stay put.
+    history = service.history_rows()
+    session_before = service.state.session_id
+    loads = len(backend.loads)
     service.next()
-    qtbot.waitUntil(lambda: service.state.current_id == ids[2], timeout=2000)
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
     _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[1]
+    assert service.state.session_id > session_before
+    assert service.state.track_ids == tuple(ids)
+    assert [row["trackId"] for row in service.up_next()] == [ids[2]]
+    assert service.history_rows() == history
+
+    # Previous is unchanged: the position is at the start, so it goes back a track.
     service.previous()
+    qtbot.waitUntil(lambda: service.state.current_id == ids[0], timeout=2000)
+    _wait_playing(qtbot, service)
+    service.close()
+
+
+def test_repeat_one_next_on_the_last_track_restarts_it_instead_of_ending(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, _ = _make_service(qapp, tmp_path, count=3)
+    service.play_queue(ids, 2)
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    service.cycle_repeat()
+    assert service.state.repeat == "one"
+
+    loads = len(backend.loads)
+    service.next()
+    qtbot.waitUntil(lambda: len(backend.loads) == loads + 1, timeout=2000)
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[2]
+    assert service.state.status is PlaybackStatus.PLAYING
+    service.close()
+
+
+def test_repeat_off_after_repeat_one_next_moves_on_again(qapp, qtbot, tmp_path: Path) -> None:
+    service, _backend, _access, ids, _ = _make_service(qapp, tmp_path, count=3)
+    service.play_queue(ids, 0)
+    _wait_playing(qtbot, service)
+    service.cycle_repeat()
+    service.cycle_repeat()
+    assert service.state.repeat == "one"
+    service.next()
+    _wait_playing(qtbot, service)
+    assert service.state.current_id == ids[0]
+
+    service.cycle_repeat()
+    assert service.state.repeat == "off"
+    service.next()
     qtbot.waitUntil(lambda: service.state.current_id == ids[1], timeout=2000)
     _wait_playing(qtbot, service)
     service.close()

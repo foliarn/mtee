@@ -41,6 +41,13 @@ FocusScope {
         workspace.selectedIds
         return workspace.selectedIdsForGroup(groupIndex)
     }
+    // id -> true, built once per selection change, so each row looks up its neighbours in O(1).
+    readonly property var selectionSet: {
+        const set = ({})
+        for (let i = 0; i < selectionIds.length; ++i)
+            set[selectionIds[i]] = true
+        return set
+    }
     // An empty selection also drops the keyboard cursor, so no row keeps its focus frame.
     onSelectionIdsChanged: {
         if (selectionIds.length === 0)
@@ -654,6 +661,7 @@ FocusScope {
 
     Flickable {
         id: tableViewport
+        objectName: "tableViewport"
         visible: !view.artwork
         anchors.top: columnHeader.bottom
         anchors.topMargin: 8
@@ -772,10 +780,14 @@ FocusScope {
                     paused: !view.workspace.isPlaying
                     current: view.activeFocus && list.currentIndex === index && view.selectionIds.length > 0
                     focusFrame: view.activeFocus
+                    selectedAbove: index > 0 && view.selectionSet[view.orderedIds[index - 1]] === true
+                    selectedBelow: index + 1 < view.orderedIds.length && view.selectionSet[view.orderedIds[index + 1]] === true
+                    viewportRight: tableViewport.contentX + tableViewport.width
                     inPlaylist: view.workspace.playlistsContaining(modelData.trackId || modelData.id, view.workspace.revision).length > 0
                     onDragStarted: view.prepareTrackDrag(trackRow, modelData)
                     onDragMoved: (x, y) => view.moveTrackDrag(trackRow, x, y)
                     onDragFinished: view.finishTrackDrag(trackRow)
+                    onMarginClicked: { view.forceActiveFocus(); view.workspace.clearSelection(view.groupIndex) }
                     Rectangle {
                         anchors.left: parent.left; anchors.right: parent.right
                         y: view.trackDropAfter ? parent.height - 3 : 0

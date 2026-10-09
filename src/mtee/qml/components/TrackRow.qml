@@ -30,6 +30,14 @@ Rectangle {
             dragFinished()
         }
     }
+    // Declared first so it sits below hitArea: a click in the table margin only clears the selection.
+    MouseArea {
+        objectName: "trackRowMargin"
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        onClicked: row.marginClicked()
+    }
+
     // Pointer input covers the table columns only, the same span as the highlight.
     Item {
         id: hitArea
@@ -64,10 +72,19 @@ Rectangle {
     property bool separateArtist: true
     // Set by the list while it has keyboard focus: every selected row then shows the frame.
     property bool focusFrame: false
+    // Neighbour rows that are selected too; they share one block frame.
+    property bool selectedAbove: false
+    property bool selectedBelow: false
+    // Right edge of the visible table, in row coordinates; the table can scroll under it.
+    property real viewportRight: width
+    readonly property real frameRight: Math.min(row.width - row.columns.padding, row.viewportRight - row.columns.padding)
+    // Where the trailing actions sit when the table fits: right after the last column.
+    readonly property real actionsNaturalX: rowCells.x + rowCells.width + row.columns.gap
     readonly property bool hovered: mouse.containsMouse || rowHover.hovered
         || playButton.hovered || infoButton.hovered || addButton.hovered
     signal pressed(var event)
     signal leftClicked(var event)
+    signal marginClicked()
     signal activated()
     signal toggleRequested()
     signal contextRequested(real x, real y)
@@ -79,23 +96,49 @@ Rectangle {
     color: "transparent"
     Accessible.name: row.track.title + (row.track.artist.length > 0 ? " — " + row.track.artist : "")
 
-    // Highlight and focus frame span the table columns, not the whole viewport.
+    // Highlight and focus frame span the table columns, not the whole viewport,
+    // and stop at the visible edge when the table scrolls sideways.
     Rectangle {
         x: row.columns.padding
-        width: row.width - 2 * row.columns.padding
+        width: row.frameRight - row.columns.padding
         height: parent.height
         color: row.selected ? Theme.selection : row.hovered ? Theme.surface : "transparent"
     }
 
-    Rectangle {
+    // A selected row draws only its side edges; top and bottom appear at the ends of a block,
+    // so a run of selected rows reads as one frame.
+    Item {
         objectName: "trackFocusFrame"
+        z: 1
         x: row.columns.padding
-        width: row.width - 2 * row.columns.padding
+        width: row.frameRight - row.columns.padding
         height: parent.height
-        color: "transparent"
-        border.width: 1
-        border.color: Theme.focus
+        readonly property bool edgeTop: !(row.selected && row.selectedAbove)
+        readonly property bool edgeBottom: !(row.selected && row.selectedBelow)
         visible: row.current || (row.selected && row.focusFrame)
+
+        Rectangle {
+            x: 0; y: 0
+            width: 1; height: parent.height
+            color: Theme.focus
+        }
+        Rectangle {
+            x: parent.width - 1; y: 0
+            width: 1; height: parent.height
+            color: Theme.focus
+        }
+        Rectangle {
+            visible: parent.edgeTop
+            x: 0; y: 0
+            width: parent.width; height: 1
+            color: Theme.focus
+        }
+        Rectangle {
+            visible: parent.edgeBottom
+            x: 0; y: parent.height - 1
+            width: parent.width; height: 1
+            color: Theme.focus
+        }
     }
 
     MouseArea {
@@ -245,9 +288,24 @@ Rectangle {
                 }
             }
         }
+    }
+
+    // Trailing actions stay at the visible right edge while the columns scroll beneath them.
+    Item {
+        id: actionsBox
+        x: Math.min(row.actionsNaturalX, row.viewportRight - row.columns.padding - row.columns.actions)
+        width: row.columns.actions
+        height: row.height
+
+        // Opaque backing only while the buttons sit over scrolled columns.
+        Rectangle {
+            anchors.fill: parent
+            visible: actionsBox.x < row.actionsNaturalX
+            color: row.selected ? Theme.selection : row.hovered ? Theme.surface : Theme.background
+        }
 
         Row {
-            width: row.columns.actions
+            width: parent.width
             height: parent.height
             spacing: 4
             layoutDirection: Qt.RightToLeft

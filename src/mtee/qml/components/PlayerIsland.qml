@@ -69,7 +69,10 @@ Rectangle {
             anchors.left: cover.right
             anchors.leftMargin: 12
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.max(0, Math.min(Math.max(titleText.implicitWidth, artistText.implicitWidth),
+            // Natural width of the artist line: the links row, or the plain text.
+            readonly property real artistNaturalWidth: artistRow.visible
+                ? artistRow.childrenRect.width : artistText.implicitWidth
+            width: Math.max(0, Math.min(Math.max(titleText.implicitWidth, artistNaturalWidth),
                             left.width - cover.width - 12 - addButton.width - likeButton.width - 8))
             spacing: 2
 
@@ -96,32 +99,64 @@ Rectangle {
                 }
             }
 
-            // A link only when the track has confirmed artists; several open a small menu.
+            // Each confirmed artist is its own link, separated by commas.
+            Row {
+                id: artistRow
+                objectName: "playerIslandArtists"
+                visible: island.artists.length > 0
+                width: parent.width
+                height: childrenRect.height
+                clip: true
+
+                Repeater {
+                    model: island.artists
+
+                    Row {
+                        id: artistEntry
+                        required property var modelData
+                        required property int index
+
+                        Text {
+                            id: artistName
+                            objectName: "playerIslandArtist_" + artistEntry.index
+                            text: artistEntry.modelData.name
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.underline: artistMouse.containsMouse
+
+                            MouseArea {
+                                id: artistMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: island.workspace.openArtistPage(
+                                    artistEntry.modelData.id, artistEntry.modelData.name)
+                            }
+                        }
+
+                        Text {
+                            visible: artistEntry.index < island.artists.length - 1
+                            text: ", "
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSmall
+                        }
+                    }
+                }
+            }
+
+            // Plain artist tag, or "Unknown artist", when there are no confirmed artists.
             Text {
                 id: artistText
-                readonly property bool linked: island.artists.length > 0
+                objectName: "playerIslandArtistText"
+                visible: island.artists.length === 0
                 width: parent.width
                 text: island.track.artist && island.track.artist.length > 0 ? island.track.artist : "Unknown artist"
                 elide: Text.ElideRight
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
-                font.underline: artistMouse.containsMouse
-
-                MouseArea {
-                    id: artistMouse
-                    objectName: "playerIslandArtist"
-                    anchors.fill: parent
-                    enabled: artistText.linked
-                    hoverEnabled: true
-                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    onClicked: {
-                        if (island.artists.length === 1)
-                            island.workspace.openArtistPage(island.artists[0].id, island.artists[0].name)
-                        else
-                            artistMenu.popup(artistText, 0, -artistMenu.implicitHeight)
-                    }
-                }
             }
         }
 
@@ -304,20 +339,5 @@ Rectangle {
     AddToPlaylistMenu {
         id: playlistMenu
         workspace: island.workspace
-    }
-
-    AppMenu {
-        id: artistMenu
-        objectName: "playerIslandArtistMenu"
-
-        Repeater {
-            model: island.artists
-
-            AppMenuItem {
-                required property var modelData
-                text: modelData.name
-                onTriggered: island.workspace.openArtistPage(modelData.id, modelData.name)
-            }
-        }
     }
 }
