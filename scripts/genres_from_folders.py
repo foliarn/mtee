@@ -120,11 +120,6 @@ def main(argv: list[str] | None = None) -> int:
 
     database = Database(args.database)
     try:
-        if args.apply and database.schema_version() >= 21:
-            parser.error(
-                "Plan 109 stores genres on tracks. Use seed_track_genres.py; "
-                "artist imports are retired."
-            )
         service = FolderGenreService(database, ArtistRepository(database))
         plan = service.plan(args.root, args.ignore or IGNORED_FOLDERS)
         print(

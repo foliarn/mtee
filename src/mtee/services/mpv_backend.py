@@ -54,10 +54,6 @@ class _MpvEventEndFile(ctypes.Structure):
     ]
 
 
-_OUTPUT_RATE_PROPERTY = "audio-out-params/samplerate"
-# Past this pause, the audio device is released so a Bluetooth headset can sleep.
-_PAUSE_RELEASE_SECONDS = 5.0
-
 _PROPERTY_FORMATS = {
     "duration": _MPV_FORMAT_DOUBLE,
     "pause": _MPV_FORMAT_FLAG,
@@ -86,8 +82,6 @@ class MpvBackend:
         *,
         audio_output: str = "wasapi",
         wait_timeout_seconds: float = 0.1,
-        keep_stream_alive: bool | None = None,
-        pause_release_seconds: float = _PAUSE_RELEASE_SECONDS,
     ) -> None:
         if struct.calcsize("P") != 8:
             raise PlayerBackendError("The bundled libmpv runtime requires 64-bit Python.")
@@ -121,19 +115,6 @@ class MpvBackend:
         self._wait_timeout_seconds = wait_timeout_seconds
         self._closing = threading.Event()
         self._initialized = False
-        # A device stream that stops between tracks makes a Bluetooth headset wake up
-        # again on every skip. Keeping it open with silence, at one fixed output
-        # format, lets a skip reuse the running stream instead of reopening it.
-        self._keep_stream_alive = (
-            audio_output == "wasapi" and os.environ.get("MTEE_AUDIO_KEEPALIVE", "1") != "0"
-            if keep_stream_alive is None
-            else keep_stream_alive
-        )
-        self._pause_release_seconds = pause_release_seconds
-        self._stream_lock = threading.Lock()
-        self._pause_timer: threading.Timer | None = None
-        self._stream_released = False
-        self._requested_rate = 0
 
         options = {
             "config": "no",
@@ -149,17 +130,6 @@ class MpvBackend:
             "audio-client-name": "MTEE",
             "sub-auto": "no",
         }
-        if self._keep_stream_alive:
-            options.update(
-                {
-                    "audio-stream-silence": "yes",
-                    "audio-format": "float",
-                    "audio-channels": "stereo",
-                }
-            )
-        formats = dict(_PROPERTY_FORMATS)
-        if self._keep_stream_alive:
-            formats[_OUTPUT_RATE_PROPERTY] = _MPV_FORMAT_INT64
         try:
             for name, value in options.items():
                 self._check(
@@ -170,7 +140,7 @@ class MpvBackend:
                 )
             self._check(self._lib.mpv_initialize(self._ctx), "initialize")
             self._initialized = True
-            for name, value_format in formats.items():
+            for name, value_format in _PROPERTY_FORMATS.items():
                 result = self._lib.mpv_observe_property(
                     self._ctx, 0, name.encode("ascii"), value_format
                 )
@@ -198,8 +168,6 @@ class MpvBackend:
         self._command("loadfile", str(path), "replace")
 
     def set_paused(self, paused: bool) -> None:
-        if self._keep_stream_alive:
-            self._track_pause(paused)
         self._set_property("pause", _MPV_FORMAT_FLAG, ctypes.c_int(bool(paused)))
 
     def seek(self, position_us: int) -> None:
@@ -225,8 +193,6 @@ class MpvBackend:
             return
         self.set_event_handler(None)
         self._closing.set()
-        with self._stream_lock:
-            self._cancel_pause_timer()
         if self._ctx:
             self._command("quit", required=False)
             self._lib.mpv_wakeup(self._ctx)
@@ -313,45 +279,6 @@ class MpvBackend:
         else:
             self._emit("stopped", self._current_session())
 
-    def _track_pause(self, paused: bool) -> None:
-        """Release the device after a long pause, and take it back before resuming."""
-        with self._stream_lock:
-            self._cancel_pause_timer()
-            if paused:
-                timer = threading.Timer(self._pause_release_seconds, self._release_stream)
-                timer.daemon = True
-                self._pause_timer = timer
-                timer.start()
-            elif self._stream_released:
-                self._stream_released = False
-                self._command("set", "audio-stream-silence", "yes", required=False)
-                self._command("ao-reload", required=False)
-
-    def _cancel_pause_timer(self) -> None:
-        if self._pause_timer is not None:
-            self._pause_timer.cancel()
-            self._pause_timer = None
-
-    def _release_stream(self) -> None:
-        with self._stream_lock:
-            if self._pause_timer is not threading.current_thread():
-                return
-            self._pause_timer = None
-            if self._closing.is_set() or not self._ctx:
-                return
-            self._stream_released = True
-            # The silence setting is read when the output opens: turning it off and
-            # reopening the device while paused leaves the stream stopped.
-            self._command("set", "audio-stream-silence", "no", required=False)
-            self._command("ao-reload", required=False)
-
-    def _follow_output_rate(self, rate: int) -> None:
-        """Request the rate the device really runs at, so tracks never reopen it."""
-        if rate <= 0 or rate == self._requested_rate or self._closing.is_set() or not self._ctx:
-            return
-        self._requested_rate = rate
-        self._command("set", "audio-samplerate", str(rate), required=False)
-
     def _handle_property(self, data: int | None) -> None:
         if not data:
             return
@@ -371,10 +298,6 @@ class MpvBackend:
             raw = ctypes.cast(prop.data, ctypes.POINTER(ctypes.c_char_p)).contents.value
             value = raw.decode("utf-8", errors="replace") if raw else ""
         else:
-            return
-        if name == _OUTPUT_RATE_PROPERTY:
-            if isinstance(value, int):
-                self._follow_output_rate(value)
             return
         session_id = self._current_session()
         if name == "duration":

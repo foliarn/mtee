@@ -11,7 +11,6 @@ L'état actuel est le **socle technique** : la fenêtre affiche ses zones nommé
 - `Plans d'exécution/README.md` — index des étapes, de l'initialisation au portage.
 - `docs/architecture/overview.md` — couches du socle et sens des appels.
 - `docs/validation/` — comptes rendus de recette par étape.
-- [Genres locaux : classement et tri](docs/usage/genres-locaux.md) — pinceau, manager, filtres et récupération.
 
 ## Développer
 
