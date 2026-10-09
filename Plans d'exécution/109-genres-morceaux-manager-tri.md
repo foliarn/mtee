@@ -1,5 +1,7 @@
 # Étape 109 — Genres des morceaux, Genre manager et tri au pinceau
 
+**Statut au 9 octobre 2026 : remplacé par le [plan 110 — Genre Manager en plugin](110-plugin-genre-manager.md).** Le commit `1eab96e` a retiré l'implémentation de 109 du checkout. Ce document reste une référence historique, notamment pour l'ancien schéma et la taxonomie, et ne constitue plus une consigne d'exécution. Les anciennes validations ne valent pas approbation de la nouvelle UX. Le rollback des sources ne prouve pas l'état des bases personnelles.
+
 ExecPlan préparé le 7 octobre 2026 selon [PLANS.md](../PLANS.md). Référence produit : [PLAN.md](../PLAN.md). Ce plan reprend le [brief 108](../docs/decisions/108-arbre-des-genres.md) et le remplace pour les points corrigés par la conversation du 7 octobre. Il est autonome pour son exécution : les décisions, correspondances, contrats et critères nécessaires figurent ci-dessous.
 
 La demande actuelle est de **rédiger le plan**, avec deux lots ordonnés : **1. Associer les genres des dossiers aux morceaux ; 2. Implémenter toutes les fonctionnalités du périmètre retenu**. Cette préparation ne lance ni développement, ni migration, ni application sur la collection. Les numéros 109.1 à 109.7 ci-dessous sont des sous-jalons de ces deux lots, pas de nouvelles demandes d'autorisation entre chaque travail technique.

@@ -1,7 +1,23 @@
 
 # MTEE — Plan de conception et de développement
 
+## Addendum Genre Manager en plugin — préparation du 2026-10-09
+
+Le [plan 110 — Genre Manager en plugin](Plans%20d'ex%C3%A9cution/110-plugin-genre-manager.md) remplace le plan 109 après le refus de son UX et le retrait de son implémentation. L'objectif est de remettre en ordre la bibliothèque dossier par dossier ou depuis une playlist, puis de classer facilement de nouveaux morceaux. L'entrée est `Plugins > Genre Manager`, avec une navigation dédiée, une page de catalogue et une vue proposée `Uncertain`. Le module interne est chargé à son ouverture ; l'interface ordinaire ne reçoit plus de barre de classement permanente. Aucun système public d'extensions n'est demandé.
+
+Les genres d'un morceau sont ordonnés : le premier est principal, les suivants secondaires. Préciser House par Deep donne **Deep House** en principal ; House reste sa famille. Les sous-genres de House utilisent leur nom complet, sans généraliser ce suffixe aux autres familles. L'utilisateur souhaite essayer **deux variantes**, sélection puis attribution et pinceau, avant de choisir. Le pinceau ajoute/retire au clic, indépendamment de la sélection et de la lecture. Le lecteur reste actif et le plugin ne lance ni écoute ni passage au suivant automatiquement.
+
+Des tags libres, indépendants des genres, sont créés par l'utilisateur et applicables par les mêmes deux parcours ; **aucun tag n'est prérempli**. Genres et tags restent exclusivement dans MTEE. `Mark as reviewed` valide explicitement une sélection ; All tracks et To review permettent de conserver ou masquer les morceaux vérifiés. Une modification effective des genres ou de leur ordre remet à vérifier ; une modification de tag ne le fait pas. House seul reste un classement valide.
+
+`Organize files` présente puis applique les déplacements des seuls morceaux vérifiés du dossier ou de la playlist courante, selon leur genre principal. House seul reste dans House. Les morceaux non vérifiés ne bougent pas. Les destinations sont examinées, les noms de fichiers sont conservés, les conflits n'écrasent rien et un journal permet la reprise des opérations. Le `track_id`, les playlists et les analyses suivent les déplacements. Les métadonnées audio ne sont pas réécrites.
+
+Les genres déduits des artistes sont séparés de leurs données manuelles. Les crédits de remixeurs et les mentions Remix/Flip/Bootleg du titre servent à attribuer prudemment les contributions ; un remix de Madonna ne fait pas d'elle une artiste UKG. En cas d'incertitude, aucune attribution automatique ; la vue Uncertain ne bloque pas le classement ni le rangement. Les tags libres restent sur les morceaux. L'affichage futur des genres et tags dans Info et les listes ordinaires est reporté à de nouvelles maquettes de l'utilisateur.
+
+Cette préparation est documentaire. Les maquettes QML des deux variantes et leur essai utilisateur précèdent le branchement fonctionnel ; l'accord sur un plan ne vaut pas revue visuelle. Les décisions encore ouvertes et la compatibilité des bases éventuellement passées par 109 sont explicitées dans 110. Aucun déplacement, migration, développement ou build Windows n'est réalisé par cette rédaction.
+
 ## Addendum genres des morceaux — préparation du 2026-10-07
+
+Historique : cet addendum est remplacé par celui du 9 octobre et le plan 110, notamment pour le genre principal, Reviewed, l'emplacement du classement, les déplacements physiques et les genres déduits des artistes.
 
 Le [plan 109 — Genres des morceaux, manager et tri](Plans%20d'ex%C3%A9cution/109-genres-morceaux-manager-tri.md) reprend le brief 108 avec les décisions finales de l'utilisateur. Ordre demandé : associer d'abord les genres précis des dossiers aux morceaux après vérification du tableau et application en un lot, puis implémenter le Genre manager, la création à la volée, les tags locaux, le tri au pinceau, les filtres combinables et le retrait ciblé des anciens genres d'artistes du plan 107.
 

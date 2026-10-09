@@ -1,6 +1,16 @@
 # MTEE — index des plans d'exécution
 
+## Genre Manager en plugin — préparation du 2026-10-09
+
+Le [plan 110 — Genre Manager en plugin](110-plugin-genre-manager.md) est la référence active et remplace 109. Il transcrit le cadrage utilisateur : travail par dossier ou playlist, genre principal et secondaires ordonnés, tags libres initialement vides, validation Reviewed, rangement physique des seuls morceaux vérifiés et genres d'artistes déduits avec abstention sur les remix incertains.
+
+Ordre d'exécution : état initial et mesures (110.0), deux maquettes QML manipulables sélection/pinceau (110.1), **essai et revue explicite de l'utilisateur (110.2)**, module interne et données compatibles (110.3), classement/catalogue/revue (110.4), rangement récupérable (110.5), artistes et Uncertain (110.6), recette et publication (110.7). La prochaine exécution s'arrête à la revue avant de brancher les surfaces fonctionnelles.
+
+Prérequis : socle courant après rollback `1eab96e`, préservation des modifications locales en cours, lecture de `PLANS.md`, inventaire de compatibilité des bases 020/021 sur copies. L'ancienne interface n'est pas à rétablir. Info et les listes ordinaires attendent leurs maquettes ultérieures. Aucun packaging automatique. La préparation ne livre ni maquette ni code ; voir le [rapport documentaire](../docs/validation/110-plugin-genre-manager.md).
+
 ## Genres des morceaux et workflow de tri — préparation du 2026-10-07
+
+Historique remplacé par 110 : les descriptions ci-dessous conservent le cadrage du 7 octobre et ne doivent pas être exécutées en parallèle du nouveau plan.
 
 Le [plan 109 — Genres des morceaux, manager et tri](109-genres-morceaux-manager-tri.md) est la référence opérationnelle issue du [brief 108](../docs/decisions/108-arbre-des-genres.md) et des clarifications du 7 octobre. Il comporte deux lots : **1. Associer les genres précis des dossiers aux morceaux ; 2. Implémenter le manager complet, la création rapide, le pinceau et les filtres ET/OU/exclusion, puis retirer les anciens genres d'artistes de 107**. Les tags locaux, méta-familles, Ctrl+Z, sauvegardes et suppression forcée depuis les paramètres sont inclus.
 
