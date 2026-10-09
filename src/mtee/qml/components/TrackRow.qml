@@ -30,19 +30,27 @@ Rectangle {
             dragFinished()
         }
     }
+    // Pointer input covers the table columns only, the same span as the highlight.
+    Item {
+        id: hitArea
+        x: row.columns.padding
+        width: row.width - 2 * row.columns.padding
+        height: row.height
+    }
     DragHandler {
         id: trackDrag
+        parent: hitArea
         target: null
         acceptedButtons: Qt.LeftButton
         enabled: row.available || row.dragEntryId.length > 0
         onTranslationChanged: {
-            if (active) row.dragMoved(centroid.position.x, centroid.position.y)
+            if (active) row.dragMoved(centroid.position.x + hitArea.x, centroid.position.y + hitArea.y)
         }
         onActiveChanged: {
             if (active) {
                 row.dragCancelled = false
                 row.dragStarted()
-                row.dragMoved(centroid.position.x, centroid.position.y)
+                row.dragMoved(centroid.position.x + hitArea.x, centroid.position.y + hitArea.y)
             } else {
                 row.dragFinished()
                 row.dragPrepared = false
@@ -54,9 +62,12 @@ Rectangle {
     property bool current: false
     property bool inPlaylist: false
     property bool separateArtist: true
+    // Set by the list while it has keyboard focus: every selected row then shows the frame.
+    property bool focusFrame: false
     readonly property bool hovered: mouse.containsMouse || rowHover.hovered
         || playButton.hovered || infoButton.hovered || addButton.hovered
     signal pressed(var event)
+    signal leftClicked(var event)
     signal activated()
     signal toggleRequested()
     signal contextRequested(real x, real y)
@@ -77,27 +88,36 @@ Rectangle {
     }
 
     Rectangle {
+        objectName: "trackFocusFrame"
         x: row.columns.padding
         width: row.width - 2 * row.columns.padding
         height: parent.height
         color: "transparent"
         border.width: 1
         border.color: Theme.focus
-        visible: row.current
+        visible: row.current || (row.selected && row.focusFrame)
     }
 
     MouseArea {
         id: mouse
-        anchors.fill: parent
+        parent: hitArea
+        anchors.fill: hitArea
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onPressed: (event) => row.pressed(event)
         onDoubleClicked: (event) => { if (event.button === Qt.LeftButton) row.activated() }
-        onClicked: (event) => { if (event.button === Qt.RightButton) row.contextRequested(event.x, event.y) }
+        // Positions are relative to the hit area, which starts after the table margin.
+        onClicked: (event) => {
+            if (event.button === Qt.RightButton)
+                row.contextRequested(event.x + hitArea.x, event.y + hitArea.y)
+            else
+                row.leftClicked(event)
+        }
     }
 
     HoverHandler {
         id: rowHover
+        parent: hitArea
     }
 
     IconButton {
