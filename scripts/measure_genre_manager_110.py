@@ -1,8 +1,4 @@
-"""Repeatable synthetic baseline for plan 110, without touching a personal library.
-
-The 020/021 copies are compatibility fixtures. This script never migrates a 021
-copy with the current application; that belongs to the later implementation.
-"""
+"""Repeatable synthetic schema-020 baseline, without touching a personal library."""
 
 from __future__ import annotations
 
@@ -10,7 +6,6 @@ import argparse
 import json
 import os
 import platform
-import shutil
 import statistics
 import subprocess
 import sys
@@ -21,12 +16,10 @@ from pathlib import Path
 from typing import cast
 from uuid import NAMESPACE_URL, uuid5
 
-from mtee.persistence.database import Database, split_statements
+from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.playlists_repository import PlaylistsRepository
 from mtee.services.playlist_service import PlaylistService
-
-_REVISION_021 = "4de9320:src/mtee/persistence/migrations/021_track_genres.sql"
 
 
 def _git(*args: str) -> str:
@@ -37,7 +30,14 @@ def prepare_fixtures(data_dir: Path) -> dict[str, Path]:
     data_dir.mkdir(parents=True, exist_ok=True)
     base_path = data_dir / "synthetic-020.sqlite"
     if not base_path.exists():
-        database = Database(base_path)
+        baseline_schema = data_dir / "baseline-schema-020"
+        baseline_schema.mkdir(exist_ok=True)
+        for migration in Database(data_dir / "unused.sqlite").migrations:
+            if migration.version <= 20:
+                (baseline_schema / migration.file_name).write_text(
+                    migration.read_sql(), encoding="utf-8"
+                )
+        database = Database(base_path, migrations_dir=baseline_schema)
         database.migrate()
         database.close()
     base = Database(base_path)
@@ -45,22 +45,7 @@ def prepare_fixtures(data_dir: Path) -> dict[str, Path]:
         raise RuntimeError("The baseline fixture must use schema 020")
     base.close()
 
-    historic_path = data_dir / "synthetic-021-historic.sqlite"
-    if not historic_path.exists():
-        sql = _git("show", _REVISION_021)
-        shutil.copy2(base_path, historic_path)
-        historical = Database(historic_path)
-        with historical.transaction() as connection:
-            for statement in split_statements(sql):
-                connection.execute(statement)
-            connection.execute(
-                "INSERT INTO schema_migrations(version,name,applied_at_utc) "
-                "VALUES(21,'track_genres',?)",
-                (datetime.now(UTC).isoformat(timespec="seconds"),),
-            )
-            connection.execute("PRAGMA user_version = 21")
-        historical.close()
-    return {"020": base_path, "021": historic_path}
+    return {"020": base_path}
 
 
 def _populate(database: Database, data_dir: Path, count: int) -> tuple[str, str]:
@@ -333,10 +318,6 @@ def main() -> int:
             data_dir, database, root_id, playlist_id, options.count
         )
         measures["native_play_to_playing_null_audio"] = _measure_native_playback(data_dir)
-    version_021 = Database(fixtures["021"])
-    historic_version = version_021.schema_version()
-    historic_integrity = version_021.connection().execute("PRAGMA integrity_check").fetchone()[0]
-    version_021.close()
     result = {
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "revision": _git("rev-parse", "HEAD"),
@@ -346,8 +327,6 @@ def main() -> int:
         "mode": options.mode,
         "synthetic_count": options.count,
         "schema_020": database.schema_version(),
-        "schema_021_historic": historic_version,
-        "schema_021_integrity": historic_integrity,
         "measurements": measures,
         "not_measured": (
             ["audible output", "pointer-to-feedback timing"]

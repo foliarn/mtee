@@ -2,7 +2,7 @@
 
 ExecPlan préparé le 9 octobre 2026 selon [PLANS.md](../PLANS.md). Référence produit : [PLAN.md](../PLAN.md). Il remplace le [plan 109](109-genres-morceaux-manager-tri.md) pour les genres des morceaux et leur interface. Les réponses utilisateur de cette conversation sont transcrites ci-dessous ; les propositions de conception sont identifiées comme telles.
 
-**Historique du cadrage du 9 octobre : préparation documentaire seulement.** L'exécution ultérieure a produit les deux maquettes comparables ; leur revue explicite 110.2 reste nécessaire avant le branchement fonctionnel. L'accord sur ce plan ne vaut pas accord sur les maquettes.
+**Révision du 9 octobre, après revue :** l'utilisateur demande l'exécution du plan sur les maquettes corrigées, avec une fidélité stricte aux espacements et alignements du front MTEE. Il demande aussi de ne pas rétablir la migration historique 021 : la base sera repeuplée avec cette version. Cette décision remplace les passages de compatibilité 021 ci-dessous.
 
 ## Objectif et résultat observable
 
@@ -22,8 +22,8 @@ Le parcours doit aussi permettre de classer quelques nouveaux morceaux sans reco
 - [x] 2026-10-09 — 110.0 : établir l'état de départ, les copies 020/021 et les mesures de référence sur données isolées.
 - [x] 2026-10-09 — 110.1 : produire les deux maquettes QML manipulables, leurs états, captures et dossier de revue.
 - [x] 2026-10-09 — Réviser les maquettes après le premier retour 110.2 : cadre MTEE, sources, catalogue défilant, listes et pied de page ; préparer six nouvelles captures.
-- [ ] 110.2 — Faire essayer les variantes par l'utilisateur, consigner ses choix et réviser le contrat visuel.
-- [ ] 110.3 — Livrer le module interne, les migrations compatibles, le domaine et la persistance sur copies.
+- [x] 2026-10-09 — 110.2 : revue utilisateur des maquettes corrigées et accord pour appliquer le plan ; conserver les deux gestes proposés en attendant l'usage réel.
+- [x] 2026-10-09 — 110.3 : livrer le registre différé, le domaine, la migration 022, les décisions et sessions persistées sur copies, avec refus sûr de l'ancienne 021.
 - [ ] 110.4 — Brancher le classement, le catalogue, les tags, la revue et la reprise de session selon les maquettes retenues.
 - [ ] 110.5 — Livrer l'aperçu et le rangement physique récupérable, vérifiés sur copies.
 - [ ] 110.6 — Livrer les genres déduits des artistes et la vue Uncertain, sans écraser les crédits manuels.
@@ -53,6 +53,8 @@ Premier retour 110.2 : les captures initiales ne ressemblaient pas suffisamment 
 
 ## Decision Log
 
+2026-10-09 — Exécution 110.3 — Le schéma 022 a été créé sans fichier 021 dans l'arbre actif. `Database.migrate()` conserve son contrôle strict de l'historique : une ancienne 021 n'est ni acceptée ni écrasée. Le banc historique 110 utilise désormais une copie de schéma 020 figée dans son répertoire isolé ; il ne recrée plus de fixture 021. Le plugin ne s'instancie pas lors des parcours ordinaires : le registre n'expose alors que ses métadonnées. Le catalogue de 31 genres est semé en une transaction à la première ouverture, et les tags restent vides. Les sessions gardent le lot, le filtre et le mode ; les lectures de playlist sont groupées. La revue impose un genre explicite et ne démarre jamais depuis un nom de dossier.
+
 2026-10-09 — Utilisateur — Remplacer la barre intrusive de 109 par un plugin accessible dans Plugins. L'objectif principal est une remise en ordre ponctuelle de la bibliothèque, puis un parcours simple pour les nouveaux morceaux. Les dossiers et playlists sont les unités de travail.
 
 2026-10-09 — Utilisateur — Conserver le lecteur et son déclenchement volontaire. Préparer **les deux variantes** sélection puis attribution, et pinceau, afin de les essayer avant de conclure. Ne pas imposer aujourd'hui une variante définitive ni considérer l'ancienne maquette 109 comme approuvée pour cette refonte.
@@ -73,11 +75,15 @@ Premier retour 110.2 : les captures initiales ne ressemblaient pas suffisamment 
 
 2026-10-09 — Conception du plan — Proposer un espace Classify, un catalogue Genres avec administration des tags, et Uncertain. Source de travail, palette et commandes sont contextualisées. La disposition et les gestes secondaires restent à éprouver en 110.1–110.2, pas acquis par ce texte.
 
-2026-10-09 — Conception du plan — Conserver les données anciennes avant toute adaptation. Restaurer le contrat SQL historique 021 sans lui donner une nouvelle signification, puis ajouter des migrations nouvelles pour les invariants 110. L'ancien ordre arbitraire des hybrides ne devient jamais une décision utilisateur de genre principal.
+2026-10-09 — Conception initiale du plan, **remplacée par la correction utilisateur ci-dessous** — L'ancienne proposition de restaurer le contrat SQL historique 021 ne s'applique plus. L'ancien ordre arbitraire des hybrides ne devient jamais une décision utilisateur de genre principal.
 
 2026-10-09 — Exécution 110.1 — Garder les maquettes dans un lanceur séparé qui réutilise `Theme.qml` et `PlayerService`. Le branchement de l'entrée Plugins au produit attend la revue 110.2. Les sources House, playlist et nouveaux titres, les tags, Reviewed, Undo, erreur/retry et l'aperçu sont des états fictifs réinitialisés au changement de source ; les variantes partagent l'état de leur session courante. Ce choix préserve les modifications locales puis publiées du lecteur et des listes pendant le travail de maquette.
 
 2026-10-09 — Utilisateur, premier retour 110.2 — Conserver la navigation latérale, mais réaligner les maquettes sur le style et les listes de MTEE et corriger le centrage des textes. Pour les sources, garder `FOLDER` et faire du nom le bouton ouvrant une fenêtre interne à onglets Dossiers/Playlists, avec pourcentage de progression ; supprimer les boutons de source concurrents. Un dossier House ne classe rien automatiquement ; proposer une attribution de genre à ses morceaux, choisie explicitement. Mettre les commandes du plugin sous le titre et retirer la palette latérale droite. Prévoir 20+ genres défilants, `New root genre` et un `+` ancré à droite de chaque racine. Placer `Move files` dans le pied de page près de `Undo`. Le retour ne valide pas encore la variante d'interaction ni les destinations physiques.
+
+2026-10-09 — Utilisateur, suite de 110.2 — « let's go pour ça » approuve l'implémentation des maquettes révisées, avec une apparence fidèle au front MTEE actuel et des espacements et alignements soignés. Conserver la sélection et le pinceau comme deux gestes accessibles dans le plugin ; aucun choix exclusif n'a été formulé. Le rangement exige une correspondance de destination explicite dans l'aperçu avant tout déplacement.
+
+2026-10-09 — Utilisateur, correction de migration — « non reset tout ne rétablis pas la 021 », puis « Applique le plan tout de même, on repopulera la base avec cette nouvelle version ». Ne pas restaurer, modifier ou rejouer l'ancienne 021. Partir du schéma versionné jusqu'à 020, créer une migration 022 à numéro distinct, et tester sur une base isolée reconstruite. Une base ayant enregistré l'ancienne 021 restera refusée par le contrôle d'historique ; l'utilisateur a choisi de la repeupler. Ne pas ouvrir ou effacer sa base personnelle.
 
 ## Périmètre et points qui remplacent 109
 
@@ -162,9 +168,9 @@ La proposition est de demander au moins une affectation pour `Mark as reviewed`,
 
 Undo restaure l'état précédent des genres et de la revue dans une nouvelle opération contrôlée, sans écraser une modification ultérieure indépendante. Les opérations sur tags disposent de leur propre précondition pour ne pas annuler accidentellement une revue plus récente. Sauvegarder et reprendre la session ne signifie pas figer indéfiniment une ancienne version de la piste.
 
-### Amorçage et reprise après 109
+### Amorçage sur la nouvelle base
 
-Préserver les genres et tags déjà présents s'ils existent réellement. Un ensemble historique ne prouve pas un ordre de préférence : importer toutes ses affectations sans perte, conserver leur provenance, marquer le morceau à vérifier et signaler le principal à choisir pour les hybrides sans ordre fiable. Un ordre d'affichage technique déterministe n'autorise aucun déplacement. Si l'utilisateur choisit explicitement un principal puis valide, le morceau devient éligible au rangement.
+La base reconstruite commence sans affectations de genres de morceaux et sans tags libres. Aucun ordre de préférence n'est inféré depuis un nom de dossier ou depuis le catalogue. Une ancienne base 021 n'est pas migrée par cette étape, conformément à la décision utilisateur ci-dessus.
 
 Sur une base sans genres de morceaux, proposer depuis la source de travail une attribution initiale, par exemple House à un dossier House, avec un aperçu des cibles et du genre choisi. Le nom du dossier est un indice, pas une autorisation d'inférence et d'écriture. L'amorçage explicite ne coche jamais Reviewed et ne remplace pas une correction manuelle, y compris un retrait volontaire de tous les genres. Les anciens tableaux de 109 sont historiques : ne pas rejouer leurs racines, exceptions ou comptes sans nouvelle vérification.
 
@@ -224,11 +230,11 @@ Les listes utilisent des requêtes groupées, des identifiants stables et la vir
 
 ### Migrations et données durables
 
-Réintroduire **à l'identique** `021_track_genres.sql` depuis le commit historique `4de9320`, après vérification de sa provenance, uniquement pour préserver le contrat des bases ayant déjà exécuté 109. Ajouter ensuite des migrations numérotées nouvelles, proposées à partir de 022 et à revérifier au moment du travail. Ne pas remplacer le contenu de 021 par un schéma différent sous le même numéro, ni forcer `user_version` pour contourner les contrôles.
+Ne pas réintroduire `021_track_genres.sql`. Créer `022_genre_manager.sql` pour la base actuelle 020 et les bases neuves ; le saut du numéro 021 est volontaire et n'en reprend ni le nom ni le contrat. Ne pas forcer `user_version` pour contourner les contrôles.
 
-Réutiliser les UUID et relations existantes. Ajouter un ordre d'affectations et l'état indiquant si le principal a été choisi, une révision de classement/validation, les sessions et leurs morceaux, les destinations, le journal de rangement et les contributions d'artistes. Les anciennes tables de méta-familles peuvent rester présentes sans interface active. Préserver les historiques et tags personnels ; « zéro tag prédéfini » n'autorise pas à supprimer les tags créés auparavant.
+Utiliser les UUID stables des pistes et artistes. Ajouter un ordre d'affectations, la révision de classement/validation, les sessions et leurs morceaux, les destinations, le journal de rangement et les contributions d'artistes. Aucun tag libre n'est prédéfini.
 
-Sur base 020, les migrations créent le stockage puis le module initialise son catalogue à sa première utilisation. Sur base 021 connue, préserver toutes les affectations et les corrections ; ne pas inventer Reviewed ni un principal confirmé. Sur historique inconnu ou incohérent, refuser l'adaptation avec un diagnostic et laisser les données intactes. Aucun nettoyage automatique de schéma résiduel n'est ajouté.
+Sur base 020, la migration crée le stockage puis le module initialise son catalogue à sa première utilisation. Sur historique 021 ou autre inconnu, refuser l'adaptation avec un diagnostic et laisser les données intactes. Aucun nettoyage automatique de schéma résiduel n'est ajouté.
 
 Avant migration, sauvegarder par l'API SQLite dans un chemin unique, hors collection, sans écrasement ; rouvrir la copie et vérifier son intégrité avant de poursuivre. Le `backup_to()` actuel ne suffit pas à garantir à lui seul tous ces contrôles : les ajouter et les tester. Les commandes de restauration doivent être ciblées ; ne pas écraser les corrections d'artistes ni restaurer une ancienne base entière pour adapter le plugin.
 
@@ -256,9 +262,9 @@ Résoudre la disposition de sidebar/palette, la variante ou coexistence finale, 
 
 ### 110.3 — Socle du plugin et données sur copies
 
-Créer le registre minimal, le domaine, repository et service, puis les migrations compatibles. Ajouter les index nécessaires aux lectures par morceau, genre, statut de revue et session. Initialiser les genres une seule fois, les tags libres restant vides. Tester sauvegardes, adaptations 020/021, normalisation des familles, ordre, principal non choisi, revue et undo avant toute base réelle.
+Créer le registre minimal, le domaine, repository et service, puis la migration neuve 022. Ajouter les index nécessaires aux lectures par morceau, genre, statut de revue et session. Initialiser les genres une seule fois, les tags libres restant vides. Tester sauvegardes, migration 020 vers 022, refus sûr de l'ancienne 021, normalisation des familles, ordre, revue et undo avant toute base réelle.
 
-Créer `tests/unit/test_genre_manager_domain.py`, `tests/integration/test_genre_manager_repository.py`, `tests/integration/test_genre_manager_upgrade.py` ; compléter `tests/integration/test_database_migrations.py`. Les fixtures contiennent des corrections d'artistes et des tags antérieurs pour démontrer leur conservation. Contrôler unicité des rangs et UUID, transactions atomiques, relance idempotente, retrait manuel vide et conflits de révisions. Adapter les règles de style Qt à l'emplacement des nouveaux modèles si nécessaire, de façon ciblée.
+Créer `tests/unit/test_genre_manager_domain.py`, `tests/integration/test_genre_manager_repository.py`, `tests/integration/test_genre_manager_upgrade.py` ; compléter `tests/integration/test_database_migrations.py`. Les fixtures contiennent des corrections d'artistes existantes pour démontrer leur conservation. Contrôler unicité des rangs et UUID, transactions atomiques, relance idempotente, retrait manuel vide et conflits de révisions. Adapter les règles de style Qt à l'emplacement des nouveaux modèles si nécessaire, de façon ciblée.
 
 ### 110.4 — Classement, catalogue et progression
 
@@ -348,7 +354,7 @@ Un test QML hors écran ne prouve pas la fluidité ni la lecture native. Conserv
 | Annulation après une réussite partielle | Résultats conservés, retour inverse contrôlé et limité aux réussites |
 | Madonna et remixeur UKG | Contribution sur le remixeur certain seulement ; ambiguïtés dans Uncertain |
 | Cas incertain ignoré | Morceau classable, vérifiable et rangeable sans nouveau chantier de crédits |
-| Ancienne base 021 | Données préservées, aucun principal hybride inventé comme validé, sauvegarde vérifiée |
+| Ancienne base 021 | Refus diagnostiqué sans modification ; la nouvelle base est reconstruite séparément selon la décision utilisateur |
 | Nouveaux morceaux | À vérifier, anciens choix conservés, reprise courte du même parcours |
 
 ## Documentation, commits et publication
@@ -360,6 +366,8 @@ Avant commit, inspecter l'état et les diffs ; indexer explicitement les seuls f
 Faire fetch, vérifier la divergence, puis pousser vers la branche autorisée sans réécriture d'historique ni push forcé. Après push, refaire fetch et comparer les révisions locales et distantes. Le compte rendu donne la preuve de publication ; ne pas créer un commit supplémentaire uniquement pour inscrire son propre hash dans le document.
 
 ## Outcomes & Retrospective
+
+2026-10-09 — 110.3 est livré sur bases synthétiques : migration 022, 31 genres initiaux, zéro tag libre, décisions avec révisions, reprise de session et chargement groupé des sources. Les 31 tests ciblés passés, Ruff, Pyright et une exécution manuelle sur base temporaire sont consignés dans le rapport. La base personnelle n'a pas été touchée. Les jalons 110.4–110.7 restent ouverts ; les conclusions historiques de préparation ci-dessous décrivent leur état à leurs dates respectives.
 
 2026-10-09 — Le cadrage décrit maintenant un espace de travail dédié, deux variantes à essayer, des genres ordonnés, une revue explicite, un rangement des seuls morceaux vérifiés et des attributions artistes prudentes. Il distingue les décisions utilisateur des propositions d'interaction encore à confronter aux maquettes. Le rollback de 109, les modifications locales en cours et les limites des primitives de fichiers sont pris en compte.
 

@@ -154,13 +154,26 @@ class Database:
         return int(row[0]) if row is not None else 0
 
     def backup_to(self, destination: Path) -> Path:
-        """Write a consistent copy of the database to ``destination``."""
+        """Write and verify a consistent copy, refusing to replace an older backup."""
         destination.parent.mkdir(parents=True, exist_ok=True)
-        target = sqlite3.connect(destination)
+        with destination.open("xb"):
+            pass
         try:
-            self.connection().backup(target)
-        finally:
-            target.close()
+            target = sqlite3.connect(destination)
+            try:
+                self.connection().backup(target)
+            finally:
+                target.close()
+            saved = sqlite3.connect(f"{destination.resolve().as_uri()}?mode=ro", uri=True)
+            try:
+                integrity = saved.execute("PRAGMA integrity_check").fetchone()
+                if integrity is None or integrity[0] != "ok":
+                    raise DatabaseError(f"Backup failed integrity check: {destination}")
+            finally:
+                saved.close()
+        except BaseException:
+            destination.unlink(missing_ok=True)
+            raise
         return destination
 
     def migrate(self) -> list[Migration]:
@@ -239,7 +252,7 @@ class Database:
 
     def backup_path_for(self, version: int) -> Path:
         """Return where the safety copy of schema ``version`` is written."""
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         return self._path.with_name(f"{self._path.name}.v{version}.{stamp}.backup")
 
     def close(self) -> None:
