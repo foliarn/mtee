@@ -14,7 +14,6 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Property, QEvent, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QGuiApplication, QMouseEvent, QWindow
 
-from mtee.domain.genre_filters import folder_protected_ids, matches_filter, validate_filter
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationHistory, NavigationLocation
 from mtee.models.analysis_model import AnalysisModel
@@ -23,15 +22,12 @@ from mtee.models.artist_manager_model import ArtistManagerModel, NullArtistManag
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.file_move_model import FileMoveModel
 from mtee.models.folder_tree_model import FolderTreeModel
-from mtee.models.genre_model import GenreModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
-from mtee.persistence.genre_manager_repository import GenreManagerRepository
-from mtee.persistence.genre_repository import encode
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.workspace_repository import (
     COLUMN_OPTIONS,
@@ -182,12 +178,6 @@ class WorkspaceModel(QObject):
         self._jobs_by_root: dict[str, str] = {}
         self._scan_counts: dict[str, int] = {}
         self._track_models: dict[str, TrackListModel] = {}
-        self._genre_retained: dict[str, list[str]] = {}
-        self._genre_context_keys: dict[str, tuple] = {}
-        self._genres = GenreModel(GenreManagerRepository(library._database), jobs, self)
-        self._genres.applied.connect(self._on_genres_applied)
-        self._genres.contextChanged.connect(self._on_genre_context_changed)
-        self.genreFilterError.connect(self._on_genre_filter_error)
         self._track_request_generation: dict[str, int] = {}
         self._track_request_keys: dict[str, tuple[Any, ...]] = {}
         self._track_job_ids: dict[str, str] = {}
@@ -1168,9 +1158,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str, result=dict)
     def track(self, track_id: str) -> dict[str, Any]:
-        result = self._library.track(track_id, include_local_genres=False)
-        result.update(self._genres.assignment_snapshot(track_id))
-        return result
+        return self._library.track(track_id)
 
     @Slot(str)
     def showInExplorer(self, track_id: str) -> None:
@@ -1354,78 +1342,6 @@ class WorkspaceModel(QObject):
             self.libraryChanged.emit()
             self._refresh_timer.start()
 
-    genreFilterError = Signal(str, int, str)
-
-    @Slot(str, int, str)
-    def _on_genre_filter_error(self, model_key: str, generation: int, message: str) -> None:
-        if self._track_request_generation.get(model_key) == generation:
-            self._set_message(message)
-
-    @Property(QObject, constant=True)
-    def genreModel(self) -> QObject:
-        return self._genres
-
-    @Slot()
-    def _on_genres_applied(self) -> None:
-        for key, model in self._track_models.items():
-            self._genre_retained.setdefault(key, model.track_ids_snapshot())
-        self._reload_analysis_values()
-
-    @Slot(list)
-    def _on_genre_context_changed(self, changed_views: list) -> None:
-        for key in list(self._genre_retained):
-            group, tab = self._model_identity(key)
-            if f"{group}:{tab}" in changed_views:
-                self._genre_retained.pop(key, None)
-        self._reload_analysis_values()
-
-    @Slot(str, int)
-    def refreshGenreFilter(self, tab_id: str, group: int) -> None:
-        self._genre_retained.pop(self._model_key(group, tab_id), None)
-        self._reload_analysis_values()
-
-    @Slot(str, int, list, bool)
-    def applyGenreBrush(self, tab_id: str, group: int, ids: list, enabled: bool) -> None:
-        state = self._genres.view_state(f"{group}:{tab_id}")
-        brush = state.get("brush", "")
-        model = self._track_models.get(self._model_key(group, tab_id))
-        if not brush or model is None:
-            return
-        rows = model.rows_snapshot()
-        wanted = set(ids)
-        revisions = {
-            str(row.get("trackId", row["id"])): int(row.get("genreRevision", 0))
-            for row in rows
-            if row["id"] in wanted and row.get("available", True) and row.get("trackId", row["id"])
-        }
-        if not revisions:
-            self._set_message("No available tracks in the selection.")
-            return
-        self._genres.assign(list(revisions), brush, enabled, revisions)
-
-    @Slot(str, int, list, str, bool)
-    def applyLocalTag(self, tab_id: str, group: int, ids: list, tag: str, enabled: bool) -> None:
-        model = self._track_models.get(self._model_key(group, tab_id))
-        if model is None:
-            return
-        wanted = set(ids)
-        revisions = {
-            str(row.get("trackId", row["id"])): int(row.get("genreRevision", 0))
-            for row in model.rows_snapshot()
-            if row["id"] in wanted and row.get("available", True) and row.get("trackId", row["id"])
-        }
-        if not revisions:
-            self._set_message("No available tracks in the selection.")
-            return
-        self._genres.assignTag(list(revisions), tag, enabled, revisions)
-
-    @Slot(str, int, result=list)
-    def protectedGenreIds(self, tab_id: str, group: int) -> list:
-        if not tab_id.startswith("folder:"):
-            return []
-        relative = _parse_folder_ref(tab_id.partition(":")[2])[1]
-        return self._genres.catalog_snapshot().get("contexts", {}).get(relative, [])
-
     @Slot(str, str, str, str, bool, result=QObject)
     @Slot(str, str, str, str, bool, int, result=QObject)
     def trackModelForTab(
@@ -1462,14 +1378,7 @@ class WorkspaceModel(QObject):
         tab = dict(self._tab_state(tab_id))
         tab.update(self._group_tab_states.get((group_index, tab_id), {}))
         query = str(tab.get("searchQuery", "")).casefold().strip()
-        genre_state = self._genres.view_state(f"{group_index}:{tab_id}")
-        filter_spec = genre_state.get("filter", {"version": 1, "mode": "all", "criteria": []})
-        brush = genre_state.get("brush", "")
-        key = (kind, ref, sort_key, bool(ascending), query, brush, encode(filter_spec))
-        if self._genre_context_keys.get(model_key) != key:
-            self._genre_retained.pop(model_key, None)
-            self._genre_context_keys[model_key] = key
-        retained = list(self._genre_retained.get(model_key, []))
+        key = (kind, ref, sort_key, bool(ascending), query)
         if self._track_request_keys.get(model_key) == key:
             return
         pending = self._pending_explorer_track
@@ -1492,39 +1401,6 @@ class WorkspaceModel(QObject):
             else:
                 root_id, relative = _parse_folder_ref(ref)
                 rows = self._library.tracks_in_folder(root_id, relative)
-            if kind in {"folder", "playlist"}:
-                decoration = self._genres.repository.track_assignments(
-                    [str(row.get("trackId", row["id"])) for row in rows]
-                )
-                for row in rows:
-                    row.update(decoration[str(row.get("trackId", row["id"]))])
-                tree = self._genres.repository.taxonomy_from(self._library._database.connection())
-                catalog = self._genres.repository.catalog()
-                metas = {m["meta_id"]: set(m["members"]) for m in catalog["metas"]}
-                protected = (
-                    folder_protected_ids(_parse_folder_ref(ref)[1], tree)
-                    if kind == "folder"
-                    else set()
-                )
-                try:
-                    validate_filter(
-                        filter_spec,
-                        tree,
-                        set(metas),
-                        {t["tag_id"] for t in catalog["tags"]},
-                        protected,
-                    )
-                    filtered = []
-                    for row in rows:
-                        matches = matches_filter(row, filter_spec, tree, brush, metas)
-                        if matches or row["id"] in retained:
-                            row["genreRetained"] = not matches
-                            filtered.append(row)
-                    rows = filtered
-                except ValueError as error:
-                    # Invalid criteria must never silently broaden the list.
-                    self.genreFilterError.emit(model_key, generation, str(error))
-                    rows = []
             if query:
                 rows = [
                     row
@@ -2878,9 +2754,6 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def undoSave(self) -> None:
-        if self._genres._undo or self._genres._busy:
-            self._genres.undo()
-            return
         if self._metadata_editor is not None:
             self._metadata_editor.undo_save()
 

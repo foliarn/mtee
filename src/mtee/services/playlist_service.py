@@ -36,15 +36,9 @@ class PlaylistService:
             entries = self.repository.entries(identity)
         liked = set(self.repository.liked_ids())
         rows = []
-        current_by_id = {
-            row["id"]: row
-            for row in self.library.tracks_by_ids(
-                [entry["track_id"] for entry in entries if entry["track_id"]]
-            )
-        }
         for entry in entries:
             track_id = entry["track_id"] or ""
-            current = current_by_id.get(track_id, {})
+            current = self.library.track(track_id) if track_id else {}
             available = bool(
                 current
                 and current.get("rootId")

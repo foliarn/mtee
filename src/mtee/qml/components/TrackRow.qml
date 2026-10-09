@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls.Basic
 import Mtee
 
 // Track data stays separate from the trailing row actions.
@@ -12,9 +11,6 @@ Rectangle {
     required property var workspace
     property int groupIndex: 0
     property bool selected: false
-    property string brushId: ""
-    property bool brushEnabled: false
-    signal brushRequested(bool enabled)
     readonly property string localId: track.trackId !== undefined ? track.trackId : track.id
     readonly property bool available: track.available !== false
     property var dragTrackIds: []
@@ -68,7 +64,7 @@ Rectangle {
     signal playlistRequested(var anchor)
 
     height: Theme.rowHeight
-    opacity: track.genreRetained ? 0.5 : available ? 1 : 0.55
+    opacity: available ? 1 : 0.55
     color: "transparent"
     Accessible.name: row.track.title + (row.track.artist.length > 0 ? " — " + row.track.artist : "")
 
@@ -132,30 +128,6 @@ Rectangle {
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontSizeSecondary
         font.features: { "tnum": 1 }
-    }
-
-    GenreCheckBox {
-        objectName: "trackGenreCheckbox"
-        anchors.right: parent.right
-        anchors.rightMargin: row.columns.padding + 100
-        anchors.verticalCenter: parent.verticalCenter
-        visible: !!row.brushId
-        enabled: row.available && row.brushEnabled
-        checked: (row.brushEnabled, row.track.genreIds && (Array.from(row.track.genreIds).indexOf(row.brushId) >= 0 || row.familyChecked()))
-        Accessible.name: "Assign the active genre brush"
-        onClicked: row.brushRequested(checked)
-    }
-    function familyChecked() {
-        if (!row.brushId || typeof row.workspace.genreModel === "undefined") return false
-        const nodes=Array.from(row.workspace.genreModel.catalog.genres)
-        return Array.from(row.track.genreIds || []).some(id => {
-            let node=nodes.find(n=>n.genre_id===id)
-            while (node && node.parent_id) {
-                if (node.parent_id === row.brushId) return true
-                node=nodes.find(n=>n.genre_id===node.parent_id)
-            }
-            return false
-        })
     }
 
     Row {
@@ -226,18 +198,6 @@ Rectangle {
                         color: row.track.artist.length > 0 ? Theme.textSecondary : Theme.textMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSecondary
-                    }
-
-                    Text {
-                        objectName: "trackLocalGenres"
-                        visible: row.track.mteeGenres !== undefined
-                        width: parent.width
-                        text: "MTEE genres: " + (row.track.mteeGenres && row.track.mteeGenres.length
-                            ? Array.from(row.track.mteeGenres).join(" · ") : "None")
-                        elide: Text.ElideRight
-                        color: Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeCaption
                     }
                 }
 
