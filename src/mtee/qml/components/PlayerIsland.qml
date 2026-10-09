@@ -12,6 +12,14 @@ Rectangle {
     readonly property bool fullscreen: workspace.fullscreen
     readonly property bool inPlaylist: track.id !== undefined
         && workspace.playlistsContaining(track.id, workspace.revision).length > 0
+    // Confirmed artists of the playing track; re-read when the library revision changes.
+    readonly property var artists: {
+        workspace.revision
+        return track.id !== undefined && typeof workspace.trackArtists === "function"
+            ? workspace.trackArtists(track.id) : []
+    }
+    readonly property bool liked: track.id !== undefined && workspace.revision >= 0
+        && typeof workspace.isLiked === "function" && workspace.isLiked(track.id)
 
     objectName: "playerIsland"
     height: Theme.islandHeight
@@ -61,10 +69,11 @@ Rectangle {
             anchors.left: cover.right
             anchors.leftMargin: 12
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(Math.max(titleText.implicitWidth, artistText.implicitWidth),
-                            left.width - cover.width - 12 - addButton.width - 8)
+            width: Math.max(0, Math.min(Math.max(titleText.implicitWidth, artistText.implicitWidth),
+                            left.width - cover.width - 12 - addButton.width - likeButton.width - 8))
             spacing: 2
 
+            // Opens the playlist, folder or artist page the track plays from.
             Text {
                 id: titleText
                 width: parent.width
@@ -74,16 +83,45 @@ Rectangle {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeBody
                 font.weight: Font.DemiBold
+                font.underline: titleMouse.containsMouse
+
+                MouseArea {
+                    id: titleMouse
+                    objectName: "playerIslandTitle"
+                    anchors.fill: parent
+                    enabled: island.track.id !== undefined
+                    hoverEnabled: true
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: island.workspace.revealTrack(island.track.id, island.player.playingSource)
+                }
             }
 
+            // A link only when the track has confirmed artists; several open a small menu.
             Text {
                 id: artistText
+                readonly property bool linked: island.artists.length > 0
                 width: parent.width
                 text: island.track.artist && island.track.artist.length > 0 ? island.track.artist : "Unknown artist"
                 elide: Text.ElideRight
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSmall
+                font.underline: artistMouse.containsMouse
+
+                MouseArea {
+                    id: artistMouse
+                    objectName: "playerIslandArtist"
+                    anchors.fill: parent
+                    enabled: artistText.linked
+                    hoverEnabled: true
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: {
+                        if (island.artists.length === 1)
+                            island.workspace.openArtistPage(island.artists[0].id, island.artists[0].name)
+                        else
+                            artistMenu.popup(artistText, 0, -artistMenu.implicitHeight)
+                    }
+                }
             }
         }
 
@@ -102,6 +140,21 @@ Rectangle {
                 playlistMenu.trackIds = [island.track.id]
                 playlistMenu.popup(addButton, 0, -playlistMenu.implicitHeight)
             }
+        }
+
+        IconButton {
+            id: likeButton
+            objectName: "playerIslandLike"
+            anchors.left: addButton.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: island.track.id !== undefined && typeof island.workspace.toggleLike === "function"
+            hoverBackground: false
+            icon: island.liked ? "heart-filled" : "heart"
+            iconSize: 18
+            iconColor: island.liked ? Theme.secondary : Theme.textSecondary
+            hoverColor: island.liked ? Theme.secondary : Theme.textPrimary
+            tip: "Like track"
+            onClicked: island.workspace.toggleLike(island.track.id)
         }
     }
 
@@ -251,5 +304,20 @@ Rectangle {
     AddToPlaylistMenu {
         id: playlistMenu
         workspace: island.workspace
+    }
+
+    AppMenu {
+        id: artistMenu
+        objectName: "playerIslandArtistMenu"
+
+        Repeater {
+            model: island.artists
+
+            AppMenuItem {
+                required property var modelData
+                text: modelData.name
+                onTriggered: island.workspace.openArtistPage(modelData.id, modelData.name)
+            }
+        }
     }
 }

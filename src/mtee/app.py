@@ -194,6 +194,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         except PlaybackSessionError as error:
             _report(str(error))
             saved_playback = None
+        player_service.attach_settings(settings)
         player_service.attach_session(playback_repository, saved_playback)
         waveform_model = WaveformModel(
             player_service, library, jobs, file_access, analysis_repository, application

@@ -20,6 +20,7 @@ from mtee.domain.playback_history import HistoryEntry, PlaybackHistory
 from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
 from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
+from mtee.persistence.settings_repository import SettingsRepository
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.player_backend import BackendEvent, PlayerBackend
 
@@ -27,6 +28,10 @@ __all__ = ["PlayerService"]
 
 TrackResolver = Callable[[str], dict[str, Any]]
 _LOGGER = logging.getLogger(__name__)
+_VOLUME_KEY = "player.volume"
+_MUTED_KEY = "player.muted"
+# Slider drags write once, after the last move.
+_SETTINGS_SAVE_DELAY_MS = 500
 
 
 class _BackendEventBridge(QObject):
@@ -76,6 +81,11 @@ class PlayerService(QObject):
         self._save_sequence = 0
         self._last_checkpoint = time.monotonic()
         self._restore_seek: tuple[int, int] | None = None
+        self._settings_repository: SettingsRepository | None = None
+        self._settings_timer = QTimer(self)
+        self._settings_timer.setSingleShot(True)
+        self._settings_timer.setInterval(_SETTINGS_SAVE_DELAY_MS)
+        self._settings_timer.timeout.connect(self._save_settings)
         self.sessionSaveFailed.connect(self._on_session_save_failed)
         self._bridge = _BackendEventBridge(self)
         self._bridge.eventReceived.connect(
@@ -122,6 +132,45 @@ class PlayerService(QObject):
         if self._queue.current is not None:
             self._open_queue_current(initially_paused=True, restore_position_us=session.position_us)
 
+    def attach_settings(self, repository: SettingsRepository) -> None:
+        """Restore the saved volume and mute without starting playback."""
+        if self._settings_repository is not None:
+            raise RuntimeError("A settings repository is already attached")
+        self._settings_repository = repository
+        stored_volume = repository.get_json(_VOLUME_KEY)
+        stored_muted = repository.get_json(_MUTED_KEY)
+        # bool is an int subclass, so the exact type is checked.
+        volume = self._state.volume
+        if type(stored_volume) is int and 0 <= stored_volume <= 100:
+            volume = stored_volume
+        muted = stored_muted if type(stored_muted) is bool else self._state.muted
+        if volume:
+            self._unmuted_volume = volume
+        self._publish(volume=volume, muted=muted)
+        if self._backend is not None:
+            try:
+                self._backend.set_volume(0 if muted else volume)
+            except Exception as error:
+                _LOGGER.warning("Could not apply the saved volume: %s", error)
+
+    def _schedule_settings_save(self) -> None:
+        if self._settings_repository is None or self._closed:
+            return
+        self._settings_timer.start()
+
+    @Slot()
+    def _save_settings(self) -> None:
+        """Write the volume and mute now. A failure is logged, never raised to the UI."""
+        self._settings_timer.stop()
+        repository = self._settings_repository
+        if repository is None:
+            return
+        try:
+            repository.set_json(_VOLUME_KEY, self._state.volume)
+            repository.set_json(_MUTED_KEY, self._state.muted)
+        except Exception:
+            _LOGGER.exception("Could not save the player volume and mute")
+
     def _schedule_session_save(self) -> None:
         if self._session_repository is None or self._save_executor is None or self._closed:
             return
@@ -147,6 +196,7 @@ class PlayerService(QObject):
 
     def flush_session(self) -> None:
         """Persist the effective final position before native player teardown."""
+        self._save_settings()
         if self._session_repository is None or self._save_executor is None:
             return
         if self._state.current_id and self._backend is not None:
@@ -479,6 +529,9 @@ class PlayerService(QObject):
         if self._queue.upcoming:
             self._queue = self._queue.next()
             self._open_queue_current()
+        elif self._queue.repeat == "all":
+            self._queue = self._queue.repeat_all()
+            self._open_queue_current()
         else:
             self._finish(stop_backend=True)
 
@@ -557,6 +610,7 @@ class PlayerService(QObject):
             if value:
                 self._unmuted_volume = value
             self._publish(volume=value)
+            self._schedule_settings_save()
         except Exception as error:
             self._fail(str(error))
 
@@ -571,6 +625,7 @@ class PlayerService(QObject):
             if not muted:
                 self._unmuted_volume = max(1, self._state.volume)
             self._publish(muted=muted)
+            self._schedule_settings_save()
         except Exception as error:
             self._fail(str(error))
 
@@ -876,12 +931,12 @@ class PlayerService(QObject):
             self._fail(str(error))
 
     def _on_eof(self) -> None:
-        if self._state.repeat == "one":
+        if self._queue.repeat == "one":
             self._open_index(self._state.current_index)
         elif self._queue.upcoming:
             self._queue = self._queue.next()
             self._open_queue_current()
-        elif self._state.repeat == "all" and self._queue.context_order:
+        elif self._queue.repeat == "all":
             self._queue = self._queue.repeat_all()
             self._open_queue_current()
         else:
