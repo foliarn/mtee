@@ -501,7 +501,7 @@ def test_one_wheel_notch_changes_page_and_the_inertia_is_ignored(qapp, qtbot, tm
         assert workspace.fullscreenPage == 0
         _wheel(root, 700, 450, angle=-120)
         assert workspace.fullscreenPage == 1
-        _wheel(root, 700, 450, angle=120)  # during the animation: ignored
+        _wheel(root, 700, 450, angle=-120)  # inertia during the animation: ignored
         assert workspace.fullscreenPage == 1
         _rest(qtbot, root, 1)
         qtbot.wait(450)  # animation and cooldown are over
@@ -796,10 +796,14 @@ def test_a_held_row_moves_once_on_release_and_escape_cancels(
         QTest.mouseMove(window, end)
         qtbot.wait(30)
         card = _find(window, "fullscreenQueueCard")
-        assert card is not None and card.property("dragActive")
+        assert card is not None
+        rows = _child(card, "fullscreenQueueList")
+        assert rows is not None
+        queue = rows.parentItem()  # the QueueList holds the drag state
+        assert queue.property("dragActive")
         QTest.keyClick(window, Qt.Key.Key_Escape)
         qtbot.wait(30)
-        assert not card.property("dragActive")
+        assert not queue.property("dragActive")
         QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=end)
         qtbot.wait(30)
         assert moves == [] and workspace.fullscreen
