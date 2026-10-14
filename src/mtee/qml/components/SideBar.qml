@@ -17,7 +17,6 @@ Rectangle {
             : sidebar.workspace.activity === "convert" ? convertPane
             : sidebar.workspace.activity === "tasks" ? tasksPane
             : sidebar.workspace.activity === "plugins" ? pluginsPane
-            : sidebar.workspace.activity === "profile" ? profilePane
             : explorerPane
     }
 
@@ -28,14 +27,6 @@ Rectangle {
     Component {
         id: pluginsPane
         PluginsPane { workspace: sidebar.workspace }
-    }
-    Component {
-        id: profilePane
-        PlaceholderPane {
-            title: "Profile"
-            icon: "profile"
-            message: "Your profile isn't available yet. This space is reserved for it."
-        }
     }
 
     Rectangle {

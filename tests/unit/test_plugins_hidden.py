@@ -55,4 +55,5 @@ def test_saved_plugin_activities_fall_back_to_explorer() -> None:
     assert _known_activity("plugins") == "explorer"
     assert _known_activity("unknown") == "explorer"
     assert _known_activity("playlists") == "playlists"
-    assert _known_activity("profile") == "profile"
+    # The Profile page is a tab opened from the activity bar, so it is not a saved activity.
+    assert _known_activity("profile") == "explorer"
