@@ -10,6 +10,7 @@ from mtee.plugins.genre_manager.repository import GenreManagerRepository
 def test_madonna_remix_contributes_only_to_confirmed_remixer(tmp_path: Path) -> None:
     database = Database(tmp_path / "artist.sqlite3")
     database.migrate()
+    GenreManagerRepository(database)  # loads the plugins whose tables the test writes
     with database.transaction() as connection:
         connection.execute("INSERT INTO tracks(track_id) VALUES('track')")
         for identity, name, position, role in (
@@ -54,6 +55,7 @@ def test_madonna_remix_contributes_only_to_confirmed_remixer(tmp_path: Path) -> 
 def test_unmarked_track_waits_for_choice_then_invalidates_on_credit_change(tmp_path: Path) -> None:
     database = Database(tmp_path / "uncertain.sqlite3")
     database.migrate()
+    GenreManagerRepository(database)  # loads the plugins whose tables the test writes
     with database.transaction() as connection:
         connection.execute("INSERT INTO tracks(track_id) VALUES('track')")
         connection.execute(

@@ -13,6 +13,7 @@ from typing import Any
 from mtee.persistence.database import Database
 from mtee.plugins.genre_manager.catalogue import GENRE_TREE
 from mtee.plugins.genre_manager.domain import validate_order
+from mtee.plugins.registry import prepare_plugin_schema
 
 
 class StaleDecisionError(RuntimeError):
@@ -45,6 +46,8 @@ class GenreManagerRepository:
     """Keep plugin writes isolated from audio metadata and ordinary list queries."""
 
     def __init__(self, database: Database) -> None:
+        # Opening the repository loads the plugin and, first, the artist manager it needs.
+        prepare_plugin_schema(database, "genre_manager")
         self._database = database
 
     def genres(self) -> list[dict[str, Any]]:

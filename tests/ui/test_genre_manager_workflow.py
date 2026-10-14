@@ -23,7 +23,9 @@ def _find_item(root: QQuickItem, name: str) -> QQuickItem | None:
     return None
 
 
-def test_real_shell_opens_classify_and_catalogue_lazily(qapp, tmp_path: Path) -> None:
+def test_real_shell_opens_classify_and_catalogue_lazily(qapp, tmp_path: Path, monkeypatch) -> None:
+    # v0.1 hides the plugins: this test checks the Genre Manager as the plugin switch enables it.
+    monkeypatch.setattr("mtee.plugins.registry.PLUGIN_UI_ENABLED", True)
     application = create_application(["mtee"])
     runtime = _build_runtime(application, AppOptions(data_dir=tmp_path / "genre-ui", demo=False))
     assert runtime is not None

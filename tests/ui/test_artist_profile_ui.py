@@ -16,10 +16,10 @@ from mtee.cli import parse_arguments
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
 from mtee.domain.tracks import SourceRevision
 from mtee.models.workspace_model import WorkspaceModel
-from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
-from mtee.services.artist_identification_service import ArtistIdentificationService
+from mtee.plugins.artist_manager.identification import ArtistIdentificationService
+from mtee.plugins.artist_manager.repository import ArtistRepository
 
 
 def _seed(base: Path) -> Path:
@@ -75,7 +75,11 @@ def _click(window: QQuickWindow, item: QQuickItem) -> None:
     QTest.qWait(60)
 
 
-def test_folders_filters_hidden_artists_and_profile_editor(qapp, tmp_path: Path) -> None:
+def test_folders_filters_hidden_artists_and_profile_editor(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    # The artist manager is a plugin: attach it for this test, as the plugin switch does.
+    monkeypatch.setattr("mtee.plugins.registry.PLUGIN_UI_ENABLED", True)
     data_dir = _seed(tmp_path)
     runtime = _build_runtime(qapp, parse_arguments(["--data-dir", str(data_dir)]))
     assert runtime is not None
@@ -95,8 +99,8 @@ def test_folders_filters_hidden_artists_and_profile_editor(qapp, tmp_path: Path)
         }
         _wait_for(window, lambda: manager.listModel("catalog.none").count == 1)
         assert counts["Singer"] == 0  # Ghost is hidden
-        for key in ("Producer", "DJ", "MC", "none"):
-            assert _first(window.contentItem(), f"artistFolder{key}").isVisible()
+        # The sidebar folders of the manager have no entry in v0.1 (step 111): the lists
+        # below are read from the catalogue tab, which is still reachable with the plugin.
 
         # Type chips filter with OR; the minimum number of tracks narrows further.
         catalog = manager.listModel("catalog")

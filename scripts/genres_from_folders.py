@@ -20,10 +20,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from mtee.domain.folder_genres import IGNORED_FOLDERS
-from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.database import Database
-from mtee.services.folder_genre_service import FolderGenreService, GenrePlan
+from mtee.plugins.artist_manager.folder_genre_service import FolderGenreService, GenrePlan
+from mtee.plugins.artist_manager.folder_genres import IGNORED_FOLDERS
+from mtee.plugins.artist_manager.repository import ArtistRepository
 
 
 def backup(path: Path) -> Path:

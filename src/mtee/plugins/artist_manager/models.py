@@ -5,6 +5,8 @@ worker thread and delivered to the graphical thread; confirmations are applied b
 of the job service, which report progress, errors per track and cancellation.
 """
 
+# Qt imposes the names of the slots, signals and properties read by QML.
+# ruff: noqa: N802, N815
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -23,11 +25,11 @@ from PySide6.QtCore import (
     Slot,
 )
 
-from mtee.domain.artist_profile import NO_ROLE, ROLES
 from mtee.domain.artists import normalize_key
 from mtee.domain.jobs import JobState
 from mtee.models.analysis_model import AnalysisModel
-from mtee.services.artist_manager_service import ArtistManagerError, ArtistManagerService
+from mtee.plugins.artist_manager.profile import NO_ROLE, ROLES
+from mtee.plugins.artist_manager.service import ArtistManagerError, ArtistManagerService
 from mtee.services.jobs import JobContext, JobService
 
 __all__ = ["ArtistListModel", "ArtistManagerModel", "NullArtistManager"]

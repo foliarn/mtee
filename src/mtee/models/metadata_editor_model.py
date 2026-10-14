@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import copy
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
@@ -27,6 +27,7 @@ from mtee.domain.tracks import SourceRevision
 from mtee.models.player_model import PlayerModel
 from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.library_repository import LibraryRepository, TrackSource
+from mtee.services.artist_credit_rules import ArtistCreditRules, NoArtistCreditRules
 from mtee.services.jobs import JobCancelledError, JobContext, JobId, JobService, UnknownJobError
 from mtee.services.metadata_writer import MetadataEditService
 
@@ -81,16 +82,6 @@ class _EditBatch:
         return self.field == "*"
 
 
-class ArtistTags(Protocol):
-    """The part of the artist catalog the tag editor talks to."""
-
-    def protected_names(self) -> list[str]: ...
-
-    def suggestions(self, query: str, limit: int = 8) -> list[dict[str, object]]: ...
-
-    def sync_tags(self, track_id: str, names: Sequence[str], title: str | None = None) -> bool: ...
-
-
 class MetadataEditorModel(QObject):
     """Capture selected UUIDs on focus and persist edits in background jobs."""
 
@@ -101,7 +92,6 @@ class MetadataEditorModel(QObject):
     inspectionFinished = Signal(int, object)
     stagingChanged = Signal()
     artistsChanged = Signal()
-    artistsSynced = Signal()
     noticeRaised = Signal(str)
     valuesLoaded = Signal(object)
     valuesChanged = Signal()
@@ -117,10 +107,10 @@ class MetadataEditorModel(QObject):
         *,
         analysis: AnalysisRepository | None = None,
         analysis_settings: Callable[[], AnalysisSettings] | None = None,
-        artists: ArtistTags | None = None,
+        artist_rules: ArtistCreditRules | None = None,
     ) -> None:
         super().__init__(parent)
-        self._artists = artists
+        self._artist_rules: ArtistCreditRules = artist_rules or NoArtistCreditRules()
         self._staged: dict[tuple[str, ...], dict[str, Any]] = {}
         self._last_selection: tuple[str, ...] = ()
         self._value_cache: dict[str, list[str]] = {}
@@ -403,10 +393,8 @@ class MetadataEditorModel(QObject):
         return self._analysis_settings().notation
 
     def _protected(self) -> list[str]:
-        if self._artists is None:
-            return []
         try:
-            return self._artists.protected_names()
+            return self._artist_rules.protected_names()
         except Exception:
             return []
 
@@ -593,10 +581,10 @@ class MetadataEditorModel(QObject):
 
     @Slot(str, result=list)
     def artistSuggestions(self, query: str) -> list[dict[str, Any]]:
-        if self._artists is None or not query.strip():
+        if not query.strip():
             return []
         try:
-            found = self._artists.suggestions(query, 8)
+            found = self._artist_rules.suggestions(query, 8)
         except Exception:
             return []
         shown = {normalize_key(chip["name"]) for chip in self.artistChips}
@@ -606,6 +594,17 @@ class MetadataEditorModel(QObject):
     def splitPreview(self, text: str) -> list[str]:
         """The names a typed credit would give; one name when it is a known artist."""
         return split_credit(text, self._protected())
+
+    @Slot(str, bool)
+    def recordCreditChoice(self, text: str, one_artist: bool) -> None:
+        """Keep the answer to "One artist or several?" for a credit holding a comma or &."""
+        cleaned = " ".join(text.split())
+        if not cleaned:
+            return
+        try:
+            self._artist_rules.record_credit_choice(cleaned, one_artist=one_artist)
+        except Exception as error:
+            self.noticeRaised.emit(f"The artist choice could not be kept: {error}")
 
     # --------------------------------------------------------- album and genre values
 
@@ -841,15 +840,6 @@ class MetadataEditorModel(QObject):
                     context.raise_if_cancelled()
                     undone = self._writer.undo(operation_id, draft_id)
                     results.append(undone)
-                    if undone.status == "saved" and undone.snapshot is not None:
-                        self._sync_artists(
-                            undone,
-                            dedupe_names(
-                                name
-                                for value in undone.snapshot.artist
-                                for name in split_credit(value, self._protected())
-                            ),
-                        )
                     context.report_progress((index + 1) / len(operation_ids))
                     context.report_items(index + 1, len(operation_ids), "Undo")
                 except Exception as error:
@@ -930,8 +920,6 @@ class MetadataEditorModel(QObject):
                         for field in sorted(edited & {"bpm", "key"}):
                             # An edit made by the user protects that value from analysis.
                             self._analysis.mark_user_edited([target.track_id], field)
-                    if saved.status == "saved" and names is not None:
-                        self._sync_artists(saved, names)
                     context.report_progress((index + 1) / total)
                     context.report_items(
                         index + 1, len(batch.targets), "tags" if batch.is_staged else batch.field
@@ -1031,20 +1019,6 @@ class MetadataEditorModel(QObject):
         self.changed.emit()
         if self._pending:
             self._start_next()
-
-    def _sync_artists(self, saved: MetadataEditResult, names: Sequence[str]) -> None:
-        """Make the credit just written the confirmed credit of the track in the catalog."""
-        if self._artists is None:
-            return
-        title = None
-        if saved.snapshot is not None and saved.snapshot.title:
-            title = saved.snapshot.title[0]
-        try:
-            self._artists.sync_tags(saved.track_id, list(names), title)
-        except Exception as error:
-            self.noticeRaised.emit(f"The artists catalog could not be updated: {error}")
-            return
-        self.artistsSynced.emit()
 
     def _seed_inspections(self, saved: list[MetadataEditResult]) -> None:
         """Carry what a file accepts over to its new revision, so editing never waits."""

@@ -17,13 +17,6 @@ from datetime import UTC, datetime
 from pathlib import PurePath
 from typing import Any
 
-from mtee.domain.artist_profile import (
-    HIDDEN_TAG,
-    ArtistProfile,
-    is_hidden,
-    normalize_roles,
-    normalize_tags,
-)
 from mtee.domain.artists import (
     CATEGORIES,
     RULES_VERSION,
@@ -35,6 +28,14 @@ from mtee.domain.artists import (
 )
 from mtee.domain.tracks import SourceRevision
 from mtee.persistence.database import Database
+from mtee.plugins.artist_manager.profile import (
+    HIDDEN_TAG,
+    ArtistProfile,
+    is_hidden,
+    normalize_roles,
+    normalize_tags,
+)
+from mtee.plugins.registry import prepare_plugin_schema
 
 __all__ = ["ArtistRepository", "StageResult", "revision_from_json"]
 
@@ -66,6 +67,8 @@ class ArtistRepository:
     """SQLite access of the artist manager."""
 
     def __init__(self, database: Database) -> None:
+        # Opening the repository loads the plugin: its tables are created on first use only.
+        prepare_plugin_schema(database, "artist_manager")
         self._database = database
 
     # ------------------------------------------------------------------ workflow

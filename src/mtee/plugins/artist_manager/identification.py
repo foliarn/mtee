@@ -13,8 +13,8 @@ from dataclasses import dataclass
 
 from mtee.domain.artists import propose
 from mtee.domain.tracks import SourceRevision
-from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.library_repository import LibraryRepository
+from mtee.plugins.artist_manager.repository import ArtistRepository
 from mtee.services.metadata_reader import MetadataReader
 
 __all__ = ["ArtistIdentificationService", "IdentificationResult"]

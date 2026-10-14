@@ -14,15 +14,15 @@ from dataclasses import dataclass, field
 from pathlib import PurePath
 from typing import Any
 
-from mtee.domain.folder_genres import (
+from mtee.persistence.database import Database
+from mtee.plugins.artist_manager.folder_genres import (
     IGNORED_FOLDERS,
     Credit,
     folder_genres,
     marker_names,
     track_targets,
 )
-from mtee.persistence.artist_repository import ArtistRepository
-from mtee.persistence.database import Database
+from mtee.plugins.artist_manager.repository import ArtistRepository
 
 __all__ = ["FolderGenreService", "GenrePlan"]
 

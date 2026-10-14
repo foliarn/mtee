@@ -11,10 +11,10 @@ from mtee.domain.artists import split_credit
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
 from mtee.domain.tag_values import normalize_date, validate_field
 from mtee.domain.tracks import SourceRevision
-from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
-from mtee.services.artist_identification_service import ArtistIdentificationService
+from mtee.plugins.artist_manager.identification import ArtistIdentificationService
+from mtee.plugins.artist_manager.repository import ArtistRepository
 
 
 class _Setup:

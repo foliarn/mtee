@@ -24,9 +24,9 @@ from mtee.domain.artists import build_stem, safe_file_name
 from mtee.domain.jobs import JobCancelledError
 from mtee.domain.metadata_edit import MetadataEditResult, MetadataPatch
 from mtee.domain.tracks import SourceRevision, TrackId
-from mtee.persistence.artist_repository import ArtistRepository, revision_from_json
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository, normalize_path
+from mtee.plugins.artist_manager.repository import ArtistRepository, revision_from_json
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 
 __all__ = ["ApplySummary", "ArtistFileService", "TagWriter"]

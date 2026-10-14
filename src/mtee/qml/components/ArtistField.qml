@@ -3,8 +3,8 @@ import Mtee
 
 // The artists of the selection as one chip each. A chip is one artist whatever its
 // name holds, so "Nikita, the Wicked" is a single chip; a typed credit that would split
-// asks first. Changes are staged and written by the panel's Save button, together with
-// the artists catalog. With several tracks selected a chip shows how many name it.
+// asks first. Changes are staged and written as tags by the panel's Save button. With
+// several tracks selected a chip shows how many name it.
 Column {
     id: field
 
@@ -255,7 +255,10 @@ Column {
                 implicitHeight: 26
                 kind: "neutral"
                 text: "One artist"
-                onClicked: field.add(field.pending)
+                onClicked: {
+                    field.editor.recordCreditChoice(field.pending, true)
+                    field.add(field.pending)
+                }
             }
 
             TextButton {
@@ -264,6 +267,7 @@ Column {
                 kind: "neutral"
                 text: "Several artists"
                 onClicked: {
+                    field.editor.recordCreditChoice(field.pending, false)
                     const parts = field.editor.splitPreview(field.pending)
                     field.pending = ""
                     for (const part of parts)
