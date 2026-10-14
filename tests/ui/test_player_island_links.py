@@ -1,25 +1,32 @@
-"""Bottom player: title and artist links, and the like heart."""
+"""Bottom player: title and artist links, and the like heart.
+
+In v0.1 the links come from the core artist index. One runtime serves the module, as in the
+other UI files: several runtimes in one process leave worker threads that read a closed
+database. The tests run in file order.
+"""
 
 from __future__ import annotations
 
+import time
 import wave
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QObject, QPoint, QPointF, Qt
+import pytest
+from PySide6.QtCore import QCoreApplication, QObject, QPoint, QPointF, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
+from tests.ui.artists_support import stop as stop_runtime
 from tests.ui.test_player_views import _find, _UiPlayerBackend
 
-from mtee.app import _build_runtime, _shutdown
+from mtee.app import _build_runtime
 from mtee.cli import AppOptions
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
 from mtee.domain.tracks import SourceRevision
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
-from mtee.plugins.artist_manager.identification import ArtistIdentificationService
-from mtee.plugins.artist_manager.repository import ArtistRepository
 
 
 def _write_wav(path: Path) -> None:
@@ -31,17 +38,20 @@ def _write_wav(path: Path) -> None:
 
 
 def _seed(base: Path) -> tuple[Path, dict[str, str], dict[str, str]]:
-    """Alpha has one credit, Bravo two, Charlie none; returns the data dir and ids."""
+    """Alpha has one credit, Bravo two, Charlie none; returns the data dir and ids.
+
+    The credits are the Artist tag of each file, read by the core artist index. The keys
+    of the artists are their normalized names.
+    """
     audio = base / "audio"
     audio.mkdir(parents=True)
     data_dir = base / "data"
     database = Database(data_dir / "mtee.sqlite3")
     database.migrate()
     library = LibraryRepository(database)
-    identification = ArtistIdentificationService(library, ArtistRepository(database))
     root_record = library.add_root(audio)
     track_ids: dict[str, str] = {}
-    credits = {"Alpha": ["Hedex"], "Bravo": ["Hedex", "Bou"], "Charlie": None}
+    credits = {"Alpha": ("Hedex",), "Bravo": ("Hedex", "Bou"), "Charlie": ()}
     for index, (title, names) in enumerate(credits.items()):
         path = audio / f"{index}.wav"
         _write_wav(path)
@@ -51,16 +61,14 @@ def _seed(base: Path) -> tuple[Path, dict[str, str], dict[str, str]]:
             path,
             SourceRevision.observe(path),
             MetadataSnapshot(
-                title=(title,), artist=("Example",), technical=TechnicalInfo(duration_us=3_000_000)
+                title=(title,), artist=names, technical=TechnicalInfo(duration_us=3_000_000)
             ),
             0,
         )
-        if names is not None:
-            identification.sync_tags(track_id, names, None)
         track_ids[title] = track_id
-    artist_ids = {item["name"]: item["id"] for item in ArtistRepository(database).catalog()}
     database.close()
-    return data_dir, {"root": str(root_record["id"]), **track_ids}, artist_ids
+    artist_keys = {"Hedex": "hedex", "Bou": "bou"}
+    return data_dir, {"root": str(root_record["id"]), **track_ids}, artist_keys
 
 
 def _centre(item: QQuickItem) -> QPoint:
@@ -68,9 +76,16 @@ def _centre(item: QQuickItem) -> QPoint:
     return QPoint(round(point.x()), round(point.y()))
 
 
+def _pump(milliseconds: int) -> None:
+    deadline = time.monotonic() + milliseconds / 1000
+    while time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+        time.sleep(0.01)
+
+
 def _click(window: QQuickWindow, item: QQuickItem) -> None:
     QTest.mouseClick(window, Qt.MouseButton.LeftButton, pos=_centre(item))
-    QTest.qWait(60)
+    _pump(60)
 
 
 def _visible_texts(item: QQuickItem) -> str:
@@ -89,200 +104,162 @@ def _active_tab(workspace: WorkspaceModel) -> str:
     return str(typed.groups[typed.activeGroup]["active"])
 
 
-def _start(qapp: Any, monkeypatch: Any, data_dir: Path, *, plugins: bool = True) -> Any:
-    """Start the app; the artist links need the artist manager, so plugins are on by default."""
-    monkeypatch.setattr("mtee.app.MpvBackend", _UiPlayerBackend)
-    monkeypatch.setattr("mtee.plugins.registry.PLUGIN_UI_ENABLED", plugins)
-    runtime = _build_runtime(qapp, AppOptions(data_dir=data_dir))
-    assert runtime is not None
-    return runtime
+def _wait_until(predicate: Callable[[], bool], timeout_ms: int = 10_000) -> bool:
+    """Pump the event loop until ``predicate`` holds; False when the timeout passes first.
+
+    The sleeps between the event passes let the background jobs run: QTest.qWait keeps the
+    interpreter lock, which starves the job threads that the artist index waits for.
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        QCoreApplication.processEvents()
+        time.sleep(0.01)
+    return True
 
 
 def _play(runtime: Any, root: QQuickWindow, source_id: str, track_id: str) -> WorkspaceModel:
     workspace = cast(WorkspaceModel, runtime.workspace)
     assert runtime.jobs.wait_for_done(10_000)
+    # The artist index is built in the background and reaches the window through a signal.
+    assert _wait_until(lambda: workspace.artistRevision > 0)
     workspace.openFolder(f"folder:{source_id}/")
     workspace.playTrack(track_id, f"folder:{source_id}/")
-    QTest.qWait(60)
+    _pump(60)
     assert workspace.playingId == track_id
     assert _find(root, "playerIsland") is not None
     return workspace
 
 
-def test_like_heart_toggles_the_liked_state(qapp, qtbot, tmp_path: Path, monkeypatch) -> None:
-    data_dir, tracks, _artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
-    root.resize(1440, 900)
-    try:
-        workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
-        heart = _find(root, "playerIslandLike")
-        assert heart is not None and heart.isVisible()
-        assert heart.property("icon") == "heart"
-
-        _click(root, heart)
-        qtbot.waitUntil(lambda: workspace.isLiked(tracks["Alpha"]), timeout=5000)
-        qtbot.waitUntil(lambda: heart.property("icon") == "heart-filled", timeout=5000)
-
-        _click(root, heart)
-        qtbot.waitUntil(lambda: not workspace.isLiked(tracks["Alpha"]), timeout=5000)
-        qtbot.waitUntil(lambda: heart.property("icon") == "heart", timeout=5000)
-    finally:
-        _shutdown(runtime)
+@pytest.fixture(scope="module")
+def island(qapp, tmp_path_factory):
+    data_dir, tracks, artists = _seed(tmp_path_factory.mktemp("island"))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("mtee.app.MpvBackend", _UiPlayerBackend)
+        patch.setattr("mtee.plugins.registry.PLUGIN_UI_ENABLED", False)
+        runtime = _build_runtime(qapp, AppOptions(data_dir=data_dir))
+        assert runtime is not None
+        root = runtime.engine.rootObjects()[0]
+        assert isinstance(root, QQuickWindow)
+        root.resize(1440, 900)
+        yield runtime, root, tracks, artists
+        stop_runtime(runtime)
 
 
-def test_title_goes_to_the_folder_the_track_plays_from(
-    qapp, qtbot, tmp_path: Path, monkeypatch
-) -> None:
-    data_dir, tracks, artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
-    root.resize(1440, 900)
-    try:
-        workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
-        workspace.openArtistPage(artists["Hedex"], "Hedex")
-        assert _active_tab(workspace) == f"artist:{artists['Hedex']}"
+def test_like_heart_toggles_the_liked_state(island) -> None:
+    runtime, root, tracks, _artists = island
+    workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
+    heart = _find(root, "playerIslandLike")
+    assert heart is not None and heart.isVisible()
+    assert heart.property("icon") == "heart"
 
-        title = _find(root, "playerIslandTitle")
-        assert title is not None and title.property("enabled")
-        _click(root, title)
+    _click(root, heart)
+    assert _wait_until(lambda: workspace.isLiked(tracks["Alpha"]), 5000)
+    assert _wait_until(lambda: heart.property("icon") == "heart-filled", 5000)
 
-        folder_tab = f"folder:{tracks['root']}/"
-        qtbot.waitUntil(lambda: _active_tab(workspace) == folder_tab, timeout=5000)
-        assert workspace.selectedIds == [tracks["Alpha"]]
-    finally:
-        _shutdown(runtime)
+    _click(root, heart)
+    assert _wait_until(lambda: not workspace.isLiked(tracks["Alpha"]), 5000)
+    assert _wait_until(lambda: heart.property("icon") == "heart", 5000)
 
 
-def test_revealing_a_track_from_an_artist_source_opens_that_artist(
-    qapp, qtbot, tmp_path: Path, monkeypatch
-) -> None:
-    data_dir, tracks, artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
-    try:
-        workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
-        workspace.openFolder(f"folder:{tracks['root']}/")
-        assert _active_tab(workspace) != f"artist:{artists['Hedex']}"
+def test_title_goes_to_the_folder_the_track_plays_from(island) -> None:
+    runtime, root, tracks, artists = island
+    workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
+    workspace.openArtistPage(artists["Hedex"], "Hedex")
+    assert _active_tab(workspace) == f"artist:{artists['Hedex']}"
 
-        workspace.revealTrack(tracks["Alpha"], f"artist:{artists['Hedex']}")
-        assert _active_tab(workspace) == f"artist:{artists['Hedex']}"
-    finally:
-        _shutdown(runtime)
+    title = _find(root, "playerIslandTitle")
+    assert title is not None and title.property("enabled")
+    _click(root, title)
+
+    folder_tab = f"folder:{tracks['root']}/"
+    assert _wait_until(lambda: _active_tab(workspace) == folder_tab, 5000)
+    assert workspace.selectedIds == [tracks["Alpha"]]
 
 
-def test_one_credited_artist_opens_its_page_from_the_artist_link(
-    qapp, qtbot, tmp_path: Path, monkeypatch
-) -> None:
-    data_dir, tracks, artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
-    root.resize(1440, 900)
-    try:
-        workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
-        link = _find(root, "playerIslandArtist_0")
-        assert link is not None and link.property("text") == "Hedex"
-        assert _find(root, "playerIslandArtist_1") is None
+def test_revealing_a_track_from_an_artist_source_opens_that_artist(island) -> None:
+    runtime, root, tracks, artists = island
+    workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
+    workspace.openFolder(f"folder:{tracks['root']}/")
+    assert _active_tab(workspace) != f"artist:{artists['Hedex']}"
 
-        _click(root, link)
-        qtbot.waitUntil(
-            lambda: _active_tab(workspace) == f"artist:{artists['Hedex']}", timeout=5000
-        )
-    finally:
-        _shutdown(runtime)
+    workspace.revealTrack(tracks["Alpha"], f"artist:{artists['Hedex']}")
+    assert _active_tab(workspace) == f"artist:{artists['Hedex']}"
 
 
-def test_several_credited_artists_are_separate_links(
-    qapp, qtbot, tmp_path: Path, monkeypatch
-) -> None:
-    data_dir, tracks, _artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
-    root.resize(1440, 900)
-    try:
-        workspace = _play(runtime, root, tracks["root"], tracks["Bravo"])
-        credits = workspace.trackArtists(tracks["Bravo"])
-        assert len(credits) == 2
-        first, second = _find(root, "playerIslandArtist_0"), _find(root, "playerIslandArtist_1")
-        assert first is not None and second is not None
-        assert _find(root, "playerIslandArtist_2") is None
-        assert first.property("text") == credits[0]["name"]
-        assert second.property("text") == credits[1]["name"]
+def test_one_credited_artist_opens_its_page_from_the_artist_link(island) -> None:
+    runtime, root, tracks, artists = island
+    workspace = _play(runtime, root, tracks["root"], tracks["Alpha"])
+    link = _find(root, "playerIslandArtist_0")
+    assert link is not None and link.property("text") == "Hedex"
+    assert _find(root, "playerIslandArtist_1") is None
 
-        # Names are shown in credit order, comma separated, with no trailing comma.
-        row = _find(root, "playerIslandArtists")
-        assert row is not None and row.isVisible()
-        assert _visible_texts(row) == f"{credits[0]['name']}, {credits[1]['name']}"
-        assert root.findChild(QObject, "playerIslandArtistMenu") is None
-
-        _click(root, second)
-        target = f"artist:{credits[1]['id']}"
-        qtbot.waitUntil(lambda: _active_tab(workspace) == target, timeout=5000)
-    finally:
-        _shutdown(runtime)
+    _click(root, link)
+    assert _wait_until(lambda: _active_tab(workspace) == f"artist:{artists['Hedex']}", 5000)
 
 
-def test_v01_shows_the_artist_tag_as_plain_text_without_links(
-    qapp, qtbot, tmp_path: Path, monkeypatch
-) -> None:
-    """With the plugins off, a database still holding artist tables gives no artist links."""
-    data_dir, tracks, _artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir, plugins=False)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
-    root.resize(1440, 900)
-    try:
-        workspace = _play(runtime, root, tracks["root"], tracks["Bravo"])
-        assert workspace.trackArtists(tracks["Bravo"]) == []
-        assert workspace.artistManager is None
-        row = _find(root, "playerIslandArtists")
-        assert row is not None and not row.isVisible()
-        plain = _find(root, "playerIslandArtistText")
-        assert plain is not None and plain.isVisible()
-        assert plain.property("text") == "Example"
-    finally:
-        _shutdown(runtime)
+def test_several_credited_artists_are_separate_links(island) -> None:
+    runtime, root, tracks, _artists = island
+    workspace = _play(runtime, root, tracks["root"], tracks["Bravo"])
+    credits = workspace.trackArtists(tracks["Bravo"])
+    assert len(credits) == 2
+    first, second = _find(root, "playerIslandArtist_0"), _find(root, "playerIslandArtist_1")
+    assert first is not None and second is not None
+    assert _find(root, "playerIslandArtist_2") is None
+    assert first.property("text") == credits[0]["name"]
+    assert second.property("text") == credits[1]["name"]
+
+    # Names are shown in credit order, comma separated, with no trailing comma.
+    row = _find(root, "playerIslandArtists")
+    assert row is not None and row.isVisible()
+    assert _visible_texts(row) == f"{credits[0]['name']}, {credits[1]['name']}"
+    assert root.findChild(QObject, "playerIslandArtistMenu") is None
+
+    _click(root, second)
+    target = f"artist:{credits[1]['id']}"
+    assert _wait_until(lambda: _active_tab(workspace) == target, 5000)
 
 
-def test_track_without_credits_has_no_artist_link(qapp, qtbot, tmp_path: Path, monkeypatch) -> None:
-    data_dir, tracks, _artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
-    root.resize(1440, 900)
-    try:
-        workspace = _play(runtime, root, tracks["root"], tracks["Charlie"])
-        plain = _find(root, "playerIslandArtistText")
-        assert plain is not None and plain.isVisible()
-        assert plain.property("text") == "Example"
-        row = _find(root, "playerIslandArtists")
-        assert row is not None and not row.isVisible()
-        assert _find(root, "playerIslandArtist_0") is None
-        before = _active_tab(workspace)
-
-        _click(root, plain)
-        QTest.qWait(100)
-        assert _active_tab(workspace) == before
-    finally:
-        _shutdown(runtime)
+def test_v01_links_come_from_the_core_index_without_plugins(island) -> None:
+    """With the plugins off (v0.1), the artist links read the Artist tags through the core index."""
+    runtime, root, tracks, artists = island
+    workspace = _play(runtime, root, tracks["root"], tracks["Bravo"])
+    assert workspace.artistManager is None
+    assert workspace.trackArtists(tracks["Bravo"]) == [
+        {"id": artists["Hedex"], "name": "Hedex"},
+        {"id": artists["Bou"], "name": "Bou"},
+    ]
+    row = _find(root, "playerIslandArtists")
+    assert row is not None and row.isVisible()
+    plain = _find(root, "playerIslandArtistText")
+    assert plain is not None and not plain.isVisible()
+    _click(root, _find(root, "playerIslandArtist_1"))
+    assert _wait_until(lambda: _active_tab(workspace) == f"artist:{artists['Bou']}", 5000)
 
 
-def test_heart_stays_clear_of_the_centre_at_a_narrow_width(
-    qapp, qtbot, tmp_path: Path, monkeypatch
-) -> None:
-    data_dir, tracks, _artists = _seed(tmp_path)
-    runtime = _start(qapp, monkeypatch, data_dir)
-    root = runtime.engine.rootObjects()[0]
-    assert isinstance(root, QQuickWindow)
+def test_track_without_credits_has_no_artist_link(island) -> None:
+    runtime, root, tracks, _artists = island
+    workspace = _play(runtime, root, tracks["root"], tracks["Charlie"])
+    plain = _find(root, "playerIslandArtistText")
+    assert plain is not None and plain.isVisible()
+    assert plain.property("text") == "Unknown artist"
+    row = _find(root, "playerIslandArtists")
+    assert row is not None and not row.isVisible()
+    assert _find(root, "playerIslandArtist_0") is None
+    before = _active_tab(workspace)
+
+    _click(root, plain)
+    _pump(100)
+    assert _active_tab(workspace) == before
+
+
+def test_heart_stays_clear_of_the_centre_at_a_narrow_width(island) -> None:
+    runtime, root, tracks, _artists = island
     root.resize(720, 800)
     try:
         _play(runtime, root, tracks["root"], tracks["Bravo"])
-        QTest.qWait(60)
+        _pump(60)
         heart = _find(root, "playerIslandLike")
         previous = _find(root, "previousButton")
         assert heart is not None and heart.isVisible()
@@ -291,4 +268,4 @@ def test_heart_stays_clear_of_the_centre_at_a_narrow_width(
         transport_left = previous.mapToScene(QPointF(0, 0)).x()
         assert heart_right <= transport_left
     finally:
-        _shutdown(runtime)
+        root.resize(1440, 900)

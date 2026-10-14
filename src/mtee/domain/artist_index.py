@@ -18,10 +18,12 @@ Names are compared with ``normalize_key``: case and spacing are not significant.
 
 from __future__ import annotations
 
+import math
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence, Set
 from dataclasses import dataclass, field
+from typing import Any
 
 from mtee.domain.artists import choose_spelling, clean_name, normalize_key
 
@@ -31,6 +33,8 @@ __all__ = [
     "ArtistEntry",
     "ArtistIndex",
     "CreditPart",
+    "CreditRules",
+    "album_track_order",
     "build_artist_index",
     "has_separator",
     "solo_artist_keys",
@@ -87,12 +91,10 @@ class ArtistIndex:
     tracks_by_artist: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     artists_by_track: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     solo_keys: frozenset[str] = frozenset()
+    entries: Mapping[str, ArtistEntry] = field(default_factory=dict)
 
     def entry(self, key: str) -> ArtistEntry | None:
-        for artist in self.artists:
-            if artist.key == key:
-                return artist
-        return None
+        return self.entries.get(key)
 
     def one_artist_credits(self, key: str) -> list[str]:
         """Credits that "This is one artist" keeps whole for ``key``: those it was cut from.
@@ -115,6 +117,41 @@ class ArtistIndex:
         if entry is None or not has_separator(entry.name):
             return []
         return _one_credit_per_key(entry.origins)
+
+
+@dataclass(frozen=True, slots=True)
+class CreditRules:
+    """The inputs of the splitting rules, read once from the index and the user's choices.
+
+    A worker that splits many credits (the statistics) holds one of these, so it answers
+    as the Artists view and the tag editor do, without reading the index itself.
+    """
+
+    solo: frozenset[str] = frozenset()
+    one_names: tuple[str, ...] = ()
+    split_keys: frozenset[str] = frozenset()
+
+    def split(self, text: str) -> list[str]:
+        """The artist names of one credit under these rules."""
+        return split_artist_credit(
+            text, solo=self.solo, one_names=self.one_names, split_keys=self.split_keys
+        )
+
+
+def _track_number(text: str) -> float:
+    """The first number of a track-number tag (``3`` or ``3/12``); a missing one sorts last."""
+    head = text.split("/", 1)[0].strip()
+    return float(int(head)) if head.isdecimal() else math.inf
+
+
+def album_track_order(row: Mapping[str, Any]) -> tuple[str, float, str, str]:
+    """Sort key of a track on an artist page: album, then track number, then title."""
+    return (
+        str(row.get("album", "")).casefold(),
+        _track_number(str(row.get("trackNumber", ""))),
+        str(row.get("title", "")).casefold(),
+        str(row.get("id", "")),
+    )
 
 
 def _one_credit_per_key(credits: Iterable[str]) -> list[str]:
@@ -305,4 +342,5 @@ def build_artist_index(
         tracks_by_artist={key: tuple(ids) for key, ids in tracks_of.items()},
         artists_by_track=artists_by_track,
         solo_keys=solo,
+        entries={artist.key: artist for artist in artists},
     )

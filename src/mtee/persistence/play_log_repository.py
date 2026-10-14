@@ -18,6 +18,7 @@ from mtee.persistence.settings_repository import SettingsRepository
 __all__ = [
     "ALL_TIME",
     "AlbumRank",
+    "ArtistTextPlays",
     "DailyListening",
     "ListeningTotals",
     "PlayLogRepository",
@@ -54,6 +55,18 @@ class TrackRank:
 @dataclass(frozen=True, slots=True)
 class AlbumRank:
     album: str
+    counted_plays: int
+    listening_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class ArtistTextPlays:
+    """Listening of one artist text as the log stored it, e.g. ``Chase & Status, Camo``.
+
+    The text is not split here: the statistics split it with the artist rules.
+    """
+
+    artist: str
     counted_plays: int
     listening_ms: int
 
@@ -199,6 +212,31 @@ class PlayLogRepository:
         return [
             AlbumRank(
                 album=str(row["album"]),
+                counted_plays=int(row["counted_plays"]),
+                listening_ms=int(row["listening_ms"]),
+            )
+            for row in rows
+        ]
+
+    def artist_texts(self, period: ListeningPeriod = ALL_TIME) -> list[ArtistTextPlays]:
+        """Counted plays and heard time of each artist text of the period, most played first.
+
+        Events without an artist text are left out. Every event counts for the heard time,
+        counted or not, as the track ranking does.
+        """
+        where, params = _period_clause(period, extra=("artist <> ''",))
+        rows = (
+            self._database.connection()
+            .execute(
+                "SELECT artist, SUM(counted) AS counted_plays, SUM(heard_ms) AS listening_ms "
+                f"FROM play_events{where} GROUP BY artist",
+                params,
+            )
+            .fetchall()
+        )
+        return [
+            ArtistTextPlays(
+                artist=str(row["artist"]),
                 counted_plays=int(row["counted_plays"]),
                 listening_ms=int(row["listening_ms"]),
             )

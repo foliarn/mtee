@@ -9,6 +9,8 @@ import pytest
 from mtee.domain.artist_index import (
     MODE_ONE_ARTIST,
     MODE_SPLIT,
+    CreditRules,
+    album_track_order,
     build_artist_index,
     has_separator,
     solo_artist_keys,
@@ -22,6 +24,29 @@ SOLO = frozenset({"chase", "status", "sub focus", "wilkinson", "camo", "krooked"
 
 def _split(text: str, **kwargs: object) -> list[str]:
     return split_artist_credit(text, **kwargs)  # type: ignore[arg-type]
+
+
+def test_credit_rules_split_like_the_functions_they_wrap() -> None:
+    rules = CreditRules(solo=SOLO, one_names=("Sub Focus & Wilkinson",), split_keys=frozenset())
+    assert rules.split("Chase & Status") == ["Chase", "Status"]
+    assert rules.split("Sub Focus & Wilkinson") == ["Sub Focus & Wilkinson"]
+    assert CreditRules().split("Chase & Status") == ["Chase & Status"]
+    assert CreditRules(split_keys=frozenset({"camo & krooked"})).split("Camo & Krooked") == [
+        "Camo",
+        "Krooked",
+    ]
+
+
+def test_album_track_order_is_album_then_track_number_then_title() -> None:
+    rows = [
+        {"id": "c", "album": "B", "trackNumber": "1", "title": "Zed"},
+        {"id": "a", "album": "A", "trackNumber": "10", "title": "Ten"},
+        {"id": "b", "album": "A", "trackNumber": "2/12", "title": "Two"},
+        {"id": "d", "album": "A", "trackNumber": "", "title": "Loose"},
+        {"id": "e", "album": "A", "trackNumber": "2", "title": "Another two"},
+    ]
+    ordered = sorted(rows, key=album_track_order)
+    assert [row["id"] for row in ordered] == ["e", "b", "a", "d", "c"]
 
 
 # ----------------------------------------------------------------- commas and feat./ft.

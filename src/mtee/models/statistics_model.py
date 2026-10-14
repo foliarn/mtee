@@ -7,16 +7,22 @@ The period is a calendar period in local time (see ``mtee.domain.listening_perio
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections import defaultdict
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from mtee.domain.artist_index import CreditRules
+from mtee.domain.artists import choose_spelling, normalize_key
 from mtee.domain.listening_periods import PERIOD_KINDS, calendar_period, listening_buckets
-from mtee.domain.play_log import ListeningPeriod
-from mtee.persistence.play_log_repository import ListeningTotals, PlayLogRepository
+from mtee.persistence.play_log_repository import (
+    ArtistTextPlays,
+    ListeningTotals,
+    PlayLogRepository,
+)
 from mtee.services.jobs import JobContext, JobService
 
 __all__ = [
@@ -24,6 +30,7 @@ __all__ = [
     "StatisticsModel",
     "StatisticsSnapshot",
     "read_statistics",
+    "top_artists",
 ]
 
 TOP_LIMIT = 10
@@ -48,19 +55,48 @@ class StatisticsSnapshot:
     series: list[dict[str, Any]]
 
 
-def top_artists(period: ListeningPeriod) -> list[dict[str, Any]]:
-    """TODO(step 112): rank artists once the artist splitting rules are merged.
+def top_artists(plays: Sequence[ArtistTextPlays], rules: CreditRules) -> list[dict[str, Any]]:
+    """Rank the artists of a period, each artist text split with the artist rules.
 
-    Until then the Profile page shows no top artists. The splitting rules belong to the
-    artist index of step 112; the statistics do not reimplement them. The period is kept
-    in the signature so the ranking has the same input as the other rankings.
+    The rules are the ones of the Artists view (``CreditRules``), so a text is cut where the
+    view cuts it and honours the user's choices. An artist takes the counted plays and the
+    heard time of every text that names it, once per text: ``Chase & Status, Camo`` counts
+    once for ``Chase`` and once for ``Camo``. Artists are ranked by counted plays, then by
+    listening time; only those with a counted play are kept.
     """
-    del period
-    return []
+    counted: dict[str, int] = defaultdict(int)
+    heard: dict[str, int] = defaultdict(int)
+    names: dict[str, list[str]] = defaultdict(list)
+    for play in plays:
+        first_spelling: dict[str, str] = {}
+        for name in rules.split(play.artist):
+            first_spelling.setdefault(normalize_key(name), name)
+        for key, name in first_spelling.items():
+            counted[key] += play.counted_plays
+            heard[key] += play.listening_ms
+            names[key].append(name)
+    ranking = [
+        (key, choose_spelling(names[key]), counted[key], heard[key])
+        for key in counted
+        if counted[key] > 0
+    ]
+    ranking.sort(key=lambda item: (-item[2], -item[3], item[1].casefold(), item[0]))
+    return [
+        {"key": key, "artist": name, "countedPlays": plays_count, "listeningMs": listened}
+        for key, name, plays_count, listened in ranking[:TOP_LIMIT]
+    ]
 
 
-def read_statistics(play_log: PlayLogRepository, kind: str, now: datetime) -> StatisticsSnapshot:
-    """Read every figure of the period ``kind`` ending at ``now``. Runs in a worker."""
+def read_statistics(
+    play_log: PlayLogRepository,
+    kind: str,
+    now: datetime,
+    rules: CreditRules | None = None,
+) -> StatisticsSnapshot:
+    """Read every figure of the period ``kind`` ending at ``now``. Runs in a worker.
+
+    ``rules`` are the artist splitting rules; without them no text is cut at ``&`` or ``x``.
+    """
     if kind not in PERIOD_KINDS:
         raise ValueError(f"unknown statistics period: {kind!r}")
     period = calendar_period(kind, now)
@@ -92,7 +128,7 @@ def read_statistics(play_log: PlayLogRepository, kind: str, now: datetime) -> St
             }
             for rank in play_log.top_albums(period, limit=TOP_LIMIT)
         ],
-        top_artists=top_artists(period),
+        top_artists=top_artists(play_log.artist_texts(period), rules or CreditRules()),
         series=[
             {
                 "start": bucket.start.isoformat(),
@@ -118,11 +154,15 @@ class StatisticsModel(QObject):
         parent: QObject | None = None,
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        artist_rules: Callable[[], CreditRules] | None = None,
     ) -> None:
         super().__init__(parent)
         self._play_log = play_log
         self._jobs = jobs
         self._clock = clock
+        # Read on the graphical thread at each refresh, then handed to the worker.
+        self._artist_rules = artist_rules
+        self._counted_rules: CreditRules | None = None
         self._kind = DEFAULT_PERIOD
         self._generation = 0
         self._loading = False
@@ -168,12 +208,24 @@ class StatisticsModel(QObject):
 
     @Property(list, notify=changed)
     def topArtists(self) -> list[dict[str, Any]]:
-        """Empty until step 112 provides the artist rules (see ``top_artists``)."""
+        """Artists ranked by counted plays, split with the artist rules (see ``top_artists``)."""
         return self._snapshot.top_artists if self._snapshot else []
 
     @Property(list, notify=changed)
     def series(self) -> list[dict[str, Any]]:
         return self._snapshot.series if self._snapshot else []
+
+    @Slot()
+    def followArtistRules(self) -> None:
+        """Recount only when the artist rules changed since the last count.
+
+        Connected to the artist index: a rebuild that changes no rule must not start a new
+        query, since every job submitted is itself a library change for the index.
+        """
+        if not self._jobs.accepting:
+            return  # the index can finish while the application shuts down
+        if self._artist_rules is not None and self._artist_rules() != self._counted_rules:
+            self.refresh()
 
     @Slot(str)
     def setPeriod(self, kind: str) -> None:
@@ -188,13 +240,15 @@ class StatisticsModel(QObject):
         generation = self._generation
         kind = self._kind
         now = self._clock()
+        rules = self._artist_rules() if self._artist_rules is not None else CreditRules()
+        self._counted_rules = rules
         self._loading = True
         self.changed.emit()
 
         def task(context: JobContext) -> None:
             del context
             try:
-                snapshot = read_statistics(self._play_log, kind, now)
+                snapshot = read_statistics(self._play_log, kind, now, rules)
             except Exception as error:
                 self._resultReady.emit(generation, None, str(error))
                 raise
