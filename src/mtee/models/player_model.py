@@ -390,6 +390,11 @@ class PlayerModel(QObject):
     def playEntry(self, entry_id: str) -> bool:
         return self._service.play_entry(entry_id)
 
+    @Slot(result=int)
+    def clearHistory(self) -> int:
+        """Empty the History panel (Settings > Data & privacy); the queue is kept."""
+        return self._service.clear_history()
+
     @Slot(str, result=bool)
     def playHistoryEntry(self, history_id: str) -> bool:
         return self._service.play_history_entry(history_id)

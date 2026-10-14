@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, QUrl
@@ -25,6 +26,7 @@ from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.cover_accent_model import CoverAccentModel
+from mtee.models.data_privacy_model import DataPrivacyModel
 from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.file_move_model import FileMoveModel
@@ -34,7 +36,9 @@ from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
+from mtee.models.profile_model import PROFILE_PROVIDER_ID, ProfileAvatarProvider, ProfileModel
 from mtee.models.shell_controller import ShellController
+from mtee.models.statistics_model import StatisticsModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.trash_model import TrashModel
 from mtee.models.waveform_model import WaveformModel
@@ -62,6 +66,7 @@ from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.artist_index_service import ArtistIndexService
 from mtee.services.audio_analyzer import AudioAnalyzer
 from mtee.services.conversion_service import ConversionService
+from mtee.services.data_privacy import RestoreLayout, apply_pending_restore
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
@@ -73,6 +78,7 @@ from mtee.services.player_backend import PlayerBackendError
 from mtee.services.player_service import PlayerService
 from mtee.services.playlist_exchange import PlaylistExchange
 from mtee.services.playlist_service import PlaylistService
+from mtee.services.profile_service import PROFILE_DIRECTORY_NAME, ProfileService
 from mtee.services.trash_service import TrashService
 
 if TYPE_CHECKING:
@@ -160,6 +166,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     paths = resolve_app_paths(options.data_dir, demo=options.demo).ensure()
 
     database = Database(paths.database_path)
+    _apply_scheduled_restore(paths, database)
     database.migrate()
     settings = SettingsRepository(database)
     analysis_settings = AnalysisSettingsModel(settings, application)
@@ -176,6 +183,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     media_controls: MediaControls | None = None
     player_service = None
     workspace: QObject | None = None
+    profile_model: ProfileModel | None = None
+    profile_avatar: ProfileAvatarProvider | None = None
+    statistics_model: StatisticsModel | None = None
+    data_privacy_model: DataPrivacyModel | None = None
     if options.demo:
         workspace = DemoWorkspace(options.scenario)
         workspace.attach_analysis_settings(analysis_settings, TagConflictsModel(parent=application))
@@ -236,6 +247,19 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
                     "genre_manager", database, library, PlaylistsRepository(database), file_access
                 )
             )
+        # The profile first: its constructor moves the former playlist creator name.
+        profile = ProfileService(settings, paths.data_dir / PROFILE_DIRECTORY_NAME)
+        profile_model = ProfileModel(profile, jobs, application)
+        profile_avatar = ProfileAvatarProvider(profile)
+        profile_avatar.setParent(application)
+        statistics_model = StatisticsModel(PlayLogRepository(database), jobs, application)
+        data_privacy_model = DataPrivacyModel(
+            database,
+            RestoreLayout(paths.data_dir),
+            PlayLogRepository(database),
+            jobs,
+            application,
+        )
         playlist_service = PlaylistService(PlaylistsRepository(database), library)
         playlists_model = PlaylistsModel(
             playlist_service, settings, jobs, paths.database_path.parent
@@ -243,6 +267,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         playlists_model.exchange = PlaylistExchange(
             playlist_service, file_access, paths.database_path.parent
         )
+        profile_model.nameChanged.connect(lambda _name: playlists_model.refresh())
         playlists_model.refresh()
         workspace.attach_playlists(playlists_model)
         identification = _artist_identification(database, library) if plugins_enabled else None
@@ -346,12 +371,22 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     engine.addImageProvider(ICON_PROVIDER_ID, IconProvider())
     if artwork_provider is not None:
         engine.addImageProvider(ARTWORK_PROVIDER_ID, artwork_provider)
+    if profile_avatar is not None:
+        engine.addImageProvider(PROFILE_PROVIDER_ID, profile_avatar)
     context = engine.rootContext()
     context.setContextProperty("shell", controller)
     context.setContextProperty("jobsModel", jobs_model)
     context.setContextProperty("tracksModel", tracks_model)
     context.setContextProperty("workspace", workspace)
     context.setContextProperty("windowFrame", frame)
+    # Models of the Profile and Data & privacy pages (plan 114); the pages are not wired yet.
+    for name, model in (
+        ("profile", profile_model),
+        ("statistics", statistics_model),
+        ("dataPrivacy", data_privacy_model),
+    ):
+        if model is not None:
+            context.setContextProperty(name, model)
 
     window_file = main_qml()
     if not window_file.is_file():
@@ -389,6 +424,25 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     if isinstance(workspace, WorkspaceModel):
         workspace.resumeRoots()
     return runtime
+
+
+def _apply_scheduled_restore(paths: AppPaths, database: Database) -> None:
+    """Apply a restore scheduled on the Data & privacy page, before the database opens."""
+    try:
+        outcome = apply_pending_restore(
+            RestoreLayout(paths.data_dir),
+            database_path=database.path,
+            supported_version=database.supported_version,
+            migrations=database.migrations,
+            now=datetime.now(UTC),
+        )
+    except OSError as error:
+        _report(
+            f"The scheduled restore did not finish: {error}. Its files are in the restore folder."
+        )
+        return
+    if outcome is not None:
+        _report(outcome.message)
 
 
 def _artist_identification(

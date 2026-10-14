@@ -26,6 +26,7 @@ __all__ = [
     "SchemaTooRecentError",
     "UnsupportedMigrationHistoryError",
     "discover_migrations",
+    "foreign_migration_names",
 ]
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
@@ -175,6 +176,8 @@ class Database:
             target = sqlite3.connect(destination)
             try:
                 self.connection().backup(target)
+                # The copy keeps the source's WAL mode otherwise; a backup is one file.
+                target.execute("PRAGMA journal_mode = DELETE")
             finally:
                 target.close()
             saved = sqlite3.connect(f"{destination.resolve().as_uri()}?mode=ro", uri=True)
@@ -284,8 +287,7 @@ class Database:
         known = {migration.version: migration.name for migration in migrations}
         # Records outside the core: retired scripts, and scripts of plugin-owned sets.
         # Each is accepted only with the name it was applied under.
-        accepted = dict(_RETIRED_MIGRATIONS)
-        accepted.update({version: name for version, (_, name) in PLUGIN_OWNED_MIGRATIONS.items()})
+        accepted = foreign_migration_names()
         retired = [(version, name) for version, name in recorded if version not in known]
         if any(accepted.get(version) != name for version, name in retired):
             raise UnsupportedMigrationHistoryError(
@@ -351,6 +353,17 @@ class Database:
             raise MigrationFailedError(migration, error) from error
         else:
             connection.execute("COMMIT")
+
+
+def foreign_migration_names() -> dict[int, str]:
+    """Return the names of recorded migrations that are not core scripts of this build.
+
+    These are the retired scripts and the scripts of plugin-owned sets. A database may
+    hold them legitimately; any other record outside the core list is an unknown history.
+    """
+    accepted = dict(_RETIRED_MIGRATIONS)
+    accepted.update({version: name for version, (_, name) in PLUGIN_OWNED_MIGRATIONS.items()})
+    return accepted
 
 
 def split_statements(sql: str) -> Iterator[str]:
