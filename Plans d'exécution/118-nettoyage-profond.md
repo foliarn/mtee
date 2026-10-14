@@ -126,6 +126,50 @@ Conduit par Opus, avec une façade de délégation pour ne pas toucher aux liais
 - QML : `TrackListView.qml` (1 297) et `SettingsView.qml` (1 080).
 - `plugins/artist_manager/repository.py` (1 487) reste hors v0.1, comme le reste du code de plugin.
 
+#### Plan détaillé de découpage de `workspace_model.py` (établi le 2026-10-15)
+
+État mesuré : 3 679 lignes, une classe `WorkspaceModel`, 269 méthodes, 124 slots, 64 propriétés et 21 signaux, liés au QML. La couverture de ligne par les 32 fichiers de test qui touchent le modèle est de 77 % (`COVERAGE_CORE=sysmon`, `coverage run` par fichier puis `combine`). Couverture par section :
+
+| Section | Couverture |
+|---|---|
+| Propriétés et navigation | 79 % |
+| Requêtes | 59 % |
+| Artistes du cœur | 73 % |
+| Corbeille, déplacement, analyse | 67 % |
+| Lignes des onglets et arbre des dossiers | 84 % |
+| Racines, scans, action sur une piste de l'explorateur | 58 % |
+| Actions de mise en page | 77 % |
+| Sélection et lecture | 64 % |
+| Internes | 85 % |
+| Rafraîchissement des dossiers et session | 83 % |
+| Fonctions de module | 78 % |
+
+Règles :
+- `WorkspaceModel` reste la façade unique du QML. Les noms, types, signaux et arités des slots et propriétés ne changent pas.
+- Chaque extraction devient un module de `src/mtee/models/`, avec des dépendances explicites passées au constructeur, sans référence au modèle entier. Le corps des slots délègue au collaborateur.
+- Une section couverte à moins de 80 % reçoit des tests de caractérisation avant d'être extraite.
+- Une étape égale un commit, après la relance fichier par fichier de tous les tests qui touchent le modèle.
+
+Ordre initial, du moins risqué au plus risqué : fonctions de module, écriture de la session, historique de navigation, artistes du cœur, racines et scans. Révisé le 2026-10-15 après les deux premières étapes :
+
+1. Fait : les fonctions de module (tri des lignes, codes Camelot, colonnes d'écoute, références de dossier, chemins locaux, préférences de colonnes) sont dans `src/mtee/models/workspace_rows.py`, avec des tests directs (`tests/unit/test_workspace_rows.py`). L'AST de la classe est identique à celui d'avant, aux renommages près. Une variable locale `with_play_stats` de `_request_track_rows`, qui masquait la fonction du même nom après renommage (détecté par pyright), devient `add_play_stats`.
+2. Annulé : l'écriture de la session, extraite dans un `QObject` enfant (`WorkspaceSessionWriter`, minuterie et exécuteur), faisait planter `tests/unit/test_preview_tabs.py` de façon intermittente. Mesures :
+   - avec l'extraction : 3 exécutions plantées sur 6, puis 4 sur 8 avec le collaborateur sans parent Qt ;
+   - sur `HEAD` : 0 sur 12 ;
+   - avec l'étape 1 seule : 0 sur 6, deux fois.
+
+   La violation d'accès survient dans la boucle d'événements de pytest-qt, sans autre thread Python vivant. Plusieurs `WorkspaceModel` vivent dans le même processus (aucun n'est libéré, même après `gc.collect()`), et leurs minuteries ou travailleurs survivent à leur test. C'est la même famille que l'arrêt avec plusieurs runtimes. Cause exacte non établie ; l'extraction est retirée.
+3. Abandonné : l'historique de navigation. Rejouer un pas d'historique réécrit une quinzaine d'états propres à la façade (groupes, onglet actif, activité, plein écran, panneau droit, page de réglages, vue de l'onglet, sélection, ancres, défilement). Un collaborateur aurait besoin du modèle entier : ce serait déplacer l'objet-dieu, pas le découper. La navigation reste avec la mise en page.
+
+Stratégie révisée : un cœur pur et une coquille impérative. Sont extraites les fonctions de décision non triviales (pures et testées directement), tandis que la façade garde l'état et ses mutations. Aucun `QObject` portant des minuteries ou des threads n'est sorti du modèle tant que le problème de durée de vie des objets Qt avec plusieurs instances n'est pas résolu (tâche proposée séparément). Prochaines candidates :
+- la décision qui suit une reconstruction de l'index des artistes (artiste à ouvrir, onglets à fermer, à renommer ou à recharger), depuis `_on_artist_index_changed` ;
+- les calculs de `_request_track_rows` et du tri des dossiers ;
+- le classement des événements de rafraîchissement des dossiers.
+
+Restent dans la façade : la mise en page (onglets, groupes, colonnes, scission), cœur du modèle, et les délégations courtes vers le lecteur, les playlists et l'éditeur.
+
+Monolithes suivants, à replanifier une fois `workspace_model.py` traité : `demo_workspace.py` (1 487 lignes, qui reproduit l'API QML de la façade pour le mode démo), `player_service.py` (1 198), `library_repository.py` (1 134), `metadata_editor_model.py` (1 077), `TrackListView.qml` (1 297) et `SettingsView.qml` (1 080).
+
 ### Phase 6 — Vérification finale et bilan
 
 Lint, types, tests fichier par fichier, `--smoke-test` depuis les sources et parcours manuel. Bilan chiffré : lignes supprimées, fichiers déplacés, erreurs résolues, recommandations restantes.
@@ -150,7 +194,8 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
   - `pyright` ramené à 0 sur `src` et sur `tests` (deux agents Sonnet) ;
   - relecture des diffs (Opus).
 - [x] 2026-10-14 — Trois défauts de la corbeille corrigés à la demande de l'utilisateur, avant la phase 5 (voir le Decision Log).
-- [ ] Phases 5 et 6.
+- [x] 2026-10-15 — Phase 5, étape 1 : fonctions de module de `workspace_model.py` déplacées dans `workspace_rows.py`. L'étape 2 (écriture de la session) a été annulée après une régression native, et l'étape 3 (navigation) abandonnée. La stratégie est révisée dans le plan détaillé.
+- [ ] Phase 5, suite selon la stratégie révisée ; phase 6.
 
 ## Surprises & Discoveries
 

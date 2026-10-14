@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from mtee.domain.play_log import format_listened_at
-from mtee.models.workspace_model import _listening_details, _sort_rows, _with_play_stats
+from mtee.models.workspace_rows import listening_details, sort_rows, with_play_stats
 from mtee.persistence.play_log_repository import TrackPlayStats
 from mtee.persistence.workspace_repository import (
     DEFAULT_COLUMN_PREFERENCES,
@@ -27,7 +27,7 @@ def test_the_listened_at_text_is_the_local_date_and_time() -> None:
 
 
 def test_rows_carry_their_counts_and_a_dash_when_never_played() -> None:
-    rows = _with_play_stats(
+    rows = with_play_stats(
         [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}],
         {"a": _stats("a", 3, LATE)},
     )
@@ -43,30 +43,30 @@ def test_rows_carry_their_counts_and_a_dash_when_never_played() -> None:
 def test_the_source_rows_are_not_modified() -> None:
     source = [{"id": "a"}]
 
-    _with_play_stats(source, {"a": _stats("a", 1, LATE)})
+    with_play_stats(source, {"a": _stats("a", 1, LATE)})
 
     assert source == [{"id": "a"}]
 
 
 def test_plays_sort_by_count_and_last_played_by_time() -> None:
-    rows = _with_play_stats(
+    rows = with_play_stats(
         [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}, {"id": "c", "title": "C"}],
         {"a": _stats("a", 1, EARLY), "b": _stats("b", 5, LATE)},
     )
 
-    by_plays = [row["id"] for row in _sort_rows(rows, "playCount", False)]
+    by_plays = [row["id"] for row in sort_rows(rows, "playCount", False)]
     assert by_plays == ["b", "a", "c"]
 
-    by_last = [row["id"] for row in _sort_rows(rows, "lastPlayed", False)]
+    by_last = [row["id"] for row in sort_rows(rows, "lastPlayed", False)]
     assert by_last == ["b", "a", "c"]  # the track never played goes last, as other blanks do
 
 
 def test_the_details_rows_show_plays_and_last_played() -> None:
-    assert _listening_details(_stats("a", 2, LATE)) == [
+    assert listening_details(_stats("a", 2, LATE)) == [
         {"label": "Plays", "value": "2"},
         {"label": "Last played", "value": format_listened_at(LATE)},
     ]
-    assert _listening_details(None) == [
+    assert listening_details(None) == [
         {"label": "Plays", "value": "0"},
         {"label": "Last played", "value": "—"},
     ]
