@@ -9,15 +9,16 @@ from typing import Any, cast
 
 import pytest
 
-from mtee.domain.artist_profile import normalize_roles, normalize_tags
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
 from mtee.domain.tracks import SourceRevision
-from mtee.models.artist_manager_model import ArtistListModel, ArtistManagerModel
-from mtee.persistence.artist_repository import ArtistRepository
-from mtee.persistence.database import Database, split_statements
+from mtee.persistence.database import Database, discover_migrations, split_statements
 from mtee.persistence.library_repository import LibraryRepository
-from mtee.services.artist_identification_service import ArtistIdentificationService
-from mtee.services.artist_manager_service import ArtistManagerError, ArtistManagerService
+from mtee.plugins.artist_manager.identification import ArtistIdentificationService
+from mtee.plugins.artist_manager.models import ArtistListModel, ArtistManagerModel
+from mtee.plugins.artist_manager.profile import normalize_roles, normalize_tags
+from mtee.plugins.artist_manager.repository import ArtistRepository
+from mtee.plugins.artist_manager.service import ArtistManagerError, ArtistManagerService
+from mtee.plugins.registry import bundled_plugins
 from mtee.services.jobs import JobService
 
 
@@ -177,6 +178,7 @@ def test_an_unknown_artist_is_refused(setup: _Setup) -> None:
 def test_migration_adopts_a_table_created_by_the_review_tool(tmp_path: Path) -> None:
     database = Database(tmp_path / "old.sqlite3")
     database.migrate()
+    ArtistRepository(database)  # loads the artist manager plugin and its tables
     connection = database.connection()
     connection.execute("DROP TABLE artist_enrichment_reviews")
     connection.execute("DROP TABLE artist_enrichment_schema")
@@ -190,7 +192,12 @@ def test_migration_adopts_a_table_created_by_the_review_tool(tmp_path: Path) -> 
         "'accepted','t','{}','{}')"
     )
     connection.commit()
-    sql = next(migration.read_sql() for migration in database.migrations if migration.version == 20)
+    plugin = next(item for item in bundled_plugins() if item.plugin_id == "artist_manager")
+    sql = next(
+        migration.read_sql()
+        for migration in discover_migrations(plugin.migrations_dir)
+        if migration.version == 20
+    )
     for statement in split_statements(sql):
         connection.execute(statement)
     assert connection.execute("SELECT COUNT(*) FROM artist_enrichment_reviews").fetchone()[0] == 1

@@ -86,36 +86,37 @@ class _Writer:
         return []
 
 
-class _Artists:
+class _CreditRules:
+    """Credit rules without protected names; records the One/Several answers."""
+
     def __init__(self) -> None:
-        self.synced: list[tuple[str, list[str], str | None]] = []
+        self.choices: list[tuple[str, bool]] = []
 
     def protected_names(self) -> list[str]:
         return []
 
-    def suggestions(self, query: str, limit: int = 8) -> list[dict[str, object]]:
+    def suggestions(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
         return [{"id": "x", "name": "Hedex", "established": True}][:limit] if query else []
 
-    def sync_tags(self, track_id: str, names, title: str | None = None) -> bool:
-        self.synced.append((track_id, list(names), title))
-        return True
+    def record_credit_choice(self, text: str, *, one_artist: bool) -> None:
+        self.choices.append((text, one_artist))
 
 
 def _make(qapp, selection: list[str]):
     library = _Library()
     writer = _Writer(library)
-    artists = _Artists()
+    rules = _CreditRules()
     jobs = JobService(qapp, max_thread_count=1)
     editor = MetadataEditorModel(
         cast(LibraryRepository, library),
         cast(MetadataEditService, writer),
         jobs,
         lambda: selection,
-        artists=artists,
+        artist_rules=rules,
     )
     editor.prepareTrackInspection()
     _wait(jobs, editor)
-    return library, writer, artists, jobs, editor
+    return library, writer, rules, jobs, editor
 
 
 def _wait(jobs: JobService, editor: MetadataEditorModel) -> None:
@@ -166,8 +167,8 @@ def test_invalid_values_block_save_and_revert_restores_them(qapp) -> None:
     jobs.shutdown()
 
 
-def test_artist_chips_are_staged_and_synced_with_the_catalog(qapp) -> None:
-    _library, writer, artists, jobs, editor = _make(qapp, ["one"])
+def test_artist_chips_are_staged_and_saved_as_tags_only(qapp) -> None:
+    _library, writer, rules, jobs, editor = _make(qapp, ["one"])
     assert [chip["name"] for chip in cast(list, editor.artistChips)] == ["Hedex", "Bou"]
     editor.stageArtistRemove("Hedex")
     editor.stageArtistAdd("Nikita, the Wicked")
@@ -178,12 +179,13 @@ def test_artist_chips_are_staged_and_synced_with_the_catalog(qapp) -> None:
     editor.saveChanges()
     _wait(jobs, editor)
     assert writer.patches == [("one", {"artist": "Bou, Nikita, the Wicked"})]
-    assert artists.synced == [("one", ["Bou", "Nikita, the Wicked"], "One")]
+    # Saving writes tags only: the credit rules never hear about the saved credit.
+    assert rules.choices == []
     jobs.shutdown()
 
 
 def test_artist_changes_apply_to_every_selected_track(qapp) -> None:
-    _library, writer, artists, jobs, editor = _make(qapp, ["one", "two"])
+    _library, writer, _rules, jobs, editor = _make(qapp, ["one", "two"])
     chips = {chip["name"]: chip for chip in cast(list, editor.artistChips)}
     assert chips["Bou"]["count"] == 2 and chips["Hedex"]["count"] == 1
     editor.stageArtistAdd("Hedex")  # one track already has it
@@ -193,7 +195,33 @@ def test_artist_changes_apply_to_every_selected_track(qapp) -> None:
         "one": {"artist": "Hedex, Bou"},
         "two": {"artist": "Bou, Hedex"},
     }
-    assert {call[0] for call in artists.synced} == {"one", "two"}
+    jobs.shutdown()
+
+
+def test_one_artist_or_several_answer_reaches_the_credit_rules(qapp) -> None:
+    _library, _writer, rules, jobs, editor = _make(qapp, ["one"])
+    editor.recordCreditChoice("  Nikita,  the Wicked ", True)
+    editor.recordCreditChoice("Bou & Hedex", False)
+    editor.recordCreditChoice("   ", True)
+    assert rules.choices == [("Nikita, the Wicked", True), ("Bou & Hedex", False)]
+    jobs.shutdown()
+
+
+def test_default_credit_rules_split_as_typed_and_keep_nothing(qapp) -> None:
+    library = _Library()
+    writer = _Writer(library)
+    jobs = JobService(qapp, max_thread_count=1)
+    editor = MetadataEditorModel(
+        cast(LibraryRepository, library),
+        cast(MetadataEditService, writer),
+        jobs,
+        lambda: ["one"],
+    )
+    # No protected name: a comma or an ampersand always asks "One artist or several?".
+    assert editor.splitPreview("Nikita, the Wicked") == ["Nikita", "the Wicked"]
+    assert editor.splitPreview("Bou & Hedex") == ["Bou", "Hedex"]
+    assert editor.artistSuggestions("Hed") == []
+    editor.recordCreditChoice("Nikita, the Wicked", True)
     jobs.shutdown()
 
 

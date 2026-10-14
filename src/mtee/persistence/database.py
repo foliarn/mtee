@@ -18,17 +18,29 @@ from pathlib import Path
 
 __all__ = [
     "MIGRATIONS_DIR",
+    "PLUGIN_OWNED_MIGRATIONS",
     "Database",
     "DatabaseError",
     "Migration",
     "MigrationFailedError",
     "SchemaTooRecentError",
     "UnsupportedMigrationHistoryError",
+    "discover_migrations",
 ]
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{3})_([A-Za-z0-9_\-]+)\.sql$")
 _RETIRED_MIGRATIONS = {10: "audio_analysis"}
+# Scripts that left the core for a plugin-owned set (step 111). Their files live in
+# ``mtee/plugins/<plugin>/migrations`` and run only when that plugin is loaded. A database
+# that applied them before keeps its records: the core accepts them by name and never runs
+# them. Every plugin script must be registered here, with the plugin that owns it.
+PLUGIN_OWNED_MIGRATIONS: dict[int, tuple[str, str]] = {
+    19: ("artist_manager", "artist_manager"),
+    20: ("artist_manager", "artist_enrichment"),
+    22: ("genre_manager", "genre_manager"),
+    23: ("genre_manager", "genre_artist_decisions"),
+}
 
 
 class DatabaseError(RuntimeError):
@@ -115,9 +127,10 @@ class Database:
 
     @property
     def supported_version(self) -> int:
-        """Return the highest schema version this build knows."""
+        """Return the highest schema version this build knows, plugin-owned sets included."""
         migrations = self.migrations
-        return migrations[-1].version if migrations else 0
+        core = migrations[-1].version if migrations else 0
+        return max([core, *PLUGIN_OWNED_MIGRATIONS])
 
     def connection(self) -> sqlite3.Connection:
         """Return the connection of the current thread, creating it if needed."""
@@ -184,13 +197,14 @@ class Database:
         content stays intact.
         """
         migrations = self.migrations
-        supported = migrations[-1].version if migrations else 0
+        supported = self.supported_version
         current = self.schema_version()
         if current > supported:
             raise SchemaTooRecentError(current, supported)
         if current > 0:
             self._validate_migration_history(current, migrations)
-        pending = [migration for migration in migrations if migration.version > current]
+        recorded = self._recorded_versions()
+        pending = [migration for migration in migrations if migration.version not in recorded]
         if not pending:
             return []
         if current > 0:
@@ -200,6 +214,55 @@ class Database:
             self._apply(migration)
             applied.append(migration)
         return applied
+
+    def migrate_plugin(self, plugin_id: str, migrations: Sequence[Migration]) -> list[Migration]:
+        """Apply the pending scripts of one plugin-owned set and return those applied.
+
+        Only versions registered in ``PLUGIN_OWNED_MIGRATIONS`` for ``plugin_id`` are
+        accepted. The file is backed up first when it already holds data, exactly like the
+        core migrations. The plugin's tables therefore exist only once that plugin is loaded.
+        """
+        current = self.schema_version()
+        if current > self.supported_version:
+            raise SchemaTooRecentError(current, self.supported_version)
+        if current == 0:
+            # The plugin tables reference core tables: the core schema comes first.
+            raise DatabaseError("The core schema must be migrated before a plugin schema.")
+        recorded = self._recorded_versions()
+        for migration in migrations:
+            if PLUGIN_OWNED_MIGRATIONS.get(migration.version) != (plugin_id, migration.name):
+                raise UnsupportedMigrationHistoryError(
+                    f"Migration {migration.file_name} is not registered for plugin {plugin_id}."
+                )
+            if recorded.get(migration.version, migration.name) != migration.name:
+                raise UnsupportedMigrationHistoryError(
+                    f"The database records another migration for version {migration.version}. "
+                    "The database was left unchanged."
+                )
+        pending = [migration for migration in migrations if migration.version not in recorded]
+        if not pending:
+            return []
+        if current > 0:
+            self.backup_to(self.backup_path_for(current))
+        applied: list[Migration] = []
+        for migration in pending:
+            self._apply(migration)
+            applied.append(migration)
+        return applied
+
+    def _recorded_versions(self) -> dict[int, str]:
+        """Return the versions and names recorded in ``schema_migrations``."""
+        connection = self.connection()
+        tables = {
+            str(row["name"])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "schema_migrations" not in tables:
+            return {}
+        return {
+            int(row["version"]): str(row["name"])
+            for row in connection.execute("SELECT version, name FROM schema_migrations")
+        }
 
     def _validate_migration_history(self, current: int, migrations: Sequence[Migration]) -> None:
         """Refuse a schema whose applied versions/names do not match this build."""
@@ -219,8 +282,12 @@ class Database:
             )
         ]
         known = {migration.version: migration.name for migration in migrations}
+        # Records outside the core: retired scripts, and scripts of plugin-owned sets.
+        # Each is accepted only with the name it was applied under.
+        accepted = dict(_RETIRED_MIGRATIONS)
+        accepted.update({version: name for version, (_, name) in PLUGIN_OWNED_MIGRATIONS.items()})
         retired = [(version, name) for version, name in recorded if version not in known]
-        if any(_RETIRED_MIGRATIONS.get(version) != name for version, name in retired):
+        if any(accepted.get(version) != name for version, name in retired):
             raise UnsupportedMigrationHistoryError(
                 "The database records an unknown or unsupported migration. "
                 "The database was left unchanged."
@@ -237,7 +304,7 @@ class Database:
             )
         # Migration 010 only added analysis tables. Keep its history and data in
         # place while later migrations advance the active application schema.
-        # Filtering only this exact retired record keeps unknown histories strict.
+        # Filtering only the exact records above keeps unknown histories strict.
         active_recorded = [item for item in recorded if item[0] in known]
         expected = [
             (migration.version, migration.name)
@@ -275,7 +342,10 @@ class Database:
                 "INSERT INTO schema_migrations (version, name, applied_at_utc) VALUES (?, ?, ?)",
                 (migration.version, migration.name, _utc_now()),
             )
-            connection.execute(f"PRAGMA user_version = {migration.version:d}")
+            # A plugin script may carry a lower number than the file already holds.
+            row = connection.execute("PRAGMA user_version").fetchone()
+            reached = max(int(row[0]) if row is not None else 0, migration.version)
+            connection.execute(f"PRAGMA user_version = {reached:d}")
         except Exception as error:
             connection.execute("ROLLBACK")
             raise MigrationFailedError(migration, error) from error

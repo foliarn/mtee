@@ -28,15 +28,15 @@ from mtee.domain.analysis import AnalysisSettings
 from mtee.domain.artists import build_stem, propose, safe_file_name
 from mtee.domain.jobs import JobCancelledError
 from mtee.domain.tracks import SourceRevision, TrackId, sha256_of_file
-from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
-from mtee.services import artist_file_service
+from mtee.plugins.artist_manager import file_service as artist_file_service
+from mtee.plugins.artist_manager.file_service import ArtistFileService
+from mtee.plugins.artist_manager.identification import ArtistIdentificationService
+from mtee.plugins.artist_manager.repository import ArtistRepository
+from mtee.plugins.artist_manager.service import ArtistManagerError, ArtistManagerService
 from mtee.services.analysis_service import AnalysisService
-from mtee.services.artist_file_service import ArtistFileService
-from mtee.services.artist_identification_service import ArtistIdentificationService
-from mtee.services.artist_manager_service import ArtistManagerError, ArtistManagerService
 from mtee.services.ffmpeg_runtime import FfmpegRuntime, FfmpegRuntimeError
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.metadata_reader import MetadataReader

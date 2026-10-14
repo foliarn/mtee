@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from mtee.domain.artist_profile import ArtistProfile
 from mtee.domain.artists import CATEGORIES, normalize_key
-from mtee.persistence.artist_repository import ArtistRepository, StageResult
-from mtee.services.artist_file_service import ArtistFileService
+from mtee.plugins.artist_manager.file_service import ArtistFileService
+from mtee.plugins.artist_manager.profile import ArtistProfile
+from mtee.plugins.artist_manager.repository import ArtistRepository, StageResult
 
 __all__ = ["ArtistManagerError", "ArtistManagerService", "ConfirmationPreview"]
 

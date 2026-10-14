@@ -9,7 +9,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Property, QEvent, QObject, Qt, QTimer, Signal, Slot
@@ -19,7 +19,6 @@ from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationHistory, NavigationLocation
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
-from mtee.models.artist_manager_model import ArtistManagerModel, NullArtistManager
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.file_move_model import FileMoveModel
 from mtee.models.folder_tree_model import FolderTreeModel
@@ -35,12 +34,17 @@ from mtee.persistence.workspace_repository import (
     DEFAULT_COLUMN_PREFERENCES,
     WorkspaceRepository,
 )
+from mtee.plugins.registry import plugin_ui_enabled
 from mtee.services.folder_refresh import refresh_folder
 from mtee.services.folder_watch import FolderWatchService
 from mtee.services.jobs import JobContext, JobService
 from mtee.services.library_scanner import LibraryScanner
 from mtee.services.metadata_reader import MetadataReader
 from mtee.services.platform.shell_reveal import WindowsShellReveal
+
+if TYPE_CHECKING:
+    # The artist manager is a plugin: the core only attaches it, it never builds it.
+    from mtee.plugins.artist_manager.models import ArtistManagerModel
 
 __all__ = ["WorkspaceModel"]
 
@@ -60,7 +64,18 @@ _SORT_KEYS = {
     "fileModifiedAt",
 }
 _COLUMN_KEYS = {key for key, _label in COLUMN_OPTIONS}
-_ACTIVITIES = {"explorer", "playlists", "artists", "convert", "tasks", "plugins", "profile"}
+# The artist manager has no activity entry in v0.1 (step 112 adds a core Artists view).
+_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins", "profile"}
+
+
+def _known_activity(activity: str) -> str:
+    """Return ``activity`` when this build offers it, otherwise the Explorer.
+
+    A saved state can name an activity that was removed or hidden in the meantime.
+    """
+    if activity == "plugins" and not plugin_ui_enabled():
+        return "explorer"
+    return activity if activity in _ACTIVITIES else "explorer"
 
 
 class WorkspaceModel(QObject):
@@ -142,7 +157,7 @@ class WorkspaceModel(QObject):
                 self._anchor_by_tab[key] = str(
                     selected.get("anchor", tab_state.get("selectionAnchor", ""))
                 )
-        self._activity = str(self._state.get("activity", "explorer"))
+        self._activity = _known_activity(str(self._state.get("activity", "explorer")))
         self._sidebar_visible = bool(self._state.get("sidebarVisible", True))
         self._right_visible = bool(self._state.get("rightPanelVisible", False))
         saved_right_tab = str(self._state.get("rightPanelTab", "info"))
@@ -495,7 +510,7 @@ class WorkspaceModel(QObject):
                 if tab_id not in group["tabs"]:
                     group["tabs"].append(tab_id)
             group["active"] = tab_id
-            self._activity = location.activity
+            self._activity = _known_activity(location.activity)
             self._fullscreen = location.fullscreen
             self._right_visible = location.right_visible
             self._right_tab = location.right_tab
@@ -802,7 +817,7 @@ class WorkspaceModel(QObject):
             self.openPlaylist(reference)
             self._select_revealed_row("playlist:" + reference, identity)
             return
-        if kind == "artist" and isinstance(self._artist_manager, ArtistManagerModel):
+        if kind == "artist" and self._artist_manager is not None:
             name = self._artist_manager.artist_name(reference)
             if name:
                 self.openArtistPage(reference, name)
@@ -829,7 +844,7 @@ class WorkspaceModel(QObject):
     def trackArtists(self, track_id: str) -> list[dict[str, str]]:
         """Return the confirmed artists credited on a track, as {"id", "name"} in credit order."""
         manager = self._artist_manager
-        if not isinstance(manager, ArtistManagerModel) or not track_id:
+        if manager is None or not track_id:
             return []
         identity = str(track_id)
         credits = manager.service.repository.confirmed_credit_names([identity]).get(identity, [])
@@ -854,7 +869,7 @@ class WorkspaceModel(QObject):
             self.setFullscreen(False)
         if kind == "playlist" and reference:
             self.openPlaylist(reference)
-        elif kind == "artist" and isinstance(self._artist_manager, ArtistManagerModel):
+        elif kind == "artist" and self._artist_manager is not None:
             name = self._artist_manager.artist_name(reference)
             if name:
                 self.openArtistPage(reference, name)
@@ -1106,11 +1121,15 @@ class WorkspaceModel(QObject):
     def analysisSettings(self) -> QObject:
         return self._analysis_settings if self._analysis_settings is not None else self
 
-    @Property(QObject, constant=True)
-    def artistManager(self) -> QObject:
-        if self._artist_manager is None:
-            self._artist_manager = cast(ArtistManagerModel, NullArtistManager(self))
+    @Property(QObject, notify=layoutChanged)
+    def artistManager(self) -> QObject | None:
+        """The artist manager plugin, absent in v0.1 until a plugin attaches it."""
         return self._artist_manager
+
+    @Property(bool, constant=True)
+    def pluginUiEnabled(self) -> bool:
+        """Whether the Plugins entry and the plugin services exist in this build."""
+        return plugin_ui_enabled()
 
     @Property(QObject, constant=True)
     def tagConflicts(self) -> QObject:
@@ -1196,18 +1215,10 @@ class WorkspaceModel(QObject):
         editor.changed.connect(self.metadataChanged.emit)
         editor.sourceChanged.connect(self._on_metadata_changed)
         editor.noticeRaised.connect(self._set_message)
-        editor.artistsSynced.connect(self._on_editor_artists_synced)
         self.selectionChanged.connect(editor.refresh_selection)
         self.selectionChanged.connect(self._prepare_visible_metadata)
         editor.refresh_selection()
         self._prepare_visible_metadata()
-
-    @Slot()
-    def _on_editor_artists_synced(self) -> None:
-        """A credit saved from the tag editor changed the artists catalog."""
-        if self._artist_manager is not None:
-            self._artist_manager.refresh()
-        self._reload_analysis_values()
 
     def attach_artist_manager(self, model: ArtistManagerModel) -> None:
         """Attach the artist manager; its file applications refresh the rows and the player."""
@@ -1503,7 +1514,7 @@ class WorkspaceModel(QObject):
     def _artist_rows(self, artist_id: str) -> list[dict[str, Any]]:
         """Rows of the tracks credited to an artist by a confirmed credit."""
         manager = self._artist_manager
-        if not isinstance(manager, ArtistManagerModel):
+        if manager is None:
             return []
         ids = manager.service.repository.catalog_track_ids(artist_id)
         return self._library.tracks_by_ids(ids)
@@ -2034,7 +2045,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str)
     def setActivity(self, activity: str) -> None:
-        if activity not in _ACTIVITIES:
+        if _known_activity(activity) != activity:
             return
         self._cancel_explorer_track_action()
         self._capture_navigation()
@@ -2102,9 +2113,10 @@ class WorkspaceModel(QObject):
     @Slot(str, str)
     def openArtistView(self, view: str, title: str) -> None:
         """Open a page of the artist manager (``from_tags.tracks``, ``catalog``…) as a tab."""
+        if self._artist_manager is None:
+            return
         self._cancel_explorer_track_action()
         self._capture_navigation()
-        self._activity = "artists"
         self._sidebar_visible = True
         self._open_special_tab(f"artists:{view}", title)
         self._record_navigation()
@@ -2114,9 +2126,10 @@ class WorkspaceModel(QObject):
     @Slot(str, str)
     def openArtistPage(self, artist_id: str, name: str) -> None:
         """Open the page of one artist: its tracks, listed like a playlist page."""
+        if self._artist_manager is None:
+            return
         self._cancel_explorer_track_action()
         self._capture_navigation()
-        self._activity = "artists"
         self._sidebar_visible = True
         tab_id = f"artist:{artist_id}"
         group = self._groups[self._active_group]
@@ -2143,7 +2156,7 @@ class WorkspaceModel(QObject):
         if available and self._player is not None:
             name = (
                 self._artist_manager.artist_name(artist_id)
-                if isinstance(self._artist_manager, ArtistManagerModel)
+                if self._artist_manager is not None
                 else ""
             )
             ids = [str(row["id"]) for row in available]
@@ -2726,7 +2739,7 @@ class WorkspaceModel(QObject):
             root = self._roots_by_id.get(root_id, {})
             return str(root.get("name") or track.get("title") or "Folder")
         kind, _, reference = source.partition(":")
-        if kind == "artist" and isinstance(self._artist_manager, ArtistManagerModel):
+        if kind == "artist" and self._artist_manager is not None:
             return self._artist_manager.artist_name(reference) or "Artist"
         return str(track.get("album") or track.get("title") or "Library")
 

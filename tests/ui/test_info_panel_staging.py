@@ -46,7 +46,7 @@ def _field_input(window: QQuickWindow, index: int) -> QQuickItem:
     return inputs[index]
 
 
-def test_edits_wait_for_save_and_reach_the_artists_catalog(qapp, tmp_path: Path) -> None:
+def test_edits_wait_for_save_and_are_written_as_tags(qapp, tmp_path: Path) -> None:
     music = tmp_path / "music"
     _write(music / "one.wav")
     data_dir = tmp_path / "data"
@@ -111,19 +111,10 @@ def test_edits_wait_for_save_and_reach_the_artists_catalog(qapp, tmp_path: Path)
         assert saved.artist == ("Nikita, the Wicked",)
         assert editor.changeCount == 0
 
-        # The artists catalog follows, and the new revision does not lock the fields.
-        catalog = cast(Any, workspace)._artist_manager
-        repository = cast(Any, catalog)._service._repository
-        assert [item["name"] for item in repository.catalog()] == ["Nikita, the Wicked"]
-        assert "Nikita, the Wicked" in repository.protected_names()
+        # Saving writes tags only: this build has no artists catalogue to follow, and the
+        # new revision does not lock the fields.
+        assert workspace.artistManager is None
         fields = {field["key"]: field for field in editor.infoFields}
         assert all(field["editable"] for field in fields.values())
-
-        # Replacing the credit removes the former artist, who had only this track.
-        editor.stageArtistRemove("Nikita, the Wicked")
-        editor.stageArtistAdd("Hedex")
-        editor.saveChanges()
-        _wait_for(window, lambda: [i["name"] for i in repository.catalog()] == ["Hedex"], 20)
-        assert [item["name"] for item in repository.artist_names("")] == ["Hedex"]
     finally:
         _shutdown(runtime)

@@ -10,13 +10,18 @@ import pytest
 
 from mtee.persistence.database import Database, UnsupportedMigrationHistoryError
 from mtee.plugins.genre_manager.repository import GenreManagerRepository
+from mtee.plugins.registry import bundled_plugins
 
 
 def _schema_020(directory: Path) -> Path:
+    """Build the schema directory of the build that still shipped 020 (core and artist)."""
     directory.mkdir()
     for migration in Database(directory / "unused.sqlite3").migrations:
-        if migration.version <= 20:
+        if migration.version <= 18:
             shutil.copyfile(migration.path, directory / migration.file_name)
+    artist = next(item for item in bundled_plugins() if item.plugin_id == "artist_manager")
+    for path in sorted(artist.migrations_dir.glob("*.sql")):
+        shutil.copyfile(path, directory / path.name)
     return directory
 
 
@@ -33,12 +38,13 @@ def test_020_to_022_preserves_library_and_artist_data_with_valid_backup(tmp_path
     old.close()
 
     upgraded = Database(path)
-    assert [migration.version for migration in upgraded.migrate()] == [22, 23]
+    assert upgraded.schema_version() == 20
+    assert upgraded.migrate() == []
+    assert GenreManagerRepository(upgraded).tags() == []
     assert upgraded.schema_version() == 23
     assert upgraded.connection().execute("SELECT display_name FROM artists").fetchone()[0] == (
         "Manual artist"
     )
-    assert GenreManagerRepository(upgraded).tags() == []
     assert upgraded.migrate() == []
     backups = list(tmp_path.glob("library.sqlite3.v20.*.backup"))
     assert len(backups) == 1

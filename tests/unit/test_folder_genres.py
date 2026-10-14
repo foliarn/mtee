@@ -8,20 +8,20 @@ from pathlib import Path
 
 import pytest
 
-from mtee.domain.folder_genres import (
+from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
+from mtee.domain.tracks import SourceRevision
+from mtee.persistence.database import Database
+from mtee.persistence.library_repository import LibraryRepository
+from mtee.plugins.artist_manager.folder_genre_service import FolderGenreService
+from mtee.plugins.artist_manager.folder_genres import (
     Credit,
     folder_genres,
     format_genre,
     marker_names,
     track_targets,
 )
-from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
-from mtee.domain.tracks import SourceRevision
-from mtee.persistence.artist_repository import ArtistRepository
-from mtee.persistence.database import Database
-from mtee.persistence.library_repository import LibraryRepository
-from mtee.services.artist_identification_service import ArtistIdentificationService
-from mtee.services.folder_genre_service import FolderGenreService
+from mtee.plugins.artist_manager.identification import ArtistIdentificationService
+from mtee.plugins.artist_manager.repository import ArtistRepository
 
 
 def test_folder_names_get_capitals() -> None:

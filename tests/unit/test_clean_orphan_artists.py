@@ -13,12 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 from clean_orphan_artists import main
 
 from mtee.persistence.database import Database
+from mtee.plugins.artist_manager.repository import ArtistRepository
 
 
 @pytest.fixture
 def path(tmp_path: Path) -> Path:
     database = Database(tmp_path / "mtee.sqlite3")
     database.migrate()
+    ArtistRepository(database)  # the artist tables belong to the artist manager plugin
     connection = database.connection()
     connection.execute("PRAGMA foreign_keys=ON")
     now = "2026-10-07T00:00:00+00:00"
