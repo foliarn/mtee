@@ -70,6 +70,7 @@ from mtee.services.data_privacy import RestoreLayout, apply_pending_restore
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
+from mtee.services.main_thread_gc import install_main_thread_gc
 from mtee.services.media_controls import MediaControls
 from mtee.services.media_decode_service import MediaDecodeService
 from mtee.services.metadata_writer import MetadataEditService
@@ -162,6 +163,9 @@ def run() -> None:
 
 def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtime | None:
     """Create the services, the models and the window; ``None`` on a QML failure."""
+    # Before any worker starts: a Qt object freed by a collection on a worker thread
+    # leaves dangling registrations in the event dispatcher of this thread.
+    install_main_thread_gc(application)
     paths = resolve_app_paths(options.data_dir, demo=options.demo).ensure()
 
     database = Database(paths.database_path)

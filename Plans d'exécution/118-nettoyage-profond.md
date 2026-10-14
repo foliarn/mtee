@@ -159,9 +159,11 @@ Ordre initial, du moins risqué au plus risqué : fonctions de module, écriture
    - avec l'étape 1 seule : 0 sur 6, deux fois.
 
    La violation d'accès survient dans la boucle d'événements de pytest-qt, sans autre thread Python vivant. Plusieurs `WorkspaceModel` vivent dans le même processus (aucun n'est libéré, même après `gc.collect()`), et leurs minuteries ou travailleurs survivent à leur test. C'est la même famille que l'arrêt avec plusieurs runtimes. Cause exacte non établie ; l'extraction est retirée.
+
+   Cause établie et corrigée le 2026-10-15 (voir Surprises & Discoveries) : l'extraction créait un cycle de références entre le modèle et son collaborateur, et le ramasse-miettes détruisait le modèle abandonné sur un travailleur. Recréée avec le correctif, elle passe `tests/unit/test_preview_tabs.py` 10 fois sur 10. Elle n'est pas conservée : elle relève de la suite de la phase 5.
 3. Abandonné : l'historique de navigation. Rejouer un pas d'historique réécrit une quinzaine d'états propres à la façade (groupes, onglet actif, activité, plein écran, panneau droit, page de réglages, vue de l'onglet, sélection, ancres, défilement). Un collaborateur aurait besoin du modèle entier : ce serait déplacer l'objet-dieu, pas le découper. La navigation reste avec la mise en page.
 
-Stratégie révisée : un cœur pur et une coquille impérative. Sont extraites les fonctions de décision non triviales (pures et testées directement), tandis que la façade garde l'état et ses mutations. Aucun `QObject` portant des minuteries ou des threads n'est sorti du modèle tant que le problème de durée de vie des objets Qt avec plusieurs instances n'est pas résolu (tâche proposée séparément). Prochaines candidates :
+Stratégie révisée : un cœur pur et une coquille impérative. Sont extraites les fonctions de décision non triviales (pures et testées directement), tandis que la façade garde l'état et ses mutations. Aucun `QObject` portant des minuteries ou des threads n'est sorti du modèle tant que le problème de durée de vie des objets Qt avec plusieurs instances n'est pas résolu (tâche proposée séparément). Ce problème est résolu depuis le 2026-10-15 : un collaborateur `QObject` peut de nouveau être extrait, sous la règle notée au Decision Log (un travailleur ne détient jamais la dernière référence à un objet Qt). Prochaines candidates :
 - la décision qui suit une reconstruction de l'index des artistes (artiste à ouvrir, onglets à fermer, à renommer ou à recharger), depuis `_on_artist_index_changed` ;
 - les calculs de `_request_track_rows` et du tri des dossiers ;
 - le classement des événements de rafraîchissement des dossiers.
@@ -186,7 +188,7 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - [x] 2026-10-14 — Phase 2 appliquée : huit worktrees d'agents fusionnées supprimées avec leurs branches ; `.claude`, `.codex` et `.agents` exclus de ruff ; code mort et prototypes supprimés (Sonnet) ; scripts déplacés dans `scripts/archive/` (Sonnet) ; diffs relus et contrôles relancés (Opus). Bilan : 66 fichiers touchés, 40 insertions, 6 349 suppressions.
 - [x] 2026-10-14 — Commit et push de la phase 2 (`3a37242`).
 - [x] 2026-10-14 — Phase 1b : les échecs d'assertion sont tous corrigés ; quatre défauts du code sont corrigés ; la cause principale des plantages natifs est trouvée et corrigée. Il reste une forme de plantage, avec plusieurs runtimes dans un même processus (voir ci-dessous).
-- [ ] Plantage avec plusieurs runtimes dans un même processus (`test_fullscreen_player_100.py`, `test_playlists_ui.py`) : enquête native à mener séparément.
+- [x] 2026-10-15 — Plantage avec plusieurs runtimes dans un même processus (`test_fullscreen_player_100.py`, `test_playlists_ui.py`) : cause native établie, ramasse-miettes cyclique déplacé sur le thread graphique (voir Surprises & Discoveries et Decision Log).
 - [x] 2026-10-14 — Phase 3 : `ruff check --fix` et `ruff format` (Haiku), puis les 8 E501 et le SIM105 restants à la main (Sonnet), avec relecture d'Opus. `ruff check .` et `ruff format --check .` passent.
 - [x] 2026-10-14 — Phase 4 :
   - tests de caractérisation de `TrashModel` et `TrashService` (Sonnet) ;
@@ -230,6 +232,15 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - La journalisation n'a aucun gestionnaire configuré. Les avertissements ajoutés partent sur stderr, invisible dans l'EXE fenêtré, et `logs/` reste vide. Configurer un fichier de journal serait une fonctionnalité : à proposer, non ajoutée.
 - Piste pour l'arrêt avec plusieurs runtimes : sans `shiboken6.delete` et `gc.collect()` explicites à la fin d'une fixture, un passage du ramasse-miettes pendant le `processEvents` d'un test suivant faisait planter l'interpréteur (violation d'accès dépendant de l'ordre), observé en écrivant les tests de la corbeille.
 
+- 2026-10-15, cause des arrêts avec plusieurs runtimes ou plusieurs `WorkspaceModel` dans un processus. CPython 3.12 lance la collecte automatique des cycles sur le thread qui franchit le seuil d'allocations, souvent un travailleur de `JobService`. Un objet Qt possédé par Python et pris dans un cycle de références est alors détruit sur ce travailleur : par exemple un `WorkspaceModel` abandonné, avec ses fermetures et ses connexions. Or, sous Windows, le `QFileSystemWatcher` de `FolderWatchService` installe dès sa construction un filtre d'événements natifs dans le répartiteur du thread graphique (l'écouteur de lecteurs amovibles de son moteur). Détruit sur un autre thread, ce filtre se retire du répartiteur de ce thread-là. Le répartiteur graphique garde donc un pointeur vers de la mémoire libérée, et le `processEvents` suivant l'appelle.
+  - Preuves natives, obtenues sans rien installer, avec un débogueur minimal écrit pour l'occasion (API Win32 de débogage et `dbghelp.dll` du système, symboles tirés des exports). Les trois plantages de `test_fullscreen_player_100.py` sous débogueur sont des violations d'accès dans `Qt6Core!QAbstractEventDispatcher::filterNativeEvent`, appelé par `QEventDispatcherWin32::processEvents`. Dans le premier, l'exécution saute vers une adresse du tas (violation d'exécution).
+  - Des points d'arrêt sur `installNativeEventFilter` et `~QAbstractNativeEventFilter` relèvent trois filtres installés par `QFileSystemWatcher::QFileSystemWatcher` sur le thread principal. L'un d'eux est détruit sur un thread de `QThreadPool`, depuis `SbkDeallocWrapper` puis `QObjectPrivate::deleteChildren`.
+  - Un crochet Python sur `destroyed` (connexion directe) montre la collecte en cause : une génération 2 lancée dans un job de forme d'onde (import de `numpy.ma`), qui libère 410 objets, dont le `WorkspaceModel` du runtime précédent.
+  - « Fatal Python error: Aborted » est la même panne. Avec un point d'arrêt sur `ucrtbase!abort` et le tas normal (`_NO_DEBUG_HEAP=1`), la pile est `filterNativeEvent` → `vcruntime140!_purecall` → `abort`. Le destructeur a déjà remis la table virtuelle de la classe abstraite, d'où l'appel d'une fonction virtuelle pure. Quand la mémoire a été réutilisée, c'est une violation d'accès. L'issue dépend de la réutilisation de la mémoire, d'où l'intermittence.
+  - L'extraction de l'écriture de session (phase 5, étape 2) liait le modèle et son collaborateur dans un cycle (méthodes liées passées au collaborateur). Sur `HEAD`, un `WorkspaceModel` abandonné meurt par compteur de références, sur le thread principal. Avec l'extraction, il ne meurt qu'au passage du ramasse-miettes, sur n'importe quel thread. Reproduction déterministe (six modèles abandonnés, puis un job qui alloue) : 4 arrêts sur 4 avec l'extraction, 0 sur 4 sur `HEAD`, 0 sur 5 avec l'extraction et le correctif.
+  - Le constat « aucun `WorkspaceModel` n'est libéré » était faux : les sondes les montrent détruits, mais sur un travailleur.
+  - Ni faulthandler, ni les contrôles média, ni libmpv : ils étaient déjà écartés, et le mécanisme ne les fait pas intervenir.
+
 ## Decision Log
 
 - 2026-10-14 (Opus) — Tests lancés fichier par fichier : la suite complète plante à la fermeture.
@@ -267,7 +278,24 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
   - `trash_partial_failure` rejoint `PARTIAL_ERROR_CODES`. Un lot recyclé en partie s'affiche « Completed with errors », et le message n'est plus préfixé par le nom de la classe.
   - Les tests de caractérisation qui figeaient ces défauts affirment désormais le comportement corrigé.
 
+- 2026-10-15 (Opus) — Le ramasse-miettes cyclique ne tourne plus que sur le thread graphique. `MainThreadGarbageCollector` (`src/mtee/services/main_thread_gc.py`) coupe la collecte automatique et lance les mêmes générations, avec les mêmes seuils, depuis une minuterie d'une seconde du thread graphique. `_build_runtime` l'installe avant de créer le moindre travailleur, et la fixture `qapp` des tests fait de même (`tests/conftest.py`). Test de non-régression : `tests/unit/test_main_thread_gc.py`. Il passe 3 fois sur 3 ; avec la collecte automatique réactivée, il échoue 3 fois sur 3, avec des objets détruits sur les threads `Dummy-1` à `Dummy-3`.
+  - C'est un correctif de l'application, pas seulement des tests. L'application aussi abandonne des objets Qt pris dans des cycles pendant que des travailleurs tournent, et la même destruction hors thread l'y menace.
+  - Écartés : supprimer explicitement chaque modèle à la fin des tests, qui ne protège ni l'application ni les futurs collaborateurs ; interdire les cycles, intenable avec les connexions de signaux et les fermetures.
+  - Reste une règle pour la phase 5 : un travailleur ne détient jamais la dernière référence à un objet Qt. Une libération par compteur de références hors du thread graphique aurait le même effet que la collecte. Les fermetures et les futurs confiés à un travailleur ne capturent donc pas un collaborateur `QObject` qui pourrait être abandonné pendant le travail.
+- 2026-10-15 (Opus) — Deux tests de `test_fullscreen_player_100.py`, jusque-là masqués par l'arrêt, échouaient aussi seuls sur `HEAD`. Tests obsolètes, mis à jour :
+  - molette : depuis `ee7124c`, un défilement en sens inverse passe pendant l'animation, et seul l'élan dans le même sens est ignoré ;
+  - glisser dans la file : depuis `69baca8`, `dragActive` est porté par `QueueList`, plus par la carte.
+
 ## Outcomes & Retrospective
+
+Correctif des arrêts avec plusieurs runtimes, contrôles du 2026-10-15 (chaque exécution avec un délai maximal et arrêt forcé de l'arbre de processus) :
+
+- Avant le correctif : `test_fullscreen_player_100.py` s'arrêtait 3 fois sur 3 vers le 14ᵉ test (violation d'accès ou « Aborted »), et 3 fois sur 3 sous débogueur.
+- Après : `test_fullscreen_player_100.py` passe 5 fois sur 5 (41 tests) et `test_playlists_ui.py` 5 fois sur 5.
+- Extraction de l'écriture de session recréée dans une worktree temporaire, avec le correctif : `test_preview_tabs.py` passe 10 fois sur 10, et la reproduction déterministe 5 fois sur 5. Sans le correctif, la reproduction s'arrête 4 fois sur 4. La worktree est supprimée et l'extraction n'est pas conservée.
+- Tests fichier par fichier : 149 fichiers sur 149 passent, soit 1 174 tests réussis et 3 ignorés, sans aucun arrêt natif.
+- `ruff check .`, `ruff format --check .` et `pyright` : 0.
+- `--smoke-test` depuis les sources : code 0, collecte automatique coupée et collecteur installé. Build Windows non lancé ; aucun parcours interactif.
 
 Phase 4, contrôles du 2026-10-14 :
 
