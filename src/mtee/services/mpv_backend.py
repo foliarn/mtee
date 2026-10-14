@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from mtee.domain.loudness import GAIN_LIMITS_DB
 from mtee.services.player_backend import BackendEvent, BackendEventHandler, PlayerBackendError
 
 __all__ = ["MpvBackend", "mpv_library_path"]
@@ -140,6 +141,14 @@ class MpvBackend:
                 )
             self._check(self._lib.mpv_initialize(self._ctx), "initialize")
             self._initialized = True
+            # libmpv refuses a volume-gain above +12 dB by default; loudness normalization
+            # of quiet tracks needs more (see GAIN_LIMITS_DB).
+            self._set_property(
+                "volume-gain-min", _MPV_FORMAT_DOUBLE, ctypes.c_double(GAIN_LIMITS_DB[0])
+            )
+            self._set_property(
+                "volume-gain-max", _MPV_FORMAT_DOUBLE, ctypes.c_double(GAIN_LIMITS_DB[1])
+            )
             for name, value_format in _PROPERTY_FORMATS.items():
                 result = self._lib.mpv_observe_property(
                     self._ctx, 0, name.encode("ascii"), value_format
@@ -176,6 +185,26 @@ class MpvBackend:
 
     def set_volume(self, value: int) -> None:
         self._set_property("volume", _MPV_FORMAT_DOUBLE, ctypes.c_double(max(0, min(100, value))))
+
+    def set_gain_db(self, value: float) -> None:
+        """Set the gain applied to the audio before the volume, in dB.
+
+        The property is read by the audio chain of the loaded file, so a gain set before
+        ``load`` applies from the first sample of that file. The value is kept inside the
+        range libmpv accepts.
+        """
+        low, high = GAIN_LIMITS_DB
+        gain = min(max(float(value), low), high)
+        self._set_property("volume-gain", _MPV_FORMAT_DOUBLE, ctypes.c_double(gain))
+
+    def gain_db(self) -> float:
+        """Return the gain the native player currently applies, in dB."""
+        value = ctypes.c_double()
+        result = self._lib.mpv_get_property(
+            self._ctx, b"volume-gain", _MPV_FORMAT_DOUBLE, ctypes.byref(value)
+        )
+        self._check(result, "read volume-gain")
+        return value.value
 
     def position_us(self) -> int | None:
         value = ctypes.c_double()

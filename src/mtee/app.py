@@ -31,6 +31,7 @@ from mtee.models.file_move_model import FileMoveModel
 from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.models.jobs_model import JobsListModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
+from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.shell_controller import ShellController
@@ -157,6 +158,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     database.migrate()
     settings = SettingsRepository(database)
     analysis_settings = AnalysisSettingsModel(settings, application)
+    playback_settings = PlaybackSettingsModel(settings, application)
 
     families = register_fonts()
     font_family = resolve_ui_family(families)
@@ -171,6 +173,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     if options.demo:
         workspace = DemoWorkspace(options.scenario)
         workspace.attach_analysis_settings(analysis_settings, TagConflictsModel(parent=application))
+        workspace.attach_playback_settings(playback_settings)
     else:
         library = LibraryRepository(database)
         analysis_repository = AnalysisRepository(database)
@@ -196,6 +199,11 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             _report(str(error))
             saved_playback = None
         player_service.attach_settings(settings)
+        # The normalization choices are in place before a restored track is opened.
+        player_service.set_normalization(playback_settings.settings)
+        playback_settings.changed.connect(
+            lambda: player_service.set_normalization(playback_settings.settings)
+        )
         player_service.attach_session(playback_repository, saved_playback)
         waveform_model = WaveformModel(
             player_service, library, jobs, file_access, analysis_repository, application
@@ -210,6 +218,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             jobs=jobs,
             player=player_model,
         )
+        workspace.attach_playback_settings(playback_settings)
         workspace.attach_genre_manager_factory(
             lambda: load_plugin(
                 "genre_manager", database, library, PlaylistsRepository(database), file_access
