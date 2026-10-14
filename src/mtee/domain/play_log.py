@@ -23,12 +23,21 @@ __all__ = [
     "PlayEvent",
     "PlayTracker",
     "PlayedTrack",
+    "format_listened_at",
     "is_counted_play",
 ]
 
 # A play counts once at least 30 s were heard. A track shorter than this counts when
 # it is played to its end (the Spotify rule).
 COUNTING_THRESHOLD_US = 30 * MICROSECONDS_PER_SECOND
+
+
+def format_listened_at(instant: datetime | None) -> str:
+    """The local date and time of a listening for the English UI, or a dash when none."""
+    if instant is None:
+        return "—"
+    local = instant.astimezone() if instant.tzinfo is not None else instant
+    return local.strftime("%d %b %Y, %H:%M")
 
 
 @dataclass(frozen=True, slots=True)

@@ -23,6 +23,7 @@ from mtee.cli import AppOptions, parse_arguments
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
+from mtee.models.artist_rules_model import ArtistRulesModel
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.cover_accent_model import CoverAccentModel
@@ -187,6 +188,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     profile_avatar: ProfileAvatarProvider | None = None
     statistics_model: StatisticsModel | None = None
     data_privacy_model: DataPrivacyModel | None = None
+    artist_rules_model: ArtistRulesModel | None = None
     if options.demo:
         workspace = DemoWorkspace(options.scenario)
         workspace.attach_analysis_settings(analysis_settings, TagConflictsModel(parent=application))
@@ -222,9 +224,8 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             lambda: player_service.set_normalization(playback_settings.settings)
         )
         player_service.attach_session(playback_repository, saved_playback)
-        player_service.attach_play_log(
-            PlayLogRepository(database), load_or_create_device_id(settings)
-        )
+        play_log = PlayLogRepository(database)
+        player_service.attach_play_log(play_log, load_or_create_device_id(settings))
         waveform_model = WaveformModel(
             player_service, library, jobs, file_access, analysis_repository, application
         )
@@ -252,14 +253,22 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         profile_model = ProfileModel(profile, jobs, application)
         profile_avatar = ProfileAvatarProvider(profile)
         profile_avatar.setParent(application)
-        statistics_model = StatisticsModel(PlayLogRepository(database), jobs, application)
+        statistics_model = StatisticsModel(play_log, jobs, application)
         data_privacy_model = DataPrivacyModel(
             database,
             RestoreLayout(paths.data_dir),
-            PlayLogRepository(database),
+            play_log,
             jobs,
             application,
         )
+        # A stored listening updates the Profile statistics and the listening columns.
+        player_service.playLogWritten.connect(
+            lambda: _refresh_after_listening(statistics_model, jobs)
+        )
+        player_service.playLogWritten.connect(workspace.refreshPlayStats)
+        # Reset statistics (and any other privacy action) ends with a fresh read.
+        data_privacy_model.finished.connect(lambda _message: statistics_model.refresh())
+        workspace.attach_play_log(play_log)
         playlist_service = PlaylistService(PlaylistsRepository(database), library)
         playlists_model = PlaylistsModel(
             playlist_service, settings, jobs, paths.database_path.parent
@@ -284,6 +293,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace.libraryChanged.connect(artist_index.refresh)
         workspace.scanFinished.connect(lambda *_arguments: artist_index.refresh())
         artist_index.refresh()
+        artist_rules_model = ArtistRulesModel(artist_index, application)
         metadata_editor = MetadataEditorModel(
             library,
             metadata_writer,
@@ -379,11 +389,12 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     context.setContextProperty("tracksModel", tracks_model)
     context.setContextProperty("workspace", workspace)
     context.setContextProperty("windowFrame", frame)
-    # Models of the Profile and Data & privacy pages (plan 114); the pages are not wired yet.
+    # Models of the Profile and Settings pages (plans 114-115). Demo mode has none of them.
     for name, model in (
         ("profile", profile_model),
         ("statistics", statistics_model),
         ("dataPrivacy", data_privacy_model),
+        ("artistRules", artist_rules_model),
     ):
         if model is not None:
             context.setContextProperty(name, model)
@@ -424,6 +435,15 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     if isinstance(workspace, WorkspaceModel):
         workspace.resumeRoots()
     return runtime
+
+
+def _refresh_after_listening(statistics: StatisticsModel, jobs: JobService) -> None:
+    """Read the statistics again after a listening was stored, unless the application is closing.
+
+    The last listening is often stored while the player shuts down: then no job may start.
+    """
+    if jobs.accepting:
+        statistics.refresh()
 
 
 def _apply_scheduled_restore(paths: AppPaths, database: Database) -> None:

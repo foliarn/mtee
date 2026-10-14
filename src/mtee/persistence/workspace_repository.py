@@ -29,6 +29,10 @@ COLUMN_OPTIONS = (
     ("bitrate", "Bitrate"),
     ("fileCreatedAt", "Date created"),
     ("fileModifiedAt", "Date modified"),
+    # Listening counts from the play log (plan 115). Hidden by default, also for users whose
+    # saved layout predates them.
+    ("playCount", "Plays"),
+    ("lastPlayed", "Last played"),
 )
 _COLUMN_KEYS = tuple(key for key, _label in COLUMN_OPTIONS)
 _DEFAULT_COLUMN_ORDER = [
@@ -44,6 +48,8 @@ _DEFAULT_COLUMN_ORDER = [
     "filename",
     "bitrate",
     "fileModifiedAt",
+    "playCount",
+    "lastPlayed",
 ]
 _DEFAULT_HIDDEN_COLUMNS = [
     "album",
@@ -53,6 +59,8 @@ _DEFAULT_HIDDEN_COLUMNS = [
     "filename",
     "bitrate",
     "fileModifiedAt",
+    "playCount",
+    "lastPlayed",
 ]
 _DEFAULT_COLUMN_WIDTHS = {
     "title": 0,
@@ -67,6 +75,8 @@ _DEFAULT_COLUMN_WIDTHS = {
     "bitrate": 78,
     "fileCreatedAt": 110,
     "fileModifiedAt": 110,
+    "playCount": 64,
+    "lastPlayed": 124,
 }
 DEFAULT_COLUMN_PREFERENCES: dict[str, Any] = {
     "order": list(_DEFAULT_COLUMN_ORDER),
@@ -200,7 +210,6 @@ def _validated(value: Any) -> dict[str, Any]:
         "convert",
         "tasks",
         "plugins",
-        "profile",
     }:
         result["activity"] = "explorer"
     if not isinstance(result["rightPanelTab"], str) or result["rightPanelTab"] not in {
@@ -220,10 +229,12 @@ def _validated_column_preferences(value: Any) -> dict[str, Any]:
         return deepcopy(DEFAULT_COLUMN_PREFERENCES)
 
     raw_order = value.get("order")
+    saved_keys: set[str] = set()
     if isinstance(raw_order, list):
         order = list(
             dict.fromkeys(key for key in raw_order if isinstance(key, str) and key in _COLUMN_KEYS)
         )
+        saved_keys = set(order)
         order.extend(key for key in _DEFAULT_COLUMN_ORDER if key not in order)
     else:
         order = list(_DEFAULT_COLUMN_ORDER)
@@ -232,6 +243,12 @@ def _validated_column_preferences(value: Any) -> dict[str, Any]:
     if isinstance(raw_hidden, list):
         hidden = list(
             dict.fromkeys(key for key in raw_hidden if isinstance(key, str) and key in _COLUMN_KEYS)
+        )
+        # A column added after the layout was saved follows its default visibility.
+        hidden.extend(
+            key
+            for key in _DEFAULT_HIDDEN_COLUMNS
+            if saved_keys and key not in saved_keys and key not in hidden
         )
     else:
         hidden = list(_DEFAULT_HIDDEN_COLUMNS)

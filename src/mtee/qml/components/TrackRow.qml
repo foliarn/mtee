@@ -217,7 +217,10 @@ Rectangle {
                         fileCreatedAt: row.track.fileCreatedAtText,
                         fileModifiedAt: row.track.fileModifiedAtText,
                         format: row.track.format,
-                        filename: row.track.filename
+                        filename: row.track.filename,
+                        // A count of 0 is shown as "0", so it is passed as text.
+                        playCount: row.track.playCount !== undefined ? String(row.track.playCount) : "",
+                        lastPlayed: row.track.lastPlayedText
                     }
                     return String(values[columnKey] || "")
                 }

@@ -26,6 +26,7 @@ from mtee.services.data_privacy import (
     back_up_database,
     cancel_pending_restore,
     default_backup_name,
+    prune_safety_copies,
     read_pending_restore,
     reset_statistics,
     stage_restore,
@@ -329,3 +330,67 @@ def test_reset_statistics_removes_the_events_and_keeps_the_installation_id(
     assert removed == 2
     assert repository.totals().sessions == 0
     assert settings.get(DEVICE_ID_KEY) == device
+
+
+def _old_safety_copy(layout: RestoreLayout, stamp: str) -> Path:
+    layout.directory.mkdir(parents=True, exist_ok=True)
+    path = layout.directory / f"before-restore-{stamp}.sqlite3"
+    path.write_bytes(b"older safety copy")
+    return path
+
+
+def test_a_successful_restore_keeps_only_the_three_newest_safety_copies(
+    live: Database, data_dir: Path
+) -> None:
+    SettingsRepository(live).set("probe", "backup-state")
+    backup = back_up_database(live, data_dir / "good.sqlite3")
+    live.close()
+    database_path = data_dir / "mtee.sqlite3"
+    layout = _layout(data_dir)
+    older = [_old_safety_copy(layout, f"2026010{day}T000000000000Z") for day in range(1, 6)]
+    stage_restore(
+        backup,
+        layout,
+        database_path=database_path,
+        supported_version=Database(database_path).supported_version,
+        migrations=Database(database_path).migrations,
+        now=NOW,
+    )
+
+    outcome = apply_pending_restore(
+        layout,
+        database_path=database_path,
+        supported_version=Database(database_path).supported_version,
+        migrations=Database(database_path).migrations,
+        now=NOW,
+    )
+
+    assert outcome is not None and outcome.applied and outcome.safety_backup is not None
+    kept = sorted(layout.directory.glob("before-restore-*.sqlite3"))
+    # The two oldest copies are removed; the three newest, the one just made included, stay.
+    assert [path.name for path in kept] == [
+        older[3].name,
+        older[4].name,
+        outcome.safety_backup.name,
+    ]
+
+
+def test_pruning_only_touches_safety_copies(data_dir: Path) -> None:
+    layout = _layout(data_dir)
+    layout.directory.mkdir(parents=True, exist_ok=True)
+    copies = [_old_safety_copy(layout, f"2026010{day}T000000000000Z") for day in range(1, 4)]
+    unrelated = layout.directory / "notes.sqlite3"
+    unrelated.write_bytes(b"not a safety copy")
+    renamed = layout.directory / "before-restore-keep.txt"
+    renamed.write_text("not a copy", encoding="utf-8")
+
+    removed = prune_safety_copies(layout, keep=1)
+
+    assert [path.name for path in removed] == [copies[0].name, copies[1].name]
+    assert copies[2].exists()
+    assert unrelated.exists() and renamed.exists()
+
+
+def test_pruning_needs_at_least_one_kept_copy(data_dir: Path) -> None:
+    with pytest.raises(ValueError):
+        prune_safety_copies(_layout(data_dir), keep=0)

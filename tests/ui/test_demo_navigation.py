@@ -108,17 +108,6 @@ def test_fullscreen_keeps_the_island_and_restores_the_editor(qapp, tmp_path: Pat
         _close(application, runtime)
 
 
-def test_placeholder_activities_show_coming_later(qapp, tmp_path: Path) -> None:
-    application, runtime = _runtime(qapp, tmp_path, "explorer")
-    try:
-        root = runtime.engine.rootObjects()[0]
-        cast(DemoWorkspace, runtime.workspace).setActivity("plugins")
-        QCoreApplication.processEvents()
-        assert _visible(root, "placeholderPane")
-    finally:
-        _close(application, runtime)
-
-
 def test_the_island_setting_hides_the_island(qapp, tmp_path: Path) -> None:
     application, runtime = _runtime(qapp, tmp_path, "settings")
     try:

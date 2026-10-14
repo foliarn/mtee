@@ -243,6 +243,37 @@ Item {
                     }
                 }
             }
+
+            // Listening figures of the single track, from the play log (plan 115).
+            SectionLabel {
+                visible: !info.multiple && info.workspace.infoListening.length > 0
+                text: "Listening"
+            }
+
+            Repeater {
+                model: info.workspace.infoListening
+                delegate: Column {
+                    required property var modelData
+                    width: body.width
+                    spacing: 2
+
+                    Text {
+                        text: modelData.label
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: modelData.value
+                        wrapMode: Text.WrapAnywhere
+                        color: Theme.textPrimary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSecondary
+                    }
+                }
+            }
         }
     }
 
