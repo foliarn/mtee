@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import os
-import re
 import sqlite3
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Property, QEvent, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QGuiApplication, QMouseEvent, QWindow
@@ -19,7 +17,6 @@ from mtee.domain.artist_index import album_track_order
 from mtee.domain.artists import normalize_key
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationHistory, NavigationLocation
-from mtee.domain.play_log import format_listened_at
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artist_index_model import ArtistListModel
@@ -33,8 +30,18 @@ from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
+from mtee.models.workspace_rows import (
+    copy_column_preferences,
+    folder_from_track,
+    listening_details,
+    local_path,
+    parse_folder_id,
+    parse_folder_ref,
+    sort_rows,
+    with_play_stats,
+)
 from mtee.persistence.library_repository import LibraryRepository
-from mtee.persistence.play_log_repository import PlayLogRepository, TrackPlayStats
+from mtee.persistence.play_log_repository import PlayLogRepository
 from mtee.persistence.workspace_repository import (
     COLUMN_OPTIONS,
     DEFAULT_COLUMN_PREFERENCES,
@@ -57,23 +64,6 @@ if TYPE_CHECKING:
 
 __all__ = ["WorkspaceModel"]
 
-_SORT_KEYS = {
-    "index",
-    "title",
-    "artist",
-    "album",
-    "genre",
-    "bpm",
-    "key",
-    "duration",
-    "format",
-    "bitrate",
-    "filename",
-    "fileCreatedAt",
-    "fileModifiedAt",
-    "playCount",
-    "lastPlayed",
-}
 _COLUMN_KEYS = {key for key, _label in COLUMN_OPTIONS}
 # Listening columns: their values come from the play log, read off the graphical thread.
 _PLAY_COLUMN_KEYS = ("playCount", "lastPlayed")
@@ -162,7 +152,7 @@ class WorkspaceModel(QObject):
         self._resume_roots_requested = False
         self._state = session.load()
         saved_column_preferences = self._state.get("columnPreferences", DEFAULT_COLUMN_PREFERENCES)
-        self._column_preferences = _copy_column_preferences(saved_column_preferences)
+        self._column_preferences = copy_column_preferences(saved_column_preferences)
         self._expanded = set(self._state.get("expanded", []))
         self._groups = self._restore_groups(self._state.get("groups", []))
         self._active_group = min(int(self._state.get("activeGroup", 0)), len(self._groups) - 1)
@@ -314,7 +304,7 @@ class WorkspaceModel(QObject):
 
     @Property(dict, notify=layoutChanged)
     def columnPreferences(self) -> dict[str, Any]:
-        return _copy_column_preferences(self._column_preferences)
+        return copy_column_preferences(self._column_preferences)
 
     @Property(list, constant=True)
     def columnOptions(self) -> list[dict[str, str]]:
@@ -906,7 +896,7 @@ class WorkspaceModel(QObject):
 
     def _folder_source_exists(self, source: str) -> bool:
         try:
-            parsed = _parse_folder_id(source)
+            parsed = parse_folder_id(source)
         except ValueError:
             return False
         if parsed is None:
@@ -1237,7 +1227,7 @@ class WorkspaceModel(QObject):
         ids = self.selected_ids_snapshot()
         if len(ids) != 1 or self._play_log is None:
             return []
-        return _listening_details(self._play_log.track_play_stats([ids[0]]).get(ids[0]))
+        return listening_details(self._play_log.track_play_stats([ids[0]]).get(ids[0]))
 
     @Property(str, notify=messageChanged)
     def message(self) -> str:
@@ -1500,7 +1490,7 @@ class WorkspaceModel(QObject):
             self._set_message("Moving files is not available.")
             return
         try:
-            parsed = _parse_folder_id(str(folder_id))
+            parsed = parse_folder_id(str(folder_id))
         except ValueError:
             parsed = None
         if parsed is None:
@@ -1557,7 +1547,7 @@ class WorkspaceModel(QObject):
         if self._analysis_model is None:
             return
         try:
-            parsed = _parse_folder_id(str(folder_id))
+            parsed = parse_folder_id(str(folder_id))
         except ValueError:
             parsed = None
         if parsed is None:
@@ -1656,7 +1646,7 @@ class WorkspaceModel(QObject):
                 self._jobs.cancel(JobId.parse(previous_job))
         self._track_request_keys[model_key] = key
         # Read on the GUI thread, before the job starts: the job never reads the preferences.
-        with_play_stats = kind != "playlist" and self._needs_play_stats(sort_key)
+        add_play_stats = kind != "playlist" and self._needs_play_stats(sort_key)
         # The index is read here, on the graphical thread, and the job gets its own copy.
         artist_ids = self._artist_track_ids(ref) if kind == "artist" else []
 
@@ -1667,7 +1657,7 @@ class WorkspaceModel(QObject):
             elif kind == "artist":
                 rows = self._artist_rows(artist_ids)
             else:
-                root_id, relative = _parse_folder_ref(ref)
+                root_id, relative = parse_folder_ref(ref)
                 rows = self._library.tracks_in_folder(root_id, relative)
             if query:
                 rows = [
@@ -1679,12 +1669,12 @@ class WorkspaceModel(QObject):
                         for field in ("title", "artist", "album", "genre", "filename")
                     ).casefold()
                 ]
-            if with_play_stats and self._play_log is not None:
+            if add_play_stats and self._play_log is not None:
                 # One batched query per tab load, off the graphical thread.
                 stats = self._play_log.track_play_stats(str(row.get("id", "")) for row in rows)
-                rows = _with_play_stats(rows, stats)
+                rows = with_play_stats(rows, stats)
             ordered = (
-                rows if sort_key == "index" and ascending else _sort_rows(rows, sort_key, ascending)
+                rows if sort_key == "index" and ascending else sort_rows(rows, sort_key, ascending)
             )
             context.raise_if_cancelled()
             self.trackRowsReady.emit(model_key, generation, ordered)
@@ -1797,7 +1787,7 @@ class WorkspaceModel(QObject):
             return
         if folder_id in self._folder_job_ids:
             return
-        parsed = _parse_folder_id(folder_id)
+        parsed = parse_folder_id(folder_id)
         if parsed is None:
             return
         root_id, relative = parsed
@@ -1860,7 +1850,7 @@ class WorkspaceModel(QObject):
     def tabSummary(self, kind: str, ref: str, _revision: int = 0) -> str:
         if kind != "folder":
             return ""
-        root_id, relative = _parse_folder_ref(ref)
+        root_id, relative = parse_folder_ref(ref)
         count, size, duration_us = self._library.folder_stats(root_id, relative)
         seconds = round(duration_us / 1_000_000)
         total = (
@@ -1881,7 +1871,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str, result=str)
     def addRoot(self, selected: str) -> str:
-        path = _local_path(selected)
+        path = local_path(selected)
         if not path:
             return ""
         source = Path(path)
@@ -2047,7 +2037,7 @@ class WorkspaceModel(QObject):
 
     @Slot(str)
     def openFolder(self, folder_id: str) -> None:
-        parsed = _parse_folder_id(folder_id)
+        parsed = parse_folder_id(folder_id)
         if parsed is None:
             return
         self._cancel_explorer_track_action()
@@ -2071,7 +2061,7 @@ class WorkspaceModel(QObject):
         self._request_explorer_track_action(track_id, folder_id, play=True)
 
     def _request_explorer_track_action(self, track_id: str, folder_id: str, *, play: bool) -> None:
-        parsed = _parse_folder_id(folder_id)
+        parsed = parse_folder_id(folder_id)
         if parsed is None or not track_id:
             return
 
@@ -2209,7 +2199,7 @@ class WorkspaceModel(QObject):
             self._pending_explorer_track = None
             self._set_message("This file is no longer in the library.")
             return
-        if str(track.get("rootId", "")) != str(pending["root_id"]) or _folder_from_track(
+        if str(track.get("rootId", "")) != str(pending["root_id"]) or folder_from_track(
             track
         ) != str(pending["relative"]):
             self._pending_explorer_track = None
@@ -2667,7 +2657,7 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def resetColumns(self) -> None:
-        self._column_preferences = _copy_column_preferences(DEFAULT_COLUMN_PREFERENCES)
+        self._column_preferences = copy_column_preferences(DEFAULT_COLUMN_PREFERENCES)
         self._refresh_hidden_sorts(set(self._column_preferences["hidden"]))
         self.layoutChanged.emit()
         self._persist()
@@ -2924,11 +2914,11 @@ class WorkspaceModel(QObject):
         )
         if track is None:
             track = self.track(track_id) if supplied_rows is None else {}
-        folder = _parse_folder_id(source)
+        folder = parse_folder_id(source)
         if folder is not None:
             root_id, relative = folder
         elif track:
-            root_id, relative = str(track.get("rootId", "")), _folder_from_track(track)
+            root_id, relative = str(track.get("rootId", "")), folder_from_track(track)
         else:
             root_id, relative = "", ""
         model = self._active_track_model(f"folder:{root_id}/{relative}")
@@ -2953,7 +2943,7 @@ class WorkspaceModel(QObject):
                         for key in ("title", "artist", "album", "genre", "filename")
                     ).casefold()
                 ]
-            folder_rows = _sort_rows(
+            folder_rows = sort_rows(
                 folder_rows,
                 str(state.get("sortKey", "fileCreatedAt")),
                 bool(state.get("sortAscending", False)),
@@ -2976,7 +2966,7 @@ class WorkspaceModel(QObject):
         self.playTrack(track_id, source, rows)
 
     def _playback_source_title(self, source: str, track: dict[str, Any]) -> str:
-        folder = _parse_folder_id(source)
+        folder = parse_folder_id(source)
         if folder is not None:
             root_id, relative = folder
             if relative:
@@ -3102,7 +3092,7 @@ class WorkspaceModel(QObject):
             }.get(kind, "Folder")
             if kind == "folder":
                 try:
-                    root_id, relative = _parse_folder_ref(ref)
+                    root_id, relative = parse_folder_ref(ref)
                     root = self._roots_by_id.get(root_id, {})
                     title = (
                         relative.rsplit("/", 1)[-1] if relative else str(root.get("name", "Folder"))
@@ -3173,7 +3163,7 @@ class WorkspaceModel(QObject):
                 ref = str(raw_tab.get("ref", ""))
                 if raw_tab.get("kind") == "folder":
                     try:
-                        _parse_folder_ref(ref)
+                        parse_folder_ref(ref)
                     except ValueError:
                         continue
                 tab_id = str(raw_tab.get("id", f"folder:{ref}"))
@@ -3284,7 +3274,7 @@ class WorkspaceModel(QObject):
             if not tab_id.startswith("folder:"):
                 continue
             with suppress(ValueError):
-                parsed = _parse_folder_id(tab_id)
+                parsed = parse_folder_id(tab_id)
                 if parsed is not None:
                     active.add(parsed)
         targets: dict[str, tuple[str, str]] = {}
@@ -3471,7 +3461,7 @@ class WorkspaceModel(QObject):
             "rightPanelWidth": self._right_panel_width,
             "islandEnabled": self._island_enabled,
             "previewTabs": self._preview_tabs,
-            "columnPreferences": _copy_column_preferences(self._column_preferences),
+            "columnPreferences": copy_column_preferences(self._column_preferences),
         }
 
     @Slot()
@@ -3534,146 +3524,3 @@ class WorkspaceModel(QObject):
             self._set_message(f"Could not save this workspace: {error}")
         finally:
             self._session_executor.shutdown(wait=True)
-
-
-def _parse_folder_id(folder_id: str) -> tuple[str, str] | None:
-    if folder_id.startswith("root:"):
-        return folder_id.partition(":")[2], ""
-    if folder_id.startswith("folder:"):
-        return _parse_folder_ref(folder_id.partition(":")[2])
-    return None
-
-
-def _parse_folder_ref(ref: str) -> tuple[str, str]:
-    root_id, separator, relative = ref.partition("/")
-    if not root_id or not re.fullmatch(r"[0-9a-fA-F-]{36}", root_id):
-        raise ValueError("invalid library root reference")
-    if not separator or not relative:
-        return root_id, ""
-    relative_path = Path(relative)
-    if relative_path.is_absolute() or ".." in relative_path.parts:
-        raise ValueError("invalid relative folder path")
-    return root_id, relative_path.as_posix() if separator else ""
-
-
-def _local_path(value: str) -> str:
-    parsed = urlparse(value)
-    if parsed.scheme == "file":
-        path = unquote(parsed.path)
-        if os.name == "nt" and re.match(r"^/[A-Za-z]:", path):
-            path = path[1:]
-        if parsed.netloc:
-            path = f"//{parsed.netloc}{path}"
-        return path
-    return value.strip()
-
-
-_CAMELOT_CODE = re.compile(r"^(\d{1,2})([AaBb])$")
-
-
-def _camelot_order(row: dict[str, Any]) -> tuple[int, int] | None:
-    """Return the Camelot position of a row as (number, letter), or None without a code.
-
-    Within a number, A sorts before B, and 10 comes after 9.
-    """
-    for value in (row.get("keyCamelot"), row.get("key")):
-        match = _CAMELOT_CODE.match(str(value or "").strip())
-        if match is not None and 1 <= int(match.group(1)) <= 12:
-            return int(match.group(1)), 0 if match.group(2).upper() == "A" else 1
-    return None
-
-
-def _with_play_stats(
-    rows: list[dict[str, Any]], stats: dict[str, TrackPlayStats]
-) -> list[dict[str, Any]]:
-    """Copy each row with its listening figures; a track never played has zero plays."""
-    result: list[dict[str, Any]] = []
-    for row in rows:
-        item = dict(row)
-        found = stats.get(str(row.get("id", "")))
-        item["playCount"] = found.counted_plays if found is not None else 0
-        item["lastPlayedNs"] = (
-            int(found.last_played.timestamp() * 1_000_000_000) if found is not None else None
-        )
-        item["lastPlayedText"] = format_listened_at(found.last_played) if found else "—"
-        result.append(item)
-    return result
-
-
-def _listening_details(stats: TrackPlayStats | None) -> list[dict[str, str]]:
-    """The Plays and Last played rows of the details panel; a track never played has none."""
-    return [
-        {"label": "Plays", "value": str(stats.counted_plays if stats is not None else 0)},
-        {
-            "label": "Last played",
-            "value": format_listened_at(stats.last_played if stats is not None else None),
-        },
-    ]
-
-
-def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[dict[str, Any]]:
-    if key not in _SORT_KEYS or key == "index":
-        return list(rows)
-    field = {
-        "duration": "seconds",
-        "fileCreatedAt": "fileCreatedAtNs",
-        "fileModifiedAt": "fileModifiedAtNs",
-        "lastPlayed": "lastPlayedNs",
-    }.get(key, key)
-    integer_fields = {"fileCreatedAtNs", "fileModifiedAtNs", "lastPlayedNs"}
-    numeric_fields = {*integer_fields, "seconds", "bpm", "bitrate", "playCount"}
-    present: list[tuple[object, str, str, dict[str, Any]]] = []
-    missing = []
-    for row in rows:
-        if key == "key":
-            # Camelot codes sort by number, then letter: 9B before 10A.
-            order = _camelot_order(row)
-            if order is None:
-                missing.append(row)
-            else:
-                present.append(
-                    (order, str(row.get("title", "")).casefold(), str(row.get("id", "")), row)
-                )
-            continue
-        value = row.get(field)
-        if value is None or value == "":
-            missing.append(row)
-            continue
-        try:
-            sort_value: object = (
-                int(value)
-                if field in integer_fields
-                else float(value)
-                if field in numeric_fields
-                else str(value).casefold()
-            )
-        except (TypeError, ValueError):
-            missing.append(row)
-            continue
-        present.append(
-            (
-                sort_value,
-                str(row.get("title", "")).casefold(),
-                str(row.get("id", "")),
-                row,
-            )
-        )
-    # Stable passes keep title and UUID ties ascending in either direction.
-    present.sort(key=lambda item: (item[1], item[2]))
-    present.sort(key=lambda item: cast(Any, item[0]), reverse=not ascending)
-    missing.sort(key=lambda row: (str(row.get("title", "")).casefold(), str(row.get("id", ""))))
-    return [item[3] for item in present] + missing
-
-
-def _copy_column_preferences(value: Any) -> dict[str, Any]:
-    source = value if isinstance(value, dict) else DEFAULT_COLUMN_PREFERENCES
-    return {
-        "order": list(source.get("order", DEFAULT_COLUMN_PREFERENCES["order"])),
-        "hidden": list(source.get("hidden", DEFAULT_COLUMN_PREFERENCES["hidden"])),
-        "widths": dict(source.get("widths", DEFAULT_COLUMN_PREFERENCES["widths"])),
-        "showArtwork": bool(source.get("showArtwork", True)),
-    }
-
-
-def _folder_from_track(track: dict[str, Any]) -> str:
-    return str(track.get("relativePath", "")).rpartition("/")[0]
