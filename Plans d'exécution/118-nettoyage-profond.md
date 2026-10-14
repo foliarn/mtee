@@ -149,6 +149,7 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
   - classement des 97 gestionnaires larges (Haiku), puis passe sur les exceptions selon la politique décidée par Opus (Sonnet) ;
   - `pyright` ramené à 0 sur `src` et sur `tests` (deux agents Sonnet) ;
   - relecture des diffs (Opus).
+- [x] 2026-10-14 — Trois défauts de la corbeille corrigés à la demande de l'utilisateur, avant la phase 5 (voir le Decision Log).
 - [ ] Phases 5 et 6.
 
 ## Surprises & Discoveries
@@ -214,6 +215,12 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
   - l'écart de stub `QImage.save(..., "PNG")` est contourné par `QImageWriter`, dont la sortie est identique octet pour octet.
 
   Aucun `# type: ignore` ajouté : il y en a toujours 53, dont 13 dans `demo_workspace.py`, à traiter avec la phase 5.
+
+- 2026-10-14 (utilisateur) — Défauts de la corbeille à corriger avant la phase 5. L'annulation (éditeur de métadonnées, préparation de file) et la journalisation sont reportées.
+  - `_check_hresult` passe le HRESULT signé à `ctypes.FormatError`. Un échec du Shell porte donc le texte Windows au lieu d'`OverflowError`. Le repli hexadécimal reste non signé.
+  - Une erreur de préparation émet `dialogRequested` : la boîte de dialogue s'ouvre en état « result » avec le message, comme lorsqu'aucun fichier n'est recyclable. Une annulation par l'utilisateur n'ouvre rien.
+  - `trash_partial_failure` rejoint `PARTIAL_ERROR_CODES`. Un lot recyclé en partie s'affiche « Completed with errors », et le message n'est plus préfixé par le nom de la classe.
+  - Les tests de caractérisation qui figeaient ces défauts affirment désormais le comportement corrigé.
 
 ## Outcomes & Retrospective
 

@@ -25,7 +25,9 @@ ERROR_CANCELLED = "cancelled"
 ERROR_INTERRUPTED = "interrupted"
 ERROR_UNHANDLED = "unhandled_exception"
 # Codes of a job that went through every element but could not handle some of them.
-PARTIAL_ERROR_CODES = frozenset({"analysis_incomplete", "artist_apply_incomplete"})
+PARTIAL_ERROR_CODES = frozenset(
+    {"analysis_incomplete", "artist_apply_incomplete", "trash_partial_failure"}
+)
 
 
 @dataclass(frozen=True, slots=True, order=True)
