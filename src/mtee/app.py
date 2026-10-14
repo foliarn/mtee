@@ -52,6 +52,7 @@ from mtee.persistence.playlists_repository import PlaylistsRepository
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
+from mtee.platform.media_transport import create_media_transport
 from mtee.platform.windows_frame import WindowFrame
 from mtee.plugins.registry import load_plugin
 from mtee.services.analysis_service import AnalysisService
@@ -64,6 +65,7 @@ from mtee.services.conversion_service import ConversionService
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
+from mtee.services.media_controls import MediaControls
 from mtee.services.media_decode_service import MediaDecodeService
 from mtee.services.metadata_writer import MetadataEditService
 from mtee.services.mpv_backend import MpvBackend
@@ -105,6 +107,7 @@ class _Runtime:
     workspace: QObject
     frame: WindowFrame
     artwork_provider: ArtworkProvider | None
+    media_controls: MediaControls | None
 
 
 def create_application(argv: Sequence[str] | None = None) -> QGuiApplication:
@@ -166,6 +169,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     jobs_model = JobsListModel(jobs)
     tracks_model = DemoTracksModel()
     artwork_provider = None
+    media_controls: MediaControls | None = None
     player_service = None
     workspace: QObject | None = None
     if options.demo:
@@ -296,6 +300,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             FileMoveModel(FileMoveService(database, library, file_access), jobs)
         )
         artwork_provider = ArtworkProvider(library)
+        # Never fatal: without the system controls the application keeps working.
+        media_controls = MediaControls(
+            player_service, library, create_media_transport(), application
+        )
     frame = WindowFrame()
     controller = ShellController(
         paths=paths,
@@ -326,7 +334,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     window_file = main_qml()
     if not window_file.is_file():
         _report(f"MTEE cannot find its interface file: {window_file}")
-        _discard_partial_startup(database, jobs, player_service, engine, workspace)
+        _discard_partial_startup(database, jobs, player_service, engine, workspace, media_controls)
         return None
     engine.load(QUrl.fromLocalFile(str(window_file)))
     engine.warnings.disconnect(capture_qml_diagnostics)
@@ -334,7 +342,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         for diagnostic in qml_diagnostics:
             _report(diagnostic)
         _report(f"MTEE could not load its interface from {window_file}")
-        _discard_partial_startup(database, jobs, player_service, engine, workspace)
+        _discard_partial_startup(database, jobs, player_service, engine, workspace, media_controls)
         return None
     window = engine.rootObjects()[0]
     if isinstance(window, QWindow) and isinstance(workspace, WorkspaceModel):
@@ -354,6 +362,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace=workspace,
         frame=frame,
         artwork_provider=artwork_provider,
+        media_controls=media_controls,
     )
     if isinstance(workspace, WorkspaceModel):
         workspace.resumeRoots()
@@ -378,6 +387,8 @@ def _shutdown(runtime: _Runtime) -> None:
         if isinstance(playlist_model, PlaylistsModel):
             playlist_model.flush_pending()
         runtime.workspace.flush_session()
+    if runtime.media_controls is not None:
+        runtime.media_controls.close()
     runtime.jobs.begin_shutdown()
     runtime.frame.detach()
     _shutdown_services(runtime.database, runtime.jobs, runtime.player_service)
@@ -389,10 +400,13 @@ def _discard_partial_startup(
     player_service: PlayerService | None,
     engine: QQmlApplicationEngine,
     workspace: QObject | None = None,
+    media_controls: MediaControls | None = None,
 ) -> None:
     """Release native services if startup fails before a runtime is returned."""
     if isinstance(workspace, WorkspaceModel):
         workspace.flush_session()
+    if media_controls is not None:
+        media_controls.close()
     _shutdown_services(database, jobs, player_service)
     engine.deleteLater()
 

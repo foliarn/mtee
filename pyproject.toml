@@ -11,6 +11,12 @@ dependencies = [
     "PySide6-Essentials>=6.8,<6.10",
     "mutagen>=1.47",
     "numpy>=2.5.3",
+    "winrt-runtime>=3.2.1,<4 ; sys_platform == 'win32'",
+    "winrt-windows-foundation>=3.2.1,<4 ; sys_platform == 'win32'",
+    "winrt-windows-media>=3.2.1,<4 ; sys_platform == 'win32'",
+    "winrt-windows-media-playback>=3.2.1,<4 ; sys_platform == 'win32'",
+    "winrt-windows-storage>=3.2.1,<4 ; sys_platform == 'win32'",
+    "winrt-windows-storage-streams>=3.2.1,<4 ; sys_platform == 'win32'",
 ]
 
 [project.scripts]
@@ -56,6 +62,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 "src/mtee/platform/windows_frame.py" = ["N802", "N815"]
 "src/mtee/services/jobs.py" = ["N815"]
 "src/mtee/services/player_service.py" = ["N815"]
+"src/mtee/services/media_controls.py" = ["N815"]
 "tests/*" = ["S101"]
 
 [tool.pyright]
