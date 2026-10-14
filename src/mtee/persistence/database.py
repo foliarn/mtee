@@ -176,6 +176,8 @@ class Database:
             target = sqlite3.connect(destination)
             try:
                 self.connection().backup(target)
+                # The copy keeps the source's WAL mode otherwise; a backup is one file.
+                target.execute("PRAGMA journal_mode = DELETE")
             finally:
                 target.close()
             saved = sqlite3.connect(f"{destination.resolve().as_uri()}?mode=ro", uri=True)

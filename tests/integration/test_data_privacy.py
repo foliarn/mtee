@@ -91,6 +91,13 @@ def test_backup_is_consistent_verified_and_never_overwritten(
     assert info.schema_version == live.supported_version
     assert info.track_count == 0
     assert _probe(backup) == "current"
+    # A backup is one file: it must not keep the write-ahead log mode of the source.
+    connection = sqlite3.connect(backup)
+    try:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
+    finally:
+        connection.close()
+    assert not Path(f"{backup}-wal").exists()
     with pytest.raises(FileExistsError):
         back_up_database(live, backup)
 
