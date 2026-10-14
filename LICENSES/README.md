@@ -17,4 +17,4 @@ Pour les ajouter :
 
 ## Licence de MTEE
 
-Le projet pourra être publié en open source. Aucune licence n'est attribuée à ce stade : la décision revient à l'auteur avant une publication sous une licence nommée.
+MTEE est distribué sous licence GNU General Public License version 3 ou ultérieure (`GPL-3.0-or-later`), décision de l'auteur du 2026-10-14. Le texte officiel est dans `LICENSE` à la racine du dépôt (identique à <https://www.gnu.org/licenses/gpl-3.0.txt>, SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`). Ce répertoire ne contient que les licences des composants tiers.

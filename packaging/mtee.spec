@@ -58,6 +58,8 @@ datas = [
         "mtee/plugins/genre_manager/migrations",
     ),
     (str(ffmpeg_license), "mtee/resources"),
+    # MTEE's own licence travels with the program it covers.
+    (str(project_root / "LICENSE"), "mtee/resources/licenses/mtee"),
 ]
 # Keep the primary NumPy license, used by the tempo/key analysis, visible in the
 # distributable next to FFmpeg's separately verified notice.
