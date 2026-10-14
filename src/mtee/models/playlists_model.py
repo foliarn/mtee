@@ -26,6 +26,11 @@ from mtee.services.jobs import JobContext, JobService
 from mtee.services.playlist_exchange import PlaylistExchange
 from mtee.services.playlist_images import copy_cover
 from mtee.services.playlist_service import AmbiguousPlaylistAddError, PlaylistService
+from mtee.services.profile_service import (
+    DEFAULT_CREATOR,
+    DISPLAY_NAME_KEY,
+    normalize_display_name,
+)
 
 
 class PlaylistsModel(QObject):
@@ -234,7 +239,7 @@ class PlaylistsModel(QObject):
             "liked": self.repository.liked_ids(),
             "likedAliases": self.service.liked_aliases(),
             "memberships": self.service.memberships(),
-            "creator": self.settings.get("playlists/creator", "MTEE"),
+            "creator": self.settings.get(DISPLAY_NAME_KEY, "") or DEFAULT_CREATOR,
             "columns": self.settings.get_json("playlists/columns", self.default_columns()),
             "pendingImports": self.exchange.pending_imports() if self.exchange else [],
         }
@@ -446,10 +451,13 @@ class PlaylistsModel(QObject):
 
     @Slot(str)
     def setCreator(self, value: str) -> None:
-        if not value.strip() or len(value) > 240:
+        """Set the profile display name, which is the creator written on playlists."""
+        try:
+            name = normalize_display_name(value)
+        except ValueError:
             self.noticeRaised.emit("Use a creator name between 1 and 240 characters.")
             return
-        self.run(lambda _c: self.settings.set("playlists/creator", value.strip()))
+        self.run(lambda _c: self.settings.set(DISPLAY_NAME_KEY, name))
 
     @Slot(dict)
     def setColumns(self, value: dict) -> None:
