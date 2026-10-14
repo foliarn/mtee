@@ -61,10 +61,6 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         16,
         17,
         18,
-        19,
-        20,
-        22,
-        23,
         24,
         25,
     ]
@@ -83,6 +79,9 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         "track_waveforms",
         "playback_session",
     } <= tables
+    # Plugin-owned tables are created only when their plugin is loaded (step 111).
+    assert not {name for name in tables if name.startswith(("artist", "track_artist", "gm_"))}
+    assert "artist_enrichment_schema" not in tables
     operation_columns = {
         str(row[1]) for row in database.connection().execute("PRAGMA table_info(file_operations)")
     }
@@ -116,10 +115,6 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
         16,
         17,
         18,
-        19,
-        20,
-        22,
-        23,
         24,
         25,
     ]
@@ -255,10 +250,6 @@ def test_a_database_with_the_retired_analysis_migration_is_upgraded_and_preserve
         16,
         17,
         18,
-        19,
-        20,
-        22,
-        23,
         24,
         25,
     ]
@@ -330,7 +321,7 @@ def test_playlist_upgrade_keeps_v15_data_and_an_exact_backup(tmp_path: Path) -> 
     original.close()
     upgraded = Database(path)
     try:
-        assert [m.version for m in upgraded.migrate()] == [16, 17, 18, 19, 20, 22, 23, 24, 25]
+        assert [m.version for m in upgraded.migrate()] == [16, 17, 18, 24, 25]
         assert upgraded.migrate() == []
         assert SettingsRepository(upgraded).get("existing") == "unchanged"
         assert (
@@ -393,7 +384,7 @@ def test_schema_16_import_journal_upgrade_preserves_playlists_and_backup(
 
     upgraded = Database(path)
     try:
-        assert [m.version for m in upgraded.migrate()] == [17, 18, 19, 20, 22, 23, 24, 25]
+        assert [m.version for m in upgraded.migrate()] == [17, 18, 24, 25]
         assert upgraded.schema_version() == 25
         assert upgraded.migrate() == []
         repository = PlaylistsRepository(upgraded)

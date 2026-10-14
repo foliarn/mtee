@@ -16,10 +16,10 @@ from mtee.cli import AppOptions
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
 from mtee.domain.tracks import SourceRevision
 from mtee.models.workspace_model import WorkspaceModel
-from mtee.persistence.artist_repository import ArtistRepository
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
-from mtee.services.artist_identification_service import ArtistIdentificationService
+from mtee.plugins.artist_manager.identification import ArtistIdentificationService
+from mtee.plugins.artist_manager.repository import ArtistRepository
 
 
 def _write_wav(path: Path) -> None:
@@ -89,8 +89,10 @@ def _active_tab(workspace: WorkspaceModel) -> str:
     return str(typed.groups[typed.activeGroup]["active"])
 
 
-def _start(qapp: Any, monkeypatch: Any, data_dir: Path) -> Any:
+def _start(qapp: Any, monkeypatch: Any, data_dir: Path, *, plugins: bool = True) -> Any:
+    """Start the app; the artist links need the artist manager, so plugins are on by default."""
     monkeypatch.setattr("mtee.app.MpvBackend", _UiPlayerBackend)
+    monkeypatch.setattr("mtee.plugins.registry.PLUGIN_UI_ENABLED", plugins)
     runtime = _build_runtime(qapp, AppOptions(data_dir=data_dir))
     assert runtime is not None
     return runtime
@@ -221,6 +223,28 @@ def test_several_credited_artists_are_separate_links(
         _click(root, second)
         target = f"artist:{credits[1]['id']}"
         qtbot.waitUntil(lambda: _active_tab(workspace) == target, timeout=5000)
+    finally:
+        _shutdown(runtime)
+
+
+def test_v01_shows_the_artist_tag_as_plain_text_without_links(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """With the plugins off, a database still holding artist tables gives no artist links."""
+    data_dir, tracks, _artists = _seed(tmp_path)
+    runtime = _start(qapp, monkeypatch, data_dir, plugins=False)
+    root = runtime.engine.rootObjects()[0]
+    assert isinstance(root, QQuickWindow)
+    root.resize(1440, 900)
+    try:
+        workspace = _play(runtime, root, tracks["root"], tracks["Bravo"])
+        assert workspace.trackArtists(tracks["Bravo"]) == []
+        assert workspace.artistManager is None
+        row = _find(root, "playerIslandArtists")
+        assert row is not None and not row.isVisible()
+        plain = _find(root, "playerIslandArtistText")
+        assert plain is not None and plain.isVisible()
+        assert plain.property("text") == "Example"
     finally:
         _shutdown(runtime)
 

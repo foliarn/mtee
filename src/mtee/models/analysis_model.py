@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from typing import Protocol
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
@@ -11,12 +12,17 @@ from mtee.domain.analysis import AnalysisSettings
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.analysis_service import AnalysisService
-from mtee.services.artist_identification_service import ArtistIdentificationService
 from mtee.services.jobs import JobContext, JobService
 
-__all__ = ["AnalysisModel"]
+__all__ = ["AnalysisModel", "ArtistCohort"]
 
 _REFRESH_INTERVAL_MS = 1000
+
+
+class ArtistCohort(Protocol):
+    """The artist manager's first pass, when it is loaded. Absent in v0.1."""
+
+    def register_collection(self) -> list[str]: ...
 
 
 class _AnalysisBridge(QObject):
@@ -41,7 +47,7 @@ class AnalysisModel(QObject):
         jobs: JobService,
         settings: AnalysisSettingsModel,
         parent: QObject | None = None,
-        identification: ArtistIdentificationService | None = None,
+        identification: ArtistCohort | None = None,
     ) -> None:
         super().__init__(parent)
         self._identification = identification
