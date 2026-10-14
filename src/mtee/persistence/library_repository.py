@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from mtee.domain.analysis import format_bpm
+from mtee.domain.analysis import LOUDNESS_ALGORITHM_VERSION, durations_agree, format_bpm
 from mtee.domain.file_dates import FileDates, format_file_timestamp
 from mtee.domain.metadata import MetadataSnapshot, format_bitrate
 from mtee.domain.musical_key import MusicalKey, format_key, parse_key
@@ -45,6 +45,9 @@ class AnalysisDisplay:
 _ANALYSIS_COLUMNS = (
     "a.bpm AS analysis_bpm,a.key_tonic AS analysis_key_tonic,a.key_minor AS analysis_key_minor,"
     "a.bpm_user_edited AS bpm_user_edited,a.key_user_edited AS key_user_edited,"
+    "a.integrated_lufs AS analysis_lufs,a.sample_peak_dbfs AS analysis_peak_dbfs,"
+    "a.loudness_version AS analysis_loudness_version,"
+    "a.source_duration_us AS analysis_source_duration_us,"
 )
 
 
@@ -971,6 +974,7 @@ def _track_dict(
     parent = _folder_of(relative)
     folder_id = f"folder:{root_id}/{parent}"
     tempo, tempo_text, key_text, key_camelot = _effective_tempo_and_key(row, values, display)
+    loudness_lufs, sample_peak_dbfs = _stored_loudness(row, duration)
     return {
         "id": identity,
         "folder": folder_id,
@@ -985,6 +989,8 @@ def _track_dict(
         "bpmText": tempo_text,
         "key": key_text,
         "keyCamelot": key_camelot,
+        "loudnessLufs": loudness_lufs,
+        "samplePeakDbfs": sample_peak_dbfs,
         "seconds": seconds,
         "durationUs": duration,
         "duration": _duration(seconds),
@@ -1013,6 +1019,27 @@ def _track_dict(
         "error": values.error,
         "revision": int(row["generation"]),
     }
+
+
+def _stored_loudness(row: sqlite3.Row, duration_us: int) -> tuple[float | None, float | None]:
+    """Return the integrated loudness and sample peak of a current measurement, else nothing.
+
+    A measurement of an older version, or one made for audio of another length, is not
+    handed out: the player plays such a track with no gain until Analyze measures it again.
+    """
+    columns = set(row.keys())
+    if "analysis_loudness_version" not in columns:
+        return None, None
+    if row["analysis_loudness_version"] != LOUDNESS_ALGORITHM_VERSION:
+        return None, None
+    if not durations_agree(row["analysis_source_duration_us"], duration_us):
+        return None, None
+    lufs = row["analysis_lufs"]
+    peak = row["analysis_peak_dbfs"]
+    return (
+        float(lufs) if lufs is not None else None,
+        float(peak) if peak is not None else None,
+    )
 
 
 def _effective_tempo_and_key(

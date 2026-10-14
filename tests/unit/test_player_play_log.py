@@ -66,6 +66,9 @@ class FakeBackend:
     def set_volume(self, value: int) -> None:
         pass
 
+    def set_gain_db(self, value: float) -> None:
+        pass
+
     def position_us(self) -> int:
         return self.position
 

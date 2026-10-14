@@ -24,6 +24,7 @@ from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.file_move_model import FileMoveModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
+from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
@@ -113,6 +114,7 @@ class WorkspaceModel(QObject):
         self._file_move_model: FileMoveModel | None = None
         self._analysis_model: AnalysisModel | None = None
         self._analysis_settings: AnalysisSettingsModel | None = None
+        self._playback_settings: PlaybackSettingsModel | None = None
         self._tag_conflicts: TagConflictsModel | None = None
         self._artist_manager: ArtistManagerModel | None = None
         self._scanner = LibraryScanner()
@@ -1105,6 +1107,15 @@ class WorkspaceModel(QObject):
     @Property(QObject, constant=True)
     def analysisSettings(self) -> QObject:
         return self._analysis_settings if self._analysis_settings is not None else self
+
+    @Property(QObject, constant=True)
+    def playbackSettings(self) -> QObject:
+        return self._playback_settings if self._playback_settings is not None else self
+
+    def attach_playback_settings(self, settings: PlaybackSettingsModel) -> None:
+        """Show the loudness normalization choices of the Playback settings."""
+        self._playback_settings = settings
+        settings.setParent(self)
 
     @Property(QObject, constant=True)
     def artistManager(self) -> QObject:

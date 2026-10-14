@@ -65,7 +65,7 @@ def _utc(*args: int) -> datetime:
 
 
 def test_migration_creates_the_append_only_table(database: Database) -> None:
-    assert database.schema_version() == 24
+    assert database.schema_version() >= 24
     connection = database.connection()
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(play_events)")}
     assert {

@@ -7,11 +7,13 @@ from dataclasses import dataclass
 
 from mtee.domain.conversion import ConversionSource
 from mtee.domain.jobs import JobCancelledError
+from mtee.domain.loudness import LoudnessResult
 from mtee.domain.musical_key import MusicalKey
 from mtee.domain.tracks import SourceRevision, TrackId
 from mtee.domain.waveform import WaveformPoints
 from mtee.services.analysis.features import ENVELOPE_RATE, SAMPLE_RATE, FeatureExtractor
 from mtee.services.analysis.key import estimate_key
+from mtee.services.analysis.loudness import LoudnessMeter
 from mtee.services.analysis.tempo import estimate_tempo
 from mtee.services.analysis.waveform import reduce_waveform
 from mtee.services.file_access import FileAccessCoordinator
@@ -29,6 +31,7 @@ class AnalysisOutcome:
     waveform: WaveformPoints
     bpm: float | None
     key: MusicalKey | None
+    loudness: LoudnessResult | None = None
 
 
 class AudioAnalyzer:
@@ -45,14 +48,16 @@ class AudioAnalyzer:
         *,
         tempo_range: tuple[float, float] | None = None,
         tonality: bool = False,
+        loudness: bool = False,
         expected_duration_us: int | None = None,
         is_cancelled: Callable[[], bool] = lambda: False,
         report_progress: Callable[[float], None] = lambda _value: None,
     ) -> AnalysisOutcome:
-        """Return the waveform, and the tempo and key when they were requested.
+        """Return the waveform, and the tempo, key and loudness when they were requested.
 
         ``tempo_range`` asks for the tempo inside that interval; ``tonality`` asks
-        for the key. With neither, only the waveform is computed.
+        for the key; ``loudness`` asks for the integrated loudness and sample peak. The
+        waveform is always computed in the same pass.
         """
         self._ensure_unchanged(source, revision, "before")
         with self._file_access.acquire_read(
@@ -62,6 +67,7 @@ class AudioAnalyzer:
                 source,
                 tempo_range,
                 tonality,
+                loudness,
                 expected_duration_us,
                 is_cancelled,
                 report_progress,
@@ -75,11 +81,13 @@ class AudioAnalyzer:
         source: ConversionSource,
         tempo_range: tuple[float, float] | None,
         tonality: bool,
+        loudness: bool,
         expected_duration_us: int | None,
         is_cancelled: Callable[[], bool],
         report_progress: Callable[[float], None],
     ) -> AnalysisOutcome:
         extractor = FeatureExtractor(rhythm=tempo_range is not None, tonality=tonality)
+        meter = LoudnessMeter(SAMPLE_RATE) if loudness else None
         expected_frames = (
             max(1, round(expected_duration_us * SAMPLE_RATE / 1_000_000))
             if expected_duration_us
@@ -96,6 +104,8 @@ class AudioAnalyzer:
             if is_cancelled():
                 raise JobCancelledError("audio analysis cancelled")
             extractor.feed(block)
+            if meter is not None:
+                meter.feed(block)
             if expected_frames:
                 report_progress(min(0.98, extractor.frames / expected_frames))
         features = extractor.finish()
@@ -118,7 +128,8 @@ class AudioAnalyzer:
         if tonality:
             key_estimate = estimate_key(features.pitch_profile, features.bass_profile)
             key = key_estimate.key if key_estimate is not None else None
-        return AnalysisOutcome(waveform, bpm, key)
+        measured = meter.finish() if meter is not None else None
+        return AnalysisOutcome(waveform, bpm, key, measured)
 
     @staticmethod
     def _ensure_unchanged(source: ConversionSource, revision: SourceRevision, when: str) -> None:

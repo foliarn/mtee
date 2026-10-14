@@ -63,6 +63,9 @@ class _UiPlayerBackend:
     def set_volume(self, _value: int) -> None:
         return
 
+    def set_gain_db(self, _value: float) -> None:
+        return
+
     def position_us(self) -> int:
         return 0
 
