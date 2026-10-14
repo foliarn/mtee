@@ -2,7 +2,8 @@ import QtQuick
 import Mtee
 
 // VS Code style activity bar. Each entry swaps the sidebar content; Settings
-// opens an editor tab. Plugins and Profile are placeholders for later.
+// opens an editor tab. Profile is a placeholder for later. Plugins appear only when
+// the build enables them (v0.1 does not), and the artist manager has no entry yet.
 Rectangle {
     id: bar
 
@@ -31,10 +32,14 @@ Rectangle {
 
         ActivityButton { activity: "explorer"; icon: "explorer"; tip: "Explorer (Ctrl+Shift+E)" }
         ActivityButton { activity: "playlists"; icon: "playlists"; tip: "Playlists" }
-        ActivityButton { activity: "artists"; icon: "artists"; tip: "Artist manager" }
         ActivityButton { activity: "convert"; icon: "convert"; tip: "Convert" }
         ActivityButton { activity: "tasks"; icon: "tasks"; tip: "Tasks"; badge: bar.runningTasks }
-        ActivityButton { activity: "plugins"; icon: "plugins"; tip: "Plugins (coming later)" }
+        ActivityButton {
+            visible: bar.workspace.pluginUiEnabled
+            activity: "plugins"
+            icon: "plugins"
+            tip: "Plugins"
+        }
     }
 
     Column {
