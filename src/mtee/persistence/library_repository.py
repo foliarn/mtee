@@ -672,6 +672,28 @@ class LibraryRepository:
         )
         return [str(row[0]) for row in rows]
 
+    def artist_credit_rows(self) -> list[tuple[str, tuple[str, ...]]]:
+        """Return ``(track_id, Artist tag values)`` of every track listed by a root.
+
+        Only the Artist tag is read: the Album Artist tag and the titles never credit an artist.
+        """
+        rows = (
+            self._database.connection()
+            .execute(
+                "SELECT l.track_id,l.metadata_json FROM track_locations l "
+                "WHERE EXISTS (SELECT 1 FROM root_tracks rt "
+                "WHERE rt.track_id=l.track_id AND rt.present=1)"
+            )
+            .fetchall()
+        )
+        return [
+            (
+                str(row["track_id"]),
+                tuple(MetadataSnapshot.from_dict(json.loads(str(row["metadata_json"]))).artist),
+            )
+            for row in rows
+        ]
+
     def track_folder(self, track_id: str) -> tuple[str, str] | None:
         """Return the ``(root_id, relative_folder)`` that lists the track, if it is present."""
         row = (

@@ -164,7 +164,7 @@ def test_migration_025_adds_empty_loudness_to_existing_analysis_rows(tmp_path: P
     before_025 = tmp_path / "before-025"
     before_025.mkdir()
     for path in MIGRATIONS_DIR.glob("*.sql"):
-        if not path.name.startswith("025_"):
+        if not path.name.startswith(("025_", "026_")):
             shutil.copy(path, before_025 / path.name)
     database_path = tmp_path / "mtee.sqlite3"
     legacy = Database(database_path, migrations_dir=before_025)
@@ -181,7 +181,7 @@ def test_migration_025_adds_empty_loudness_to_existing_analysis_rows(tmp_path: P
     upgraded = Database(database_path)
     applied = upgraded.migrate()
 
-    assert [migration.version for migration in applied] == [25]
+    assert [migration.version for migration in applied] == [25, 26]
     row = (
         upgraded.connection()
         .execute(

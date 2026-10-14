@@ -2,9 +2,9 @@ import QtQuick
 import Mtee
 
 // The artists of the selection as one chip each. A chip is one artist whatever its
-// name holds, so "Nikita, the Wicked" is a single chip; a typed credit that would split
-// asks first. Changes are staged and written as tags by the panel's Save button. With
-// several tracks selected a chip shows how many name it.
+// name holds, so "Nikita, the Wicked" is a single chip; a typed credit that holds a
+// separator asks first. Changes are staged and written as tags by the panel's Save button.
+// With several tracks selected a chip shows how many name it.
 Column {
     id: field
 
@@ -29,12 +29,16 @@ Column {
         const text = input.text.trim()
         if (text.length === 0)
             return
-        const parts = field.editor.splitPreview(text)
-        if (parts.length > 1) {
+        // A credit holding a comma, feat., ft., & or x asks first, until the user has answered.
+        if (field.editor.creditNeedsChoice(text)) {
             field.pending = text
             return
         }
-        field.add(parts.length === 1 ? parts[0] : text)
+        const parts = field.editor.splitPreview(text)
+        for (const part of (parts.length > 0 ? parts : [text]))
+            field.editor.stageArtistAdd(part)
+        input.text = ""
+        field.pending = ""
     }
 
     Item {
