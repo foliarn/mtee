@@ -13,7 +13,9 @@ Restore is a two-step flow, because the running application holds the database o
    Any failure before the rename leaves the current database in place and cancels the
    scheduled restore, with the reason reported.
 
-The source file chosen by the user is only read. Nothing here deletes a backup.
+The source file chosen by the user is only read. The only files this module deletes are the
+safety copies of earlier restores: after a successful restore, the newest
+``KEEP_SAFETY_COPIES`` copies are kept and the older ones are removed.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from mtee.persistence.play_log_repository import PlayLogRepository
 
 __all__ = [
     "BACKUP_SUFFIX",
+    "KEEP_SAFETY_COPIES",
     "SQLITE_HEADER",
     "BackupInfo",
     "BackupValidationError",
@@ -44,6 +47,7 @@ __all__ = [
     "back_up_database",
     "cancel_pending_restore",
     "default_backup_name",
+    "prune_safety_copies",
     "read_pending_restore",
     "reset_statistics",
     "stage_restore",
@@ -57,6 +61,9 @@ _PENDING_FILE_NAME = "pending.sqlite3"
 _MARKER_FILE_NAME = "pending.json"
 _RESULT_FILE_NAME = "last-restore.json"
 _SIDECAR_SUFFIXES = ("-wal", "-shm")
+_SAFETY_COPY_PREFIX = "before-restore-"
+# The newest safety copies kept after a successful restore; older ones are removed.
+KEEP_SAFETY_COPIES = 3
 
 
 class BackupValidationError(ValueError):
@@ -312,10 +319,34 @@ def apply_pending_restore(
         Path(f"{database_path}{suffix}").unlink(missing_ok=True)
     os.replace(layout.pending_file, database_path)
     layout.marker_file.unlink(missing_ok=True)
+    prune_safety_copies(layout)
     message = f"Restored the database from {source_name}."
     if safety_backup is not None:
         message += f" The previous database was kept as {safety_backup.name}."
     return _record_outcome(layout, RestoreOutcome(True, message, source_name, safety_backup))
+
+
+def prune_safety_copies(layout: RestoreLayout, *, keep: int = KEEP_SAFETY_COPIES) -> list[Path]:
+    """Remove all but the ``keep`` newest ``before-restore-*`` copies; return the removed ones.
+
+    The copies are named by their UTC timestamp, so the names sort in time order. A copy that
+    cannot be removed is left in place: the restore itself has already succeeded.
+    """
+    if keep < 1:
+        raise ValueError("at least one safety copy must be kept")
+    copies = sorted(
+        path
+        for path in layout.directory.glob(f"{_SAFETY_COPY_PREFIX}*{BACKUP_SUFFIX}")
+        if path.is_file()
+    )
+    removed: list[Path] = []
+    for path in copies[: max(0, len(copies) - keep)]:
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+    return removed
 
 
 def _record_outcome(layout: RestoreLayout, outcome: RestoreOutcome) -> RestoreOutcome:
