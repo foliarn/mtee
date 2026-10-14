@@ -105,7 +105,7 @@ class PlaylistExchange:
                         entry["sha256"] = self._read_source(row["trackId"], context)
                 manifest["entries"].append(entry)
                 context.report_progress((index + 1) / max(1, len(rows)) * 0.95)
-                context.report_items(index + 1, len(rows), str(row["filename"]))
+                context.report_items(index + 1, len(rows), str(row.get("filename", "")))
             data = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
             decode_manifest(data)
             if archive is not None:
@@ -216,7 +216,7 @@ class PlaylistExchange:
             )
             context.report_progress((index + 1) / max(1, len(manifest["entries"])))
             context.report_items(
-                index + 1, len(manifest["entries"]), str(entry.get("filename", ""))
+                index + 1, len(manifest["entries"]), str(entry["snapshot"].get("filename", ""))
             )
         return matches
 
@@ -346,9 +346,8 @@ class PlaylistExchange:
                     finally:
                         temporary.unlink(missing_ok=True)
                     context.report_progress((index + 1) / max(1, len(manifest["entries"])) * 0.6)
-                    context.report_items(
-                        index + 1, len(manifest["entries"]), str(entry.get("filename", ""))
-                    )
+                    filename = str(entry["snapshot"].get("filename", ""))
+                    context.report_items(index + 1, len(manifest["entries"]), filename)
             self._phase(operation_id, "scanning")
             root = self.library.add_root(folder)
             generation = self.library.begin_scan(root["id"])

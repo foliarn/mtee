@@ -70,8 +70,12 @@ def test_migration_from_17_keeps_data_and_creates_consistent_backup(tmp_path: Pa
 
     database = Database(path)
     applied = database.migrate()
-    assert [migration.version for migration in applied] == [18, 19, 20, 22]
-    assert database.schema_version() == 22
+    # Core migrations only: the artist and genre manager plugins ship their own (d32b64d).
+    expected = sorted(
+        int(source.name[:3]) for source in MIGRATIONS_DIR.glob("*.sql") if int(source.name[:3]) > 17
+    )
+    assert [migration.version for migration in applied] == expected
+    assert database.schema_version() == expected[-1]
     assert (
         database.connection()
         .execute("SELECT value FROM settings WHERE key='queue-test-marker'")

@@ -992,6 +992,7 @@ class WorkspaceModel(QObject):
         state.update(
             {"sortMode": "default", "sortKey": "index", "sortAscending": True, "searchQuery": ""}
         )
+        self._capture_navigation()
         self._dirty_tabs.add(tab_id)
         self._revision += 1
         self.libraryChanged.emit()
@@ -2696,9 +2697,11 @@ class WorkspaceModel(QObject):
     @Slot(str, str)
     def setSearch(self, tab_id: str, query: str) -> None:
         self._cancel_explorer_track_action_for_tab(tab_id)
-        self._keep(tab_id)
         self._tab_state(tab_id)["searchQuery"] = query[:256]
+        # Capture before _keep: its layoutChanged makes the field re-read the group state,
+        # and a stale query there overwrote the first typed character.
         self._capture_navigation()
+        self._keep(tab_id)
         self._revision += 1
         self._dirty_tabs.add(tab_id)
         self.libraryChanged.emit()

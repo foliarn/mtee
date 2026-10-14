@@ -69,7 +69,7 @@ def _find(root: QQuickWindow, name: str) -> QQuickItem | None:
 
 
 def test_rescan_reuses_unchanged_metadata_and_keeps_track_84_in_view(
-    qapp, tmp_path: Path, monkeypatch
+    qapp, qtbot, tmp_path: Path, monkeypatch
 ) -> None:
     audio_root = tmp_path / "library copy"
     for index in range(140):
@@ -92,17 +92,31 @@ def test_rescan_reuses_unchanged_metadata_and_keeps_track_84_in_view(
     assert isinstance(workspace, WorkspaceModel)
 
     try:
+        # Start-up reads the saved folders in a job, then scans each one in a second job.
+        with qtbot.waitSignal(workspace.scanFinished, timeout=10_000):
+            QCoreApplication.processEvents()
         assert runtime.jobs.wait_for_done(10_000)
-        workspace.openFolder(f"folder:{root_record['id']}/")
         QCoreApplication.processEvents()
+        folder_tab = f"folder:{root_record['id']}/"
+        workspace.openFolder(folder_tab)
+        # Folders open sorted by creation date, newest first; the row numbers below follow the
+        # file names, so sort by name (ascending), which is the order the files were written in.
+        workspace.setSort(folder_tab, "filename")
+        model = workspace.trackModelForTab(
+            folder_tab, "folder", f"{root_record['id']}/", "filename", True
+        )
+        # Rows are read by a background job: wait for the whole folder before scrolling.
+        qtbot.waitUntil(lambda: len(model.trackIds) == 140, timeout=10_000)
         list_view = _find(window, "trackRowsList")
         assert list_view is not None
+        # The list restores its saved scroll position once the rows arrive: scroll after that.
+        qtbot.waitUntil(lambda: bool(list_view.property("navigationRestored")), timeout=10_000)
         list_view.setProperty("contentY", 83 * 56)
-        QCoreApplication.processEvents()
+        qtbot.waitUntil(lambda: _find(window, "trackRow_84") is not None, timeout=10_000)
         position_before_play = float(list_view.property("contentY"))
         target = _find(window, "trackRow_84")
         assert target is not None and target.isVisible()
-        expected_id = workspace.tabTracks("folder", f"{root_record['id']}/", "index", True)[83][
+        expected_id = workspace.tabTracks("folder", f"{root_record['id']}/", "filename", True)[83][
             "id"
         ]
 
@@ -117,9 +131,6 @@ def test_rescan_reuses_unchanged_metadata_and_keeps_track_84_in_view(
         assert workspace.activeFolder == f"folder:{root_record['id']}/"
         assert float(list_view.property("contentY")) == position_before_play
 
-        model = workspace.trackModelForTab(
-            f"folder:{root_record['id']}/", "folder", f"{root_record['id']}/", "index", True
-        )
         resets: list[bool] = []
         tree_resets: list[bool] = []
         model.modelReset.connect(lambda: resets.append(True))
@@ -155,7 +166,16 @@ def test_rescan_reuses_unchanged_metadata_and_keeps_track_84_in_view(
         assert sorted(reads) == sorted([changed_path, new_path])
         assert not resets
         assert not tree_resets
-        rows_after_change = workspace.tabTracks("folder", f"{root_record['id']}/", "index", True)
+        folder_ref = f"{root_record['id']}/"
+        # The open list is refreshed by a debounced background read: wait for the new file.
+        qtbot.waitUntil(
+            lambda: any(
+                row["filename"] == "track-140.wav"
+                for row in workspace.tabTracks("folder", folder_ref, "filename", True)
+            ),
+            timeout=10_000,
+        )
+        rows_after_change = workspace.tabTracks("folder", folder_ref, "filename", True)
         assert len(rows_after_change) == 140
         assert rows_after_change[82]["id"] == expected_id
         row_after_change = _find(window, "trackRow_83")

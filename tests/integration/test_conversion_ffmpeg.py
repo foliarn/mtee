@@ -72,7 +72,7 @@ def test_conversion_verifies_and_publishes_a_copy_without_touching_source(
         "Copied and verified",
         "Changed representation",
     }
-    assert dict(result.metadata_report)["Cover art"].startswith("Not transferred")
+    assert dict(result.metadata_report)["Cover art"] == "No source artwork"
     assert not list(output_dir.glob("*.tmp"))
     if format_id == "flac":
         database = Database(tmp_path / "conversion.sqlite3")

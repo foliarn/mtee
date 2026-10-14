@@ -14,7 +14,7 @@ from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 
-from mtee.app import _build_runtime, create_application
+from mtee.app import _build_runtime, _destroy_windows, _shutdown, create_application
 from mtee.assets import qml_dir
 from mtee.cli import AppOptions
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
@@ -57,12 +57,15 @@ def _settle(qtbot, seconds: float = 0.05) -> None:
 
 
 def _close(application, runtime) -> None:
-    runtime.jobs.shutdown()
-    for root in runtime.engine.rootObjects():
-        root.deleteLater()
+    # Same order as the application exit: background work and native services stop first,
+    # and SQLite stays open while a worker still runs. Closing the database under a running
+    # job left threads that aborted a later test of this file.
+    runtime.jobs.wait_for_done(10_000)
+    QCoreApplication.processEvents()
+    _shutdown(runtime)
+    _destroy_windows(runtime)
     runtime.engine.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
-    runtime.database.close()
     application.quit()
 
 

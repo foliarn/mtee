@@ -34,6 +34,9 @@ class Context:
     def report_progress(self, _value: float) -> None:
         pass
 
+    def report_items(self, _completed: int, _total: int | None, _detail: str = "") -> None:
+        pass
+
 
 def _collection(folder: Path):
     folder.mkdir()

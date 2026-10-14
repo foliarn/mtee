@@ -46,7 +46,8 @@ class _Library:
 
 
 class _Writer:
-    def __init__(self) -> None:
+    def __init__(self, library: _Library) -> None:
+        self._library = library
         self.calls: list[tuple[str, str | None]] = []
         self.read_only_ids: set[str] = set()
 
@@ -54,6 +55,12 @@ class _Writer:
         editable = track_id not in self.read_only_ids
         reason = "This format is read-only." if not editable else ""
         return {field: (editable, reason) for field in EDITABLE_METADATA_FIELDS}
+
+    def inspect(
+        self, track_id: str
+    ) -> tuple[SourceRevision, MetadataSnapshot, dict[str, tuple[bool, str]]]:
+        source = self._library.sources[track_id]
+        return source.revision, source.snapshot or MetadataSnapshot(), self.capabilities(track_id)
 
     def save(
         self,
@@ -82,7 +89,7 @@ class _Writer:
 
 def test_field_commit_uses_the_selection_captured_on_focus(qapp) -> None:
     library = _Library()
-    writer = _Writer()
+    writer = _Writer(library)
     jobs = JobService(qapp, max_thread_count=1)
     selection = ["first"]
     editor = MetadataEditorModel(
@@ -109,9 +116,9 @@ def test_field_commit_uses_the_selection_captured_on_focus(qapp) -> None:
     jobs.shutdown()
 
 
-def test_mixed_selection_saves_supported_files_and_reports_the_rest(qapp) -> None:
+def test_mixed_selection_saves_supported_files_and_reports_the_rest(qapp, qtbot) -> None:
     library = _Library()
-    writer = _Writer()
+    writer = _Writer(library)
     writer.read_only_ids.add("second")
     jobs = JobService(qapp, max_thread_count=1)
     selection = ["first", "second"]
@@ -122,9 +129,15 @@ def test_mixed_selection_saves_supported_files_and_reports_the_rest(qapp) -> Non
         lambda: selection,
     )
 
-    fields = cast(list[dict[str, Any]], editor.infoFields)
-    title = next(field for field in fields if field["key"] == "title")
-    assert title["editable"] is True
+    def title_field() -> dict[str, Any]:
+        fields = cast(list[dict[str, Any]], editor.infoFields)
+        return next(field for field in fields if field["key"] == "title")
+
+    # Editing is enabled once the tags of the selection were inspected in the background.
+    assert title_field()["editable"] is False
+    editor.prepareTrackInspection()
+    qtbot.waitUntil(lambda: title_field()["editable"] is True, timeout=5_000)
+    title = title_field()
     assert title["mixed"] is True
     editor.begin_field_edit("title")
     editor.commit_field("title", "Apply where supported")

@@ -130,6 +130,19 @@ class MpvBackend:
             "ao": audio_output,
             "audio-client-name": "MTEE",
             "sub-auto": "no",
+            # Built-in Lua scripts serve the OSD, the console and URL playback, none of which
+            # MTEE uses. LuaJIT raises SEH exceptions for its own control flow; Python's
+            # faulthandler (enabled by pytest) dumps every thread on each one while other
+            # threads run, which crashed the process intermittently.
+            "osc": "no",
+            "ytdl": "no",
+            "load-stats-overlay": "no",
+            "load-console": "no",
+            "load-osd-console": "no",
+            "load-auto-profiles": "no",
+            "load-select": "no",
+            "load-commands": "no",
+            "load-positioning": "no",
         }
         try:
             for name, value in options.items():

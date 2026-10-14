@@ -335,11 +335,14 @@ Rectangle {
             }
             IconButton {
                 objectName: "trackLike_" + row.track.id
+                readonly property bool liked: row.workspace.revision >= 0
+                    && typeof row.workspace.isLiked === "function" && row.workspace.isLiked(row.localId)
                 visible: typeof row.workspace.toggleLike === "function" && row.available
                 anchors.verticalCenter: parent.verticalCenter
-                icon: row.workspace.revision >= 0 && typeof row.workspace.isLiked === "function"
-                    && row.workspace.isLiked(row.localId) ? "heart-filled" : "heart"
+                icon: liked ? "heart-filled" : "heart"
                 iconSize: 16
+                iconColor: liked ? Theme.secondary : Theme.textSecondary
+                hoverColor: liked ? Theme.secondary : Theme.textPrimary
                 hoverBackground: false
                 tip: "Like track"
                 onClicked: row.workspace.toggleLike(row.localId)

@@ -1,4 +1,7 @@
-"""v0.1 ships without plugins: no entry, no service, and saved activities fall back to Explorer."""
+"""v0.1 ships without plugins: no entry, no service, and a saved Plugins activity falls back.
+
+The Artists activity belongs to the core since step 112 (read-only view built from tags).
+"""
 
 from __future__ import annotations
 
@@ -21,14 +24,17 @@ def _workspace(qapp, tmp_path: Path) -> WorkspaceModel:
     )
 
 
-def test_v01_offers_no_plugin_or_artist_activity(qapp, tmp_path: Path) -> None:
+def test_v01_offers_no_plugin_activity_but_the_core_artists_one(qapp, tmp_path: Path) -> None:
     workspace = _workspace(qapp, tmp_path)
 
     assert workspace.pluginUiEnabled is False
     assert workspace.artistManager is None
 
     workspace.setActivity("artists")
-    assert workspace.activity == "explorer"
+    assert workspace.activity == "artists"
+    workspace.setActivity("plugins")
+    assert workspace.activity == "artists"
+    workspace.setActivity("explorer")
     workspace.setActivity("plugins")
     assert workspace.activity == "explorer"
     workspace.setActivity("playlists")
@@ -50,8 +56,8 @@ def test_artist_and_genre_pages_are_inert_without_their_plugins(qapp, tmp_path: 
     assert workspace.genreManager is None
 
 
-def test_saved_plugin_activities_fall_back_to_explorer() -> None:
-    assert _known_activity("artists") == "explorer"
+def test_a_saved_plugins_activity_falls_back_to_explorer() -> None:
+    assert _known_activity("artists") == "artists"
     assert _known_activity("plugins") == "explorer"
     assert _known_activity("unknown") == "explorer"
     assert _known_activity("playlists") == "playlists"
