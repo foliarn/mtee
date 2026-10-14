@@ -13,7 +13,7 @@ Cadrage décidé en discussion avec l'utilisateur : publier MTEE v0.1 (dépôt p
 | [115 — Statistiques du profil](115-statistiques-profil.md) | Périodes calendaires, totaux, tops, graphique, colonnes Plays / Last played ; fusionné avec 114 |
 | [116 — Normalisation du volume](116-normalisation-volume.md) | Loudness mesurée par Analyze (migration 025), gain par morceau, plafond de pic −2 dBFS et +12 dB ; fusionné (`febff03`, `6058161`) |
 | [117 — Contrôles média Windows](117-controles-media-windows.md) | SMTC : touches multimédias, casques, panneau Windows ; fusionné (`7515166`) |
-| [118 — Nettoyage approfondi](118-nettoyage-profond.md) | Base de référence (lint, types, tests), inventaire du code mort et des prototypes, puis base verte, lint, nettoyage sémantique et découpage des monolithes ; phases 1-2 faites (code mort et prototypes supprimés, scripts archivés), suite à venir |
+| [118 — Nettoyage approfondi](118-nettoyage-profond.md) | Base de référence (lint, types, tests), inventaire du code mort et des prototypes, puis base verte, lint, nettoyage sémantique et découpage des monolithes ; phases 1, 2 et 1b faites (code mort et prototypes supprimés, scripts archivés, base de tests rétablie hors un plantage à plusieurs runtimes), suite à venir |
 
 Suite prévue : nettoyage approfondi du code, préparation du dépôt public (réécriture de l'historique, documents privés séparés), logo, puis publication de v0.1.0. Licence décidée : GPL-3.0-or-later (`ca35119`).
 

@@ -21,7 +21,7 @@ def _write_wav(path: Path) -> None:
         handle.writeframes(b"\x00\x00" * 80)
 
 
-def test_live_window_indexes_and_navigates_a_nested_folder(qapp, tmp_path: Path) -> None:
+def test_live_window_indexes_and_navigates_a_nested_folder(qapp, qtbot, tmp_path: Path) -> None:
     data_dir = tmp_path / "validation data"
     root_path = tmp_path / "Ma collection épurée"
     track_path = root_path / "Été" / "Live" / "track.wav"
@@ -38,17 +38,24 @@ def test_live_window_indexes_and_navigates_a_nested_folder(qapp, tmp_path: Path)
     try:
         assert isinstance(runtime.workspace, WorkspaceModel)
         assert runtime.engine.rootObjects()
+        workspace = runtime.workspace
+        # Start-up reads the saved folders in a job, then scans each one in a second job: wait
+        # for that scan to report before reading the index.
+        with qtbot.waitSignal(workspace.scanFinished, timeout=10_000):
+            qapp.processEvents()
         assert runtime.jobs.wait_for_done(10_000)
         qapp.processEvents()
 
-        workspace = runtime.workspace
         root_id = str(root["id"])
+        tab_id = f"folder:{root_id}/Été/Live"
+        workspace.openFolder(tab_id)
+        # Rows are read by a background job and delivered to the model the view owns, so the
+        # model is requested first and the test waits for it to be filled.
+        model = workspace.trackModelForTab(tab_id, "folder", f"{root_id}/Été/Live", "index", True)
+        qtbot.waitUntil(lambda: len(model.trackIds) == 1, timeout=10_000)
         rows = workspace.tabTracks("folder", f"{root_id}/Été/Live", "index", True)
         assert len(rows) == 1
         track_id = rows[0]["id"]
-        tab_id = f"folder:{root_id}/Été/Live"
-        workspace.openFolder(f"folder:{root_id}/Été/Live")
-        model = workspace.trackModelForTab(tab_id, "folder", f"{root_id}/Été/Live", "index", True)
         assert model.trackIds == [track_id]
         workspace.setTabView(tab_id, "artwork")
         assert model.trackIds == [track_id]

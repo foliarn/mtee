@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import wave
 from pathlib import Path
+from typing import Any, cast
 
 from mtee.domain.metadata import MetadataSnapshot
 from mtee.domain.tracks import SourceRevision
@@ -131,7 +132,7 @@ def test_page_history_replays_settings_and_forks_per_group(qapp, tmp_path: Path)
     database.close()
 
 
-def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, tmp_path: Path) -> None:
+def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, qtbot, tmp_path: Path) -> None:
     root_path = tmp_path / "collection"
     first = root_path / "first.wav"
     second = root_path / "second.wav"
@@ -178,7 +179,8 @@ def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, tmp_path: P
     group_state = workspace.groups_snapshot()[1]
     tab = group_state["tabs"][0]
     track_model = workspace.trackModelForTab(tab["id"], tab["kind"], tab["ref"], "index", True)
-    assert track_model.trackIds == [first_id, second_id]
+    # Rows are read by a background job and delivered by a queued signal (91ebb38).
+    qtbot.waitUntil(lambda: track_model.trackIds == [first_id, second_id], timeout=10_000)
     workspace.setTabView(tab["id"], "artwork")
     assert track_model.trackIds == [first_id, second_id]
     workspace.toggleColumn(tab["id"], "duration")
@@ -186,20 +188,24 @@ def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, tmp_path: P
     workspace.resizeColumn(tab["id"], "genre", 155)
     workspace.moveColumn(tab["id"], "genre", -1)
     assert workspace._jobs.wait_for_done(1_000)
+    # The session is written after a debounce, off the graphical thread (91ebb38).
+    workspace.flush_session()
 
     restored = WorkspaceModel(library=library, session=session, jobs=jobs)
-    restored_tab = restored.groups_snapshot()[1]["tabs"][0]
+    # Column preferences are global, no longer per tab (fbc7d02).
+    columns = cast(dict[str, Any], restored.columnPreferences)
     assert restored.groups_snapshot()[1]["active"] == tab["id"]
     assert restored.selected_ids_snapshot() == [second_id]
-    assert "duration" not in restored_tab["hiddenColumns"]
-    assert "bitrate" not in restored_tab["hiddenColumns"]
+    assert "duration" not in columns["hidden"]
+    assert "bitrate" not in columns["hidden"]
     assert restored.islandEnabled
     restored.setIslandEnabled(False)
-    assert not WorkspaceModel(library=library, session=session, jobs=jobs).islandEnabled
-    assert restored_tab["columnWidths"]["genre"] == 155
-    assert (
-        restored_tab["columnOrder"].index("genre") == restored_tab["columnOrder"].index("album") - 1
-    )
+    restored.flush_session()
+    reopened = WorkspaceModel(library=library, session=session, jobs=jobs)
+    assert not reopened.islandEnabled
+    reopened.flush_session()
+    assert columns["widths"]["genre"] == 155
+    assert columns["order"].index("genre") == columns["order"].index("album") - 1
     restored.setActiveGroup(0)
     assert restored.selected_ids_snapshot() == [first_id]
     jobs.shutdown()

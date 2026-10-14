@@ -4,7 +4,7 @@
 
 Ce plan porte l'étape 8 du MVP v0.1 : remettre le code dans un état lisible et maintenable avant la publication du dépôt, sans changer le comportement de l'application. À la fin, `ruff check`, `ruff format --check` et `pyright` passent sans erreur sur `src`, `tests` et `scripts`. Les tests échouant aujourd'hui sont corrigés ou isolés avec une raison écrite. Le code mort, les prototypes et les outils ponctuels sont sortis du paquet de production. Les plus gros fichiers sont découpés en modules à responsabilité unique.
 
-Préparé le 2026-10-14 à partir de `main` (`f7c5b1a`). Les phases 1 (état de référence) et 2 (code mort et prototypes) sont exécutées. Les décisions de l'utilisateur sur la phase 2 sont appliquées (voir le Decision Log). Les phases 1b et 3 à 6 restent à faire.
+Préparé le 2026-10-14 à partir de `main` (`f7c5b1a`). Les phases 1 (état de référence) et 2 (code mort et prototypes) sont exécutées. Les décisions de l'utilisateur sur la phase 2 sont appliquées (voir le Decision Log). La phase 1b est faite, sauf un plantage natif avec plusieurs runtimes. Les phases 3 à 6 restent à faire.
 
 ## Organisation du travail
 
@@ -140,8 +140,9 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - [x] 2026-10-14 — Phase 2 : deux balayages Haiku, résultats recontrôlés par `git grep`.
 - [x] 2026-10-14 — Décisions utilisateur sur la phase 2 (voir le Decision Log).
 - [x] 2026-10-14 — Phase 2 appliquée : huit worktrees d'agents fusionnées supprimées avec leurs branches ; `.claude`, `.codex` et `.agents` exclus de ruff ; code mort et prototypes supprimés (Sonnet) ; scripts déplacés dans `scripts/archive/` (Sonnet) ; diffs relus et contrôles relancés (Opus). Bilan : 66 fichiers touchés, 40 insertions, 6 349 suppressions.
-- [ ] Commit et push de la phase 2.
-- [ ] Phase 1b — base verte.
+- [x] 2026-10-14 — Commit et push de la phase 2 (`3a37242`).
+- [x] 2026-10-14 — Phase 1b : les échecs d'assertion sont tous corrigés ; quatre défauts du code sont corrigés ; la cause principale des plantages natifs est trouvée et corrigée. Il reste une forme de plantage, avec plusieurs runtimes dans un même processus (voir ci-dessous).
+- [ ] Plantage avec plusieurs runtimes dans un même processus (`test_fullscreen_player_100.py`, `test_playlists_ui.py`) : enquête native à mener séparément.
 - [ ] Phases 3 à 6.
 
 ## Surprises & Discoveries
@@ -156,6 +157,15 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - `scripts/archive/validate_artist_manager_104.py` ne fonctionne plus depuis l'étape 111 : `workspace.artistManager` vaut `None` quand les plugins sont désactivés. Il n'a pas été réparé (script archivé).
 - `scripts/archive/artist-pilot-web/AUTOMATION.md` contient un chemin personnel (`C:/Users/...`), déjà présent avant le déplacement, à traiter à l'étape du dépôt public. Le commentaire de `plugins/artist_manager/migrations/020_artist_enrichment.sql` cite encore l'ancien chemin du script SQL. Il est laissé tel quel, pour ne pas toucher une migration.
 
+- Phase 1b, cause des plantages intermittents. Le libmpv embarqué charge ses scripts Lua intégrés (OSC, console, stats, ytdl, etc.). LuaJIT signale ses erreurs internes par l'exception SEH `0xE24C4A02`, rattrapée normalement dans libmpv. Le `faulthandler` de Python, activé par pytest, écrit pourtant les piles de tous les threads à chaque occurrence. Lire la pile d'un thread qui exécute du Python à ce moment provoque la violation d'accès (le vidage s'interrompt au milieu d'une ligne). Preuve sur un reproducteur de 30 cycles de création et fermeture : 9 processus plantés sur 12 avec faulthandler et les scripts ; 0 sur 5 sans faulthandler ; 0 sur 12 avec faulthandler et les scripts désactivés. Cette explication concerne les plantages en test. Elle ne prouve rien sur le plantage utilisateur R05 du plan 06b : l'application n'active pas faulthandler.
+- Une seconde forme subsiste. `Fatal Python error: Aborted` survient dans le thread principal, pendant `processEvents`, quand plusieurs runtimes complets sont créés puis fermés dans un même processus. Chaque test pris seul passe. Cela reste vrai avec les contrôles média remplacés par `NullMediaTransport`, sans faulthandler et avec l'arrêt réel `_shutdown` dans l'aide de test. Le plan 112 l'avait relevée (threads qui lisent une base fermée). Aucun message Qt avant l'arrêt : un débogueur natif est nécessaire.
+- Défauts du code trouvés par les tests en échec, puis corrigés :
+  - `WorkspaceModel.setSearch` : le premier caractère tapé dans une recherche d'onglet d'aperçu était perdu. `_keep()` émettait `layoutChanged` avant la capture de l'état de groupe, et le champ relisait une requête vide.
+  - `WorkspaceModel.customPlaylistOrder` : l'état de vue du groupe n'était pas recapturé, donc la playlist restait filtrée ou triée.
+  - `PlaylistExchange` : l'export plantait (`KeyError: 'filename'`) sur une entrée indisponible sans nom de fichier, et le libellé de progression de l'import lisait `filename` hors du `snapshot`.
+  - Icônes `heart`, `heart-filled` et `pin` : couleurs codées en dur au lieu de `currentColor`, ce qui rendait inopérantes les couleurs voulues par l'îlot et le plein écran (plan 100).
+- Les autres échecs venaient de tests obsolètes : chargements devenus asynchrones (`91ebb38`), migrations des plugins sorties du cœur (`d32b64d`), préférences de colonnes globales et tri par date de création (`fbc7d02`), panneau Queue repris (`69baca8`), contexte de rapport `report_items` (`f732720`), activité Artists rendue au cœur (étape 112).
+
 ## Decision Log
 
 - 2026-10-14 (Opus) — Tests lancés fichier par fichier : la suite complète plante à la fermeture.
@@ -168,7 +178,19 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - 2026-10-14 (utilisateur) — Les huit worktrees d'agents fusionnées sont supprimées. La worktree Codex `codex/artists-mapping-103` n'est pas touchée.
 - 2026-10-14 (Opus) — `extraPaths = ["scripts/archive"]` dans `[tool.pyright]` : les tests des outils archivés importent ces scripts, et pyright doit les résoudre.
 
+- 2026-10-14 (Opus) — Les scripts Lua intégrés de libmpv sont désactivés (`osc`, `ytdl`, `load-*`). MTEE n'utilise ni sortie vidéo, ni OSD, ni console, ni URL. On corrige la cause plutôt que de désactiver faulthandler, conformément à R05 (« désactiver faulthandler n'est pas un correctif »). Test de non-régression : `tests/integration/test_mpv_lua_exceptions.py`. Sans le correctif, il échoue 3 fois sur 3 ; avec, il passe 3 fois sur 3.
+- 2026-10-14 (Opus) — Les défauts du code sont corrigés plutôt que marqués `xfail`. Ce sont de petites corrections qui rétablissent l'intention documentée, chacune prouvée par le test qui échouait. Changement visible : dans l'îlot et le plein écran, le cœur « non aimé » prend désormais les couleurs `iconColor` et `hoverColor` déjà déclarées. Dans les listes, il garde l'apparence d'avant (gris, rose quand il est aimé) et blanchit au survol.
+- 2026-10-14 (Opus) — `tests/ui/test_fullscreen_player_100.py` ferme désormais ses runtimes par `_shutdown`, comme l'application. Cela ne suffit pas à supprimer l'arrêt, mais retire un écart de comportement entre le test et l'application.
+- 2026-10-14 (Opus) — Aucun `xfail` ajouté : il ne reste aucun échec d'assertion, et un arrêt du processus ne peut pas être marqué `xfail`.
+
 ## Outcomes & Retrospective
+
+Phase 1b, contrôles du 2026-10-14 :
+
+- Tests fichier par fichier : 143 fichiers sur 145 passent, soit 1 041 tests réussis et 2 ignorés. `test_fullscreen_player_100.py` s'arrête au 13ᵉ test environ. `test_playlists_ui.py` passe 2 fois sur 3 ; chacun de ses deux cas passe seul.
+- Fichiers autrefois sujets aux plantages : 4 exécutions sur 4 réussies, sans violation d'accès, pour `test_analysis_ui`, `test_application_smoke`, `test_track_list_column_resize` et `test_workspace_model`.
+- `ruff check .` : 20 erreurs. `ruff format --check` : 14 fichiers. `pyright` : 181 erreurs. Aucune variation.
+- Non fait : parcours interactif de la recherche et de l'ordre personnalisé dans l'application. Build Windows non lancé.
 
 Phase 2, contrôles du 2026-10-14 :
 

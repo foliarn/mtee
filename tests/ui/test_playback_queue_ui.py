@@ -77,7 +77,7 @@ def test_queue_panel_shows_distinct_upcoming_occurrences(
         qtbot.waitUntil(lambda: service.state.current_id == ids[0])
         workspace.enqueueTracks([ids[1], ids[1]], f"folder:{root_record['id']}/", [])
         qtbot.waitUntil(lambda: len(service.queue_state.upcoming) >= 2)
-        qtbot.waitUntil(lambda: _find(root, "playbackQueueView") is not None)
+        qtbot.waitUntil(lambda: _find(root, "queuePanelList") is not None)
         QCoreApplication.processEvents()
         rows = player._upcoming_queue_model.rows_snapshot()
         manual = [row for row in rows if row["origin"] == "manual"]
@@ -85,7 +85,7 @@ def test_queue_panel_shows_distinct_upcoming_occurrences(
         assert manual[0]["entryId"] != manual[1]["entryId"]
         assert manual[0]["id"] == manual[1]["id"] == ids[1]
         first_id, second_id = manual[0]["entryId"], manual[1]["entryId"]
-        queue_row = _find(root, "queueEntry_" + second_id)
+        queue_row = _find(root, "queueRow_" + second_id)
         assert queue_row is not None
         point = queue_row.mapToScene(queue_row.boundingRect().center())
         QTest.mouseClick(
@@ -93,9 +93,12 @@ def test_queue_panel_shows_distinct_upcoming_occurrences(
             Qt.MouseButton.RightButton,
             pos=QPoint(round(point.x()), round(point.y())),
         )
-        qtbot.waitUntil(lambda: _find(root, "removeQueueAction") is not None)
-        remove = _find(root, "removeQueueAction")
+        qtbot.waitUntil(lambda: _find(root, "queueRemove") is not None)
+        remove = _find(root, "queueRemove")
         assert remove is not None
+        # Let the popup open completely before clicking its item.
+        qtbot.waitUntil(lambda: remove.isVisible() and remove.height() > 0)
+        qtbot.wait(100)
         action_point = remove.mapToScene(remove.boundingRect().center())
         QTest.mouseClick(
             root,
@@ -141,18 +144,21 @@ def test_queue_panel_shows_distinct_upcoming_occurrences(
         before = [row["entryId"] for row in player._upcoming_queue_model.rows_snapshot()]
         moved_id = before[0]
         assert len(before) >= 2
-        moved = _find(root, "queueEntry_" + moved_id)
-        target = _find(root, "queueEntry_" + before[-1])
+        moved = _find(root, "queueRow_" + moved_id)
+        target = _find(root, "queueRow_" + before[-1])
         assert moved is not None and target is not None
         start = moved.mapToScene(moved.boundingRect().center())
         end = target.mapToScene(target.boundingRect().center())
-        start_point = QPoint(round(start.x() - moved.width() / 2 + 14), round(start.y()))
+        # Press on the title area: the cover is a play button, not a drag handle.
+        start_point = QPoint(round(start.x()), round(start.y()))
         end_point = QPoint(start_point.x(), round(end.y() + target.height() / 3))
         QTest.mousePress(root, Qt.MouseButton.LeftButton, pos=start_point)
         QTest.mouseMove(root, QPoint(start_point.x(), start_point.y() + 12))
         QTest.mouseMove(root, end_point)
-        queue_view = _find(root, "playbackQueueView")
-        assert queue_view is not None
+        queue_list = _find(root, "queuePanelList")
+        assert queue_list is not None
+        # The drag state lives on the shared QueueList item that owns the list.
+        queue_view = queue_list.parentItem()
         assert queue_view.property("dragActive") is True
         assert queue_view.property("dragEntryId") == moved_id
         assert queue_view.property("dropBeforeId") == ""
@@ -164,10 +170,10 @@ def test_queue_panel_shows_distinct_upcoming_occurrences(
         )
         assert player._upcoming_queue_model.rows_snapshot()[-1]["entryId"] == moved_id
         after_move = [row["entryId"] for row in player._upcoming_queue_model.rows_snapshot()]
-        moved = _find(root, "queueEntry_" + moved_id)
+        moved = _find(root, "queueRow_" + moved_id)
         assert moved is not None
         position = moved.mapToScene(moved.boundingRect().center())
-        handle_point = QPoint(round(position.x() - moved.width() / 2 + 14), round(position.y()))
+        handle_point = QPoint(round(position.x()), round(position.y()))
         QTest.mousePress(root, Qt.MouseButton.LeftButton, pos=handle_point)
         QTest.mouseMove(root, QPoint(handle_point.x(), handle_point.y() - 15))
         assert queue_view.property("dragActive") is True

@@ -195,7 +195,7 @@ def test_space_goes_to_search_while_a_track_is_playing(
         assert not backend.paused
         assert backend.seeks == [0, 0, 0]
         workspace.showRightPanel("queue")
-        qtbot.waitUntil(lambda: _visible(root, "playbackQueueView"))
+        qtbot.waitUntil(lambda: _visible(root, "queuePanel"))
         QTest.keyClick(root, Qt.Key.Key_Space)
         assert backend.paused
         workspace.openSettings()

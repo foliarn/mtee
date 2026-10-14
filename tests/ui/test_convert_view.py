@@ -21,7 +21,9 @@ def _find_item(root: QQuickItem, object_name: str) -> QQuickItem | None:
     return None
 
 
-def test_local_convert_view_loads_runtime_capabilities_and_settings(qapp, tmp_path: Path) -> None:
+def test_local_convert_view_loads_runtime_capabilities_and_settings(
+    qapp, qtbot, tmp_path: Path
+) -> None:
     application = create_application(["mtee"])
     runtime = _build_runtime(
         application,
@@ -38,6 +40,9 @@ def test_local_convert_view_loads_runtime_capabilities_and_settings(qapp, tmp_pa
         view = _find_item(root.contentItem(), "convertView")
         assert view is not None
         model = cast(QObject, workspace.conversionModel)
+        # The FFmpeg runtime is probed by a background job: wait for it to report.
+        qtbot.waitUntil(lambda: model.property("capabilitiesState") != "loading", timeout=30_000)
+        assert model.property("capabilitiesState") == "ready", model.property("capabilitiesError")
         formats = cast(list[dict[str, Any]], model.property("formats"))
         assert {item["id"] for item in formats} >= {
             "mp3",

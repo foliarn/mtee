@@ -1033,7 +1033,14 @@ FocusScope {
                 z: 2
                 anchors.top: parent.top; anchors.topMargin: 12
                 anchors.right: parent.right; anchors.rightMargin: 12
-                IconButton { visible: typeof view.workspace.toggleLike === "function" && tile.modelData.available !== false; icon: view.workspace.revision >= 0 && typeof view.workspace.isLiked === "function" && view.workspace.isLiked(tile.modelData.trackId || tile.modelData.id) ? "heart-filled" : "heart"; iconSize: 16; tip: "Like track"; onClicked: view.workspace.toggleLike(tile.modelData.trackId || tile.modelData.id) }
+                IconButton {
+                    readonly property bool liked: view.workspace.revision >= 0 && typeof view.workspace.isLiked === "function" && view.workspace.isLiked(tile.modelData.trackId || tile.modelData.id)
+                    visible: typeof view.workspace.toggleLike === "function" && tile.modelData.available !== false
+                    icon: liked ? "heart-filled" : "heart"; iconSize: 16; tip: "Like track"
+                    iconColor: liked ? Theme.secondary : Theme.textSecondary
+                    hoverColor: liked ? Theme.secondary : Theme.textPrimary
+                    onClicked: view.workspace.toggleLike(tile.modelData.trackId || tile.modelData.id)
+                }
                 IconButton { visible: tile.modelData.available !== false; icon: "add-playlist"; iconSize: 18; tip: "Add to playlist"; onClicked: view.openPlaylistMenu(this, tile.modelData.id) }
                 TextButton { visible: tile.modelData.available === false && view.isPlaylist; text: "Locate"; onClicked: view.workspace.playlistModel.requestUI("locate", tile.modelData.entryId, [tile.modelData.id]) }
             }
