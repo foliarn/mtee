@@ -44,3 +44,7 @@ L'installation neuve utilise les migrations 022 et 023 sans restaurer l'ancienne
     pwsh -File scripts/smoke_packaged.ps1
 
 La distribution monofichier est produite dans `dist/MTEE.exe`. Les commandes ci-dessus sont réservées aux demandes explicites de packaging ou de distribution Windows ; elles ne font pas partie de la clôture habituelle d'une tâche. Un lancement depuis les sources ne valide pas le paquet sur une machine Windows propre, sans Python ni Qt installés.
+
+## Licence
+
+MTEE est un logiciel libre distribué sous licence GNU GPL version 3 ou ultérieure (`GPL-3.0-or-later`) : voir [LICENSE](LICENSE). Les composants tiers et leurs licences sont listés dans [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

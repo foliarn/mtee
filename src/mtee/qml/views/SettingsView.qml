@@ -574,7 +574,7 @@ Rectangle {
                 Group { title: "MTEE" }
 
                 ValueRow { label: "Version"; value: Qt.application.version }
-                ValueRow { label: "Licence"; value: "GPL-3.0" }
+                ValueRow { label: "Licence"; value: "GPL-3.0-or-later" }
 
                 Text {
                     width: parent.width

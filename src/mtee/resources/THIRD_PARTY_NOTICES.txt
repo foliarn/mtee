@@ -1,6 +1,12 @@
 Third-party software included with MTEE
 =======================================
 
+MTEE itself is free software, distributed under the GNU General Public
+License, version 3 or (at your option) any later version
+(GPL-3.0-or-later). The full text is bundled in
+resources/licenses/mtee/LICENSE and published at
+https://www.gnu.org/licenses/gpl-3.0.txt
+
 NumPy
 -----
 MTEE uses NumPy for the tempo, key and waveform analysis. NumPy is
