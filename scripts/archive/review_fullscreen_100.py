@@ -24,7 +24,7 @@ from PySide6.QtQuick import QQuickWindow
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.icon_provider import IconProvider
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "docs/ux/fullscreen-100-2026-10-01"
 SCENES = {
     "page1": (1440, 900),

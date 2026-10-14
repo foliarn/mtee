@@ -1,4 +1,4 @@
-"""Open or capture the illustrative queue review without user data."""
+"""Open or capture the plan 98 playlist interaction review with fictional data."""
 
 from __future__ import annotations
 
@@ -16,31 +16,25 @@ from PySide6.QtQuick import QQuickWindow
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.icon_provider import IconProvider
 
-ROOT = Path(__file__).resolve().parents[1]
-SCENES = {
-    "panel": (1280, 800),
-    "fullscreen": (1440, 900),
-    "track-menu": (1280, 800),
-    "queue-menu": (1280, 800),
-    "drag": (1280, 800),
-    "empty": (1280, 800),
-}
-
-
-def settle(app: QGuiApplication) -> None:
-    until = time.monotonic() + 0.3
-    while time.monotonic() < until:
-        app.processEvents()
-        time.sleep(0.01)
+ROOT = Path(__file__).resolve().parents[2]
+SCENES = (
+    "creation-menu", "creation-resume", "creation-opened", "title-edit", "cover-hover",
+    "drag-single", "drag-multiple", "drop-playlist", "insert-list",
+    "insert-artwork", "playback-states", "playback-paused",
+)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--capture", action="store_true")
-    parser.add_argument("--native", action="store_true")
-    parser.add_argument("--scene", choices=SCENES, default="panel")
+    parser.add_argument("--scene", choices=SCENES, default="playback-states")
+    parser.add_argument("--width", type=int, default=1440)
+    parser.add_argument("--height", type=int, default=900)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--native", action="store_true", help="Capture with the native Qt platform")
     args = parser.parse_args()
-    if args.capture and not args.native:
+    if args.width < 880 or args.height < 600:
+        parser.error("Review size must be at least 880 x 600")
+    if args.output and not args.native:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
     app = QGuiApplication(sys.argv[:1])
@@ -63,27 +57,28 @@ def main() -> int:
             print(message, file=sys.stderr)
 
     engine.warnings.connect(record_warnings)
-    engine.load(QUrl.fromLocalFile(str(ROOT / "docs/ux/mockups/Queue99Review.qml")))
+    qml = ROOT / "docs/ux/mockups/Playlists98Review.qml"
+    engine.load(QUrl.fromLocalFile(str(qml)))
     if not engine.rootObjects():
         return 1
     window = engine.rootObjects()[0]
     if not isinstance(window, QQuickWindow):
-        raise RuntimeError("Queue review did not create a Qt Quick window")
-    if args.capture:
-        output = ROOT / "docs/ux/queue-99-2026-10-01"
-        output.mkdir(parents=True, exist_ok=True)
-        for scene, dimensions in SCENES.items():
-            window.setProperty("scene", scene)
-            window.resize(*dimensions)
-            settle(app)
-            path = output / f"{scene}-{dimensions[0]}x{dimensions[1]}.png"
-            if not window.grabWindow().save(str(path)):
-                raise RuntimeError(f"Capture failed: {scene}")
-            print(path.relative_to(ROOT))
+        raise RuntimeError("Review root is not a Qt Quick window")
+    window.resize(args.width, args.height)
+    window.setProperty("scene", args.scene)
+    until = time.monotonic() + 0.35
+    while time.monotonic() < until:
+        app.processEvents()
+        time.sleep(0.01)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        if not window.grabWindow().save(str(args.output)):
+            raise RuntimeError(f"Could not capture {args.output}")
+        print(args.output)
         window.close()
         return 2 if warnings else 0
-    window.setProperty("scene", args.scene)
-    window.resize(*SCENES[args.scene])
+    if warnings:
+        return 2
     return app.exec()
 
 

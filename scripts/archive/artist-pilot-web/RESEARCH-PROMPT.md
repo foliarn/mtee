@@ -16,14 +16,14 @@ Cette attente applique son instruction de préparer sans lancer le job.
 
 Répertoire de travail : `C:\Users\flori\Desktop\dev\MTEE`.
 Python : `.\.venv\Scripts\python.exe`.
-Script : `scripts/artist_research_session.py`.
+Script : `scripts/archive/artist_research_session.py`.
 Dataset : `.local/validation/105/full_20261006_01`.
 Base : `C:/Users/flori/AppData/Roaming/MTEE/MTEE/mtee.sqlite3`.
 
 Préfixe de commande (répéter avant chaque sous-commande) :
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/artist_research_session.py --output .local/validation/105/full_20261006_01 --database C:/Users/flori/AppData/Roaming/MTEE/MTEE/mtee.sqlite3 status
+.\.venv\Scripts\python.exe scripts/archive/artist_research_session.py --output .local/validation/105/full_20261006_01 --database C:/Users/flori/AppData/Roaming/MTEE/MTEE/mtee.sqlite3 status
 ```
 
 Le périmètre préparé contient 1 976 artistes établis et 2 828 morceaux. Les profils

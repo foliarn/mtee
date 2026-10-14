@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "archive"))
 from artist_enrichment_pilot import write_json
 from artist_pilot_server import ReviewStore, make_server
 

@@ -6,8 +6,8 @@ them; ``--apply`` backs the database up first, then deletes the orphans with the
 that hang on them (name observations, aliases, enrichment review). Credits, tracks,
 files and the other artists are never touched. Close MTEE before applying.
 
-    python scripts/clean_orphan_artists.py --database mtee.sqlite3 --csv orphans.csv
-    python scripts/clean_orphan_artists.py --database mtee.sqlite3 --apply
+    python scripts/archive/clean_orphan_artists.py --database mtee.sqlite3 --csv orphans.csv
+    python scripts/archive/clean_orphan_artists.py --database mtee.sqlite3 --apply
 """
 
 from __future__ import annotations

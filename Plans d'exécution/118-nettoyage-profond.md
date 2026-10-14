@@ -1,0 +1,181 @@
+# 118 — Nettoyage approfondi du code
+
+## Statut et résultat attendu
+
+Ce plan porte l'étape 8 du MVP v0.1 : remettre le code dans un état lisible et maintenable avant la publication du dépôt, sans changer le comportement de l'application. À la fin, `ruff check`, `ruff format --check` et `pyright` passent sans erreur sur `src`, `tests` et `scripts`. Les tests échouant aujourd'hui sont corrigés ou isolés avec une raison écrite. Le code mort, les prototypes et les outils ponctuels sont sortis du paquet de production. Les plus gros fichiers sont découpés en modules à responsabilité unique.
+
+Préparé le 2026-10-14 à partir de `main` (`f7c5b1a`). Les phases 1 (état de référence) et 2 (code mort et prototypes) sont exécutées. Les décisions de l'utilisateur sur la phase 2 sont appliquées (voir le Decision Log). Les phases 1b et 3 à 6 restent à faire.
+
+## Organisation du travail
+
+Le travail est réparti entre trois niveaux de modèles. Claude Opus 5.5 (architecte) fixe la stratégie, relit chaque diff, vérifie les conclusions des sous-agents dans le code et conduit le découpage des monolithes. Claude Sonnet 5.5 fait l'essentiel des modifications fichier par fichier et relance les tests après chaque fichier. Claude Haiku 5.5 fait les balayages volumineux : imports, symboles inutilisés, classement de listes et lecture de journaux d'outils. Aucune conclusion d'un sous-agent n'est appliquée sans contre-vérification dans le code.
+
+Contraintes reprises de `AGENTS.md` et `PLANS.md` : aucun renommage de symbole lié à Qt/QML (slots, propriétés, signaux, rôles, propriétés de contexte) ; écritures testées sur des copies ; pas de build Windows automatique ; un commit détaillé par phase, puis push vers `origin`.
+
+## Phase 1 — État de référence (exécutée le 2026-10-14)
+
+Environnement : Windows 11 Pro, Python 3.12.14, PySide6 6.9.3, uv. Outils déclarés dans `pyproject.toml` : pytest + pytest-qt, ruff (`E F I N UP B SIM RUF`, 100 colonnes), pyright en mode `standard`. La CI (`.github/workflows/ci.yml`) exécute `ruff check .`, `ruff format --check .`, `pyright`, `pytest`, le smoke-test depuis les sources, puis le build. Sur l'état actuel, la CI ne peut pas passer : pyright et pytest échouent.
+
+### Lint et format
+
+    uv run ruff check src tests scripts       → 20 erreurs (18 E501, 1 SIM105, 1 I001)
+    uv run ruff format --check src tests scripts → 14 fichiers à reformater
+
+`ruff check .` remonte 180 erreurs, car il inclut les worktrees d'agents non suivies sous `.claude/worktrees/`. Il faudra exclure ces dossiers dans `[tool.ruff]` (`extend-exclude`) ou supprimer les worktrees.
+
+### Types
+
+    uv run pyright → 209 erreurs (52 dans src, 157 dans tests)
+
+Règles principales : `reportArgumentType` 63, `reportOptionalMemberAccess` 35, `reportAttributeAccessIssue` 29, `reportOperatorIssue` 18, `reportIndexIssue` 16, `reportMissingImports` 14 (tests important `scripts/` sans chemin configuré). Fichiers les plus touchés : `tests/unit/test_artist_manager_contract.py` 38, `src/mtee/plugins/artist_manager/models.py` 20, `src/mtee/models/conversion_queue_model.py` 16.
+
+### Tests
+
+La suite complète plante en fin d'exécution (comportement connu). Elle est donc lancée fichier par fichier, avec `QT_QPA_PLATFORM=offscreen` : 146 fichiers, 128 verts, 18 en échec ou en plantage.
+
+Préexistants : ils échouent déjà à `30b6a6d` (fusion de l'étape 111), vérifié dans une worktree temporaire supprimée ensuite.
+
+- `tests/integration/test_conversion_ffmpeg.py` : 8 échecs (texte de pochette).
+- `tests/integration/test_playback_repository.py::test_migration_from_17_keeps_data_and_creates_consistent_backup`.
+- `tests/integration/test_playlist_exchange.py` : 3 échecs.
+- `tests/unit/test_conversion_queue.py` : 2 échecs.
+- `tests/unit/test_icon_provider.py::test_every_icon_renders_in_the_requested_colour`.
+- UI, chacun 1 ou 2 échecs (`waitUntil` expiré ou assertion) : `test_browser_navigation`, `test_convert_view`, `test_incremental_scan_and_scroll`, `test_metadata_editor`, `test_playback_queue_ui`, `test_player_views`, `test_playlists_ui` (2), `test_track_drag_98`.
+- `tests/unit/test_workspace_model.py` : échec à `30b6a6d`, plantage natif dans `waitUntil` sur `main`.
+- `tests/ui/test_fullscreen_player_100.py` : plantage natif aux deux commits.
+
+Différents de `30b6a6d` :
+
+- `tests/ui/test_application_smoke.py` et `tests/ui/test_track_list_column_resize.py` : violation d'accès native pendant `waitUntil`, avec le thread d'événements libmpv actif (`mpv_backend.py:281`). Ils passent à `30b6a6d`, puis ont aussi passé sur `main` lors d'une seconde série de tests. Il s'agit donc de plantages natifs intermittents, pas d'une régression déterministe. `tests/ui/test_analysis_ui.py` plante de la même façon dans 3 exécutions sur 5 sur `HEAD`. `uv run python -m mtee --smoke-test` réussit, avec et sans `offscreen`.
+- `tests/unit/test_plugins_hidden.py` : 2 échecs (`'artists' == 'explorer'`). Le test attend encore l'absence d'activité Artists, alors que l'étape 112 l'a rendue au cœur. Test obsolète.
+
+Journaux bruts : dossier temporaire de session, non versionné.
+
+## Phase 2 — Code mort et prototypes (inventaire exécuté, décisions en attente)
+
+Deux balayages Haiku : graphe d'imports AST, vulture à 60 %, ruff F401/F841/F811 ; puis références QML, icônes, prototypes et scripts. Les résultats ci-dessous ont été recontrôlés par `git grep` sur `src`, `tests`, `scripts` et `packaging`.
+
+### Code mort avéré (zéro référence hors définition)
+
+Aucun module Python orphelin. Ruff F401/F841/F811 : aucun résultat.
+
+Fonctions et constantes sans appelant (vulture 60 %, contrôlé par `git grep -w`) :
+
+- `src/mtee/persistence/database.py` : `open_database`, `applied_versions`.
+- `src/mtee/persistence/library_repository.py` : `mark_root_unavailable`, `copy_location_in_transaction`, `registered_roots_for`.
+- `src/mtee/plugins/artist_manager/repository.py` : `DONE_STATES`, `UNFINISHED_APPLY`, `set_category`, `confirmed_credit_names`.
+- `src/mtee/plugins/artist_manager/file_service.py` : `unfinished_track_ids`.
+- `src/mtee/models/artwork_provider.py` : `cached_bytes` (propriété Python, non Qt).
+- `src/mtee/models/demo_workspace.py` : `scenarioNames` (non décoré, absent du QML).
+- `src/mtee/models/folder_tree_model.py` : `invalidate_root`.
+- `src/mtee/services/metadata_adapters/id3.py` : `_validate_patch`.
+
+QML et ressources :
+
+- `src/mtee/qml/components/WaveformPreview.qml` : zéro référence. Le plan 100 le décrit comme un placeholder non utilisé.
+- `src/mtee/qml/components/ArtistManagerPane.qml` : zéro référence depuis l'étape 111.
+- `src/mtee/resources/icons/clock.svg` : aucun nom d'icône correspondant. `pin.svg` figurait aussi dans l'inventaire, à tort : `PlaylistsPane.qml:72` l'utilise. Il est conservé.
+- `src/mtee/models/demo_tracks_model.py` : créé à chaque démarrage (`app.py:182`) et exposé comme `tracksModel` (`app.py:397`), mais lu par aucun QML ni Python. C'est un second jeu de données de démonstration, distinct de `src/mtee/demo/library.py`.
+
+### Prototypes dans le paquet de production
+
+Aucun n'est atteignable depuis `mtee.app` ou la CLI. `packaging/mtee.spec` copie tout `src/mtee/qml`, donc les fichiers QML de prototype sont embarqués dans l'EXE.
+
+- `src/mtee/prototypes/` (`artists_112.py`, `genre_manager_110.py`, `settings_profile_114.py`, 1 328 lignes).
+- `src/mtee/qml/prototypes/` (trois `ReviewWindow.qml`, 3 243 lignes).
+- Utilisateurs : `scripts/review_artists_112.py`, `review_genre_manager_110.py`, `review_settings_profile_114.py`, `measure_genre_manager_110.py`, ainsi que `tests/unit/test_artists_112_prototype.py` et `tests/ui/test_genre_manager_110_prototype.py`.
+
+### Code de plugin masqué dans l'arbre du cœur
+
+Avec `PLUGIN_UI_ENABLED = False` (`plugins/registry.py:28`), ces vues ne sont pas atteignables en v0.1, mais elles vivent dans `src/mtee/qml/views` et `components` : `ArtistsView`, `ArtistReviewView`, `GenreManagerView` et ses quatre pages, `ArtistActionDialog`, `ArtistConfirmDialog`, `ArtistEditDialog`, `ArtistListView`, `ArtistReviewTrackList`, `CheckLine`, `ArtistProfileDialog`, `FilterChip`, `PluginsPane` et l'icône `arrow-left`. Ce n'est pas du code mort : c'est une frontière de plugin incomplète, qui relève de v0.2.
+
+### Scripts
+
+Sur 42 fichiers suivis dans `scripts/`, 5 servent au build et à la CI, 4 sont des outils de développement génériques et 15 sont des scripts de revue, de validation ou de mesure liés à une étape numérotée. Les 18 autres sont des outils pour la collection personnelle (enrichissement d'artistes, `artist-pilot-web/`, nettoyage d'orphelins, genres depuis les dossiers) : 10 scripts, la migration SQL et les 7 fichiers de `artist-pilot-web/`. Huit tests unitaires importent ces outils, ce qui produit une partie des erreurs `reportMissingImports` de pyright.
+
+### Hygiène du dépôt
+
+- Huit worktrees d'agents sous `.claude/worktrees/`, toutes fusionnées dans `main` et propres. La worktree Codex `codex/artists-mapping-103` a deux commits non fusionnés.
+- `fonts.py` préfère « Geist Sans », qui n'est pas livrée. La police d'affichage réelle est Plus Jakarta Sans, et le README des polices est périmé (voir phase 4).
+
+## Phases suivantes (non commencées)
+
+### Phase 1b — Rétablir une base verte
+
+Avant toute modification du code, corriger ou isoler les échecs listés plus haut. Sonnet traite chaque fichier de test et Opus relit les diffs. Le test obsolète `test_plugins_hidden` passe en premier. Opus mène ensuite l'enquête sur les plantages natifs intermittents (arrêt du thread libmpv pendant `waitUntil` et à la fermeture), qui empêchent aussi la suite complète de s'exécuter d'un bloc. Viennent enfin les échecs préexistants. Chaque test isolé reçoit un marqueur `xfail(strict=True)` motivé, jamais un `skip` silencieux. Les erreurs `reportMissingImports` des tests sur `scripts/` sont réglées par la décision prise sur ces scripts.
+
+### Phase 3 — Formatage et lint automatiques
+
+Haiku : `ruff check --fix`, `ruff format`, exclusion de `.claude/` et `.codex/`. Sonnet : les 18 E501 et le SIM105 restants, à la main. Suite de tests relancée fichier par fichier.
+
+### Phase 4 — Nettoyage sémantique, module par module
+
+Sonnet travaille fichier par fichier, avec les tests après chaque fichier ; Opus relit les diffs. Cibles mesurées :
+
+- 81 `except Exception` dans `src` (17 dans `player_service.py`, 8 dans `metadata_editor_model.py`, 7 dans `media_transport.py`) et 10 `contextlib.suppress(Exception)`. Chaque cas est soit restreint à des exceptions précises, soit conservé avec une raison écrite : frontière libmpv/WinRT, slot Qt qui ne doit pas lever.
+- 52 erreurs pyright dans `src`, puis 157 dans `tests`. 15 `# type: ignore`, dont 13 dans `demo_workspace.py`.
+- Commentaires de narration et blocs de code commentés.
+- `fonts.py` (Geist absente) et doublons de données de démonstration.
+
+### Phase 5 — Découpage des monolithes
+
+Conduit par Opus, avec une façade de délégation pour ne pas toucher aux liaisons QML. Des tests de caractérisation sont écrits avant chaque extraction si la couverture manque.
+
+- `src/mtee/models/workspace_model.py` : 3 676 lignes, une classe, 269 méthodes, 124 slots, 64 propriétés. Sections déjà marquées : propriétés, requêtes, artistes du cœur, racines et scans, actions de mise en page, sélection, rafraîchissement des dossiers.
+- `src/mtee/models/demo_workspace.py` (1 487), `src/mtee/services/player_service.py` (1 198), `src/mtee/persistence/library_repository.py` (1 134), `src/mtee/models/metadata_editor_model.py` (1 077).
+- QML : `TrackListView.qml` (1 297) et `SettingsView.qml` (1 080).
+- `plugins/artist_manager/repository.py` (1 487) reste hors v0.1, comme le reste du code de plugin.
+
+### Phase 6 — Vérification finale et bilan
+
+Lint, types, tests fichier par fichier, `--smoke-test` depuis les sources et parcours manuel. Bilan chiffré : lignes supprimées, fichiers déplacés, erreurs résolues, recommandations restantes.
+
+## Reprise et incidents
+
+Le relevé de référence se refait avec la boucle fichier par fichier : `uv run pytest <fichier> -q -p no:cacheprovider`, avec `QT_QPA_PLATFORM=offscreen`. Comparer avec `30b6a6d` dans une worktree temporaire détachée, en lançant pytest avec `PYTHONPATH=<worktree>/src` et le Python de `.venv`, puis supprimer la worktree. Ne jamais utiliser `git stash`.
+
+## Progress
+
+- [x] 2026-10-14 — Phase 1 : outils identifiés ; ruff, format, pyright et tests fichier par fichier relevés ; échecs classés en préexistants ou récents par comparaison avec `30b6a6d`.
+- [x] 2026-10-14 — Phase 2 : deux balayages Haiku, résultats recontrôlés par `git grep`.
+- [x] 2026-10-14 — Décisions utilisateur sur la phase 2 (voir le Decision Log).
+- [x] 2026-10-14 — Phase 2 appliquée : huit worktrees d'agents fusionnées supprimées avec leurs branches ; `.claude`, `.codex` et `.agents` exclus de ruff ; code mort et prototypes supprimés (Sonnet) ; scripts déplacés dans `scripts/archive/` (Sonnet) ; diffs relus et contrôles relancés (Opus). Bilan : 66 fichiers touchés, 40 insertions, 6 349 suppressions.
+- [ ] Commit et push de la phase 2.
+- [ ] Phase 1b — base verte.
+- [ ] Phases 3 à 6.
+
+## Surprises & Discoveries
+
+- La CI ne peut pas passer sur `main` : 209 erreurs pyright et des tests en échec.
+- `ruff check .` analyse les worktrees d'agents non suivies (180 erreurs au lieu de 20).
+- Trois fichiers de test sont cassés par les étapes 112 et 114-116, dont deux plantages natifs. L'application démarre pourtant correctement en `--smoke-test`.
+- `DemoTracksModel` est instancié en production sans être lu.
+- Les fichiers QML de prototype sont embarqués dans l'EXE, car le spec copie tout l'arbre `qml`.
+- L'inventaire comptait `pin.svg` comme inutilisé, à tort. Sonnet a relevé son usage avant la suppression : une contre-vérification reste nécessaire même après un `git grep`.
+- `Id3WaveAdapter._validate_patch` n'était plus appelé. La détection des champs ambigus passe désormais par `domain/tag_conflicts.py` et `AnalysisService`.
+- `scripts/archive/validate_artist_manager_104.py` ne fonctionne plus depuis l'étape 111 : `workspace.artistManager` vaut `None` quand les plugins sont désactivés. Il n'a pas été réparé (script archivé).
+- `scripts/archive/artist-pilot-web/AUTOMATION.md` contient un chemin personnel (`C:/Users/...`), déjà présent avant le déplacement, à traiter à l'étape du dépôt public. Le commentaire de `plugins/artist_manager/migrations/020_artist_enrichment.sql` cite encore l'ancien chemin du script SQL. Il est laissé tel quel, pour ne pas toucher une migration.
+
+## Decision Log
+
+- 2026-10-14 (Opus) — Tests lancés fichier par fichier : la suite complète plante à la fermeture.
+- 2026-10-14 (Opus) — `30b6a6d` sert de point de comparaison : c'est la dernière fusion avant les vagues 2 et 3.
+- 2026-10-14 (Opus) — Les vues de plugin masquées ne sont pas classées comme code mort. Leur déplacement relève de la frontière de plugin (v0.2), sauf décision contraire de l'utilisateur.
+- 2026-10-14 (Opus) — Aucune suppression sans accord explicite. Les propositions sont soumises à l'utilisateur.
+- 2026-10-14 (utilisateur) — Code mort avéré : supprimé.
+- 2026-10-14 (utilisateur) — Prototypes 110, 112 et 114 : supprimés, avec leurs quatre scripts de revue ou de mesure et leurs deux tests. Les dossiers de revue de `docs/` et l'historique Git en gardent la trace.
+- 2026-10-14 (utilisateur) — Scripts ponctuels et outils de collection : déplacés dans `scripts/archive/`. Restent dans `scripts/` les scripts de build et de CI, ainsi que `create_audio_fixtures.py`, `create_browser_fixture.py`, `diagnose_windows_runtime.py` et `capture_ux_scenario.py`.
+- 2026-10-14 (utilisateur) — Les huit worktrees d'agents fusionnées sont supprimées. La worktree Codex `codex/artists-mapping-103` n'est pas touchée.
+- 2026-10-14 (Opus) — `extraPaths = ["scripts/archive"]` dans `[tool.pyright]` : les tests des outils archivés importent ces scripts, et pyright doit les résoudre.
+
+## Outcomes & Retrospective
+
+Phase 2, contrôles du 2026-10-14 :
+
+- `ruff check .` : de 180 à 20 erreurs ; les 20 restantes sont les mêmes qu'avant sur le code suivi.
+- `ruff format --check` : 14 fichiers à reformater, sans changement.
+- `pyright` : de 209 à 181 erreurs, sans aucune nouvelle erreur.
+- Tests fichier par fichier : aucun nouvel échec ; les échecs connus sont inchangés.
+- Les neuf fichiers de test des outils archivés passent.
+- `--smoke-test` depuis les sources : code de sortie 0.
+- Non fait : parcours interactif de l'application, sans objet pour des suppressions de code inatteignable. Build Windows non lancé.

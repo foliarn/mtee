@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
-from scripts.artist_enrichment_pilot import (
+from scripts.archive.artist_enrichment_pilot import (
     MusicBrainzClient,
     ProviderError,
     canonical_profile,

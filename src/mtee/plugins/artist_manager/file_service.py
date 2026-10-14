@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import threading
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -524,7 +524,3 @@ def _json_dict(text: str) -> dict[str, Any]:
     except ValueError:
         return {}
     return value if isinstance(value, dict) else {}
-
-
-def unfinished_track_ids(items: Iterable[dict[str, Any]]) -> list[str]:
-    return [str(item["track_id"]) for item in items if item["status"] in _ACTIVE]

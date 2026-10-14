@@ -38,7 +38,7 @@ from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.app_paths import resolve_app_paths
 from mtee.services.metadata_reader import MetadataReader
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT / ".local" / "validation" / "104" / "ui"
 FILES = (
     ("Skream - Midnight Request Line.wav", None, None),

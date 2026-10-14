@@ -4,8 +4,8 @@ The default run only writes a report. ``--apply`` backs the database up first, t
 the genres as tags of the artists (a remix gives its genre to the remixer only). Tags typed
 by hand are kept; the tags of an earlier run are replaced. Close nothing: SQLite handles it.
 
-    python scripts/genres_from_folders.py --database mtee.sqlite3 --report-dir report
-    python scripts/genres_from_folders.py --database mtee.sqlite3 --apply
+    python scripts/archive/genres_from_folders.py --database mtee.sqlite3 --report-dir report
+    python scripts/archive/genres_from_folders.py --database mtee.sqlite3 --apply
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from mtee.persistence.database import Database
 from mtee.plugins.artist_manager.folder_genre_service import FolderGenreService, GenrePlan

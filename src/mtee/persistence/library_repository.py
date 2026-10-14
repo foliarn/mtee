@@ -474,12 +474,6 @@ class LibraryRepository:
                 changed.add(relative)
         return sorted(changed)
 
-    def mark_root_unavailable(self, root_id: str) -> None:
-        with self._database.transaction() as connection:
-            connection.execute(
-                "UPDATE library_roots SET availability='unavailable' WHERE root_id=?", (root_id,)
-            )
-
     def roots(self) -> list[dict[str, Any]]:
         rows = (
             self._database.connection()
@@ -785,80 +779,6 @@ class LibraryRepository:
             .fetchone()
         )
         return str(row[0]) if row is not None else None
-
-    @staticmethod
-    def copy_location_in_transaction(
-        connection: sqlite3.Connection,
-        *,
-        destination: Path,
-        revision: SourceRevision,
-        metadata: MetadataSnapshot,
-    ) -> str:
-        """Register verified copied bytes as a new UUID in all containing roots."""
-        final_path = destination.resolve(strict=True)
-        key = normalize_path(final_path)
-        if connection.execute("SELECT 1 FROM track_locations WHERE path_key=?", (key,)).fetchone():
-            raise ValueError("A library track already owns the copied destination path.")
-        memberships: list[tuple[str, str, int]] = []
-        for root in connection.execute("SELECT root_id,path,scan_generation FROM library_roots"):
-            root_path = Path(str(root["path"])).expanduser().resolve(strict=False)
-            try:
-                relative = final_path.relative_to(root_path).as_posix()
-            except ValueError:
-                continue
-            if relative and relative != ".":
-                memberships.append((str(root["root_id"]), relative, int(root["scan_generation"])))
-        if not memberships:
-            raise ValueError("The copy destination is outside every registered library root.")
-        track_id = str(TrackId.new())
-        dates = FileDates.observe(final_path)
-        connection.execute("INSERT INTO tracks(track_id) VALUES(?)", (track_id,))
-        connection.execute(
-            "INSERT INTO track_locations(path_key,track_id,path,size_bytes,mtime_ns,file_id,"
-            "generation,duration_us,status,metadata_json,file_created_at_ns,file_modified_at_ns) "
-            "VALUES(?,?,?,?,?,?,0,?,?,?,?,?)",
-            (
-                key,
-                track_id,
-                str(final_path),
-                revision.size_bytes,
-                revision.mtime_ns,
-                revision.file_id,
-                metadata.technical.duration_us,
-                metadata.status,
-                json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True),
-                dates.created_at_ns,
-                dates.modified_at_ns,
-            ),
-        )
-        connection.executemany(
-            "INSERT INTO root_tracks(root_id,track_id,relative_path,seen_generation,present) "
-            "VALUES(?,?,?,?,1)",
-            [
-                (root_id, track_id, relative, generation)
-                for root_id, relative, generation in memberships
-            ],
-        )
-        return track_id
-
-    def registered_roots_for(self, path: Path | str) -> list[tuple[str, str, int]]:
-        """Return registered roots containing a destination and its relative path."""
-        candidate = Path(path).expanduser().absolute()
-        candidate_parent = candidate.parent.resolve(strict=True)
-        candidate = candidate_parent / candidate.name
-        matches: list[tuple[str, str, int]] = []
-        rows = self._database.connection().execute(
-            "SELECT root_id,path,scan_generation FROM library_roots"
-        )
-        for row in rows:
-            root_path = Path(str(row["path"])).expanduser().resolve(strict=False)
-            try:
-                relative = candidate.relative_to(root_path).as_posix()
-            except ValueError:
-                continue
-            if relative and relative != ".":
-                matches.append((str(row["root_id"]), relative, int(row["scan_generation"])))
-        return matches
 
     @staticmethod
     def move_location_in_transaction(

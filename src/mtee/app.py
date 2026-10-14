@@ -28,7 +28,6 @@ from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.cover_accent_model import CoverAccentModel
 from mtee.models.data_privacy_model import DataPrivacyModel
-from mtee.models.demo_tracks_model import DemoTracksModel
 from mtee.models.demo_workspace import DemoWorkspace
 from mtee.models.file_move_model import FileMoveModel
 from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
@@ -113,7 +112,6 @@ class _Runtime:
     engine: QQmlApplicationEngine
     controller: ShellController
     jobs_model: JobsListModel
-    tracks_model: DemoTracksModel
     workspace: QObject
     frame: WindowFrame
     artwork_provider: ArtworkProvider | None
@@ -179,7 +177,6 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
 
     jobs = JobService(application)
     jobs_model = JobsListModel(jobs)
-    tracks_model = DemoTracksModel()
     artwork_provider = None
     media_controls: MediaControls | None = None
     player_service = None
@@ -394,7 +391,6 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     context = engine.rootContext()
     context.setContextProperty("shell", controller)
     context.setContextProperty("jobsModel", jobs_model)
-    context.setContextProperty("tracksModel", tracks_model)
     context.setContextProperty("workspace", workspace)
     context.setContextProperty("windowFrame", frame)
     # Models of the Profile and Settings pages (plans 114-115). Demo mode has none of them.
@@ -434,7 +430,6 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         engine=engine,
         controller=controller,
         jobs_model=jobs_model,
-        tracks_model=tracks_model,
         workspace=workspace,
         frame=frame,
         artwork_provider=artwork_provider,

@@ -14,7 +14,7 @@ demander d'approbation à chaque lot. Les validations restent une étape humaine
 ## Script
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/artist_research_session.py --output <dossier-collection> --database <base-sqlite> status
+.\.venv\Scripts\python.exe scripts/archive/artist_research_session.py --output <dossier-collection> --database <base-sqlite> status
 ```
 
 Remplacer `status` par :

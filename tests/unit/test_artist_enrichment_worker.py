@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "archive"))
 from artist_enrichment_pilot import read_json, write_json
 from artist_enrichment_worker import (
     CodexAudit,

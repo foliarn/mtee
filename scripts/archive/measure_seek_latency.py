@@ -10,7 +10,7 @@ The delay is the time between the command and an audio position at or after the 
 so it covers the demuxer and the decoder but not the buffer of a real audio device,
 which adds a fixed delay of its own.
 
-    uv run python scripts/measure_seek_latency.py
+    uv run python scripts/archive/measure_seek_latency.py
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from pathlib import Path
 from mtee.services.ffmpeg_runtime import FfmpegRuntime
 from mtee.services.mpv_backend import MpvBackend
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 FORMATS = (
     ("wav", ("-c:a", "pcm_s16le")),
     ("flac", ("-c:a", "flac")),

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from mutagen.id3 import TIT2, TPE1
 from mutagen.wave import WAVE
-from scripts.audit_mapping_sample import (
+from scripts.archive.audit_mapping_sample import (
     _clean_annotation,
     _inventory_one,
     _is_link_or_junction,

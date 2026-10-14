@@ -182,7 +182,7 @@ def test_migration_adopts_a_table_created_by_the_review_tool(tmp_path: Path) -> 
     connection = database.connection()
     connection.execute("DROP TABLE artist_enrichment_reviews")
     connection.execute("DROP TABLE artist_enrichment_schema")
-    tool = Path(__file__).resolve().parents[2] / "scripts/artist-review-migrations"
+    tool = Path(__file__).resolve().parents[2] / "scripts/archive/artist-review-migrations"
     for statement in split_statements((tool / "001_artist_enrichment.sql").read_text("utf-8")):
         connection.execute(statement)
     connection.execute("INSERT INTO artist_enrichment_schema VALUES (1, 'then')")

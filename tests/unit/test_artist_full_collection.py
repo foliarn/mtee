@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "archive"))
 from artist_enrichment_pilot import write_json
 from artist_full_collection import import_validated_pilot, prepare_full
 from artist_pilot_server import ReviewStore

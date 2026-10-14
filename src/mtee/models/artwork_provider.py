@@ -41,11 +41,6 @@ class ArtworkProvider(QQuickImageProvider):
         self._cache_bytes = 0
         self._lock = threading.RLock()
 
-    @property
-    def cached_bytes(self) -> int:
-        with self._lock:
-            return self._cache_bytes
-
     def requestImage(self, image_id: str, size: QSize, requested_size: QSize) -> QImage:
         """Return ``track-id/generation/size`` after checking the source revision."""
         try:

@@ -6,7 +6,7 @@ Artists activity, an artist page, its "…" menu and an artist link of the playe
 reports the texts it read and writes one screenshot per step next to the data. It reports
 every QML warning: a component that never loads is a failure. It touches no user file.
 
-    uv run python scripts/validate_artists_112_view.py
+    uv run python scripts/archive/validate_artists_112_view.py
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from mtee.domain.tracks import SourceRevision
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT / ".local" / "validation" / "112-view"
 # title, Artist tag values, album, track number
 TRACKS = (

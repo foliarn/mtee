@@ -39,9 +39,6 @@ from mtee.plugins.registry import prepare_plugin_schema
 
 __all__ = ["ArtistRepository", "StageResult", "revision_from_json"]
 
-DONE_STATES = ("succeeded",)
-UNFINISHED_APPLY = ("queued", "running", "failed", "cancelled")
-
 
 class StageResult:
     """Outcome of staging a confirmation."""
@@ -741,16 +738,6 @@ class ArtistRepository:
             ],
         )
 
-    def set_category(self, track_id: str, category: str) -> None:
-        if category not in CATEGORIES:
-            raise ValueError(category)
-        with self._database.transaction() as connection:
-            connection.execute(
-                "UPDATE track_artist_review SET category=?, decision_version=decision_version+1, "
-                "updated_at_utc=? WHERE track_id=? AND category<>?",
-                (category, _now(), track_id, category),
-            )
-
     # ------------------------------------------------------------- confirmations
 
     def stage_confirmation(
@@ -1393,9 +1380,6 @@ class ArtistRepository:
             .fetchall()
         )
         return [str(row[0]) for row in rows]
-
-    def confirmed_credit_names(self, track_ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
-        return self._credit_map(self._database.connection(), list(track_ids), confirmed=1)
 
     def readable_track_ids(self) -> list[str]:
         """Return every readable, present track of the registered roots, once each."""
