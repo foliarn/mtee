@@ -18,9 +18,9 @@ from mtee.domain.artist_index import (
     MODE_SPLIT,
     ArtistEntry,
     ArtistIndex,
+    CreditRules,
     build_artist_index,
     has_separator,
-    split_artist_credit,
 )
 from mtee.domain.artists import clean_name, normalize_key
 from mtee.persistence.credit_override_repository import CreditOverrideRepository
@@ -51,6 +51,7 @@ class ArtistIndexService(QObject):
         self._overrides: dict[str, tuple[str, str]] = overrides.modes()
         self._generation = 0
         self._running = False
+        self._submitting = False
         self._last_error = ""
         self._built.connect(self._on_built)
 
@@ -73,6 +74,11 @@ class ArtistIndexService(QObject):
 
     def refresh(self) -> None:
         """Ask for an index that matches the library and the overrides as they are now."""
+        # Submitting a build emits the job service's jobSubmitted, which the conversion queue
+        # reports as a library change. Our own submission is not one: counting it would start
+        # another build, forever.
+        if self._submitting:
+            return
         self._generation += 1
         if not self._running:
             self._start()
@@ -89,10 +95,13 @@ class ArtistIndexService(QObject):
                 return
             self._built.emit(index, generation)
 
+        self._submitting = True
         try:
             self._jobs.submit(build, label="Index artists", visible=False)
         except RuntimeError:
             self._running = False  # the application is shutting down
+        finally:
+            self._submitting = False
 
     def _on_built(self, result: object, generation: int) -> None:
         self._running = False
@@ -108,10 +117,15 @@ class ArtistIndexService(QObject):
 
     # ------------------------------------------------------------------ overrides
 
-    def _rule_inputs(self) -> tuple[list[str], set[str]]:
-        one_names = [text for text, mode in self._overrides.values() if mode == MODE_ONE_ARTIST]
-        split_keys = {key for key, (_text, mode) in self._overrides.items() if mode == MODE_SPLIT}
-        return one_names, split_keys
+    def rules(self) -> CreditRules:
+        """The splitting rules as they are now: the solo names of the index and the choices."""
+        one_names = tuple(
+            text for text, mode in self._overrides.values() if mode == MODE_ONE_ARTIST
+        )
+        split_keys = frozenset(
+            key for key, (_text, mode) in self._overrides.items() if mode == MODE_SPLIT
+        )
+        return CreditRules(self._index.solo_keys, one_names, split_keys)
 
     def overrides(self) -> list[dict[str, str]]:
         """Every choice made by the user, as ``{"key", "text", "mode"}``, sorted by text."""
@@ -170,13 +184,7 @@ class ArtistIndexService(QObject):
 
     def split(self, text: str) -> list[str]:
         """The artists a typed or tagged credit gives under the rules and the overrides."""
-        one_names, split_keys = self._rule_inputs()
-        return split_artist_credit(
-            text,
-            solo=self._index.solo_keys,
-            one_names=one_names,
-            split_keys=split_keys,
-        )
+        return self.rules().split(text)
 
     def needs_choice(self, text: str) -> bool:
         """Whether a typed credit holds a separator that the user has not answered yet."""

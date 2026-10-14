@@ -240,6 +240,16 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             player=player_model,
         )
         workspace.attach_playback_settings(playback_settings)
+        # The core artist index: the Artists view, the artist links, the tag editor and the
+        # top artists cut credits with the same rules. It is rebuilt off the graphical thread
+        # after each library change, and the statistics follow each finished build.
+        artist_index = ArtistIndexService(
+            library, CreditOverrideRepository(database), jobs, parent=workspace
+        )
+        workspace.attach_artist_index(artist_index)
+        workspace.libraryChanged.connect(artist_index.refresh)
+        workspace.scanFinished.connect(lambda *_arguments: artist_index.refresh())
+        artist_index.refresh()
         # Plugins load only when the plugin switch is on; v0.1 builds none of them.
         plugins_enabled = plugin_ui_enabled()
         if plugins_enabled:
@@ -253,7 +263,13 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         profile_model = ProfileModel(profile, jobs, application)
         profile_avatar = ProfileAvatarProvider(profile)
         profile_avatar.setParent(application)
-        statistics_model = StatisticsModel(play_log, jobs, application)
+        statistics_model = StatisticsModel(
+            play_log,
+            jobs,
+            application,
+            artist_rules=artist_index.rules,
+        )
+        artist_index.indexChanged.connect(statistics_model.followArtistRules)
         data_privacy_model = DataPrivacyModel(
             database,
             RestoreLayout(paths.data_dir),
@@ -285,14 +301,6 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             MetadataHistoryRepository(database),
             file_access,
         )
-        # The core artist index: the tag editor cuts and remembers credits with the same rules
-        # as the Artists view. It is rebuilt off the graphical thread after each library change.
-        artist_index = ArtistIndexService(
-            library, CreditOverrideRepository(database), jobs, parent=workspace
-        )
-        workspace.libraryChanged.connect(artist_index.refresh)
-        workspace.scanFinished.connect(lambda *_arguments: artist_index.refresh())
-        artist_index.refresh()
         artist_rules_model = ArtistRulesModel(artist_index, application)
         metadata_editor = MetadataEditorModel(
             library,

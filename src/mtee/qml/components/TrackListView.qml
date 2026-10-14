@@ -415,8 +415,12 @@ FocusScope {
             id: artistHeader
             anchors.fill: parent
             active: view.isArtist
-            sourceComponent: Component { ArtistHeader { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel } }
+            // The artist manager plugin (behind the plugin switch) keeps its own header.
+            sourceComponent: typeof view.workspace.isPluginArtistPage === "function"
+                && view.workspace.isPluginArtistPage(view.tab.ref) ? pluginArtistHeader : artistPageHeader
         }
+        Component { id: artistPageHeader; ArtistPageHeader { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel } }
+        Component { id: pluginArtistHeader; ArtistHeader { workspace: view.workspace; tab: view.tab; trackModel: view.trackModel } }
         Column {
             visible: !view.isPlaylist && !view.isArtist
             x: view.columns.padding

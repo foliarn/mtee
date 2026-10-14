@@ -29,7 +29,7 @@ from mtee.plugins.registry import plugin_ui_enabled
 
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
-ACTIVITIES = ("explorer", "playlists", "convert", "tasks", "plugins")
+ACTIVITIES = ("explorer", "playlists", "convert", "tasks", "artists", "plugins")
 TAB_KINDS = ("folder", "playlist", "convert", "settings", "profile", "tasks")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")

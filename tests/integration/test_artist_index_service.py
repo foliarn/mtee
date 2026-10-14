@@ -234,6 +234,23 @@ def test_the_artist_list_and_page_models_follow_the_index(qapp, library_setup) -
     jobs.shutdown()
 
 
+def test_a_build_does_not_restart_on_its_own_submission(qapp, library_setup) -> None:
+    """A job submission is reported as a library change by the conversion queue.
+
+    The index must not count the submission of its own build as a change, or each build
+    would start the next one forever. Here every submission calls ``refresh``, as the
+    conversion queue does through the workspace's ``libraryChanged``.
+    """
+    database, library, _music = library_setup
+    jobs, service = _service(qapp, database, library)
+    jobs.jobSubmitted.connect(lambda _status: service.refresh())
+    _settle(qapp, service)  # the first build: its own submission must not restart it
+    settled = service._generation
+    _settle(qapp, service)  # one more request: one more build, no self-restart
+    assert service._generation == settled + 1
+    jobs.shutdown()
+
+
 def test_a_new_track_appears_after_a_refresh(qapp, library_setup) -> None:
     database, library, music = library_setup
     jobs, service = _service(qapp, database, library)
