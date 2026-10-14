@@ -44,6 +44,7 @@ def test_the_playback_group_offers_normalization_on_at_normal(qapp, tmp_path: Pa
         workspace.openSettings()
         QTest.qWait(100)
         view = _first(window.contentItem(), "settingsView")
+        _click(window, _first(view, "settingsTab_playback"))
 
         assert playback.property("normalizationEnabled") is True
         assert playback.property("normalizationLevel") == "normal"

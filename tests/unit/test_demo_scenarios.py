@@ -65,10 +65,19 @@ def test_placeholder_activities_exist_without_behaviour() -> None:
     groups_before = workspace.groups
 
     workspace.setActivity("plugins")
-    workspace.setActivity("profile")
 
-    assert workspace.activity == "profile"
+    assert workspace.activity == "plugins"
     assert workspace.groups == groups_before
+
+
+def test_profile_opens_a_tab_and_is_not_an_activity() -> None:
+    workspace = _workspace("explorer")
+    assert "profile" not in ACTIVITIES
+
+    workspace.openProfile()
+    group = workspace.groups[workspace.activeGroup]
+    assert group["active"] == "profile:"
+    assert "profile:" in [tab["id"] for tab in group["tabs"]]
 
 
 def test_tabs_open_close_and_split_like_an_editor() -> None:

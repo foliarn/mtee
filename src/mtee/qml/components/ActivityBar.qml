@@ -47,7 +47,15 @@ Rectangle {
         anchors.bottomMargin: 4
         width: parent.width
 
-        ActivityButton { activity: "profile"; icon: "profile"; tip: "Profile (coming later)" }
+        // The Profile page is a tab of the editor, not a sidebar activity.
+        ActivityButton {
+            objectName: "activity-profile"
+            activity: ""
+            icon: "profile"
+            tip: "Profile"
+            highlighted: bar.activeTabKind === "profile" && !bar.workspace.fullscreen
+            onClicked: bar.workspace.openProfile()
+        }
         ActivityButton {
             activity: ""
             icon: "settings"

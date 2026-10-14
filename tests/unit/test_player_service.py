@@ -1192,7 +1192,8 @@ def test_an_automatic_change_applies_the_gain_of_the_next_track(
 ) -> None:
     service, backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=2)
     _loudness(tracks, ids[0], -14.0, -6.0)
-    _loudness(tracks, ids[1], -26.0, -6.0)  # -14 + 26 is +12 dB; the peak allows only 5 dB
+    # -14 + 26 is +12 dB; the -6 dBFS peak leaves only 4 dB before the -2 dBFS ceiling.
+    _loudness(tracks, ids[1], -26.0, -6.0)
     service.play_queue(ids)
     _wait_playing(qtbot, service)
 
@@ -1201,7 +1202,7 @@ def test_an_automatic_change_applies_the_gain_of_the_next_track(
     _wait_playing(qtbot, service)
 
     assert service.state.current_id == ids[1]
-    assert backend.gains_at_load == pytest.approx([0.0, 5.0])
+    assert backend.gains_at_load == pytest.approx([0.0, 4.0])
     service.close()
 
 
