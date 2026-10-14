@@ -38,7 +38,7 @@ class TrashModel(QObject):
     dialogRequested = Signal()
     resultsReady = Signal(int, object)
     preparationReady = Signal(int, object, object)
-    preparationFailed = Signal(int, str)
+    preparationFailed = Signal(int, str, bool)
     interruptedReady = Signal(object)
     tracksRecycled = Signal(object)
 
@@ -169,11 +169,11 @@ class TrashModel(QObject):
                     )
                 self.preparationReady.emit(generation, candidates, failures)
             except JobCancelledError:
-                self.preparationFailed.emit(generation, "Recycle preparation was cancelled.")
+                self.preparationFailed.emit(generation, "Recycle preparation was cancelled.", False)
                 raise
             except Exception as error:
                 self.preparationFailed.emit(
-                    generation, f"Could not prepare the recycle operation: {error}"
+                    generation, f"Could not prepare the recycle operation: {error}", True
                 )
                 raise
 
@@ -308,13 +308,16 @@ class TrashModel(QObject):
         self.dialogRequested.emit()
         self.changed.emit()
 
-    @Slot(int, str)
-    def _on_preparation_failed(self, generation: int, message: str) -> None:
+    @Slot(int, str, bool)
+    def _on_preparation_failed(self, generation: int, message: str, show: bool) -> None:
         if generation != self._generation:
             return
         self._active_job_id = ""
         self._state = "result"
         self._message = message
+        if show:
+            # The dialog only opens on request: without it the error would stay unseen.
+            self.dialogRequested.emit()
         self.changed.emit()
 
     @Slot(object)

@@ -362,24 +362,30 @@ def test_check_hresult_accepts_success_codes() -> None:
 def test_check_hresult_prefixes_the_message_to_the_windows_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        ctypes, "FormatError", lambda code: f" Access denied {code:#x}\r\n", raising=False
-    )
+    received: list[int] = []
+
+    def format_error(code: int) -> str:
+        received.append(code)
+        return " Access denied\r\n"
+
+    monkeypatch.setattr(ctypes, "FormatError", format_error, raising=False)
     with pytest.raises(TrashServiceError) as caught:
         trash_service._check_hresult(_ACCESS_DENIED, "Could not do it.")
-    assert str(caught.value) == "Could not do it. Access denied 0x80070005"
+    assert str(caught.value) == "Could not do it. Access denied"
+    # FormatError takes a signed C long, so the HRESULT is passed as is.
+    assert received == [_ACCESS_DENIED]
 
 
 @windows_only
 @pytest.mark.parametrize("result", [_ACCESS_DENIED, _E_FAIL, -1])
-def test_check_hresult_with_the_real_formaterror_overflows_on_any_negative_hresult(
-    result: int,
-) -> None:
-    # Characterization of a defect: FormatError takes a signed C long, so the unsigned value
-    # (result & 0xFFFFFFFF) overflows and the OverflowError is not among the caught exceptions.
-    # Consequence: on a real failure the service raises OverflowError, never TrashServiceError.
-    with pytest.raises(OverflowError):
+def test_check_hresult_with_the_real_formaterror_reports_the_windows_text(result: int) -> None:
+    # A negative HRESULT used to overflow FormatError; it now gives a TrashServiceError
+    # carrying the (localized) Windows text after the message.
+    with pytest.raises(TrashServiceError) as caught:
         trash_service._check_hresult(result, "Could not do it.")
+    text = str(caught.value)
+    assert text.startswith("Could not do it. ")
+    assert len(text) > len("Could not do it. ")
 
 
 def test_check_hresult_falls_back_to_the_hex_code_when_windows_has_no_text(

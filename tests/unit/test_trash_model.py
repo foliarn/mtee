@@ -342,7 +342,7 @@ def test_when_nothing_is_recyclable_the_result_opens_without_confirmation(env: _
     assert model.state == "result"
 
 
-def test_a_preparation_error_is_reported_without_opening_the_dialog(
+def test_a_preparation_error_is_reported_and_opens_the_dialog(
     env: _Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     track = env.add_track("a.wav")
@@ -360,7 +360,7 @@ def test_a_preparation_error_is_reported_without_opening_the_dialog(
     assert model.state == "result"
     assert model.message == "Could not prepare the recycle operation: database unavailable"
     assert not model.canCancel
-    assert dialogs == []  # characterization: the QML dialog is never asked to open
+    assert dialogs == [1]  # the QML dialog only opens on request
     status = env.job_status("Prepare recycle operation")
     assert status.state is JobState.FAILED
 
@@ -371,6 +371,8 @@ def test_cancelling_during_preparation_reports_a_cancellation(
     first = env.add_track("a.wav")
     second = env.add_track("b.wav")
     model = env.make_model()
+    dialogs: list[int] = []
+    model.dialogRequested.connect(lambda: dialogs.append(1))
     entered = threading.Event()
     gate = threading.Event()
     real = env.library.source_record
@@ -391,6 +393,7 @@ def test_cancelling_during_preparation_reports_a_cancellation(
 
     assert model.state == "result"
     assert model.message == "Recycle preparation was cancelled."
+    assert dialogs == []  # the user cancelled: no dialog pops up
     assert not model.canCancel
     assert env.job_status("Prepare recycle operation").state is JobState.CANCELLED
 
@@ -597,6 +600,8 @@ def test_a_file_modified_after_preparation_is_refused_and_not_recycled(env: _Env
     assert status.state is JobState.FAILED
     assert status.error is not None
     assert status.error.code == _TrashBatchError.code == "trash_partial_failure"
+    # Every file was handled and some failed: shown as completed with errors.
+    assert status.is_partial
     assert status.failure_total == 1
     assert status.failures[0].name == "a.wav"
 
@@ -706,6 +711,7 @@ def test_a_partial_batch_recycles_the_good_files_and_reports_the_failure(env: _E
     assert status.state is JobState.FAILED
     assert status.error is not None
     assert status.error.code == "trash_partial_failure"
+    assert status.is_partial
     assert status.failure_total == 1
     assert status.failures[0].name == "b.wav"
     assert status.completed == 3
@@ -1040,7 +1046,7 @@ def test_stale_or_malformed_worker_signals_are_ignored(env: _Env) -> None:
     assert model.state == "confirm"
 
     model.preparationReady.emit(999, [], [])
-    model.preparationFailed.emit(999, "stale")
+    model.preparationFailed.emit(999, "stale", True)
     model.resultsReady.emit(999, [{"status": "recycled", "trackId": "x"}])
     model.resultsReady.emit(1, "not a list")
     model.preparationReady.emit(1, "not a list", [])

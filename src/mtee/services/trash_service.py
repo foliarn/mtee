@@ -362,7 +362,8 @@ class TrashService:
 def _check_hresult(result: int, message: str) -> None:
     if result < 0:
         try:
-            detail = ctypes.FormatError(result & 0xFFFFFFFF).strip()
+            # FormatError takes a signed C long: the unsigned form overflows.
+            detail = ctypes.FormatError(result).strip()
         except (AttributeError, OSError):
             detail = f"HRESULT 0x{result & 0xFFFFFFFF:08X}"
         raise TrashServiceError(f"{message} {detail}")
