@@ -17,6 +17,7 @@ __all__ = [
     "BPM_LIMITS",
     "DECIMAL_LIMITS",
     "DURATION_TOLERANCE_US",
+    "LOUDNESS_ALGORITHM_VERSION",
     "PARALLEL_LIMITS",
     "WAVEFORM_ALGORITHM_VERSION",
     "AnalysisSettings",
@@ -32,6 +33,8 @@ ANALYSIS_ALGORITHM_VERSION = 2
 # The stored waveform has its own version, so a better key does not throw it away.
 # Version 2: each point also stores the RMS energy of its slice (plan 100).
 WAVEFORM_ALGORITHM_VERSION = 2
+# Loudness (plan 116) has its own version: a result of an older version is measured again.
+LOUDNESS_ALGORITHM_VERSION = 1
 # A stored result stays valid while the audio length agrees within this tolerance:
 # a tag edit changes the file bytes but not the audio, a replaced file does.
 DURATION_TOLERANCE_US = 1_000_000
@@ -80,6 +83,9 @@ class TrackAnalysis:
     source_duration_us: int | None = None
     algorithm_version: int | None = None
     analyzed_at_utc: str | None = None
+    integrated_lufs: float | None = None
+    sample_peak_dbfs: float | None = None
+    loudness_version: int | None = None
 
     @property
     def analyzed(self) -> bool:

@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
+from mtee.domain.loudness import NormalizationSettings, playback_gain_db
 from mtee.domain.play_log import ClockReading, PlayedTrack, PlayEvent, PlayTracker
 from mtee.domain.playback import PlaybackState, PlaybackStatus
 from mtee.domain.playback_history import HistoryEntry, PlaybackHistory
@@ -77,6 +78,7 @@ class PlayerService(QObject):
         self._device_id = ""
         self._play_log_futures: list[Future[int]] = []
         self._unmuted_volume = self._state.volume
+        self._normalization = NormalizationSettings()
         self._transient_silence = False
         self._pending_seek_us: int | None = None
         self._pending_seek_started = 0.0
@@ -176,6 +178,27 @@ class PlayerService(QObject):
                 self._backend.set_volume(0 if muted else volume)
             except Exception as error:
                 _LOGGER.warning("Could not apply the saved volume: %s", error)
+
+    def set_normalization(self, settings: NormalizationSettings) -> None:
+        """Use these loudness normalization choices from the next track on.
+
+        The track that is playing takes its new gain at once: that change is one the user
+        asked for. Nothing is loaded here, so the gain of a track is always set before its
+        first sample, in ``_open_index``.
+        """
+        self._normalization = settings.normalized()
+        if self._backend is None or self._closed or not self._state.current_id:
+            return
+        try:
+            self._backend.set_gain_db(self._gain_db(self._resolver(self._state.current_id)))
+        except Exception as error:
+            _LOGGER.warning("Could not apply the loudness normalization: %s", error)
+
+    def _gain_db(self, track: dict[str, Any]) -> float:
+        """Return the gain of a track row under the current normalization choices."""
+        return playback_gain_db(
+            track.get("loudnessLufs"), track.get("samplePeakDbfs"), self._normalization
+        )
 
     def _schedule_settings_save(self) -> None:
         if self._settings_repository is None or self._closed:
@@ -880,6 +903,9 @@ class PlayerService(QObject):
             self._read_track_ids[session_id] = track_id
             self._transient_silence = False
             self._backend.set_volume(0 if self._state.muted else self._state.volume)
+            # The gain of this track is set before the load, so its first sample is heard
+            # at the normalized level. Nothing is preloaded: each track is loaded here.
+            self._backend.set_gain_db(self._gain_db(track))
             # An explicit activation means "play this track". Reset the native
             # pause property here, once, before load so a previous track's pause
             # cannot leak into the new session.

@@ -47,6 +47,9 @@ class SessionBackend:
     def set_volume(self, value: int) -> None:
         pass
 
+    def set_gain_db(self, value: float) -> None:
+        pass
+
     def seek(self, position_us: int) -> None:
         self.position = position_us
         self.seeks.append(position_us)
