@@ -24,12 +24,13 @@ from mtee.demo.scenarios import DEFAULT_SCENARIO, SCENARIO_NAMES, DemoScenario, 
 from mtee.domain.durations import format_playlist_meta
 from mtee.domain.waveform import WAVEFORM_POINTS, WaveformPoints
 from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
+from mtee.models.workspace_model import SETTINGS_PAGES
 from mtee.plugins.registry import plugin_ui_enabled
 
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
-ACTIVITIES = ("explorer", "playlists", "convert", "tasks", "plugins", "profile")
-TAB_KINDS = ("folder", "playlist", "convert", "settings", "tasks")
+ACTIVITIES = ("explorer", "playlists", "convert", "tasks", "plugins")
+TAB_KINDS = ("folder", "playlist", "convert", "settings", "profile", "tasks")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")
 MAX_GROUPS = 2
@@ -201,7 +202,7 @@ class DemoWorkspace(QObject):
         if kind == "playlist":
             playlist = self._playlists.get(ref)
             return str(playlist["name"]) if playlist else ref
-        return {"convert": "Convert", "tasks": "Tasks"}.get(kind, "Settings")
+        return {"convert": "Convert", "tasks": "Tasks", "profile": "Profile"}.get(kind, "Settings")
 
     def _visible_order(self, source: str) -> list[str]:
         """Order of ``source`` as its tab currently shows it."""
@@ -272,7 +273,7 @@ class DemoWorkspace(QObject):
 
     @Slot(str)
     def setSettingsPage(self, page: str) -> None:
-        if page in {"general", "analysis"}:
+        if page in SETTINGS_PAGES:
             self._settings_page = page
             self.layoutChanged.emit()
 
@@ -961,6 +962,17 @@ class DemoWorkspace(QObject):
     def openSettings(self) -> None:
         self._open_tab("settings:")
         self.layoutChanged.emit()
+
+    @Slot()
+    def openProfile(self) -> None:
+        # The demo has no profile: the page says so instead of showing a real name.
+        self._open_tab("profile:")
+        self.layoutChanged.emit()
+
+    @Property(list, notify=selectionChanged)
+    def infoListening(self) -> list[dict[str, object]]:
+        """The demo has no play log, so its details have no listening figures."""
+        return []
 
     @Slot()
     def openTasks(self) -> None:

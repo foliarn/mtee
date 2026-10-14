@@ -17,6 +17,7 @@ from PySide6.QtGui import QGuiApplication, QMouseEvent, QWindow
 
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationHistory, NavigationLocation
+from mtee.domain.play_log import format_listened_at
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.conversion_queue_model import ConversionQueueModel
@@ -30,6 +31,7 @@ from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
 from mtee.persistence.library_repository import LibraryRepository
+from mtee.persistence.play_log_repository import PlayLogRepository, TrackPlayStats
 from mtee.persistence.workspace_repository import (
     COLUMN_OPTIONS,
     DEFAULT_COLUMN_PREFERENCES,
@@ -63,10 +65,17 @@ _SORT_KEYS = {
     "filename",
     "fileCreatedAt",
     "fileModifiedAt",
+    "playCount",
+    "lastPlayed",
 }
 _COLUMN_KEYS = {key for key, _label in COLUMN_OPTIONS}
+# Listening columns: their values come from the play log, read off the graphical thread.
+_PLAY_COLUMN_KEYS = ("playCount", "lastPlayed")
+# The pages of the Settings tab, in the order of its category list.
+SETTINGS_PAGES = ("general", "library", "playback", "analysis", "shortcuts", "privacy", "about")
 # The artist manager has no activity entry in v0.1 (step 112 adds a core Artists view).
-_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins", "profile"}
+# The Profile page is a tab opened from the activity bar, not an activity of the sidebar.
+_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins"}
 
 
 def _known_activity(activity: str) -> str:
@@ -130,6 +139,7 @@ class WorkspaceModel(QObject):
         self._analysis_model: AnalysisModel | None = None
         self._analysis_settings: AnalysisSettingsModel | None = None
         self._playback_settings: PlaybackSettingsModel | None = None
+        self._play_log: PlayLogRepository | None = None
         self._tag_conflicts: TagConflictsModel | None = None
         self._artist_manager: ArtistManagerModel | None = None
         self._scanner = LibraryScanner()
@@ -437,7 +447,7 @@ class WorkspaceModel(QObject):
     def setSettingsPageForGroup(self, group_index: int, page: str) -> None:
         if (
             not 0 <= group_index < len(self._groups)
-            or page not in {"general", "analysis"}
+            or page not in SETTINGS_PAGES
             or page == self._settings_pages[group_index]
         ):
             return
@@ -1132,6 +1142,21 @@ class WorkspaceModel(QObject):
         self._playback_settings = settings
         settings.setParent(self)
 
+    def attach_play_log(self, play_log: PlayLogRepository) -> None:
+        """Read the listening figures of the Plays and Last played columns and the details."""
+        self._play_log = play_log
+
+    @Slot()
+    def refreshPlayStats(self) -> None:
+        """Re-read the listening figures shown by the columns and the details, after a listening."""
+        if self._play_log is None:
+            return
+        self.selectionChanged.emit()
+        if not self._play_columns_visible() or not self._jobs.accepting:
+            return
+        self._dirty_all_tabs = True
+        self._refresh_timer.start()
+
     @Property(QObject, notify=layoutChanged)
     def artistManager(self) -> QObject | None:
         """The artist manager plugin, absent in v0.1 until a plugin attaches it."""
@@ -1188,6 +1213,14 @@ class WorkspaceModel(QObject):
             ("Path", "path"),
         )
         return [{"label": label, "value": str(track.get(key, "") or "—")} for label, key in labels]
+
+    @Property(list, notify=selectionChanged)
+    def infoListening(self) -> list[dict[str, str]]:
+        """Plays and Last played of the single selected track, from the play log."""
+        ids = self.selected_ids_snapshot()
+        if len(ids) != 1 or self._play_log is None:
+            return []
+        return _listening_details(self._play_log.track_play_stats([ids[0]]).get(ids[0]))
 
     @Property(str, notify=messageChanged)
     def message(self) -> str:
@@ -1453,6 +1486,8 @@ class WorkspaceModel(QObject):
             with suppress(LookupError, ValueError):
                 self._jobs.cancel(JobId.parse(previous_job))
         self._track_request_keys[model_key] = key
+        # Read on the GUI thread, before the job starts: the job never reads the preferences.
+        with_play_stats = kind != "playlist" and self._needs_play_stats(sort_key)
 
         def read_rows(context: JobContext) -> None:
             context.raise_if_cancelled()
@@ -1473,6 +1508,10 @@ class WorkspaceModel(QObject):
                         for field in ("title", "artist", "album", "genre", "filename")
                     ).casefold()
                 ]
+            if with_play_stats and self._play_log is not None:
+                # One batched query per tab load, off the graphical thread.
+                stats = self._play_log.track_play_stats(str(row.get("id", "")) for row in rows)
+                rows = _with_play_stats(rows, stats)
             ordered = (
                 rows if sort_key == "index" and ascending else _sort_rows(rows, sort_key, ascending)
             )
@@ -1481,6 +1520,16 @@ class WorkspaceModel(QObject):
 
         job_id = self._jobs.submit(read_rows, label="Load folder contents", visible=False)
         self._track_job_ids[model_key] = str(job_id)
+
+    def _play_columns_visible(self) -> bool:
+        hidden = set(self._column_preferences.get("hidden", ()))
+        return any(key not in hidden for key in _PLAY_COLUMN_KEYS)
+
+    def _needs_play_stats(self, sort_key: str) -> bool:
+        """Listening figures are read only when a column shows them or a sort uses them."""
+        if self._play_log is None:
+            return False
+        return sort_key in _PLAY_COLUMN_KEYS or self._play_columns_visible()
 
     @Slot(str, int, object)
     def _on_track_rows_ready(self, model_key: str, generation: int, rows: object) -> None:
@@ -2121,6 +2170,16 @@ class WorkspaceModel(QObject):
         self.layoutChanged.emit()
         self._persist()
 
+    @Slot()
+    def openProfile(self) -> None:
+        """Open the Profile page: the name, the picture and the listening statistics."""
+        self._cancel_explorer_track_action()
+        self._capture_navigation()
+        self._open_special_tab("profile:", "Profile")
+        self._record_navigation()
+        self.layoutChanged.emit()
+        self._persist()
+
     @Slot(str, str)
     def openArtistView(self, view: str, title: str) -> None:
         """Open a page of the artist manager (``from_tags.tracks``, ``catalog``…) as a tab."""
@@ -2367,6 +2426,9 @@ class WorkspaceModel(QObject):
             hidden.append(key)
         self._column_preferences["hidden"] = hidden
         self._refresh_hidden_sorts(set(hidden))
+        if key in _PLAY_COLUMN_KEYS:
+            # A listening column shown for the first time needs its figures read.
+            self.refreshPlayStats()
         self.layoutChanged.emit()
         self._persist()
 
@@ -2857,9 +2919,12 @@ class WorkspaceModel(QObject):
         state = self._tab_state(tab_id)
         if not state:
             kind, _, ref = tab_id.partition(":")
-            title = {"settings": "Settings", "convert": "Convert", "tasks": "Tasks"}.get(
-                kind, "Folder"
-            )
+            title = {
+                "settings": "Settings",
+                "profile": "Profile",
+                "convert": "Convert",
+                "tasks": "Tasks",
+            }.get(kind, "Folder")
             if kind == "folder":
                 try:
                     root_id, relative = _parse_folder_ref(ref)
@@ -3348,6 +3413,34 @@ def _camelot_order(row: dict[str, Any]) -> tuple[int, int] | None:
     return None
 
 
+def _with_play_stats(
+    rows: list[dict[str, Any]], stats: dict[str, TrackPlayStats]
+) -> list[dict[str, Any]]:
+    """Copy each row with its listening figures; a track never played has zero plays."""
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        found = stats.get(str(row.get("id", "")))
+        item["playCount"] = found.counted_plays if found is not None else 0
+        item["lastPlayedNs"] = (
+            int(found.last_played.timestamp() * 1_000_000_000) if found is not None else None
+        )
+        item["lastPlayedText"] = format_listened_at(found.last_played) if found else "—"
+        result.append(item)
+    return result
+
+
+def _listening_details(stats: TrackPlayStats | None) -> list[dict[str, str]]:
+    """The Plays and Last played rows of the details panel; a track never played has none."""
+    return [
+        {"label": "Plays", "value": str(stats.counted_plays if stats is not None else 0)},
+        {
+            "label": "Last played",
+            "value": format_listened_at(stats.last_played if stats is not None else None),
+        },
+    ]
+
+
 def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[dict[str, Any]]:
     if key not in _SORT_KEYS or key == "index":
         return list(rows)
@@ -3355,8 +3448,10 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
         "duration": "seconds",
         "fileCreatedAt": "fileCreatedAtNs",
         "fileModifiedAt": "fileModifiedAtNs",
+        "lastPlayed": "lastPlayedNs",
     }.get(key, key)
-    numeric_fields = {"fileCreatedAtNs", "fileModifiedAtNs", "seconds", "bpm", "bitrate"}
+    integer_fields = {"fileCreatedAtNs", "fileModifiedAtNs", "lastPlayedNs"}
+    numeric_fields = {*integer_fields, "seconds", "bpm", "bitrate", "playCount"}
     present: list[tuple[object, str, str, dict[str, Any]]] = []
     missing = []
     for row in rows:
@@ -3377,7 +3472,7 @@ def _sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[di
         try:
             sort_value: object = (
                 int(value)
-                if field in {"fileCreatedAtNs", "fileModifiedAtNs"}
+                if field in integer_fields
                 else float(value)
                 if field in numeric_fields
                 else str(value).casefold()

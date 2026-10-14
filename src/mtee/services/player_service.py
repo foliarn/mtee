@@ -49,6 +49,9 @@ class PlayerService(QObject):
     queueChanged = Signal()
     trackAccessReleased = Signal(str)
     sessionSaveFailed = Signal(str)
+    # Emitted on the graphical thread after a listening was stored in the play log.
+    playLogWritten = Signal()
+    _playLogStored = Signal()
 
     def __init__(
         self,
@@ -97,6 +100,7 @@ class PlayerService(QObject):
         self._settings_timer.setInterval(_SETTINGS_SAVE_DELAY_MS)
         self._settings_timer.timeout.connect(self._save_settings)
         self.sessionSaveFailed.connect(self._on_session_save_failed)
+        self._playLogStored.connect(self._on_play_log_stored)
         self._bridge = _BackendEventBridge(self)
         self._bridge.eventReceived.connect(
             self._handle_backend_event, Qt.ConnectionType.QueuedConnection
@@ -268,6 +272,17 @@ class PlayerService(QObject):
         future = executor.submit(repository.insert_events, [event], self._device_id)
         self._play_log_futures.append(future)
         future.add_done_callback(_log_play_log_failure)
+        # The callback runs on the saver thread; the signal is queued to the graphical thread.
+        future.add_done_callback(self._on_play_log_done)
+
+    def _on_play_log_done(self, future: Future[int]) -> None:
+        if future.exception() is None:
+            self._playLogStored.emit()
+
+    @Slot()
+    def _on_play_log_stored(self) -> None:
+        """Runs on the graphical thread, so the listeners of playLogWritten do too."""
+        self.playLogWritten.emit()
 
     def _open_play_event(self, track_id: str, track: dict[str, Any], *, playing: bool) -> None:
         played = PlayedTrack(
