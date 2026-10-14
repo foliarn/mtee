@@ -119,6 +119,7 @@ class Id3WaveAdapter:
         try:
             audio, reason = self.inspect(path)
         except Exception as error:
+            # Mutagen raises many unrelated types on malformed files.
             reason = f"Could not inspect the source tags: {type(error).__name__}."
         if reason:
             return {field: (False, reason) for field in EDITABLE_METADATA_FIELDS}

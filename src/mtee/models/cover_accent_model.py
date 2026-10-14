@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import OrderedDict
 
 from PySide6.QtCore import Property, QObject, QRunnable, Qt, QThreadPool, Signal, Slot
@@ -12,6 +13,8 @@ from mtee.services.cover_palette import CoverAccent, accent_from_image
 from mtee.services.player_service import PlayerService
 
 __all__ = ["CoverAccentModel"]
+
+_LOGGER = logging.getLogger(__name__)
 
 _CACHE_LIMIT = 256
 _THUMBNAIL_SIZE = 64
@@ -45,6 +48,8 @@ class _Compute(QRunnable):
             if self._artwork.image_bytes(self._path):
                 accent = accent_from_image(self._artwork.thumbnail(self._path, _THUMBNAIL_SIZE))
         except Exception:
+            # Runs per track change: debug level keeps the log readable.
+            _LOGGER.debug("Could not compute the cover accent of %s", self._path, exc_info=True)
             accent = None
         self._bridge.computed.emit(self._request, self._key, accent)
 

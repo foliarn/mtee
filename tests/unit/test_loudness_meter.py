@@ -62,6 +62,7 @@ def test_identical_stereo_channels_add_3_01_lu() -> None:
     one = _measure(_sine(RATE_STANDARD, 20, 997.0, 1.0, "L"), RATE_STANDARD)
     both = _measure(_sine(RATE_STANDARD, 20, 997.0, 1.0, "LR"), RATE_STANDARD)
 
+    assert one.integrated_lufs is not None and both.integrated_lufs is not None
     assert both.integrated_lufs - one.integrated_lufs == pytest.approx(3.01, abs=0.02)
     assert both.integrated_lufs == pytest.approx(0.0, abs=0.05)
 

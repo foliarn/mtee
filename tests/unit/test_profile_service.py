@@ -34,7 +34,7 @@ def _png(path: Path, color: str = "#256f82") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     image = QImage(32, 32, QImage.Format.Format_RGB32)
     image.fill(QColor(color))
-    assert image.save(str(path), "PNG")
+    assert image.save(str(path))
     return path
 
 

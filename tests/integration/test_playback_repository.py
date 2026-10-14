@@ -35,6 +35,7 @@ def test_repository_round_trip_rejects_stale_writer_and_invalid_json(tmp_path: P
     assert loaded is not None
     assert loaded.position_us == 2_345_678
     assert loaded.queue.current is not None
+    assert session.queue.current is not None
     assert loaded.queue.current.entry_id == session.queue.current.entry_id
     assert [entry.track_id for entry in loaded.queue.upcoming] == ["track-9", "track-9"]
     assert len({entry.entry_id for entry in loaded.queue.upcoming}) == 2

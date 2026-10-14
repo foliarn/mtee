@@ -13,6 +13,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
+from tests.ui.track_list_fixtures import _invoke_method
 
 from mtee.app import _build_runtime, _destroy_windows, _shutdown, create_application
 from mtee.assets import qml_dir
@@ -207,7 +208,7 @@ def test_convert_adds_the_playing_track_not_the_selection(qapp, tmp_path) -> Non
         _click(cast(QQuickWindow, root), "fullscreenMore")
         item = _find(root, "playingConvert")
         assert item is not None
-        item.metaObject().invokeMethod(item, "triggered")
+        _invoke_method(item, "triggered")
         QCoreApplication.processEvents()
         assert not workspace.fullscreen
         inputs = [str(row.get("id", "")) for row in workspace.convertInputs]
@@ -224,7 +225,7 @@ def test_edit_info_selects_the_playing_track_and_opens_info(qapp, tmp_path) -> N
         _click(cast(QQuickWindow, root), "fullscreenMore")
         item = _find(root, "playingEditInfo")
         assert item is not None
-        item.metaObject().invokeMethod(item, "triggered")
+        _invoke_method(item, "triggered")
         QCoreApplication.processEvents()
         assert not workspace.fullscreen
         assert workspace.selectedIds == [playing]
@@ -742,7 +743,7 @@ def test_the_row_menu_removes_only_that_occurrence_and_never_the_current_one(
         qtbot.wait(50)
         remove = _find(window, "queueRemove")
         assert remove is not None and remove.isVisible()
-        remove.metaObject().invokeMethod(remove, "triggered")
+        _invoke_method(remove, "triggered")
         qtbot.waitUntil(
             lambda: entries[0] not in [r["entryId"] for r in runtime.player_service.up_next()]
         )
@@ -761,7 +762,7 @@ def test_the_row_menu_goes_to_the_source_and_opens_info(qapp, qtbot, tmp_path, m
         assert goto is not None and goto.property("text") == "Go to folder"
         edit = _find(window, "queueEditInfo")
         assert edit is not None
-        edit.metaObject().invokeMethod(edit, "triggered")
+        _invoke_method(edit, "triggered")
         assert not workspace.fullscreen
         qtbot.waitUntil(lambda: workspace.selectedIds == [target["trackId"]], timeout=5000)
         assert workspace.rightPanelTab == "info"

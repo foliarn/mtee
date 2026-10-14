@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ from mutagen.oggvorbis import OggVorbis
 from mtee.domain.metadata_edit import EDITABLE_METADATA_FIELDS, MetadataPatch
 
 __all__ = ["VorbisCommentAdapter"]
+
+_LOGGER = logging.getLogger(__name__)
 
 _ALIASES = {
     "title": ("title",),
@@ -70,6 +73,8 @@ class VorbisCommentAdapter:
         try:
             audio, reason = self.inspect(path)
         except Exception:
+            # Mutagen raises many unrelated types on malformed files.
+            _LOGGER.warning("Could not inspect the tag aliases of %s", path, exc_info=True)
             return {}
         if reason or audio is None:
             return {}
@@ -95,6 +100,7 @@ class VorbisCommentAdapter:
         try:
             audio, reason = self.inspect(path)
         except Exception as error:
+            # Mutagen raises many unrelated types on malformed files.
             return self._disabled(f"Could not inspect source comments: {type(error).__name__}.")
         if reason or audio is None:
             return self._disabled(reason or self.reason_container)

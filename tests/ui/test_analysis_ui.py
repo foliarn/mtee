@@ -183,7 +183,7 @@ def test_right_clicking_a_folder_analyzes_everything_inside_it(qapp, tmp_path: P
         workspace.analyzeFolder(f"root:{root_id}", False)
         assert runtime.jobs.wait_for_done(20_000)
         QTest.qWait(200)
-        assert "Nothing to analyze" in workspace.message
+        assert "Nothing to analyze" in cast(str, workspace.message)
     finally:
         _shutdown(runtime)
 
@@ -226,7 +226,7 @@ def test_right_clicking_a_track_analyzes_it_and_re_analyze_forces_it(qapp, tmp_p
         _click(window, _visible_action(window, "analyzeAction"))
         assert runtime.jobs.wait_for_done(20_000)
         QTest.qWait(200)
-        assert "Nothing to analyze" in workspace.message
+        assert "Nothing to analyze" in cast(str, workspace.message)
         jobs = [s for s in runtime.jobs.statuses() if s.label == "Analyze 1 track"]
         assert len(jobs) == 2 and all(job.state.value == "succeeded" for job in jobs)
     finally:

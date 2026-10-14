@@ -12,6 +12,8 @@ from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 
 from mtee.domain.conversion import (
+    CodecCapabilities,
+    ConversionPreview,
     ConversionRequest,
     ConversionResult,
     ConversionSettings,
@@ -64,8 +66,8 @@ class ConversionQueueModel(QObject):
         self._dither_applicable = False
         self._copy_metadata = True
         self._output = Path.home() / "Music" / "Converted"
-        self._preview = None
-        self._capabilities = None
+        self._preview: ConversionPreview | None = None
+        self._capabilities: CodecCapabilities | None = None
         self._capabilities_state = "not_loaded"
         self._capabilities_error = ""
         self._capabilities_generation = 0
@@ -176,7 +178,7 @@ class ConversionQueueModel(QObject):
     def _on_capabilities_ready(self, generation: int, result: object, error: object) -> None:
         if generation != self._capabilities_generation:
             return
-        if result is not None and hasattr(result, "outputs"):
+        if isinstance(result, CodecCapabilities):
             self._capabilities = result
             self._capabilities_state = "ready"
             self._capabilities_error = ""
@@ -510,7 +512,7 @@ class ConversionQueueModel(QObject):
         if generation != self._preview_generation:
             return
         self._preview_job_id = ""
-        if preview is not None and hasattr(preview, "items"):
+        if isinstance(preview, ConversionPreview):
             self._preview = preview
             self._preview_state = "ready"
             self._preview_error = ""
@@ -626,6 +628,7 @@ class ConversionQueueModel(QObject):
                     raise
                 except Exception as error:
                     if not published:
+                        # Best-effort status: the original error is reported below.
                         with suppress(Exception):
                             self._derivations.mark_status(conversion_id, "failed")
                     self.conversionResultReady.emit(
@@ -649,6 +652,7 @@ class ConversionQueueModel(QObject):
                             self._service.read_metadata(result.destination),
                         )
                     except Exception as error:
+                        # Mutagen raises many unrelated types on malformed files.
                         result = replace(
                             result,
                             message=(

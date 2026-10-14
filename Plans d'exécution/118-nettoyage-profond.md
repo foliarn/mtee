@@ -144,7 +144,12 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - [x] 2026-10-14 — Phase 1b : les échecs d'assertion sont tous corrigés ; quatre défauts du code sont corrigés ; la cause principale des plantages natifs est trouvée et corrigée. Il reste une forme de plantage, avec plusieurs runtimes dans un même processus (voir ci-dessous).
 - [ ] Plantage avec plusieurs runtimes dans un même processus (`test_fullscreen_player_100.py`, `test_playlists_ui.py`) : enquête native à mener séparément.
 - [x] 2026-10-14 — Phase 3 : `ruff check --fix` et `ruff format` (Haiku), puis les 8 E501 et le SIM105 restants à la main (Sonnet), avec relecture d'Opus. `ruff check .` et `ruff format --check .` passent.
-- [ ] Phases 4 à 6.
+- [x] 2026-10-14 — Phase 4 :
+  - tests de caractérisation de `TrashModel` et `TrashService` (Sonnet) ;
+  - classement des 97 gestionnaires larges (Haiku), puis passe sur les exceptions selon la politique décidée par Opus (Sonnet) ;
+  - `pyright` ramené à 0 sur `src` et sur `tests` (deux agents Sonnet) ;
+  - relecture des diffs (Opus).
+- [ ] Phases 5 et 6.
 
 ## Surprises & Discoveries
 
@@ -167,6 +172,18 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
   - Icônes `heart`, `heart-filled` et `pin` : couleurs codées en dur au lieu de `currentColor`, ce qui rendait inopérantes les couleurs voulues par l'îlot et le plein écran (plan 100).
 - Les autres échecs venaient de tests obsolètes : chargements devenus asynchrones (`91ebb38`), migrations des plugins sorties du cœur (`d32b64d`), préférences de colonnes globales et tri par date de création (`fbc7d02`), panneau Queue repris (`69baca8`), contexte de rapport `report_items` (`f732720`), activité Artists rendue au cœur (étape 112).
 
+- Phase 4. Les tests de caractérisation de la corbeille ont empêché une régression pendant la même phase. Restreindre aux erreurs SQLite les `except` qui suivent un recyclage réussi faisait déclarer « failed » un fichier déjà dans la Corbeille. Ces deux gestionnaires restent larges, avec un commentaire qui explique pourquoi.
+- Défauts trouvés par les nouveaux tests de la corbeille, non corrigés (en attente de décision) :
+  - `trash_service.py:365` : `ctypes.FormatError(result & 0xFFFFFFFF)` lève `OverflowError` pour tout HRESULT négatif, et le message d'erreur devient « OverflowError: Python int too large… ». Vérifié : `FormatError(result)` (signé) renvoie le texte Windows. Diagnostic seulement : l'échec reste un échec et rien n'est supprimé.
+  - `trash_model.py:179/:182/:313` : un échec de préparation ou de soumission passe à l'état « result » sans émettre `dialogRequested`, alors que `TrashDialog.qml` ne s'ouvre que sur ce signal.
+  - `jobs.py:28` : `PARTIAL_ERROR_CODES` ne contient pas `trash_partial_failure`. Le message du job est donc préfixé « _TrashBatchError: ».
+  - `trash_model.py:99` : `selectedCount` hors confirmation renvoie la taille de la demande, conflits compris.
+  - `trash_model.py:217` : `_waiting_for_release` n'est pas remis à zéro par une nouvelle demande (sans effet aujourd'hui).
+  - Une annulation entre `journal.prepare` et `finish` laisse une ligne `prepared`, présentée comme « interrupted » au démarrage suivant.
+- Annulations converties en échec ou en succès, laissées en l'état pour décision : les boucles d'enregistrement et d'annulation de `metadata_editor_model.py` produisent des lignes « Save stopped » ou « Undo stopped », et le job se termine en succès. `metadata_editor_model.py` (récupération) et `workspace_model.py` (préparation de file) signalent une annulation comme une erreur. Une annulation arrivée pendant qu'une résolution de conflit est encore en file laisse la ligne « working ».
+- La journalisation n'a aucun gestionnaire configuré. Les avertissements ajoutés partent sur stderr, invisible dans l'EXE fenêtré, et `logs/` reste vide. Configurer un fichier de journal serait une fonctionnalité : à proposer, non ajoutée.
+- Piste pour l'arrêt avec plusieurs runtimes : sans `shiboken6.delete` et `gc.collect()` explicites à la fin d'une fixture, un passage du ramasse-miettes pendant le `processEvents` d'un test suivant faisait planter l'interpréteur (violation d'accès dépendant de l'ordre), observé en écrivant les tests de la corbeille.
+
 ## Decision Log
 
 - 2026-10-14 (Opus) — Tests lancés fichier par fichier : la suite complète plante à la fermeture.
@@ -184,7 +201,28 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - 2026-10-14 (Opus) — `tests/ui/test_fullscreen_player_100.py` ferme désormais ses runtimes par `_shutdown`, comme l'application. Cela ne suffit pas à supprimer l'arrêt, mais retire un écart de comportement entre le test et l'application.
 - 2026-10-14 (Opus) — Aucun `xfail` ajouté : il ne reste aucun échec d'assertion, et un arrêt du processus ne peut pas être marqué `xfail`.
 
+- 2026-10-14 (Opus) — Politique des exceptions :
+  - les captures silencieuses gardent leur repli mais journalisent (warning, ou debug pour les cas attendus ou fréquents) ;
+  - `BaseException` sans relance devient `Exception` (`playlist_exchange.py`, qui transformait `KeyboardInterrupt` en `ValueError`, et `workspace_model.py`) ;
+  - la clause redondante de `player_service.py` est fusionnée ;
+  - restriction seulement avec preuve (`process.wait()` → `OSError`) ;
+  - restent larges, avec la raison en commentaire : les analyseurs de fichiers audio (mutagen), les frontières natives (libmpv, WinRT, COM, FFmpeg), les gardes de job ou de slot qui signalent déjà l'erreur, les nettoyages sur un chemin d'échec, et la sauvegarde de sécurité avant restauration.
+- 2026-10-14 (Opus) — Correction de comportement : une annulation de résolution de conflit de tags se termine « cancelled » et non plus « failed », et la ligne redevient réessayable. Test ajouté dans `tests/unit/test_tag_conflicts_model.py`.
+- 2026-10-14 (Opus) — Typage sans échappatoire :
+  - les types Qt passés en chaîne (`"QVariantMap"`) deviennent `dict`/`list`, comme dans le reste du cœur ;
+  - les lectures de `Property` en Python passent par des méthodes privées (src) ou `cast` (tests) ;
+  - l'écart de stub `QImage.save(..., "PNG")` est contourné par `QImageWriter`, dont la sortie est identique octet pour octet.
+
+  Aucun `# type: ignore` ajouté : il y en a toujours 53, dont 13 dans `demo_workspace.py`, à traiter avec la phase 5.
+
 ## Outcomes & Retrospective
+
+Phase 4, contrôles du 2026-10-14 :
+
+- `pyright` : de 181 à 0 erreur (`src` 50 → 0, `tests` 131 → 0). `ruff check .` et `ruff format --check .` propres (451 fichiers).
+- 78 nouveaux tests de la corbeille, couvrant 100 % des lignes de `trash_model.py` et de `trash_service.py` (mesure `COVERAGE_CORE=sysmon`). Aucun appel réel à la Corbeille Windows : le Shell et COM sont simulés.
+- Tests fichier par fichier : 145 fichiers sur 147 passent, soit 1 123 tests réussis et 3 ignorés. Les deux autres sont les arrêts connus avec plusieurs runtimes (`test_fullscreen_player_100.py`, `test_playlists_ui.py`).
+- `--smoke-test` : code 0. Build Windows non lancé ; aucun parcours interactif.
 
 Phase 3, contrôles du 2026-10-14 :
 

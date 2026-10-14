@@ -158,9 +158,10 @@ def test_stop_discards_inflight_output_and_restart_stays_idle(worker):
     wait(worker)
     assert worker.snapshot()["counts"]["queued"] == 1
     assert read_json(worker.store.directory / "observations.json") == []
-    restarted = EnrichmentWorker(worker.store, Mock(), Mock())
+    restarted_audit = Mock()
+    restarted = EnrichmentWorker(worker.store, restarted_audit, Mock())
     assert restarted.snapshot()["status"] == "idle"
-    restarted.audit.preflight.assert_not_called()
+    restarted_audit.preflight.assert_not_called()
 
 
 def test_unsourced_profiles_are_rejected(worker):
@@ -201,11 +202,12 @@ def test_codex_process_protocol_without_inference(monkeypatch, tmp_path, worker)
 
 def test_second_worker_cannot_start_same_collection(worker):
     worker.acquire_execution_lock()
-    other = EnrichmentWorker(worker.store, Mock(), worker.client)
+    other_audit = Mock()
+    other = EnrichmentWorker(worker.store, other_audit, worker.client)
     try:
         with pytest.raises(ValueError, match="autre worker"):
             other.action({"action": "start"})
-        other.audit.preflight.assert_not_called()
+        other_audit.preflight.assert_not_called()
     finally:
         worker.execution_lock.close()
         worker.execution_lock = None

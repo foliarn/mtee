@@ -149,8 +149,10 @@ class LoudnessMeter:
         count = hops.size - (_BLOCK_HOPS - 1)
         if count < 1:
             return None
-        block_power = sum(hops[offset : offset + count] for offset in range(_BLOCK_HOPS))
-        block_power = block_power / (_BLOCK_HOPS * self._hop)
+        block_sum = np.zeros(count, dtype=hops.dtype)
+        for offset in range(_BLOCK_HOPS):
+            block_sum += hops[offset : offset + count]
+        block_power = block_sum / (_BLOCK_HOPS * self._hop)
         with np.errstate(divide="ignore"):
             block_loudness = _OFFSET_DB + 10.0 * np.log10(block_power)
         audible = block_loudness > _ABSOLUTE_GATE_LUFS

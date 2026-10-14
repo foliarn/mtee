@@ -242,12 +242,12 @@ class TrashModel(QObject):
         generation = self._generation
         self._state = "running"
         self._message = f"Recycling {len(candidates)} audio file(s)…"
-        initial_results = tuple(dict(item) for item in initial_results)
-        self._new_result_start = len(initial_results)
+        frozen_results = tuple(dict(item) for item in initial_results)
+        self._new_result_start = len(frozen_results)
         self.changed.emit()
 
         def task(context: JobContext) -> None:
-            results = [dict(item) for item in initial_results]
+            results = [dict(item) for item in frozen_results]
             cancelled = False
             try:
                 total = max(1, len(candidates))
@@ -398,10 +398,12 @@ class TrashModel(QObject):
                     recycle_item_identity=recycle_item_identity,
                 )
             except Exception:
+                # Already recycled: any failure only flags the journal, never fails the result.
                 message += " The recycle was confirmed, but its journal needs inspection."
             try:
                 updated = self._library.mark_recycled(candidate.track_id, candidate.revision)
             except Exception:
+                # Already recycled: any failure only flags the library, never fails the result.
                 updated = False
                 message += (
                     " The library could not be updated; it will be reconciled on the next scan."

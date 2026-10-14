@@ -386,7 +386,7 @@ class PlaylistExchange:
             self._phase(operation_id, "ready")
             manifest["_operation_id"] = operation_id
             return manifest, matches, str(folder)
-        except BaseException as error:
+        except Exception as error:
             self._phase(operation_id, "incomplete", str(error))
             if isinstance(error, JobCancelledError):
                 raise

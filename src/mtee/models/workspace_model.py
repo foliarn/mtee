@@ -3489,7 +3489,7 @@ class WorkspaceModel(QObject):
         def completed(done: Future[None]) -> None:
             try:
                 error = done.exception()
-            except BaseException as caught:
+            except Exception as caught:
                 error = caught
             self.sessionWriteFinished.emit(done, error)
 

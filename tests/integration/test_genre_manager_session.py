@@ -62,7 +62,9 @@ def test_folder_and_playlist_sessions_resume_with_progress(tmp_path: Path) -> No
         brush_id=house,
     )
     assert sessions.open_source("folder", "House", root_id=root_id)["view_mode"] == "to_review"
-    assert sessions.latest_session()["session_id"] == folder["session_id"]
+    latest = sessions.latest_session()
+    assert latest is not None
+    assert latest["session_id"] == folder["session_id"]
     playlist = sessions.open_source("playlist", playlist_id)
     assert len(sessions.rows(playlist["session_id"])) == 3
     database.close()

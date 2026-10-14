@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import wave
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
@@ -178,18 +179,14 @@ def test_run_refuses_output_inside_root_before_scanning(tmp_path: Path) -> None:
     root = tmp_path / "collection"
     root.mkdir()
     nested_output = root / ".local" / "result"
-    args = type(
-        "Args",
-        (),
-        {
-            "output": str(nested_output),
-            "inventory_input": None,
-            "root": [str(root)],
-            "seed": 102,
-            "random_size": 100,
-            "targeted_size": 50,
-        },
-    )()
+    args = Namespace(
+        output=str(nested_output),
+        inventory_input=None,
+        root=[str(root)],
+        seed=102,
+        random_size=100,
+        targeted_size=50,
+    )
     with pytest.raises(ValueError, match="outside"):
         run(args)
     assert not nested_output.exists()
@@ -199,18 +196,14 @@ def test_frozen_inventory_input_is_reusable_without_roots(tmp_path: Path) -> Non
     inventory = [_row(index) for index in range(4)]
     input_path = tmp_path / "inventory.jsonl"
     input_path.write_text("".join(json.dumps(row) + "\n" for row in inventory), encoding="utf-8")
-    args = type(
-        "Args",
-        (),
-        {
-            "output": str(tmp_path / "output"),
-            "inventory_input": str(input_path),
-            "root": None,
-            "seed": 102,
-            "random_size": 2,
-            "targeted_size": 1,
-        },
-    )()
+    args = Namespace(
+        output=str(tmp_path / "output"),
+        inventory_input=str(input_path),
+        root=None,
+        seed=102,
+        random_size=2,
+        targeted_size=1,
+    )
 
     result = run(args)
 

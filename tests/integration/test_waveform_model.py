@@ -6,9 +6,10 @@ import struct
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QObject, Signal
+from PySide6.QtCore import QByteArray, QCoreApplication, QObject, Signal
 from tests.helpers.analysis_audio import drum_loop, write_wav
 
 from mtee.domain.tracks import SourceRevision
@@ -87,28 +88,28 @@ def test_the_waveform_is_computed_once_then_read_from_the_database(qapp, tmp_pat
         assert registered() == before + 1  # the first play decodes the file once
         assert model.durationUs == pytest.approx(20_000_000, abs=100_000)
         model.setBarCount(200)
-        packed = bytes(model.levels.data())
+        packed = bytes(cast(QByteArray, model.levels).data())
         assert len(packed) == 200 * 4  # one float32 level per requested bar
         values = struct.unpack(f"<{len(packed) // 4}f", packed)
         assert max(values) == pytest.approx(1.0)  # normalised per track
         assert all(0.0 <= value <= 1.0 for value in values)
         model.setBarCount(50)
-        assert len(bytes(model.levels.data())) == 50 * 4
+        assert len(bytes(cast(QByteArray, model.levels).data())) == 50 * 4
         model.setBarCount(200)
 
         player.play(ids[1])
-        _wait(lambda: model.state == "ready" and model.durationUs > 0)
+        _wait(lambda: model.state == "ready" and cast(int, model.durationUs) > 0)
         jobs.wait_for_done(5_000)
 
         # Back to the first track: no job, no decoding, the stored waveform at once.
         submitted = registered()
         player.play(ids[0])
         assert model.state == "ready"
-        assert bytes(model.levels.data()) == packed
+        assert bytes(cast(QByteArray, model.levels).data()) == packed
         assert registered() == submitted
 
         model.seekRatio(0.5)
-        assert player.seeks == [round(0.5 * model.durationUs)]
+        assert player.seeks == [round(0.5 * cast(int, model.durationUs))]
     finally:
         jobs.begin_shutdown()
         jobs.wait_for_done(5_000)

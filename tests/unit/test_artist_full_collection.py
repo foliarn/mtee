@@ -108,6 +108,7 @@ def test_failed_database_batch_rolls_back_all_and_leaves_other_pages_pending(cat
     store = ReviewStore(output, path)
     record = store.save_page({"0": store.effective_reviews()["0"]})["0"]
     invalid = {**record, "notes": "Changed", "validated_at": "now"}
+    assert store.database is not None
     with pytest.raises(sqlite3.IntegrityError):
         store.database.save({"0": invalid, "missing": invalid}, {})
     records = ReviewDatabase(path).reviews()

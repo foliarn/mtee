@@ -4,6 +4,7 @@ import time
 
 from PySide6.QtCore import QCoreApplication, Qt
 
+from mtee.domain.jobs import JobId, JobState
 from mtee.domain.tag_conflicts import TagConflict, TagConflictEntry
 from mtee.models.tag_conflicts_model import TagConflictRole, TagConflictsModel
 from mtee.services.jobs import JobService
@@ -54,9 +55,9 @@ def test_a_newer_conflict_for_the_same_track_replaces_the_older_one(qapp) -> Non
     model.add(_conflict("t1", value="9A"))
 
     assert model.count == 2
-    assert model.data(model.index(1, 0), TagConflictRole.SUMMARY).startswith(
-        "Key: KEY, INITIALKEY → 9A"
-    )
+    summary = model.data(model.index(1, 0), TagConflictRole.SUMMARY)
+    assert summary is not None
+    assert summary.startswith("Key: KEY, INITIALKEY → 9A")
     assert model.data(model.index(0, 0), TagConflictRole.FILE_NAME) == "two.flac"
 
 
@@ -118,7 +119,9 @@ def test_a_failed_replacement_stays_listed_with_its_reason_and_can_be_retried(qa
 
     model.resolve("t1")
     _wait(lambda: model.data(model.index(0, 0), TagConflictRole.STATE) == "error")
-    assert "Stop playback" in model.data(model.index(0, 0), TagConflictRole.ERROR_MESSAGE)
+    message = model.data(model.index(0, 0), TagConflictRole.ERROR_MESSAGE)
+    assert message is not None
+    assert "Stop playback" in message
     assert model.count == 1
 
     model.resolve("t1")
@@ -139,6 +142,35 @@ def test_a_resolver_that_raises_is_reported_as_a_failure(qapp) -> None:
     model.resolve("t1")
 
     _wait(lambda: model.data(model.index(0, 0), TagConflictRole.STATE) == "error")
-    assert "disk unavailable" in model.data(model.index(0, 0), TagConflictRole.ERROR_MESSAGE)
+    message = model.data(model.index(0, 0), TagConflictRole.ERROR_MESSAGE)
+    assert message is not None
+    assert "disk unavailable" in message
+    jobs.begin_shutdown()
+    jobs.wait_for_done(2_000)
+
+
+def test_a_cancelled_replacement_ends_as_cancelled_not_failed(qapp) -> None:
+    calls: list[str] = []
+
+    class CancelOnStart(JobService):
+        def start(self, job_id: JobId) -> bool:
+            started = super().start(job_id)
+            self.cancel(job_id)
+            return started
+
+    jobs = CancelOnStart(qapp, max_thread_count=1)
+    model = TagConflictsModel(jobs, lambda conflict: calls.append(conflict.track_id) or "")
+    model.add(_conflict("t1"))
+
+    model.resolve("t1")
+
+    _wait(lambda: any(status.is_terminal for status in jobs.statuses()))
+    (status,) = jobs.statuses()
+    assert status.state is JobState.CANCELLED
+    assert status.error is None
+    assert calls == []
+    # The row is free again: it can be retried instead of staying "working".
+    _wait(lambda: model.data(model.index(0, 0), TagConflictRole.STATE) == "error")
+    assert model.count == 1
     jobs.begin_shutdown()
     jobs.wait_for_done(2_000)

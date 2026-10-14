@@ -67,7 +67,9 @@ def test_a_new_credit_creates_the_artists_and_confirms_the_track(setup: _Setup) 
     track = setup.add_track("a.wav")
     setup.service.sync_tags(track, ["Hedex", "Bou"], "Title")
     assert setup.catalog() == {"Bou": 1, "Hedex": 1}
-    assert setup.repository.confirmed_state(track)["credits"][0]["name"] == "Hedex"
+    confirmed = setup.repository.confirmed_state(track)
+    assert confirmed is not None
+    assert confirmed["credits"][0]["name"] == "Hedex"
 
 
 def test_a_track_leaves_the_artist_it_no_longer_names(setup: _Setup) -> None:

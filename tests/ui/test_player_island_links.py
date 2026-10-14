@@ -123,7 +123,7 @@ def _play(runtime: Any, root: QQuickWindow, source_id: str, track_id: str) -> Wo
     workspace = cast(WorkspaceModel, runtime.workspace)
     assert runtime.jobs.wait_for_done(10_000)
     # The artist index is built in the background and reaches the window through a signal.
-    assert _wait_until(lambda: workspace.artistRevision > 0)
+    assert _wait_until(lambda: cast(int, workspace.artistRevision) > 0)
     workspace.openFolder(f"folder:{source_id}/")
     workspace.playTrack(track_id, f"folder:{source_id}/")
     _pump(60)
@@ -234,7 +234,9 @@ def test_v01_links_come_from_the_core_index_without_plugins(island) -> None:
     assert row is not None and row.isVisible()
     plain = _find(root, "playerIslandArtistText")
     assert plain is not None and not plain.isVisible()
-    _click(root, _find(root, "playerIslandArtist_1"))
+    second = _find(root, "playerIslandArtist_1")
+    assert second is not None
+    _click(root, second)
     assert _wait_until(lambda: _active_tab(workspace) == f"artist:{artists['Bou']}", 5000)
 
 

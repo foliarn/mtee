@@ -6,12 +6,14 @@ from collections.abc import Iterator
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 from PySide6.QtCore import QSize, QUrl
 from PySide6.QtGui import QColor, QImage
 
+from mtee.domain.jobs import JobId
 from mtee.domain.play_log import PlayedTrack, PlayEvent
 from mtee.models.data_privacy_model import DataPrivacyModel
 from mtee.models.profile_model import ProfileAvatarProvider, ProfileModel
@@ -19,20 +21,33 @@ from mtee.persistence.database import Database
 from mtee.persistence.play_log_repository import PlayLogRepository, load_or_create_device_id
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.services.data_privacy import RestoreLayout
+from mtee.services.jobs import JobContext, JobService, JobTask
 from mtee.services.profile_service import DISPLAY_NAME_KEY, ProfileService
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 
 
-class InlineJobs:
+class InlineJobs(JobService):
+    """Runs each job at once on the calling thread; the job service is tested elsewhere."""
+
     def __init__(self) -> None:
+        super().__init__()
         self.labels: list[str] = []
 
-    def submit(self, task, *, label: str = "", visible: bool = True, **_kwargs) -> str:
+    def submit(
+        self,
+        task: JobTask,
+        *,
+        label: str = "Background task",
+        visible: bool = True,
+        priority: int = 0,
+        job_id: JobId | None = None,
+    ) -> JobId:
         self.labels.append(label)
+        job_id = job_id or JobId.new()
         with suppress(Exception):  # a failing job reports through its own signal
-            task(None)
-        return "job"
+            task(JobContext(job_id, self))
+        return job_id
 
 
 @pytest.fixture
@@ -51,7 +66,7 @@ def _png(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     image = QImage(16, 16, QImage.Format.Format_RGB32)
     image.fill(QColor("#c6ff1a"))
-    assert image.save(str(path), "PNG")
+    assert image.save(str(path))
     return path
 
 
@@ -80,7 +95,7 @@ def test_profile_model_copies_an_avatar_and_serves_it_as_an_image(qapp, database
     model.setAvatarFrom(_url(_png(tmp_path / "pictures" / "me.png")))
 
     assert model.hasAvatar
-    assert model.avatarSource.startswith("image://profile/")
+    assert cast(str, model.avatarSource).startswith("image://profile/")
     assert model.busy is False
     image = ProfileAvatarProvider(profile).requestImage("1", QSize(), QSize())
     assert not image.isNull()
@@ -137,7 +152,7 @@ def test_data_privacy_model_backs_up_resets_and_schedules_a_restore(
     assert notices and "already exists" in notices[-1]
 
     model.restoreFrom(_url(backup))
-    assert model.pendingRestore["sourceName"] == "mtee-backup.sqlite3"
+    assert cast(dict[str, Any], model.pendingRestore)["sourceName"] == "mtee-backup.sqlite3"
     model.cancelRestore()
     assert model.pendingRestore == {}
 

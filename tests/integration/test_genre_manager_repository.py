@@ -1,5 +1,6 @@
 """Genre Manager decisions persist without touching track metadata."""
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,9 @@ from mtee.plugins.genre_manager.service import GenreManagerService
 
 
 @pytest.fixture
-def module(tmp_path: Path) -> tuple[Database, GenreManagerRepository, GenreManagerService]:
+def module(
+    tmp_path: Path,
+) -> Iterator[tuple[Database, GenreManagerRepository, GenreManagerService]]:
     database = Database(tmp_path / "genre.sqlite3")
     database.migrate()
     database.connection().execute("INSERT INTO tracks(track_id) VALUES('track-a')")

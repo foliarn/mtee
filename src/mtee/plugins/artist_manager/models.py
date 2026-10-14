@@ -9,6 +9,7 @@ of the job service, which report progress, errors per track and cancellation.
 # ruff: noqa: N802, N815
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -33,6 +34,8 @@ from mtee.plugins.artist_manager.service import ArtistManagerError, ArtistManage
 from mtee.services.jobs import JobContext, JobService
 
 __all__ = ["ArtistListModel", "ArtistManagerModel", "NullArtistManager"]
+
+_LOGGER = logging.getLogger(__name__)
 
 _REFRESH_INTERVAL_MS = 400
 _APPLY_PREFIX = "Apply artists"
@@ -195,7 +198,7 @@ class ArtistListModel(QAbstractListModel):
         self.searchChanged.emit()
         self._apply()
 
-    @Property("QVariantList", notify=filtersChanged)
+    @Property(list, notify=filtersChanged)
     def types(self) -> list[str]:
         return list(self._types)
 
@@ -220,7 +223,7 @@ class ArtistListModel(QAbstractListModel):
         self.filtersChanged.emit()
         self._apply()
 
-    @Slot("QVariantList")
+    @Slot(list)
     def setTypes(self, roles: list[str]) -> None:
         wanted = [role for role in (*ROLES, NO_ROLE) if role in roles]
         if wanted != self._types:
@@ -378,7 +381,7 @@ class ArtistManagerModel(QObject):
     stateChanged = Signal()
     busyChanged = Signal()
     noticeRaised = Signal(str)
-    confirmationReady = Signal("QVariantMap")
+    confirmationReady = Signal(dict)
     tracksChanged = Signal(list)
     showHiddenChanged = Signal()
     artistProfileChanged = Signal(str)
@@ -438,7 +441,7 @@ class ArtistManagerModel(QObject):
     def available(self) -> bool:
         return True
 
-    @Property("QVariantMap", notify=stateChanged)
+    @Property(dict, notify=stateChanged)
     def state(self) -> dict[str, Any]:
         return self._state
 
@@ -511,6 +514,7 @@ class ArtistManagerModel(QObject):
             else:
                 rows = [{**row, "unavailable": False} for row in self._service.catalog()]
         except Exception:
+            _LOGGER.warning("Could not read the %s rows of %r", kind, category, exc_info=True)
             rows = []
         self._bridge.rowsReady.emit(model, generation, rows)
 
@@ -540,19 +544,19 @@ class ArtistManagerModel(QObject):
 
     # -------------------------------------------------------------------------- edit
 
-    @Slot(str, result="QVariantMap")
+    @Slot(str, result=dict)
     def editInfo(self, track_id: str) -> dict[str, Any]:
         return self._service.edit_info(track_id)
 
-    @Slot(str, result="QVariantList")
+    @Slot(str, result=list)
     def suggest(self, query: str) -> list[dict[str, Any]]:
         return self._service.suggestions(query)
 
-    @Slot(str, list, str, result="QVariantMap")
+    @Slot(str, list, str, result=dict)
     def previewName(self, track_id: str, names: list, title: str) -> dict[str, Any]:
         return self._service.preview_name(track_id, [str(name) for name in names], str(title))
 
-    @Slot(str, str, list, bool, result="QVariantMap")
+    @Slot(str, str, list, bool, result=dict)
     def saveEdit(
         self, track_id: str, title: str, entries: list, to_needs_input: bool
     ) -> dict[str, Any]:
@@ -596,7 +600,7 @@ class ArtistManagerModel(QObject):
         if isinstance(preview, dict):
             self.confirmationReady.emit(preview)
 
-    @Slot(list, bool, str, result="QVariantMap")
+    @Slot(list, bool, str, result=dict)
     def confirm(self, items: list, write_tags: bool, label: str) -> dict[str, Any]:
         """Stage the frozen lot, then apply it in a job."""
         frozen = [(str(entry[0]), int(entry[1])) for entry in items if len(entry) == 2]
@@ -610,12 +614,12 @@ class ArtistManagerModel(QObject):
 
     # ------------------------------------------------------------------ artist actions
 
-    @Slot(str, result="QVariantMap")
+    @Slot(str, result=dict)
     def artistProfile(self, artist_id: str) -> dict[str, Any]:
         """Return the types, Bass-related flag, tags and hidden state of an artist."""
         return dict(self._service.artist_profile(artist_id).as_dict())
 
-    @Slot(str, "QVariantList", int, "QVariantList", bool, result="QVariantMap")
+    @Slot(str, list, int, list, bool, result=dict)
     def saveArtistProfile(
         self, artist_id: str, roles: list, bass_related: int, tags: list, hidden: bool
     ) -> dict[str, Any]:
@@ -634,28 +638,28 @@ class ArtistManagerModel(QObject):
         self.artistProfileChanged.emit(artist_id)
         return {"ok": True, "error": ""}
 
-    @Slot(str, bool, result="QVariantMap")
+    @Slot(str, bool, result=dict)
     def setArtistHidden(self, artist_id: str, hidden: bool) -> dict[str, Any]:
         """Hide (``idgaf``) or show an artist, leaving its other fields as they are."""
         profile = self._service.artist_profile(artist_id)
         bass = -1 if profile.bass_related is None else int(profile.bass_related)
         return self.saveArtistProfile(artist_id, profile.roles, bass, profile.tags, hidden)
 
-    @Slot(str, result="QVariantMap")
+    @Slot(str, result=dict)
     def artistImpact(self, artist_id: str) -> dict[str, Any]:
         try:
             return self._service.impact(artist_id)
         except ArtistManagerError as error:
             return {"name": "", "confirmedTracks": 0, "error": str(error)}
 
-    @Slot(str, str, bool, result="QVariantMap")
+    @Slot(str, str, bool, result=dict)
     def renameArtist(self, artist_id: str, name: str, write_tags: bool) -> dict[str, Any]:
         return self._run_artist_operation(
             lambda: self._service.rename_artist(artist_id, name, write_tags=bool(write_tags)),
             "Rename artist",
         )
 
-    @Slot(str, str, bool, result="QVariantMap")
+    @Slot(str, str, bool, result=dict)
     def mergeArtist(self, artist_id: str, destination_id: str, write_tags: bool) -> dict[str, Any]:
         return self._run_artist_operation(
             lambda: self._service.merge_artist(
@@ -664,7 +668,7 @@ class ArtistManagerModel(QObject):
             "Merge artists",
         )
 
-    @Slot(str, bool, result="QVariantMap")
+    @Slot(str, bool, result=dict)
     def deleteArtist(self, artist_id: str, remove_from_tags: bool) -> dict[str, Any]:
         return self._run_artist_operation(
             lambda: self._service.delete_artist(artist_id, remove_from_tags=bool(remove_from_tags)),
@@ -781,14 +785,14 @@ class NullArtistManager(QObject):
     stateChanged = Signal()
     busyChanged = Signal()
     noticeRaised = Signal(str)
-    confirmationReady = Signal("QVariantMap")
+    confirmationReady = Signal(dict)
     tracksChanged = Signal(list)
 
     @Property(bool, constant=True)
     def available(self) -> bool:
         return False
 
-    @Property("QVariantMap", notify=stateChanged)
+    @Property(dict, notify=stateChanged)
     def state(self) -> dict[str, Any]:
         return {
             "mode": "guided",

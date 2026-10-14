@@ -237,6 +237,7 @@ class MetadataEditService:
             if reason or audio_before is None:
                 return MetadataEditResult(track_id, "unsupported", reason or "Unsupported audio.")
         except Exception as error:
+            # Mutagen raises many unrelated types on malformed files.
             return MetadataEditResult(track_id, "unsupported", str(error))
 
         operation_id = str(uuid.uuid4())
@@ -344,16 +345,19 @@ class MetadataEditService:
                 after=tuple(after_values.items()),
             )
         except RepositoryRevisionConflictError as error:
+            # Best-effort status: the conflict is reported to the caller either way.
             with suppress(Exception):
                 self._history.set_status(operation_id, "needs_recovery", error=str(error))
             return MetadataEditResult(track_id, "recovery", str(error), operation_id)
         except Exception as error:
+            # Whatever the cause, a failed save must leave a recoverable state and report it.
             published_bytes_observed = _hash_matches(source_path, new_digest)
             backup_matches_source = _hash_matches(backup_path, source_digest)
             replacement_published = (
                 replacement_published or published_bytes_observed or backup_matches_source
             )
             status = "needs_recovery" if replacement_published else "failed"
+            # Best-effort status: the failure is reported to the caller either way.
             with suppress(Exception):
                 self._history.set_status(
                     operation_id, status, error=f"{type(error).__name__}: {error}"

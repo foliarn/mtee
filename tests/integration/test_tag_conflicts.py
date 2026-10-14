@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from mutagen.flac import FLAC, Picture
+from mutagen.flac import FLAC, Picture, VCFLACDict
 from tests.helpers.analysis_audio import drum_loop, key_progression, write_wav
 from tests.helpers.analysis_library import RATE, AnalysisLibrary, require_ffmpeg
 
@@ -55,8 +55,9 @@ def _flac_with_aliases(library: AnalysisLibrary, name: str = "duplicates.flac") 
 
 
 def _tags(path: Path) -> dict[str, list[str]]:
-    audio = FLAC(path)
-    return {key.casefold(): list(values) for key, values in (audio.tags or {}).items()}
+    tags = FLAC(path).tags
+    assert isinstance(tags, VCFLACDict)
+    return {key.casefold(): list(values) for key, values in tags.items()}
 
 
 def test_the_adapter_reports_the_conflicting_fields_and_can_replace_them(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
@@ -33,6 +34,8 @@ from mtee.services.jobs import JobCancelledError, JobContext, JobId, JobService,
 from mtee.services.metadata_writer import MetadataEditService
 
 __all__ = ["MetadataEditorModel"]
+
+_LOGGER = logging.getLogger(__name__)
 
 _FIELD_LABELS = {
     "title": "Title",
@@ -220,6 +223,7 @@ class MetadataEditorModel(QObject):
                 except JobCancelledError:
                     raise
                 except Exception as error:
+                    # Mutagen raises many unrelated types on malformed files; the error is reported.
                     results.append((source.track_id, None, None, None, str(error)))
             self.inspectionFinished.emit(request_id, results)
 
@@ -398,6 +402,8 @@ class MetadataEditorModel(QObject):
         try:
             return self._artist_rules.split(text)
         except Exception:
+            # The rules service is injected; fall back to the plain split.
+            _LOGGER.warning("Artist credit rules failed to split %r", text, exc_info=True)
             return split_artist_credit(text)
 
     def _selected_sources(self, selection: tuple[str, ...]) -> list[TrackSource]:
@@ -430,18 +436,21 @@ class MetadataEditorModel(QObject):
 
     @Property(list, notify=stagingChanged)
     def dirtyFields(self) -> list[str]:
+        return self._dirty_fields()
+
+    def _dirty_fields(self) -> list[str]:
         staged = self._staged.get(self._selection(), {})
         return [field for field in EDITABLE_METADATA_FIELDS if field in staged]
 
     @Property(int, notify=stagingChanged)
     def changeCount(self) -> int:
-        return len(self.dirtyFields)
+        return len(self._dirty_fields())
 
     @Property(bool, notify=stagingChanged)
     def hasChanges(self) -> bool:
-        return self.changeCount > 0
+        return len(self._dirty_fields()) > 0
 
-    @Property("QVariantMap", notify=stagingChanged)
+    @Property(dict, notify=stagingChanged)
     def fieldErrors(self) -> dict[str, str]:
         staged = self._staged.get(self._selection(), {})
         return {
@@ -514,6 +523,9 @@ class MetadataEditorModel(QObject):
     @Property(list, notify=artistsChanged)
     def artistChips(self) -> list[dict[str, Any]]:
         """The artists of the selection after the staged edits, with how many tracks name each."""
+        return self._artist_chips()
+
+    def _artist_chips(self) -> list[dict[str, Any]]:
         selection = self._selection()
         sources = self._selected_sources(selection)
         ops = self._artist_ops(selection)
@@ -580,8 +592,9 @@ class MetadataEditorModel(QObject):
         try:
             found = self._artist_rules.suggestions(query, 8)
         except Exception:
+            _LOGGER.warning("Artist suggestions failed for %r", query, exc_info=True)
             return []
-        shown = {normalize_key(chip["name"]) for chip in self.artistChips}
+        shown = {normalize_key(chip["name"]) for chip in self._artist_chips()}
         return [item for item in found if normalize_key(str(item["name"])) not in shown]
 
     @Slot(str, result=list)
@@ -595,6 +608,7 @@ class MetadataEditorModel(QObject):
         try:
             return bool(self._artist_rules.needs_choice(text))
         except Exception:
+            _LOGGER.warning("Artist credit rules failed to check %r", text, exc_info=True)
             return False
 
     @Slot(str, bool)

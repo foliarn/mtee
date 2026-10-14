@@ -303,6 +303,7 @@ def apply_pending_restore(
         try:
             database.backup_to(safety_backup)
         except Exception as error:
+            # A failed safety backup must cancel the restore, whatever the cause.
             cancel_pending_restore(layout)
             return _record_outcome(
                 layout,

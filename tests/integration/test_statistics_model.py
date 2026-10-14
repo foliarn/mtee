@@ -6,33 +6,44 @@ from collections.abc import Iterator
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 
 from mtee.domain.artist_index import CreditRules
+from mtee.domain.jobs import JobId
 from mtee.domain.play_log import PlayedTrack, PlayEvent
 from mtee.models.statistics_model import TOP_LIMIT, StatisticsModel, read_statistics
 from mtee.persistence.database import Database
 from mtee.persistence.play_log_repository import PlayLogRepository
+from mtee.services.jobs import JobContext, JobService, JobTask
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 DEVICE = str(uuid4())
 
 
-class InlineJobs:
+class InlineJobs(JobService):
     """Runs each job at once on the calling thread; the job service is tested elsewhere."""
 
-    accepting = True
-
     def __init__(self) -> None:
+        super().__init__()
         self.labels: list[str] = []
 
-    def submit(self, task, *, label: str = "", visible: bool = True, **_kwargs) -> str:
+    def submit(
+        self,
+        task: JobTask,
+        *,
+        label: str = "Background task",
+        visible: bool = True,
+        priority: int = 0,
+        job_id: JobId | None = None,
+    ) -> JobId:
         self.labels.append(label)
+        job_id = job_id or JobId.new()
         with suppress(Exception):  # a failing job reports through its own signal
-            task(None)
-        return "job"
+            task(JobContext(job_id, self))
+        return job_id
 
 
 @pytest.fixture
@@ -198,7 +209,10 @@ def test_model_reads_the_selected_period_through_the_job_service(qapp, play_log)
     assert model.periodLabel == "All time"
     assert model.sessions == 3
     assert model.topTracks
-    assert [row["artist"] for row in model.topArtists] == ["Artist a", "Artist c"]
+    assert [row["artist"] for row in cast(list[dict[str, Any]], model.topArtists)] == [
+        "Artist a",
+        "Artist c",
+    ]
 
 
 def test_model_ranks_artists_with_the_rules_of_its_index(qapp, artist_log) -> None:
@@ -206,8 +220,9 @@ def test_model_ranks_artists_with_the_rules_of_its_index(qapp, artist_log) -> No
     model = StatisticsModel(artist_log, InlineJobs(), clock=lambda: NOW, artist_rules=lambda: rules)
     model.setPeriod("all")
     model.refresh()
-    assert model.topArtists[0]["artist"] == "Status"
-    assert model.topArtists[0]["countedPlays"] == 3
+    top = cast(list[dict[str, Any]], model.topArtists)
+    assert top[0]["artist"] == "Status"
+    assert top[0]["countedPlays"] == 3
 
 
 def test_an_index_rebuild_recounts_only_when_the_rules_changed(qapp, artist_log) -> None:

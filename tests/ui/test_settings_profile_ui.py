@@ -17,6 +17,7 @@ from mtee.cli import AppOptions
 from mtee.domain.artist_index import MODE_SPLIT
 from mtee.domain.play_log import PlayedTrack, PlayEvent
 from mtee.models.demo_workspace import DemoWorkspace
+from mtee.models.statistics_model import StatisticsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.persistence.credit_override_repository import CreditOverrideRepository
 from mtee.persistence.database import Database
@@ -191,7 +192,9 @@ def test_the_profile_page_reads_the_real_statistics(qapp, tmp_path: Path) -> Non
         PlayLogRepository(runtime.database).insert_events(
             [_counted_listening(str(uuid4()), "x.wav", datetime.now(UTC))], str(uuid4())
         )
-        statistics = cast(QObject, runtime.engine.rootContext().contextProperty("statistics"))
+        statistics = cast(
+            StatisticsModel, runtime.engine.rootContext().contextProperty("statistics")
+        )
         assert statistics is not None
         assert statistics.property("period") == "month"
         statistics.refresh()

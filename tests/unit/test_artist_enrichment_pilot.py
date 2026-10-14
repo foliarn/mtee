@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import sqlite3
+from email.message import Message
 from pathlib import Path
 from urllib.error import HTTPError
 
@@ -115,7 +116,9 @@ def test_http_retry_respects_retry_after_and_success_cache(tmp_path: Path) -> No
         assert request.get_header("User-agent").startswith("MTEEArtistPilot/")
         assert timeout == 15
         if len(timestamps) == 1:
-            raise HTTPError(request.full_url, 429, "slow down", {"Retry-After": "4"}, None)
+            headers = Message()
+            headers["Retry-After"] = "4"
+            raise HTTPError(request.full_url, 429, "slow down", headers, None)
         return io.BytesIO(b'{"artists": []}')
 
     client = MusicBrainzClient(tmp_path, opener=opener, clock=timer.clock, sleeper=timer.sleep)
@@ -151,11 +154,14 @@ def test_checkpoint_retries_error_but_preserves_success(tmp_path: Path) -> None:
         },
     )
 
-    class Client:
+    class Client(MusicBrainzClient):
         requests = 0
         cache_hits = 0
 
-        def get(self, resource, parameters):
+        def __init__(self) -> None:  # no cache folder: the fake never reads the network
+            pass
+
+        def get(self, resource: str, parameters: dict) -> dict:
             assert resource == "artist/"
             assert "B" in parameters["query"]
             self.requests += 1

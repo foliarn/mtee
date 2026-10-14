@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -12,6 +13,7 @@ from mtee.domain.loudness import NormalizationSettings
 from mtee.domain.playback import PlaybackStatus
 from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
+from mtee.models.playback_history_model import PlaybackHistoryModel
 from mtee.persistence.database import Database
 from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
 from mtee.persistence.settings_repository import SettingsRepository
@@ -811,13 +813,13 @@ def test_player_model_exposes_the_history_as_a_list_model(qapp, qtbot, tmp_path:
     service, _backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=2)
     _readable(tracks)
     model = PlayerModel(service)
-    assert model.hasHistoryModel and model.historyModel.count == 0
+    assert model.hasHistoryModel and cast(PlaybackHistoryModel, model.historyModel).count == 0
     service.play_queue(ids, 0)
     _wait_playing(qtbot, service)
     service.next()
     qtbot.waitUntil(lambda: service.state.current_id == ids[1])
 
-    history = model.historyModel
+    history = cast(PlaybackHistoryModel, model.historyModel)
     assert history.count == 1
     row = history.rows_snapshot()[0]
     assert row["trackId"] == ids[0]

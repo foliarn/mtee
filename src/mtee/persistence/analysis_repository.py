@@ -239,7 +239,7 @@ def _analysis_from_row(row: sqlite3.Row) -> TrackAnalysis:
     )
 
 
-def _optional_float(value: object) -> float | None:
+def _optional_float(value: float | None) -> float | None:
     return float(value) if value is not None else None
 
 

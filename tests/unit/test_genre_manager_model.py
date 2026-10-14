@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from PySide6.QtCore import QCoreApplication
 
@@ -15,14 +15,18 @@ from mtee.persistence.playlists_repository import PlaylistsRepository
 from mtee.plugins.genre_manager.models import GenreManagerModel
 
 
+def _state(model: GenreManagerModel) -> dict[str, Any]:
+    return cast(dict[str, Any], model.state)
+
+
 def _ready(model: GenreManagerModel) -> None:
     deadline = time.monotonic() + 5
-    while model.state["busy"] and time.monotonic() < deadline:
+    while _state(model)["busy"] and time.monotonic() < deadline:
         QCoreApplication.processEvents()
         time.sleep(0.01)
     QCoreApplication.processEvents()
-    assert not model.state["busy"], model.state["error"]
-    assert not model.state["error"]
+    assert not _state(model)["busy"], _state(model)["error"]
+    assert not _state(model)["error"]
 
 
 def test_classify_review_filter_and_undo_on_a_synthetic_source(qapp, tmp_path: Path) -> None:
@@ -47,14 +51,16 @@ def test_classify_review_filter_and_undo_on_a_synthetic_source(qapp, tmp_path: P
     model = GenreManagerModel(database, library, PlaylistsRepository(database))
     try:
         _ready(model)
-        assert model.state["total"] == 0
+        assert _state(model)["total"] == 0
         model.openSource("folder", "House", root_id, False)
         _ready(model)
-        assert model.state["sourceLabel"] == "House"
+        assert _state(model)["sourceLabel"] == "House"
         rows = cast(TrackListModel, model.rowsModel)
         assert rows.track_ids_snapshot() == ["track-a"]
         assert rows.rows_snapshot()[0]["genres"] == []
-        house = next(item["genre_id"] for item in model.state["genres"] if item["name"] == "House")
+        house = next(
+            item["genre_id"] for item in _state(model)["genres"] if item["name"] == "House"
+        )
         model.selectTrack("track-a", False, False)
         model.addGenreToSelection(house)
         _ready(model)
@@ -65,7 +71,7 @@ def test_classify_review_filter_and_undo_on_a_synthetic_source(qapp, tmp_path: P
         assert rows.rows_snapshot()[0]["reviewed"]
         model.setViewMode("to_review")
         assert rows.count == 0
-        assert model.state["selectedIds"] == []
+        assert _state(model)["selectedIds"] == []
         model.undo()
         _ready(model)
         assert rows.count == 1

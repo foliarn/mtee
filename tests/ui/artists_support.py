@@ -101,7 +101,7 @@ def ready(runtime: Any) -> tuple[WorkspaceModel, QQuickWindow]:
     assert isinstance(root, QQuickWindow)
     root.resize(1440, 900)
     assert runtime.jobs.wait_for_done(10_000)
-    assert wait_until(lambda: workspace.artistRevision > 0)
+    assert wait_until(lambda: cast(int, workspace.artistRevision) > 0)
     return workspace, root
 
 

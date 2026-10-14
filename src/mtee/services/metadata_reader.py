@@ -72,6 +72,7 @@ class MetadataReader:
                 technical=technical,
             )
         except Exception as error:
+            # Mutagen raises many unrelated types on malformed files.
             try:
                 size = source.stat().st_size
             except OSError:

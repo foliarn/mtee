@@ -102,8 +102,10 @@ def _set_tags(path: Path, kind: str, artist: str | list[str] | None, title: str 
         return
     if kind in {"wav", "mp3", "aiff", "aif"}:
         audio = MutagenFile(path)
+        assert audio is not None
         if audio.tags is None:
             audio.add_tags()
+        assert audio.tags is not None
         if artists:
             audio.tags.add(TPE1(encoding=3, text=artists))
         if title:
@@ -113,6 +115,7 @@ def _set_tags(path: Path, kind: str, artist: str | list[str] | None, title: str 
         audio = MP4(path)
         if audio.tags is None:
             audio.add_tags()
+        assert audio.tags is not None
         if artists:
             audio.tags["\xa9ART"] = artists
         if title:
@@ -120,8 +123,10 @@ def _set_tags(path: Path, kind: str, artist: str | list[str] | None, title: str 
         audio.save()
     else:
         audio = MutagenFile(path)
+        assert audio is not None
         if audio.tags is None:
             audio.add_tags()
+        assert audio.tags is not None
         if artists:
             audio.tags["artist"] = artists
         if title:
@@ -133,8 +138,10 @@ def _add_markers(path: Path, kind: str) -> None:
     """Add an unknown tag and a cover that a tag write must leave untouched."""
     if kind in {"wav", "mp3", "aiff", "aif"}:
         audio = MutagenFile(path)
+        assert audio is not None
         if audio.tags is None:
             audio.add_tags()
+        assert audio.tags is not None
         audio.tags.add(TXXX(encoding=3, desc="MTEE-PRESERVE", text=["keep-this-frame"]))
         audio.tags.add(APIC(encoding=3, mime="image/png", type=3, desc="cover", data=_PNG))
         audio.save()
@@ -149,8 +156,10 @@ def _add_markers(path: Path, kind: str) -> None:
         flac.save()
     elif kind in {"ogg", "opus"}:
         audio = MutagenFile(path)
+        assert audio is not None
         if audio.tags is None:
             audio.add_tags()
+        assert audio.tags is not None
         audio.tags["MTEE_FIXTURE_MARKER"] = ["keep-this-comment"]
         audio.tags["COVERART"] = [base64.b64encode(_PNG).decode("ascii")]
         audio.save()
@@ -158,6 +167,7 @@ def _add_markers(path: Path, kind: str) -> None:
         mp4 = MP4(path)
         if mp4.tags is None:
             mp4.add_tags()
+        assert mp4.tags is not None
         mp4.tags["----:com.apple.iTunes:mtee_fixture_marker"] = [MP4FreeForm(b"keep-this-atom")]
         mp4.tags["covr"] = [MP4Cover(_PNG, imageformat=MP4Cover.FORMAT_PNG)]
         mp4.save()
@@ -165,6 +175,7 @@ def _add_markers(path: Path, kind: str) -> None:
 
 def _markers_present(path: Path, kind: str) -> bool:
     audio = MutagenFile(path)
+    assert audio is not None
     tags = audio.tags
     if kind in {"wav", "mp3", "aiff", "aif"}:
         assert isinstance(tags, ID3)
@@ -257,6 +268,11 @@ class Lab:
         row = self.artists.review(track_id)
         assert row is not None
         return row
+
+    def artist_row(self, artist_id: str) -> dict[str, Any]:
+        artist = self.artists.artist(artist_id)
+        assert artist is not None
+        return artist
 
     def names(self, track_id: str) -> list[str]:
         return [credit["name"] for credit in self.row(track_id)["credits"]]
@@ -351,7 +367,7 @@ def scenario_spellings(lab: Lab) -> None:
     assert again["id"] == skream
     assert again["name"] == "Skream (UK)"
     lab.artists.reconsider_spellings()
-    assert lab.artists.artist(skream)["name"] == "Skream (UK)"  # the manual name wins
+    assert lab.artist_row(skream)["name"] == "Skream (UK)"  # the manual name wins
 
 
 def scenario_prefix_and_absence(lab: Lab) -> None:
@@ -594,7 +610,9 @@ def scenario_rename_formats(lab: Lab) -> None:
         assert lab.library.track(track)["path"].endswith(expected[kind])
     same = ids["Zed - Same.wav"]
     assert lab.location(same).name == "Zed - Same.wav"  # already conforming: no move
-    noop = lab.artists.operation_items(lab.artists.last_confirmation()["operation_id"])
+    confirmation = lab.artists.last_confirmation()
+    assert confirmation is not None
+    noop = lab.artists.operation_items(confirmation["operation_id"])
     assert any(entry["rename_phase"] == "noop" for entry in noop)
     assert safe_file_name(build_stem(["CON"], "x"), ".wav")[0].startswith("CON")
     name, shortened = safe_file_name("T" * 400, ".mp3")
@@ -694,7 +712,7 @@ def scenario_catalog_and_artist_pages(lab: Lab) -> None:
     assert {row["filename"] for row in lab.library.tracks_by_ids(track_ids)} >= {
         "Alpha, Beta Prime - Two.wav"
     }
-    assert lab.artists.artist(catalog["Beta"]["id"])["name"] == "Beta Prime"
+    assert lab.artist_row(catalog["Beta"]["id"])["name"] == "Beta Prime"
 
 
 def scenario_undo(lab: Lab) -> None:
