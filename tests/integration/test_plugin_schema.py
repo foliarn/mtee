@@ -19,7 +19,7 @@ from mtee.plugins.genre_manager.repository import GenreManagerRepository
 from mtee.plugins.registry import bundled_plugins, plugin_ui_enabled, prepare_plugin_schema
 
 _PLUGIN_PREFIXES = ("artist", "track_artist", "gm_")
-_CORE_VERSIONS = [*range(1, 10), *range(11, 19), 24, 25]
+_CORE_VERSIONS = [*range(1, 10), *range(11, 19), 24, 25, 26]
 
 
 def _plugin_dir(plugin_id: str) -> Path:
@@ -57,7 +57,7 @@ def test_a_new_database_has_no_plugin_tables(tmp_path: Path) -> None:
     database = Database(tmp_path / "mtee.sqlite3")
     database.migrate()
 
-    assert database.schema_version() == 25
+    assert database.schema_version() == 26
     assert _recorded_versions(database) == _CORE_VERSIONS
     tables = _tables(database)
     assert not {name for name in tables if name.startswith(_PLUGIN_PREFIXES)}
@@ -71,10 +71,10 @@ def test_loading_the_plugins_creates_their_tables_once(tmp_path: Path) -> None:
 
     ArtistRepository(database)
     assert "artists" in _tables(database)
-    assert database.schema_version() == 25
+    assert database.schema_version() == 26
     GenreManagerRepository(database)
     assert "gm_genres" in _tables(database)
-    assert database.schema_version() == 25
+    assert database.schema_version() == 26
     assert _recorded_versions(database) == sorted([*_CORE_VERSIONS, 19, 20, 22, 23])
 
     # Nothing is applied twice: a second opening only checks the recorded history.
@@ -82,7 +82,7 @@ def test_loading_the_plugins_creates_their_tables_once(tmp_path: Path) -> None:
     assert database.migrate() == []
     assert _recorded_versions(database) == sorted([*_CORE_VERSIONS, 19, 20, 22, 23])
     # The plugin scripts backed up the file before they changed a non-empty database.
-    assert len(list(tmp_path.glob("mtee.sqlite3.v25.*.backup"))) == 2
+    assert len(list(tmp_path.glob("mtee.sqlite3.v26.*.backup"))) == 2
     database.close()
 
 
@@ -107,7 +107,7 @@ def test_a_database_built_with_the_plugins_up_to_023_keeps_its_data(tmp_path: Pa
 
     upgraded = Database(tmp_path / "library.sqlite3")
     assert upgraded.schema_version() == 23
-    assert [migration.version for migration in upgraded.migrate()] == [24, 25]
+    assert [migration.version for migration in upgraded.migrate()] == [24, 25, 26]
     assert SettingsRepository(upgraded).get("workspace/name") == "kept"
     assert upgraded.connection().execute("SELECT display_name FROM artists").fetchone()[0] == (
         "Manual artist"

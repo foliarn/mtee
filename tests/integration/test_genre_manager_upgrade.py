@@ -39,9 +39,9 @@ def test_020_to_022_preserves_library_and_artist_data_with_valid_backup(tmp_path
 
     upgraded = Database(path)
     assert upgraded.schema_version() == 20
-    assert [migration.version for migration in upgraded.migrate()] == [24, 25]
+    assert [migration.version for migration in upgraded.migrate()] == [24, 25, 26]
     assert GenreManagerRepository(upgraded).tags() == []
-    assert upgraded.schema_version() == 25
+    assert upgraded.schema_version() == 26
     assert upgraded.connection().execute("SELECT display_name FROM artists").fetchone()[0] == (
         "Manual artist"
     )
