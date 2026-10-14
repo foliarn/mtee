@@ -84,4 +84,6 @@ Nouveautés de la maquette : Library › Artist name rules (données fictives ; 
 - Données fictives. Les chiffres, les morceaux et les règles de nom d'artiste sont inventés ; les totaux ne sont pas recalculés à partir de l'écoute réelle.
 - L'avatar est un visuel généré (« AL »), pas une image de l'utilisateur.
 - Les captures ont été faites depuis les sources, sur l'écran de la machine de développement. Les clics ne sont pas rejoués automatiquement : les vérifications faites sont le chargement sans erreur QML pour chaque écran, les captures, et un script qui appelle directement les actions du prototype (catégorie, période, règle, dialogues, colonnes, nom affiché, avatar). Le comportement au pointeur doit être vu par l'utilisateur.
+- Les détails d'un morceau (inspecteur, colonnes « Plays » et « Last played » dans les détails) ne sont pas maquettés : à présenter au prochain passage.
+- La version affichée dans About (« 0.1.0 ») est écrite en dur dans la maquette ; la page réelle la lira dans le paquet de MTEE.
 - Le fichier `SettingsView.qml` actuel, son menu, et la page Profil réelle n'ont pas été modifiés.

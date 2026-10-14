@@ -95,6 +95,8 @@ Depuis la racine du worktree :
 État au 14 octobre 2026 :
 
 - [x] Backend : profil, migration du créateur, sauvegarde, restauration planifiée et appliquée au démarrage, réinitialisation, vidage de l'historique (commit `136fba3`).
+- [x] Sauvegardes en fichier unique (mode journal `DELETE`), avec test (commit `3bf004d`).
+- [x] Restauration de bout en bout : une restauration planifiée sur un dossier isolé est appliquée par un vrai démarrage de l'application (voir Outcomes).
 - [x] Tests du backend : 42 tests nouveaux qui passent (voir Outcomes).
 - [x] Maquette des paramètres, du profil, des colonnes et des dialogues, avec 17 captures et la revue (`docs/ux/review-114-115-parametres-profil-stats.md`).
 - [x] Commit de la maquette sur la branche de travail (référence donnée dans le compte rendu de la tâche).
@@ -109,6 +111,8 @@ Depuis la racine du worktree :
 - Le menu Library › « Add folder… » était déjà désactivé en v0.1 (`TitleBar.qml`) : la ligne factice correspondante n'a rien à remplacer.
 - `tests/ui/test_playlists_ui.py` échoue déjà à la base sur deux cas (`test_create_add_like_search_visible_playback_and_reload`), comme indiqué par la note de base. Le test de `setCreator` qu'il contient n'est pas celui qui échoue.
 - La capture hors écran (`QT_QPA_PLATFORM=offscreen`) donne une fonte plus lourde et déclenche des infobulles au premier passage de souris. Les captures finales sont faites à l'écran.
+- Une copie de sauvegarde gardait le mode WAL de sa source : des fichiers `-wal` et `-shm` restaient à côté de la copie de sécurité. Corrigé dans `Database.backup_to` (mode `DELETE` avant fermeture).
+- Un script de vérification qui lançait Qt sans `QGuiApplication` faisait échouer le processus sans message (code 127) ; la cause probable est le dessin d'un avatar sans application Qt (le script a fonctionné après l'ajout de `QGuiApplication`).
 
 ## Decision Log
 
@@ -117,6 +121,8 @@ Depuis la racine du worktree :
 - 2026-10-14 : « Clear listening history » vide le panneau History (session de lecture), pas le journal d'écoute. Motif : le brief l'appelle « 100-entry history ».
 - 2026-10-14 : la restauration n'est jamais appliquée pendant que l'application tourne. Elle est planifiée, puis appliquée au démarrage avant l'ouverture de la base, après une copie de sécurité de la base actuelle. Une copie qui échoue annule la restauration plutôt que de remplacer la base sans sauvegarde.
 - 2026-10-14 : les copies de sécurité (`before-restore-*.sqlite3`) ne sont jamais supprimées automatiquement ; la politique de conservation reste à décider.
+- 2026-10-14 : toute sauvegarde est écrite en mode journal `DELETE`, pour être un fichier unique. Motif : une copie en WAL laisse des fichiers compagnons qui peuvent être oubliés ou séparés de la base.
+- 2026-10-14 : la version affichée dans « About » sera lue dans `mtee.__version__` par la page réelle ; la maquette écrit « 0.1.0 » en dur.
 - 2026-10-14 : l'avatar est copié octet par octet après validation (format image reconnu par Qt, 10 Mo au plus). Pas de recadrage ni de réduction, pour que le fichier reste celui de l'utilisateur.
 - 2026-10-14 : le nom affiché est vide par défaut ; les playlists affichent « MTEE » dans ce cas, comme avant.
 - 2026-10-14 : les statistiques sont lues par une tâche `JobService` ; chaque demande porte un numéro de génération, et un résultat ancien est ignoré.
@@ -135,8 +141,11 @@ Constats observés (commandes réelles, 14 octobre 2026) :
 - Ruff (vérification et format) et pyright : aucune erreur sur les fichiers nouveaux ou touchés.
 - Maquette : 17 captures produites, chargement sans erreur QML pour chaque catégorie, la page Profil, l'Explorer et les dialogues. Un script de vérification local (dans `.local/`, non versionné) appelle les actions du prototype (catégorie, période, règle, dialogues, colonnes, nom, avatar) et confirme leurs effets : « prototype slots OK ».
 
+- Restauration de bout en bout (script local `.local/restore_e2e_114.py`, non versionné) : une base de test avec un réglage « backup-state » est sauvegardée, modifiée en « current-state », la sauvegarde est planifiée, puis `python -m mtee --data-dir <dossier> --smoke-test` est lancé. Résultat observé : code 0 ; message « Restored the database from e2e-backup.sqlite3 » ; valeur relue après démarrage « backup-state » ; planification supprimée ; copie de sécurité `before-restore-*.sqlite3` seule (sans `-wal` ni `-shm`) ; `last-restore.json` écrit.
+
 Limites :
 
 - Les clics dans la fenêtre ne sont pas rejoués automatiquement ; le comportement au pointeur reste à vérifier à la revue.
-- La restauration n'a pas été essayée sur une vraie base de l'utilisateur, ni sur une base copiée à travers un redémarrage réel de l'application. Les tests passent par les fonctions de service et une base temporaire.
+- La restauration n'a pas été essayée sur la base réelle de l'utilisateur, ni avec une vraie sauvegarde de taille réelle ; le test a utilisé une base temporaire de quelques centaines de Ko.
 - Le paquet Windows n'a pas été construit ni testé, comme demandé.
+- Les détails du morceau (inspecteur) ne sont pas maquettés dans cette revue ; le brief les mentionnait pour l'étape 115.
