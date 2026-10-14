@@ -2,7 +2,8 @@
 
 The gain is computed from the integrated loudness and the sample peak stored by Analyze.
 The player applies it; the audio file is never changed and no limiter is involved. A
-positive gain is only allowed as far as the sample peak stays under the ceiling.
+positive gain (a boost) is allowed only as far as the sample peak stays under the ceiling
+and never above ``MAX_BOOST_DB``. A cut is never limited.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from dataclasses import dataclass, replace
 __all__ = [
     "DEFAULT_NORMALIZATION_LEVEL",
     "GAIN_LIMITS_DB",
+    "MAX_BOOST_DB",
     "NORMALIZATION_LEVELS",
     "PEAK_CEILING_DBFS",
     "LoudnessResult",
@@ -23,8 +25,12 @@ __all__ = [
 # Integrated loudness targets in LUFS, by the name the settings store.
 NORMALIZATION_LEVELS: dict[str, float] = {"quiet": -23.0, "normal": -14.0, "loud": -11.0}
 DEFAULT_NORMALIZATION_LEVEL = "normal"
-# A boost never takes the sample peak above this level.
-PEAK_CEILING_DBFS = -1.0
+# A boost never takes the sample peak above this level. It is one dB below the -1 dBFS
+# that the peak alone would allow: the analysis decodes at 22 050 Hz, which measured about
+# 0.75 dB below the true peak of a file (the high frequencies above about 10 kHz are cut).
+PEAK_CEILING_DBFS = -2.0
+# A boost is never larger than this, whatever the loudness and peak say.
+MAX_BOOST_DB = 12.0
 # The range accepted by the native player for its gain property (libmpv defaults are
 # -96 and +12 dB; the backend raises the upper bound to this value).
 GAIN_LIMITS_DB = (-96.0, 40.0)
@@ -66,10 +72,11 @@ def playback_gain_db(
 ) -> float:
     """Return the gain in dB to apply to a track before it is heard.
 
-    ``target - integrated``, except that a positive gain stops where the sample peak
-    would reach the ceiling. A track without a measured loudness plays with 0 dB, and so
-    does a track whose boost cannot be checked against its peak. A negative gain never
-    depends on the peak: it only lowers the level.
+    ``target - integrated``. A positive gain (a boost) is stopped where the sample peak
+    would reach ``PEAK_CEILING_DBFS`` and never exceeds ``MAX_BOOST_DB``. A track without a
+    measured loudness plays with 0 dB, and so does a track whose boost cannot be checked
+    against its peak. A negative gain never depends on the peak or on the boost cap: it
+    only lowers the level.
     """
     if not settings.enabled or integrated_lufs is None or not math.isfinite(integrated_lufs):
         return 0.0
@@ -77,6 +84,7 @@ def playback_gain_db(
     if gain > 0:
         if sample_peak_dbfs is None or not math.isfinite(sample_peak_dbfs):
             return 0.0
-        gain = min(gain, max(0.0, PEAK_CEILING_DBFS - float(sample_peak_dbfs)))
+        headroom = max(0.0, PEAK_CEILING_DBFS - float(sample_peak_dbfs))
+        gain = min(gain, headroom, MAX_BOOST_DB)
     low, high = GAIN_LIMITS_DB
     return min(max(gain, low), high)
