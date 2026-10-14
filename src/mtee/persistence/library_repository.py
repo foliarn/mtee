@@ -753,7 +753,8 @@ class LibraryRepository:
         """Hide confirmed recycled memberships only when the source snapshot still matches."""
         with self._database.transaction() as connection:
             row = connection.execute(
-                "SELECT size_bytes,mtime_ns,file_id,generation FROM track_locations WHERE track_id=?",
+                "SELECT size_bytes,mtime_ns,file_id,generation "
+                "FROM track_locations WHERE track_id=?",
                 (track_id,),
             ).fetchone()
             if row is None:

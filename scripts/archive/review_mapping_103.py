@@ -18,8 +18,17 @@ from mtee.models.icon_provider import IconProvider
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENES = (
-    "artists", "review", "batch", "narrow", "empty", "loading", "error", "changed",
-    "multi", "encoding", "collision",
+    "artists",
+    "review",
+    "batch",
+    "narrow",
+    "empty",
+    "loading",
+    "error",
+    "changed",
+    "multi",
+    "encoding",
+    "collision",
 )
 
 

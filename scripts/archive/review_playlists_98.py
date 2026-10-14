@@ -18,9 +18,18 @@ from mtee.models.icon_provider import IconProvider
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENES = (
-    "creation-menu", "creation-resume", "creation-opened", "title-edit", "cover-hover",
-    "drag-single", "drag-multiple", "drop-playlist", "insert-list",
-    "insert-artwork", "playback-states", "playback-paused",
+    "creation-menu",
+    "creation-resume",
+    "creation-opened",
+    "title-edit",
+    "cover-hover",
+    "drag-single",
+    "drag-multiple",
+    "drop-playlist",
+    "insert-list",
+    "insert-artwork",
+    "playback-states",
+    "playback-paused",
 )
 
 

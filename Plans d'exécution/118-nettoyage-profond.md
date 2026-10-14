@@ -143,7 +143,8 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - [x] 2026-10-14 — Commit et push de la phase 2 (`3a37242`).
 - [x] 2026-10-14 — Phase 1b : les échecs d'assertion sont tous corrigés ; quatre défauts du code sont corrigés ; la cause principale des plantages natifs est trouvée et corrigée. Il reste une forme de plantage, avec plusieurs runtimes dans un même processus (voir ci-dessous).
 - [ ] Plantage avec plusieurs runtimes dans un même processus (`test_fullscreen_player_100.py`, `test_playlists_ui.py`) : enquête native à mener séparément.
-- [ ] Phases 3 à 6.
+- [x] 2026-10-14 — Phase 3 : `ruff check --fix` et `ruff format` (Haiku), puis les 8 E501 et le SIM105 restants à la main (Sonnet), avec relecture d'Opus. `ruff check .` et `ruff format --check .` passent.
+- [ ] Phases 4 à 6.
 
 ## Surprises & Discoveries
 
@@ -184,6 +185,13 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
 - 2026-10-14 (Opus) — Aucun `xfail` ajouté : il ne reste aucun échec d'assertion, et un arrêt du processus ne peut pas être marqué `xfail`.
 
 ## Outcomes & Retrospective
+
+Phase 3, contrôles du 2026-10-14 :
+
+- `ruff check .` : de 20 erreurs à 0. `ruff format --check .` : de 14 fichiers à 0 (449 fichiers formatés).
+- Invariance vérifiée par comparaison des AST avec `HEAD`. Les fichiers seulement reformatés ont un AST identique. `conversion_service.py` diffère par l'ordre de deux imports `mutagen` (I001). `conversion_queue_model.py` diffère par `contextlib.suppress(RuntimeError)` à la place du `try/except/pass`, et par le lambda `before_publish` devenu une fonction locale `record_verified_output`, avec les mêmes paramètres et la même fermeture. Les chaînes coupées gardent leur valeur exacte.
+- Tests passés, fichier par fichier : conversion (file d'attente, FFmpeg, vue Convert), échange de playlists, file de lecture, playlists UI (2 fois sur 2 après un arrêt multi-runtime connu), glisser-déposer, artwork, décodage, base de données, contrôles média. `--smoke-test` : code 0. `pyright` : 181, sans changement.
+- Couverture manquante relevée : aucun test ne charge `TrashModel` ni `TrashService`. Leurs AST sont inchangés, mais la phase 4 doit écrire des tests de caractérisation avant de les modifier.
 
 Phase 1b, contrôles du 2026-10-14 :
 

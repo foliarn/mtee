@@ -98,9 +98,7 @@ class MediaDecodeService:
         return PCMStream(
             pcm_format,
             duration_us,
-            self._decode(
-                path, track_id, pcm_format, block_bytes, is_cancelled, read_lease_held
-            ),
+            self._decode(path, track_id, pcm_format, block_bytes, is_cancelled, read_lease_held),
         )
 
     def _decode(
