@@ -15,6 +15,7 @@ Rectangle {
     property bool rememberQueue: false
     readonly property string page: workspace.settingsPageForGroup(groupIndex)
     readonly property var analysis: workspace.analysisSettings
+    readonly property var playback: workspace.playbackSettings
 
     color: Theme.editor
 
@@ -126,6 +127,23 @@ Rectangle {
                     description: "Restore the last queue and position when MTEE starts."
                     checked: settings.rememberQueue
                     onToggled: (checked) => settings.rememberQueue = checked
+                }
+
+                ToggleRow {
+                    objectName: "normalizationSetting"
+                    label: "Normalize loudness"
+                    description: "Play analyzed tracks at a similar loudness, using the loudness measured by Analyze. Tracks not analyzed yet play as they are. The files are never changed."
+                    checked: settings.playback.normalizationEnabled
+                    onToggled: (checked) => settings.playback.setNormalizationEnabled(checked)
+                }
+
+                ChoiceRow {
+                    objectName: "normalizationLevelSetting"
+                    label: "Loudness target"
+                    description: "Quiet -23 LUFS, Normal -14 LUFS, Loud -11 LUFS. Louder tracks are turned down; quieter ones are turned up, never past -1 dBFS peak."
+                    options: [{ "value": "quiet", "label": "Quiet" }, { "value": "normal", "label": "Normal" }, { "value": "loud", "label": "Loud" }]
+                    current: settings.playback.normalizationLevel
+                    onChosen: (value) => settings.playback.setNormalizationLevel(value)
                 }
 
                 Group { title: "Tabs"; visible: typeof settings.workspace.setPreviewTabs === "function" }

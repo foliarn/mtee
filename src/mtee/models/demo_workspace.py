@@ -125,6 +125,7 @@ class DemoWorkspace(QObject):
     def __init__(self, scenario: str = DEFAULT_SCENARIO, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._analysis_settings: QObject | None = None
+        self._playback_settings: QObject | None = None
         self._artist_manager: QObject | None = None
         self._tag_conflicts: QObject | None = None
         self._tracks: dict[str, dict[str, object]] = {}
@@ -694,6 +695,14 @@ class DemoWorkspace(QObject):
     @Property(QObject, constant=True)
     def analysisSettings(self) -> QObject:
         return self._analysis_settings if self._analysis_settings is not None else self
+
+    @Property(QObject, constant=True)
+    def playbackSettings(self) -> QObject:
+        return self._playback_settings if self._playback_settings is not None else self
+
+    def attach_playback_settings(self, settings: QObject) -> None:
+        """Show the playback normalization choices; the demo plays no real audio."""
+        self._playback_settings = settings
 
     @Property(QObject, constant=True)
     def artistManager(self) -> QObject:

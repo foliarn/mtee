@@ -420,8 +420,14 @@ class _FakeAnalysisRepository:
     def has_current_waveform(self, _track_id: str, _duration: Any) -> bool:
         return True
 
+    def loudness_is_current(self, _stored: Any, _duration: Any) -> bool:
+        return True
+
     def save_waveform(self, track_id: str, *_args: Any) -> None:
         self.saved.append(f"waveform:{track_id}")
+
+    def save_loudness(self, track_id: str, *_args: Any) -> None:
+        self.saved.append(f"loudness:{track_id}")
 
     def save_result(self, track_id: str, **_kwargs: Any) -> Any:
         self.saved.append(f"result:{track_id}")
@@ -434,7 +440,7 @@ class _FakeAnalyzer:
 
     def analyze(self, *_args: Any, **_kwargs: Any) -> Any:
         self.calls += 1
-        return SimpleNamespace(bpm=120.0, key=None, waveform=None)
+        return SimpleNamespace(bpm=120.0, key=None, waveform=None, loudness=None)
 
 
 def scenario_analysis_and_reanalysis(lab: Lab) -> None:

@@ -12,10 +12,12 @@ from datetime import UTC, datetime
 
 from mtee.domain.analysis import (
     ANALYSIS_ALGORITHM_VERSION,
+    LOUDNESS_ALGORITHM_VERSION,
     WAVEFORM_ALGORITHM_VERSION,
     TrackAnalysis,
     durations_agree,
 )
+from mtee.domain.loudness import LoudnessResult
 from mtee.domain.musical_key import MusicalKey
 from mtee.domain.waveform import WaveformPoints
 from mtee.persistence.database import Database
@@ -92,6 +94,32 @@ class AnalysisRepository:
         assert stored is not None
         return stored
 
+    def save_loudness(
+        self, track_id: str, loudness: LoudnessResult, source_duration_us: int | None
+    ) -> None:
+        """Store the loudness of a track, leaving its tempo, key and flags as they are.
+
+        A silent track is stored with NULL values and the current version: it is analyzed,
+        and it plays with no gain.
+        """
+        with self._database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO track_analysis (track_id, integrated_lufs, sample_peak_dbfs, "
+                "loudness_version, source_duration_us) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(track_id) DO UPDATE SET "
+                "integrated_lufs = excluded.integrated_lufs, "
+                "sample_peak_dbfs = excluded.sample_peak_dbfs, "
+                "loudness_version = excluded.loudness_version, "
+                "source_duration_us = excluded.source_duration_us",
+                (
+                    track_id,
+                    loudness.integrated_lufs,
+                    loudness.sample_peak_dbfs,
+                    LOUDNESS_ALGORITHM_VERSION,
+                    source_duration_us,
+                ),
+            )
+
     def mark_user_edited(self, track_ids: Iterable[str], field: str) -> None:
         """Flag ``field`` (``bpm`` or ``key``) as edited by the user for these tracks."""
         column = _FIELDS.get(field)
@@ -111,6 +139,20 @@ class AnalysisRepository:
             analysis is not None
             and analysis.analyzed
             and analysis.algorithm_version == ANALYSIS_ALGORITHM_VERSION
+            and durations_agree(analysis.source_duration_us, current_duration_us)
+        )
+
+    def loudness_is_current(
+        self, analysis: TrackAnalysis | None, current_duration_us: int | None
+    ) -> bool:
+        """Return whether the loudness of ``analysis`` was measured and still fits the audio.
+
+        A track without it (analyzed before loudness existed, or never analyzed) is not
+        fully analyzed: Analyze measures it.
+        """
+        return (
+            analysis is not None
+            and analysis.loudness_version == LOUDNESS_ALGORITHM_VERSION
             and durations_agree(analysis.source_duration_us, current_duration_us)
         )
 
@@ -191,7 +233,14 @@ def _analysis_from_row(row: sqlite3.Row) -> TrackAnalysis:
         source_duration_us=row["source_duration_us"],
         algorithm_version=row["algorithm_version"],
         analyzed_at_utc=row["analyzed_at_utc"],
+        integrated_lufs=_optional_float(row["integrated_lufs"]),
+        sample_peak_dbfs=_optional_float(row["sample_peak_dbfs"]),
+        loudness_version=row["loudness_version"],
     )
+
+
+def _optional_float(value: object) -> float | None:
+    return float(value) if value is not None else None
 
 
 def _now() -> str:

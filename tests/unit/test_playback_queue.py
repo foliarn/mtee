@@ -41,6 +41,10 @@ class QueueBackend:
         del value
         return
 
+    def set_gain_db(self, value: float) -> None:
+        del value
+        return
+
     def position_us(self) -> int:
         return self.current_position
 

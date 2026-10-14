@@ -35,6 +35,9 @@ class _Backend:
     def set_volume(self, _value: int) -> None:
         pass
 
+    def set_gain_db(self, _value: float) -> None:
+        pass
+
     def position_us(self) -> int:
         return 0
 

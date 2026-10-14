@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from mtee.domain import playback_queue
+from mtee.domain.loudness import NormalizationSettings
 from mtee.domain.playback import PlaybackStatus
 from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
@@ -24,6 +25,8 @@ class FakeBackend:
         self.handler: BackendEventHandler | None = None
         self.loads: list[tuple[Path, int]] = []
         self.volume = 72
+        self.gains: list[float] = []
+        self.gains_at_load: list[float | None] = []
         self.paused = False
         self.position = 0
         self.seeks: list[int] = []
@@ -42,6 +45,7 @@ class FakeBackend:
             raise OSError("fake decoder error")
         self.active_session_id = session_id
         self.loads.append((path, session_id))
+        self.gains_at_load.append(self.gains[-1] if self.gains else None)
         self.emit("duration", session_id, 4_000_000)
         self.emit("seekable", session_id, True)
         self.emit("codec", session_id, "pcm_s16le")
@@ -59,6 +63,9 @@ class FakeBackend:
 
     def set_volume(self, value: int) -> None:
         self.volume = value
+
+    def set_gain_db(self, value: float) -> None:
+        self.gains.append(value)
 
     def position_us(self) -> int:
         return self.position
@@ -1155,3 +1162,85 @@ def test_a_failed_volume_save_never_reaches_the_ui(qapp, tmp_path: Path) -> None
     service.close()
 
     assert service.state.volume == 20
+
+
+def _loudness(tracks: dict[str, dict[str, object]], track_id: str, lufs, peak) -> None:
+    tracks[track_id]["loudnessLufs"] = lufs
+    tracks[track_id]["samplePeakDbfs"] = peak
+
+
+def test_each_track_has_its_gain_set_before_it_is_loaded(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, tracks = _make_service(qapp, tmp_path)
+    _loudness(tracks, ids[0], -20.0, -10.0)  # +6 dB wanted, peak leaves room for all of it
+    _loudness(tracks, ids[1], -8.0, -0.5)  # -6 dB
+    # ids[2] has no measured loudness: it plays with no gain.
+    service.set_normalization(NormalizationSettings(enabled=True, level="normal"))
+
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.next()
+    _wait_playing(qtbot, service)
+    service.next()
+    _wait_playing(qtbot, service)
+
+    assert backend.gains_at_load == pytest.approx([6.0, -6.0, 0.0])
+    service.close()
+
+
+def test_an_automatic_change_applies_the_gain_of_the_next_track(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=2)
+    _loudness(tracks, ids[0], -14.0, -6.0)
+    _loudness(tracks, ids[1], -26.0, -6.0)  # -14 + 26 is +12 dB; the peak allows only 5 dB
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+
+    backend.emit("eof", service.state.session_id)
+    qtbot.waitUntil(lambda: len(backend.loads) == 2)
+    _wait_playing(qtbot, service)
+
+    assert service.state.current_id == ids[1]
+    assert backend.gains_at_load == pytest.approx([0.0, 5.0])
+    service.close()
+
+
+def test_disabled_normalization_loads_every_track_at_zero_gain(qapp, qtbot, tmp_path: Path) -> None:
+    service, backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=2)
+    _loudness(tracks, ids[0], -30.0, -20.0)
+    _loudness(tracks, ids[1], -4.0, 0.0)
+    service.set_normalization(NormalizationSettings(enabled=False, level="loud"))
+
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    service.next()
+    _wait_playing(qtbot, service)
+
+    assert backend.gains_at_load == [0.0, 0.0]
+    service.close()
+
+
+def test_changing_the_settings_updates_the_track_that_is_playing(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, backend, _access, ids, tracks = _make_service(qapp, tmp_path, count=1)
+    _loudness(tracks, ids[0], -8.0, -0.5)
+    service.play_queue(ids)
+    _wait_playing(qtbot, service)
+    assert backend.gains_at_load == [-6.0]
+
+    service.set_normalization(NormalizationSettings(enabled=False, level="normal"))
+    assert backend.gains[-1] == 0.0
+
+    service.set_normalization(NormalizationSettings(enabled=True, level="loud"))
+    assert backend.gains[-1] == pytest.approx(-3.0)
+    service.close()
+
+
+def test_a_normalization_change_while_idle_touches_no_backend(qapp, tmp_path: Path) -> None:
+    service, backend, _access, _ids, _tracks = _make_service(qapp, tmp_path, count=1)
+
+    service.set_normalization(NormalizationSettings(enabled=True, level="quiet"))
+
+    assert backend.gains == []
+    service.close()

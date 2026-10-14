@@ -89,10 +89,10 @@ class AnalysisService:
     def pending(self, track_ids: Sequence[str], *, force: bool) -> list[str]:
         """Return the tracks that need work; ``force`` keeps them all.
 
-        A track needs the audio phases when its tempo, key or waveform is missing or of
-        an older version, and the artist phase when it has no artist review yet. The
-        waveform alone is computed when it is the only thing missing, see
-        ``analyze_track``. ``force`` redoes the audio; it never resets an artist review.
+        A track needs the audio phases when its tempo, key, loudness or waveform is
+        missing or of an older version, and the artist phase when it has no artist review
+        yet. Only the missing parts are computed, see ``_analyze_audio``. ``force`` redoes
+        the audio; it never resets an artist review.
         """
         identities = list(dict.fromkeys(track_ids))
         if force:
@@ -104,10 +104,12 @@ class AnalysisService:
         for track_id in identities:
             record = self._library.source_record(track_id)
             duration = _duration_us(record)
+            analysis = stored.get(track_id)
             if (
                 track_id in unreviewed
-                or not self._repository.is_current(stored.get(track_id), duration)
+                or not self._repository.is_current(analysis, duration)
                 or not self._repository.has_current_waveform(track_id, duration)
+                or not self._repository.loudness_is_current(analysis, duration)
             ):
                 pending.append(track_id)
         return pending
@@ -235,10 +237,12 @@ class AnalysisService:
     ) -> TrackReport:
         """Analyze one track and store the results.
 
-        When the tempo and key are current but the stored waveform is missing or of an
-        older version, only the waveform is computed and saved: the tempo, the key, the
-        manual corrections and the tags of the file are left alone. ``force`` skips that
-        shortcut and redoes everything.
+        The audio is decoded once, for the parts that are missing. When the tempo and key
+        are current, only the missing waveform and loudness are computed and saved: the
+        tempo, the key, the manual corrections and the tags of the file are left alone.
+        Loudness is measured in every pass that decodes the audio for the tempo and key,
+        so a track with a stored result but no loudness gets it on the next Analyze.
+        ``force`` skips that shortcut and redoes everything.
         """
         record = self._library.source_record(track_id)
         if record is None:
@@ -247,20 +251,22 @@ class AnalysisService:
             return TrackReport(track_id, False, "This audio file could not be read.")
         duration = _duration_us(record)
         source = ConversionSource(track_id, record.path, record.revision)
-        current = self._repository.is_current(self._repository.get(track_id), duration)
+        stored = self._repository.get(track_id)
+        current = self._repository.is_current(stored, duration)
         waveform_current = self._repository.has_current_waveform(track_id, duration)
-        if not force and current and waveform_current:
+        loudness_current = self._repository.loudness_is_current(stored, duration)
+        if not force and current and waveform_current and loudness_current:
             # Only the artist phase is missing: no audio is decoded.
             return TrackReport(track_id, True)
-        waveform_only = not force and current and not waveform_current
+        tonal = force or not current
+        measure_loudness = force or tonal or not loudness_current
         try:
             outcome = self._analyzer.analyze(
                 source,
                 record.revision,
-                tempo_range=(
-                    None if waveform_only else (float(settings.bpm_min), float(settings.bpm_max))
-                ),
-                tonality=not waveform_only,
+                tempo_range=(float(settings.bpm_min), float(settings.bpm_max)) if tonal else None,
+                tonality=tonal,
+                loudness=measure_loudness,
                 expected_duration_us=duration,
                 is_cancelled=is_cancelled,
                 report_progress=report_progress,
@@ -270,7 +276,9 @@ class AnalysisService:
         except Exception as error:
             return TrackReport(track_id, False, f"{record.path.name}: {error}")
         self._repository.save_waveform(track_id, outcome.waveform, duration)
-        if waveform_only:
+        if measure_loudness and outcome.loudness is not None:
+            self._repository.save_loudness(track_id, outcome.loudness, duration)
+        if not tonal:
             return TrackReport(track_id, True)
         stored = self._repository.save_result(
             track_id, bpm=outcome.bpm, key=outcome.key, source_duration_us=duration
