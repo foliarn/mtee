@@ -345,6 +345,20 @@ class PlayerService(QObject):
         start = len(self._queue.past) + (1 if self._queue.current else 0)
         return [dict(row) for row in self.queue_rows()[start:]]
 
+    def clear_history(self) -> int:
+        """Forget the remembered listenings of the History panel and return how many.
+
+        The queue, the current track and the permanent listening log are kept.
+        """
+        removed = len(self._history.entries)
+        if removed == 0:
+            return 0
+        self._history = PlaybackHistory()
+        self._trim_track_rows()
+        self._schedule_session_save()
+        self.stateChanged.emit()
+        return removed
+
     def history_rows(self) -> list[dict[str, Any]]:
         """The listenings, most recent first, each merged with the freshest track row."""
         rows = []

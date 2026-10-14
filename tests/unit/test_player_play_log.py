@@ -247,3 +247,24 @@ def test_stopping_closes_the_listening_with_the_time_heard(qapp, qtbot, tmp_path
     assert rows[0]["heard_ms"] == 31_000
     assert rows[0]["counted"] == 1
     database.close()
+
+
+def test_clear_history_empties_the_panel_and_keeps_the_queue_and_the_log(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    service, _backend, clock, database, ids = _setup(qapp, tmp_path, {"a": LONG_US, "b": LONG_US})
+    service.play_queue([ids["a"], ids["b"]], 0, source="folder:media", source_title="media")
+    _playing(qtbot, service, ids["a"])
+    clock.advance(40)
+    service.next()
+    _playing(qtbot, service, ids["b"])
+    logged = len(_rows(database))
+    assert len(service.history_rows()) == 1
+
+    assert service.clear_history() == 1
+
+    assert service.history_rows() == []
+    assert service.state.current_id == ids["b"]
+    assert len(_rows(database)) == logged
+    assert service.clear_history() == 0
+    database.close()
