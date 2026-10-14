@@ -249,10 +249,13 @@ def test_cover_is_encoded_once_then_served_from_the_cache(qapp, qtbot, tmp_path:
     # The text comes first, without a cover; the cover follows when it is decoded.
     # pytest-qt reads a None result as "assert form": the predicate must be a real bool.
     qtbot.waitUntil(lambda: bool(transport.metadata[-1] and transport.metadata[-1].cover_png))
-    cover = transport.metadata[-1].cover_png
+    pushed = transport.metadata[-1]
+    assert pushed is not None
+    cover = pushed.cover_png
+    assert cover is not None
     assert cover.startswith(PNG_MAGIC)
     image = QImage()
-    assert image.loadFromData(QByteArray(cover), "PNG")
+    assert image.loadFromData(QByteArray(cover))
     assert image.width() == COVER_SIZE
 
     # Leaving for a track without artwork, then coming back: the cached cover is pushed
@@ -267,7 +270,9 @@ def test_cover_is_encoded_once_then_served_from_the_cache(qapp, qtbot, tmp_path:
     qtbot.waitUntil(
         lambda: transport.metadata[-1] is not None and transport.metadata[-1].title == "Title 0"
     )
-    assert transport.metadata[-1].cover_png == cover
+    cached = transport.metadata[-1]
+    assert cached is not None
+    assert cached.cover_png == cover
     assert artwork.thumbnail_reads == ["track-0"]
 
 

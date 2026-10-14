@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Iterator
+from typing import cast
 
 import pytest
 
@@ -257,7 +258,11 @@ def test_clear_finished_forgets_terminal_jobs_only(qtbot, service: JobService) -
     model = JobsListModel(service)
     gate = threading.Event()
     done = service.submit(lambda _context: None, label="Done")
-    running = service.submit(lambda _context: gate.wait(5), label="Running")
+
+    def hold(_context: JobContext) -> None:
+        gate.wait(5)
+
+    running = service.submit(hold, label="Running")
     assert _wait_until(lambda: service.status(done).is_terminal)
     assert _wait_until(lambda: service.status(running).state is JobState.RUNNING)
     qtbot.waitUntil(lambda: model.finishedCount == 1 and model.activeCount == 1, timeout=2_000)
@@ -298,7 +303,7 @@ def test_the_model_exposes_counters_cancel_and_failures(qtbot, service: JobServi
     ]
     assert model.data(index, int(JobRole.CAN_CANCEL)) is True
     assert model.data(index, int(JobRole.REMAINING_SECONDS)) == -1.0
-    assert model.data(index, int(JobRole.ELAPSED_SECONDS)) >= 0.0
+    assert cast(float, model.data(index, int(JobRole.ELAPSED_SECONDS))) >= 0.0
 
     model.cancel(str(job_id))
     model.cancel("not-a-job")  # an unknown or malformed id is ignored

@@ -22,6 +22,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from mtee.domain.jobs import JobCancelledError
 from mtee.domain.tag_conflicts import TagConflict
 from mtee.services.jobs import JobContext, JobService
 
@@ -152,6 +153,10 @@ class TagConflictsModel(QAbstractListModel):
             try:
                 context.raise_if_cancelled()
                 message = resolver(conflict)
+            except JobCancelledError as error:
+                # Free the row for a retry, then let the job end as cancelled, not failed.
+                self._bridge.finished.emit(track_id, f"{type(error).__name__}: {error}")
+                raise
             except Exception as error:
                 message = f"{type(error).__name__}: {error}"
             self._bridge.finished.emit(track_id, message)

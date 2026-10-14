@@ -67,7 +67,9 @@ def test_move_keeps_the_track_identity_and_updates_the_library(lib: _Library) ->
     assert result.status == "moved"
     assert not (lib.music / "a.wav").exists()
     assert (lib.music / "sub" / "a.wav").is_file()
-    assert lib.library.source_record(track_id).path == (lib.music / "sub" / "a.wav").resolve()
+    record = lib.library.source_record(track_id)
+    assert record is not None
+    assert record.path == (lib.music / "sub" / "a.wav").resolve()
     assert lib.library.track_folder(track_id) == (lib.root_id, "sub")
     assert lib.library.path_owner(lib.music / "sub" / "a.wav") == track_id
 
@@ -152,7 +154,9 @@ def test_journal_hook_observes_disk_move_before_catalog_update(lib: _Library) ->
     def journal() -> None:
         assert not (lib.music / "a.wav").exists()
         assert (lib.music / "sub" / "a.wav").is_file()
-        assert lib.library.source_record(track_id).path == (lib.music / "a.wav").resolve()
+        record = lib.library.source_record(track_id)
+        assert record is not None
+        assert record.path == (lib.music / "a.wav").resolve()
         phases.append("disk")
 
     result = lib.service.move(track_id, destination, on_disk_moved=journal)

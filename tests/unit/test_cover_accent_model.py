@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QColor, QImage
@@ -77,7 +78,7 @@ def test_the_accent_follows_the_playing_cover_off_the_interface_thread(qapp, qtb
     assert not model.hasAccent and model.baseColor == ""
     player.play("vivid")
     qtbot.waitUntil(lambda: model.hasAccent)
-    assert _near(model.baseColor, "#E0245E")
+    assert _near(cast(str, model.baseColor), "#E0245E")
     assert QColor(model.darkColor).valueF() < QColor(model.baseColor).valueF()
     assert model.foregroundColor == "#FFFFFF" and not model.isLight
 
@@ -99,9 +100,9 @@ def test_the_previous_accent_stays_until_the_next_one_is_known(qapp, qtbot) -> N
     player.play("vivid")
     qtbot.waitUntil(lambda: model.hasAccent)
     changes: list[str] = []
-    model.accentChanged.connect(lambda: changes.append(model.baseColor))
+    model.accentChanged.connect(lambda: changes.append(cast(str, model.baseColor)))
     player.play("green")
-    old = model.baseColor
+    old = cast(str, model.baseColor)
     assert _near(old, "#E0245E")  # still the old one while computing
     qtbot.waitUntil(lambda: model.baseColor != old)
     assert changes and "" not in changes  # a direct change, never through "no accent"
@@ -134,5 +135,5 @@ def test_a_white_cover_gives_a_light_card_with_dark_text(qapp, qtbot) -> None:
     assert model.foregroundColor == "#FFFFFF" and not model.isLight  # nothing yet
     player.play("vivid")
     qtbot.waitUntil(lambda: model.hasAccent)
-    assert _near(model.baseColor, "#FFFFFF")
+    assert _near(cast(str, model.baseColor), "#FFFFFF")
     assert model.isLight and model.foregroundColor == "#0A0A0A"

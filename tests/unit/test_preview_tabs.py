@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.database import Database
@@ -15,7 +15,7 @@ ROOT = "11111111-1111-1111-1111-111111111111"
 
 
 def _tabs(workspace: WorkspaceModel) -> list[tuple[str, bool]]:
-    group: dict[str, Any] = workspace.groups[0]
+    group: dict[str, Any] = cast(list[dict[str, Any]], workspace.groups)[0]
     return [(tab["id"], bool(tab.get("preview"))) for tab in group["tabs"]]
 
 

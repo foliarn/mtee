@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 import wave
 from pathlib import Path
+from typing import cast
 
 import pytest
 from PySide6.QtCore import QCoreApplication
@@ -18,6 +19,7 @@ from PySide6.QtTest import QTest
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
 from mtee.domain.tracks import SourceRevision
 from mtee.models.artist_index_model import ArtistListModel, ArtistPageModel
+from mtee.models.track_list_model import TrackListModel
 from mtee.persistence.credit_override_repository import CreditOverrideRepository
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
@@ -220,14 +222,16 @@ def test_the_artist_list_and_page_models_follow_the_index(qapp, library_setup) -
     page = ArtistPageModel(service, library, jobs)
     page.open("sub focus")
     _wait_rows(qapp, page.tracks, 2)
-    titles = [row["title"] for row in page.tracks.rows_snapshot()]
+    titles = [row["title"] for row in cast(TrackListModel, page.tracks).rows_snapshot()]
     assert titles == sorted(titles, key=str.casefold)
     assert page.name == "Sub Focus" and page.trackCount == 2
     assert page.oneArtistCredits == ["Sub Focus & Wilkinson"] and page.canSplit is False
 
     page.open("status")
     assert page.canMakeOneArtist is True
-    assert [credit.casefold() for credit in page.oneArtistCredits] == ["chase & status"]
+    assert [credit.casefold() for credit in cast(list[str], page.oneArtistCredits)] == [
+        "chase & status"
+    ]
     page.makeOneArtist()
     _settle(qapp, service, refresh=False)
     assert page.artistKey == ""  # "Status" no longer exists: the page is closed

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -38,7 +39,7 @@ def test_the_rules_show_the_name_and_the_decision(qapp, database: Database) -> N
     overrides.set_mode("Duo", MODE_ONE_ARTIST)
     model, jobs = _model(qapp, database)
     try:
-        rules = {rule["text"]: rule for rule in model.rules}
+        rules = {rule["text"]: rule for rule in cast(list[dict[str, str]], model.rules)}
 
         assert set(rules) == {"Alpha & Beta", "Duo"}
         assert rules["Alpha & Beta"]["decision"] == "Split into separate artists"
@@ -56,8 +57,8 @@ def test_removing_a_rule_forgets_it_in_the_store(qapp, database: Database) -> No
     try:
         model.removeRule("alpha & beta")
 
-        assert [rule["text"] for rule in model.rules] == ["Duo"]
-        assert "grouped automatically again" in model.message
+        assert [rule["text"] for rule in cast(list[dict[str, str]], model.rules)] == ["Duo"]
+        assert "grouped automatically again" in cast(str, model.message)
         assert [row["text"] for row in overrides.all()] == ["Duo"]
     finally:
         assert jobs.wait_for_done(10_000)
@@ -70,7 +71,7 @@ def test_removing_a_missing_rule_says_so_and_changes_nothing(qapp, database: Dat
         model.removeRule("nobody")
 
         assert model.message == "That rule no longer exists."
-        assert [rule["text"] for rule in model.rules] == ["Duo"]
+        assert [rule["text"] for rule in cast(list[dict[str, str]], model.rules)] == ["Duo"]
     finally:
         assert jobs.wait_for_done(10_000)
 

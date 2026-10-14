@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
-from mutagen.flac import FLAC
+from mutagen.flac import FLAC, VCFLACDict
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtQuick import QQuickWindow
 from tests.helpers.analysis_library import AnalysisLibrary, require_ffmpeg
@@ -50,7 +50,7 @@ def test_the_replace_button_fixes_the_tags_of_a_conflicting_file(qapp, tmp_path:
         workspace.analyzeTracks([track_id], False)
 
         _wait_for(window, lambda: conflicts.count == 1)
-        assert "Open Tasks" in workspace.message
+        assert "Open Tasks" in cast(str, workspace.message)
         _open_tasks(workspace)
         _wait_for(window, lambda: bool(_items(window.contentItem(), "tagConflictRow")))
         header = _first(window.contentItem(), "tagConflictsHeader")
@@ -62,7 +62,9 @@ def test_the_replace_button_fixes_the_tags_of_a_conflicting_file(qapp, tmp_path:
         _click(window, _first(row, "replaceConflict"))
 
         _wait_for(window, lambda: conflicts.count == 0)
-        tags = {key.casefold(): list(values) for key, values in FLAC(path).tags.items()}
+        flac_tags = FLAC(path).tags
+        assert isinstance(flac_tags, VCFLACDict)
+        tags = {key.casefold(): list(values) for key, values in flac_tags.items()}
         assert "key" not in tags and "tempo" not in tags
         assert tags["initialkey"] and tags["bpm"] != ["100"]
         assert tags["mytag"] == ["keep me"]

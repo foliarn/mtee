@@ -159,6 +159,7 @@ class ConversionService:
                 return "Not transferred: the output artwork differs from the source."
             return "Copied and verified"
         except Exception as error:
+            # Mutagen raises many unrelated types on malformed files.
             return f"Not transferred: {type(error).__name__} while copying or verifying artwork."
 
     def convert_item(
@@ -509,7 +510,7 @@ def _stop_process(process) -> None:
         pass
     with suppress(OSError):
         process.kill()
-    with suppress(Exception):
+    with suppress(OSError):
         process.wait()
 
 

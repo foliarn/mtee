@@ -24,7 +24,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QImageWriter
 
 from mtee.domain.playback import PlaybackStatus
 from mtee.persistence.library_repository import LibraryRepository
@@ -238,9 +238,9 @@ def _encode_png(image: QImage) -> bytes | None:
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
     try:
-        if not image.save(buffer, "PNG"):
+        if not QImageWriter(buffer, QByteArray(b"PNG")).write(image):
             return None
         data: QByteArray = buffer.data()
-        return bytes(data)
+        return bytes(data.data())
     finally:
         buffer.close()

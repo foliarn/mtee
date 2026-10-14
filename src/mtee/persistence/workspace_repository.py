@@ -261,7 +261,7 @@ def _validated_column_preferences(value: Any) -> dict[str, Any]:
     if isinstance(raw_widths, dict):
         for key in _COLUMN_KEYS:
             raw_width = raw_widths.get(key)
-            if isinstance(raw_width, bool):
+            if raw_width is None or isinstance(raw_width, bool):
                 continue
             try:
                 width = int(raw_width)

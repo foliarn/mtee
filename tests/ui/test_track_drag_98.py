@@ -103,7 +103,7 @@ def test_list_batch_artwork_batch_and_escape(qapp, qtbot, tmp_path: Path, monkey
             lambda: model.track_ids_snapshot() == [original[0], original[2], original[1]],
             timeout=5000,
         )
-        assert set(workspace.selectedIds) == {original[0], original[2]}
+        assert set(cast(list[str], workspace.selectedIds)) == {original[0], original[2]}
 
         persisted = [entry["entry_id"] for entry in playlists.repository.entries(identity)]
         workspace.setSort(source, "title")

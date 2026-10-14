@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +14,11 @@ from tests.helpers.analysis_audio import write_wav
 from tests.helpers.analysis_library import RATE, AnalysisLibrary, require_ffmpeg
 
 from mtee.domain.analysis import AnalysisSettings
-from mtee.domain.tracks import sha256_of_file
+from mtee.domain.conversion import ConversionSource
+from mtee.domain.tracks import SourceRevision, sha256_of_file
 from mtee.persistence.database import MIGRATIONS_DIR, Database
 from mtee.services.analysis_service import AnalysisService
+from mtee.services.audio_analyzer import AnalysisOutcome, AudioAnalyzer
 from mtee.services.metadata_reader import MetadataReader
 
 
@@ -27,16 +30,43 @@ def library(tmp_path: Path):
     fixture.close()
 
 
-class _SpyAnalyzer:
+class _SpyAnalyzer(AudioAnalyzer):
     """Forward to the real analyzer and remember which passes were asked for."""
 
-    def __init__(self, inner: Any) -> None:
+    def __init__(self, inner: AudioAnalyzer) -> None:
         self._inner = inner
         self.calls: list[dict[str, Any]] = []
 
-    def analyze(self, *args: Any, **kwargs: Any) -> Any:
-        self.calls.append(kwargs)
-        return self._inner.analyze(*args, **kwargs)
+    def analyze(
+        self,
+        source: ConversionSource,
+        revision: SourceRevision,
+        *,
+        tempo_range: tuple[float, float] | None = None,
+        tonality: bool = False,
+        loudness: bool = False,
+        expected_duration_us: int | None = None,
+        is_cancelled: Callable[[], bool] = lambda: False,
+        report_progress: Callable[[float], None] = lambda _value: None,
+    ) -> AnalysisOutcome:
+        self.calls.append(
+            {
+                "tempo_range": tempo_range,
+                "tonality": tonality,
+                "loudness": loudness,
+                "expected_duration_us": expected_duration_us,
+            }
+        )
+        return self._inner.analyze(
+            source,
+            revision,
+            tempo_range=tempo_range,
+            tonality=tonality,
+            loudness=loudness,
+            expected_duration_us=expected_duration_us,
+            is_cancelled=is_cancelled,
+            report_progress=report_progress,
+        )
 
 
 def _execute(library: AnalysisLibrary, sql: str, params: tuple[Any, ...]) -> None:

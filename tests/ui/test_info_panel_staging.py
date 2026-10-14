@@ -37,7 +37,7 @@ def _click(window: QQuickWindow, item: QQuickItem) -> None:
 
 def _type(window: QQuickWindow, text: str) -> None:
     for character in text:
-        QTest.keyClick(window, character)
+        QTest.keyClick(window, ord(character))
 
 
 def _field_input(window: QQuickWindow, index: int) -> QQuickItem:

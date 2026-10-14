@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import wave
 from pathlib import Path
+from typing import Any, cast
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QPoint, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 
@@ -170,7 +171,7 @@ def test_dragging_a_header_over_another_moves_the_column(qapp, tmp_path: Path, m
         source = _find(root, "columnHeader_bpm")
         target = _find(root, "columnHeader_artist")
         assert source is not None and target is not None
-        order = list(workspace.columnPreferences["order"])
+        order = list(cast(dict[str, Any], workspace.columnPreferences)["order"])
         assert order.index("artist") < order.index("bpm")
 
         start = source.mapToScene(source.boundingRect().center()).toPoint()
@@ -178,7 +179,10 @@ def test_dragging_a_header_over_another_moves_the_column(qapp, tmp_path: Path, m
         end.setX(int(target.mapToScene(target.boundingRect().topLeft()).x()) + 8)  # left half
         QTest.mousePress(root, Qt.MouseButton.LeftButton, pos=start)
         for step in range(1, 13):
-            point = start + (end - start) * step / 12
+            point = QPoint(
+                round(start.x() + (end.x() - start.x()) * step / 12),
+                round(start.y() + (end.y() - start.y()) * step / 12),
+            )
             QTest.mouseMove(root, point)
             QCoreApplication.processEvents()
             QTest.qWait(15)
@@ -186,7 +190,7 @@ def test_dragging_a_header_over_another_moves_the_column(qapp, tmp_path: Path, m
         QCoreApplication.processEvents()
         QTest.qWait(100)
 
-        order = list(workspace.columnPreferences["order"])
+        order = list(cast(dict[str, Any], workspace.columnPreferences)["order"])
         assert order.index("bpm") < order.index("artist")
     finally:
         _shutdown(runtime)

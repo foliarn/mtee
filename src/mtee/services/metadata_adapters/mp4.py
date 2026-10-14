@@ -59,6 +59,7 @@ class MP4MetadataAdapter:
         try:
             audio, reason = self.inspect(path)
         except Exception as error:
+            # Mutagen raises many unrelated types on malformed files.
             return self._disabled(f"Could not inspect MP4 atoms: {type(error).__name__}.")
         if reason or audio is None:
             return self._disabled(reason or self.reason_container)

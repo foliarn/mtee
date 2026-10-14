@@ -24,7 +24,7 @@ from mtee.domain.tracks import TrackId
 from mtee.persistence.play_log_repository import PlayLogRepository
 from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
 from mtee.persistence.settings_repository import SettingsRepository
-from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
+from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.player_backend import BackendEvent, PlayerBackend
 
 __all__ = ["PlayerService"]
@@ -250,8 +250,12 @@ class PlayerService(QObject):
         self._save_settings()
         if self._session_repository is not None and self._save_executor is not None:
             if self._state.current_id and self._backend is not None:
-                with suppress(Exception):
+                try:
                     position = self._backend.position_us()
+                except Exception:
+                    # Expected when the native player is already tearing down.
+                    _LOGGER.debug("Could not read the final playback position", exc_info=True)
+                else:
                     if position is not None:
                         self._publish(position_us=max(0, int(position)))
             self._schedule_session_save()
@@ -321,8 +325,12 @@ class PlayerService(QObject):
         """Refresh queue labels after a verified source metadata edit."""
         if track_id not in self._track_rows:
             return
-        with suppress(Exception):
+        try:
             row = self._resolver(track_id)
+        except Exception:
+            # The resolver is an injected callable; keep the previous row.
+            _LOGGER.warning("Could not refresh the queue row for track %s", track_id, exc_info=True)
+        else:
             if row:
                 self._track_rows[track_id] = dict(row)
         self.queueChanged.emit()
@@ -464,8 +472,12 @@ class PlayerService(QObject):
                     self._track_rows[track_id] = dict(track)
         for track_id in ids:
             if track_id not in self._track_rows:
-                with suppress(Exception):
+                try:
                     row = self._resolver(track_id)
+                except Exception:
+                    # The resolver is an injected callable; the entry keeps no snapshot.
+                    _LOGGER.warning("Could not resolve queue track %s", track_id, exc_info=True)
+                else:
                     if row:
                         self._track_rows[track_id] = dict(row)
         entries = [
@@ -498,8 +510,11 @@ class PlayerService(QObject):
             identity = str(track_id)
             snapshot = rows.get(identity) or self._track_rows.get(identity)
             if snapshot is None:
-                with suppress(Exception):
+                try:
                     snapshot = self._resolver(identity)
+                except Exception:
+                    # The resolver is an injected callable; the entry keeps no snapshot.
+                    _LOGGER.warning("Could not resolve queued track %s", identity, exc_info=True)
             if snapshot:
                 self._track_rows[identity] = dict(snapshot)
             entries.append(
@@ -688,8 +703,12 @@ class PlayerService(QObject):
         if self._pending_seek_us is not None:
             return self._pending_seek_us
         if self._backend is not None:
-            with suppress(Exception):
+            try:
                 position = self._backend.position_us()
+            except Exception:
+                # Expected when the native player is already tearing down.
+                _LOGGER.debug("Could not read the playback position", exc_info=True)
+            else:
                 if position is not None:
                     return max(0, int(position))
         return self._state.position_us
@@ -942,9 +961,6 @@ class PlayerService(QObject):
             self._open_play_event(track_id, track, playing=False)
             self._backend.load(path, session_id)
             _LOGGER.debug("Playback load command sent session=%s track=%s", session_id, track_id)
-        except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
-            self._release_read_lease(session_id)
-            self._fail(str(error))
         except Exception as error:
             self._release_read_lease(session_id)
             self._fail(str(error))
@@ -1124,6 +1140,7 @@ class PlayerService(QObject):
         if source_closed:
             self._release_read_lease(self._state.session_id)
         elif self._backend is not None:
+            # Best-effort stop of a native backend that is already failing.
             with suppress(Exception):
                 self._backend.stop()
         else:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections import OrderedDict
 
@@ -15,6 +16,8 @@ from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.artwork_service import ArtworkService, placeholder_image
 
 __all__ = ["ARTWORK_CACHE_LIMIT", "ARTWORK_PROVIDER_ID", "ArtworkProvider"]
+
+_LOGGER = logging.getLogger(__name__)
 
 ARTWORK_PROVIDER_ID = "artwork"
 ARTWORK_CACHE_LIMIT = 128 * 1024 * 1024
@@ -88,6 +91,13 @@ class ArtworkProvider(QQuickImageProvider):
                 else:
                     cacheable = True
             except Exception:
+                # Can fire per thumbnail: debug level keeps the log readable.
+                _LOGGER.debug(
+                    "Could not decode the artwork of track %s (%s)",
+                    track_id,
+                    source[0],
+                    exc_info=True,
+                )
                 image = placeholder_image(track_id, target_size)
         size.setWidth(image.width())
         size.setHeight(image.height())
