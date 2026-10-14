@@ -44,6 +44,7 @@ from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
+from mtee.persistence.play_log_repository import PlayLogRepository, load_or_create_device_id
 from mtee.persistence.playback_repository import (
     PlaybackRepository,
     PlaybackSessionError,
@@ -197,6 +198,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             saved_playback = None
         player_service.attach_settings(settings)
         player_service.attach_session(playback_repository, saved_playback)
+        player_service.attach_play_log(
+            PlayLogRepository(database), load_or_create_device_id(settings)
+        )
         waveform_model = WaveformModel(
             player_service, library, jobs, file_access, analysis_repository, application
         )

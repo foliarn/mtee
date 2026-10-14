@@ -33,8 +33,8 @@ def test_020_to_022_preserves_library_and_artist_data_with_valid_backup(tmp_path
     old.close()
 
     upgraded = Database(path)
-    assert [migration.version for migration in upgraded.migrate()] == [22, 23]
-    assert upgraded.schema_version() == 23
+    assert [migration.version for migration in upgraded.migrate()] == [22, 23, 24]
+    assert upgraded.schema_version() == 24
     assert upgraded.connection().execute("SELECT display_name FROM artists").fetchone()[0] == (
         "Manual artist"
     )

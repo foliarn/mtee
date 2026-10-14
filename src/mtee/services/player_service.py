@@ -5,20 +5,22 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
+from mtee.domain.play_log import ClockReading, PlayedTrack, PlayEvent, PlayTracker
 from mtee.domain.playback import PlaybackState, PlaybackStatus
 from mtee.domain.playback_history import HistoryEntry, PlaybackHistory
 from mtee.domain.playback_queue import QueueEntry, QueueState
 from mtee.domain.tracks import TrackId
+from mtee.persistence.play_log_repository import PlayLogRepository
 from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
@@ -55,12 +57,14 @@ class PlayerService(QObject):
         *,
         backend_error: str = "",
         parent: QObject | None = None,
+        clock: Callable[[], ClockReading] | None = None,
     ) -> None:
         super().__init__(parent)
         self._resolver = resolver
         self._file_access = file_access
         self._backend = backend
         self._backend_error = backend_error
+        self._clock = clock or _system_clock
         self._state = PlaybackState()
         self._queue = QueueState()
         self._track_rows: dict[str, dict[str, Any]] = {}
@@ -68,6 +72,10 @@ class PlayerService(QObject):
         self._read_track_ids: dict[int, str] = {}
         self._history = PlaybackHistory()
         self._history_recorded_entry: str | None = None
+        self._play_tracker = PlayTracker()
+        self._play_log_repository: PlayLogRepository | None = None
+        self._device_id = ""
+        self._play_log_futures: list[Future[int]] = []
         self._unmuted_volume = self._state.volume
         self._transient_silence = False
         self._pending_seek_us: int | None = None
@@ -112,7 +120,7 @@ class PlayerService(QObject):
         if self._session_repository is not None:
             raise RuntimeError("A playback repository is already attached")
         self._session_repository = repository
-        self._save_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mtee-playback")
+        self._ensure_save_executor()
         if session is None:
             return
         self._save_sequence = session.write_sequence
@@ -131,6 +139,22 @@ class PlayerService(QObject):
         self._sync_queue_projection()
         if self._queue.current is not None:
             self._open_queue_current(initially_paused=True, restore_position_us=session.position_us)
+
+    def attach_play_log(self, repository: PlayLogRepository, device_id: str) -> None:
+        """Append every closed listening to the permanent log, in the playback saver thread."""
+        if self._play_log_repository is not None:
+            raise RuntimeError("A play log repository is already attached")
+        UUID(device_id)
+        self._play_log_repository = repository
+        self._device_id = device_id
+        self._ensure_save_executor()
+
+    def _ensure_save_executor(self) -> ThreadPoolExecutor:
+        if self._save_executor is None:
+            self._save_executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="mtee-playback"
+            )
+        return self._save_executor
 
     def attach_settings(self, repository: SettingsRepository) -> None:
         """Restore the saved volume and mute without starting playback."""
@@ -197,18 +221,54 @@ class PlayerService(QObject):
     def flush_session(self) -> None:
         """Persist the effective final position before native player teardown."""
         self._save_settings()
-        if self._session_repository is None or self._save_executor is None:
-            return
-        if self._state.current_id and self._backend is not None:
-            with suppress(Exception):
-                position = self._backend.position_us()
-                if position is not None:
-                    self._publish(position_us=max(0, int(position)))
-        self._schedule_session_save()
+        if self._session_repository is not None and self._save_executor is not None:
+            if self._state.current_id and self._backend is not None:
+                with suppress(Exception):
+                    position = self._backend.position_us()
+                    if position is not None:
+                        self._publish(position_us=max(0, int(position)))
+            self._schedule_session_save()
         futures = self._save_futures
         self._save_futures = []
         for future in futures:
             future.result()
+        play_log_futures = self._play_log_futures
+        self._play_log_futures = []
+        wait(play_log_futures)
+
+    def _submit_play_events(self, event: PlayEvent | None) -> None:
+        """Append a closed listening in the saver thread; a failure is logged, not raised."""
+        repository = self._play_log_repository
+        executor = self._save_executor
+        if event is None or repository is None or executor is None:
+            return
+        future = executor.submit(repository.insert_events, [event], self._device_id)
+        self._play_log_futures.append(future)
+        future.add_done_callback(_log_play_log_failure)
+
+    def _open_play_event(self, track_id: str, track: dict[str, Any], *, playing: bool) -> None:
+        played = PlayedTrack(
+            track_id=track_id,
+            path=str(track.get("path", "")),
+            artist=str(track.get("artist", "")),
+            title=str(track.get("title", "")),
+            album=str(track.get("album", "")),
+            duration_us=_duration_us(track) or 0,
+        )
+        self._submit_play_events(self._play_tracker.open(played, self._clock(), playing=playing))
+
+    def _end_play_event(self, *, completed: bool) -> None:
+        """Close the open listening, if any, so it reaches the log."""
+        if self._play_tracker.is_open:
+            self._submit_play_events(self._play_tracker.close(self._clock(), completed=completed))
+
+    def _set_play_clock(self, playing: bool) -> None:
+        if self._play_tracker.is_open:
+            self._play_tracker.set_playing(playing, self._clock())
+
+    def _checkpoint_play_clock(self) -> None:
+        if self._play_tracker.is_open:
+            self._play_tracker.checkpoint(self._clock())
 
     @property
     def current_track(self) -> dict[str, Any]:
@@ -499,6 +559,7 @@ class PlayerService(QObject):
             self._expected_pause_state = True
             self._backend.set_paused(True)
             self._publish(status=PlaybackStatus.PAUSED)
+            self._set_play_clock(False)
             self._poll_position()
             self._schedule_session_save()
         except Exception as error:
@@ -518,6 +579,7 @@ class PlayerService(QObject):
             self._expected_pause_state = False
             self._backend.set_paused(False)
             self._publish(status=PlaybackStatus.PLAYING)
+            self._set_play_clock(True)
             self._schedule_session_save()
         except Exception as error:
             self._fail(str(error))
@@ -581,22 +643,36 @@ class PlayerService(QObject):
         return self._state.position_us
 
     def _restart_current(self) -> None:
+        if self._can_seek():
+            # A restart is a new listening: the current one ends, a new one begins.
+            track_id = self._state.current_id
+            self._end_play_event(completed=False)
+            self._open_play_event(
+                track_id,
+                dict(self._track_rows.get(track_id, {})),
+                playing=self._state.status is PlaybackStatus.PLAYING,
+            )
         self.seek(0)
         if self._state.status is PlaybackStatus.PAUSED:
             self.resume()
 
+    def _can_seek(self) -> bool:
+        return (
+            self._backend is not None
+            and bool(self._state.current_id)
+            and self._state.seekable
+            and self._state.duration_us is not None
+        )
+
     @Slot(int)
     def seek(self, position_us: int) -> None:
-        if (
-            self._backend is None
-            or not self._state.current_id
-            or not self._state.seekable
-            or self._state.duration_us is None
-        ):
+        duration_us = self._state.duration_us
+        if self._backend is None or duration_us is None or not self._can_seek():
             return
-        target = max(0, min(int(position_us), self._state.duration_us))
+        target = max(0, min(int(position_us), duration_us))
         try:
             self._backend.seek(target)
+            self._checkpoint_play_clock()
             self._pending_seek_us = target
             self._pending_seek_started = time.monotonic()
             self._publish(position_us=target, seeking=True)
@@ -674,6 +750,7 @@ class PlayerService(QObject):
         """Stop the currently played UUID and explicitly release its read lease."""
         if not self._state.current_id or (track_id and track_id != self._state.current_id):
             return False
+        self._end_play_event(completed=False)
         next_session = self._state.session_id + 1
         self._pause_requested_session_id = None
         self._expected_pause_state = None
@@ -704,6 +781,8 @@ class PlayerService(QObject):
             return
         flush_error: Exception | None = None
         try:
+            # Shutdown flushes the open listening: its heard time so far is kept.
+            self._end_play_event(completed=False)
             self.flush_session()
         except Exception as error:
             flush_error = error
@@ -735,6 +814,8 @@ class PlayerService(QObject):
         ids = track_ids or self._state.track_ids
         if not 0 <= index < len(ids):
             return
+        # Any change of track, including repeat one and replay, ends the open listening.
+        self._end_play_event(completed=False)
         self._pause_requested_session_id = None
         self._expected_pause_state = initially_paused
         self._restore_seek = None
@@ -803,6 +884,7 @@ class PlayerService(QObject):
             # pause property here, once, before load so a previous track's pause
             # cannot leak into the new session.
             self._backend.set_paused(initially_paused)
+            self._open_play_event(track_id, track, playing=False)
             self._backend.load(path, session_id)
             _LOGGER.debug("Playback load command sent session=%s track=%s", session_id, track_id)
         except (FileAccessTimeoutError, OSError, KeyError, ValueError) as error:
@@ -849,6 +931,7 @@ class PlayerService(QObject):
                 status=(PlaybackStatus.PAUSED if pause_when_loaded else PlaybackStatus.PLAYING),
                 error_message="",
             )
+            self._set_play_clock(not pause_when_loaded)
             self._position_timer.start()
             self._apply_restore_seek()
         elif event.name == "eof":
@@ -867,6 +950,7 @@ class PlayerService(QObject):
                     return
                 status = PlaybackStatus.PAUSED if paused else PlaybackStatus.PLAYING
                 self._publish(status=status)
+                self._set_play_clock(not paused)
         elif event.name == "duration":
             value = event.value if isinstance(event.value, int) else None
             self._publish(duration_us=max(0, value) if value is not None else None)
@@ -934,6 +1018,7 @@ class PlayerService(QObject):
             self._fail(str(error))
 
     def _on_eof(self) -> None:
+        self._end_play_event(completed=True)
         if self._queue.repeat == "one":
             self._open_index(self._state.current_index)
         elif self._queue.upcoming:
@@ -946,6 +1031,7 @@ class PlayerService(QObject):
             self._finish()
 
     def _finish(self, *, stop_backend: bool = False) -> None:
+        self._end_play_event(completed=False)
         self._record_history()
         self._transient_silence = False
         self._position_timer.stop()
@@ -967,6 +1053,7 @@ class PlayerService(QObject):
         self._trim_track_rows()
 
     def _fail(self, message: str, *, source_closed: bool = False) -> None:
+        self._end_play_event(completed=False)
         self._transient_silence = False
         self._position_timer.stop()
         self._pending_seek_us = None
@@ -1028,6 +1115,16 @@ class PlayerService(QObject):
                     track_id,
                 )
                 self.trackAccessReleased.emit(track_id)
+
+
+def _system_clock() -> ClockReading:
+    return ClockReading(time.monotonic_ns() // 1000, datetime.now(UTC))
+
+
+def _log_play_log_failure(future: Future[int]) -> None:
+    error = future.exception()
+    if error is not None:
+        _LOGGER.error("Could not append a listening to the play log: %s", error)
 
 
 def _available(track: dict[str, Any]) -> bool:
