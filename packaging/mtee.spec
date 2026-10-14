@@ -72,6 +72,19 @@ ffmpeg_binaries = [
     for entry in ffmpeg_manifest["binaries"]
 ]
 
+# Windows Runtime projections of the system media controls (pywinrt, Windows only). The
+# application imports them lazily, inside the adapter, so they are listed explicitly.
+# Not verified by a build: scripts/build_windows.ps1 has not been run for this step.
+winrt_hidden_imports = [
+    "winrt.runtime",
+    "winrt.system",
+    "winrt.windows.foundation",
+    "winrt.windows.media",
+    "winrt.windows.media.playback",
+    "winrt.windows.storage",
+    "winrt.windows.storage.streams",
+]
+
 # Modules that MTEE does not use at this step. QtMultimedia is deliberately
 # absent: the playback of the next step uses libmpv, not the Qt player.
 excludes = [
@@ -102,7 +115,7 @@ analysis = Analysis(
     pathex=[str(project_root / "src")],
     binaries=[(str(mpv_library), "mtee/native/mpv"), *ffmpeg_binaries],
     datas=datas,
-    hiddenimports=["mtee.app"],
+    hiddenimports=["mtee.app", *winrt_hidden_imports],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
