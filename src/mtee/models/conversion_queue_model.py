@@ -95,12 +95,10 @@ class ConversionQueueModel(QObject):
                 self.recoveryReady.emit(None, f"{type(error).__name__}: {error}")
                 raise
 
-        try:
+        with suppress(RuntimeError):
             self._jobs.submit(
                 inspect_recovery, label="Inspect interrupted conversions", visible=False
             )
-        except RuntimeError:
-            pass
 
     @Property(list, notify=changed)
     def inputs(self) -> list[dict[str, Any]]:
@@ -285,7 +283,10 @@ class ConversionQueueModel(QObject):
         if self._recovery_issue_count:
             return self._recovery_summary
         if self._recovered_count:
-            return f"Recovered {self._recovered_count} verified conversion result(s) from the operation journal."
+            return (
+                f"Recovered {self._recovered_count} verified conversion result(s) "
+                "from the operation journal."
+            )
         finished = sum(row.get("status") == "completed" for row in self._job_results.values())
         failed = sum(
             row.get("status") in {"failed", "conflict", "cancelled"}
@@ -312,7 +313,9 @@ class ConversionQueueModel(QObject):
     @Slot(object, object)
     def _on_recovery_ready(self, issues: object, error: object) -> None:
         rows = issues if isinstance(issues, list) else []
-        unresolved = [row for row in rows if isinstance(row, dict) and row.get("status") == "needs_inspection"]
+        unresolved = [
+            row for row in rows if isinstance(row, dict) and row.get("status") == "needs_inspection"
+        ]
         self._recovered_count = sum(
             isinstance(row, dict) and row.get("status") == "recovered" for row in rows
         )
@@ -535,11 +538,7 @@ class ConversionQueueModel(QObject):
         self.changed.emit()
 
     def start(self) -> None:
-        if (
-            self._preview is None
-            or not self._preview.executable
-            or self._preview_state != "ready"
-        ):
+        if self._preview is None or not self._preview.executable or self._preview_state != "ready":
             return
         preview = self._preview
         self._preview = None
@@ -567,7 +566,9 @@ class ConversionQueueModel(QObject):
         while self._pending_conversions and len(self._active_conversions) < 2:
             conversion_id, item, preview = self._pending_conversions.pop(0)
 
-            def task(context: JobContext, item=item, preview=preview, conversion_id=conversion_id) -> None:
+            def task(
+                context: JobContext, item=item, preview=preview, conversion_id=conversion_id
+            ) -> None:
                 published = False
                 context.report_detail(item.destination.name)
                 try:
@@ -584,6 +585,19 @@ class ConversionQueueModel(QObject):
                         str(temporary),
                         item.derived_track_id,
                     )
+
+                    def record_verified_output(
+                        source_hash, output_hash, temp_path, output_probe, metadata_report
+                    ):
+                        return self._derivations.record_verified_output(
+                            conversion_id,
+                            source_hash,
+                            output_hash,
+                            temp_path,
+                            output_probe,
+                            metadata_report,
+                        )
+
                     with self._file_access.acquire_read(
                         _track_id(item.source.track_id), "audio conversion", timeout_seconds=0
                     ):
@@ -593,14 +607,7 @@ class ConversionQueueModel(QObject):
                             conversion_id=conversion_id,
                             is_cancelled=lambda: context.is_cancelled,
                             report_progress=context.report_progress,
-                            before_publish=lambda source_hash, output_hash, temp_path, output_probe, metadata_report: self._derivations.record_verified_output(
-                                conversion_id,
-                                source_hash,
-                                output_hash,
-                                temp_path,
-                                output_probe,
-                                metadata_report,
-                            ),
+                            before_publish=record_verified_output,
                         )
                     published = result.status == "completed"
                     self._derivations.record(result, preview.ffmpeg_version)
@@ -626,7 +633,8 @@ class ConversionQueueModel(QObject):
                         {
                             "status": "completed" if published else "failed",
                             "message": (
-                                "Output published and verified, but its lineage journal needs inspection."
+                                "Output published and verified, but its lineage journal "
+                                "needs inspection."
                                 if published
                                 else f"{type(error).__name__}: {error}"
                             ),
@@ -644,7 +652,8 @@ class ConversionQueueModel(QObject):
                         result = replace(
                             result,
                             message=(
-                                "Output verified and published. The library will index it on its next scan: "
+                                "Output verified and published. "
+                                "The library will index it on its next scan: "
                                 f"{type(error).__name__}."
                             ),
                         )
@@ -741,7 +750,9 @@ class ConversionQueueModel(QObject):
     def _current_capability(self):
         if self._capabilities is None or not self._capabilities.outputs:
             return None
-        return self._capabilities.outputs[min(self._format_index, len(self._capabilities.outputs) - 1)]
+        return self._capabilities.outputs[
+            min(self._format_index, len(self._capabilities.outputs) - 1)
+        ]
 
     def _settings(self, output, quality: str) -> ConversionSettings:
         capability = self._current_capability()

@@ -78,12 +78,11 @@ class TrashModel(QObject):
             player.trackAccessReleased.connect(self._on_track_access_released)
             player.playbackChanged.connect(self.changed.emit)
         try:
+
             def inspect_interrupted(_context: JobContext) -> None:
                 self.interruptedReady.emit(self._journal.interrupted())
 
-            self._jobs.submit(
-                inspect_interrupted, label="Inspect recycle history", visible=False
-            )
+            self._jobs.submit(inspect_interrupted, label="Inspect recycle history", visible=False)
         except RuntimeError:
             pass
 
@@ -199,9 +198,7 @@ class TrashModel(QObject):
         if self._state == "running" or not self._busy_ids:
             return
         ids = sorted(self._busy_ids)
-        self._retry_prefix = [
-            dict(item) for item in self._results if item.get("status") != "busy"
-        ]
+        self._retry_prefix = [dict(item) for item in self._results if item.get("status") != "busy"]
         self._requested_ids = ids
         self._candidates = tuple(
             candidate for candidate in self._candidates if candidate.track_id in self._busy_ids
@@ -240,9 +237,7 @@ class TrashModel(QObject):
         self._message = "Stopping after the current Shell operation…"
         self.changed.emit()
 
-    def _submit(
-        self, candidates: list[_Candidate], initial_results: list[dict[str, Any]]
-    ) -> None:
+    def _submit(self, candidates: list[_Candidate], initial_results: list[dict[str, Any]]) -> None:
         self._generation += 1
         generation = self._generation
         self._state = "running"
@@ -292,17 +287,21 @@ class TrashModel(QObject):
         self.changed.emit()
 
     @Slot(int, object, object)
-    def _on_preparation_ready(
-        self, generation: int, candidates: object, failures: object
-    ) -> None:
+    def _on_preparation_ready(self, generation: int, candidates: object, failures: object) -> None:
         if generation != self._generation or not isinstance(candidates, list):
             return
         self._active_job_id = ""
         self._candidates = tuple(item for item in candidates if isinstance(item, _Candidate))
-        self._results = [dict(item) for item in failures if isinstance(item, dict)] if isinstance(failures, list) else []
+        self._results = (
+            [dict(item) for item in failures if isinstance(item, dict)]
+            if isinstance(failures, list)
+            else []
+        )
         if self._candidates:
             self._state = "confirm"
-            self._message = "Review the selected files, then confirm moving them to the Windows Recycle Bin."
+            self._message = (
+                "Review the selected files, then confirm moving them to the Windows Recycle Bin."
+            )
         else:
             self._state = "result"
             self._message = "No selected audio files are available to recycle."
@@ -354,7 +353,9 @@ class TrashModel(QObject):
         }
         try:
             current = self._library.source_record(candidate.track_id)
-            observed = SourceRevision.observe(candidate.path, generation=candidate.revision.generation)
+            observed = SourceRevision.observe(
+                candidate.path, generation=candidate.revision.generation
+            )
             if (
                 current is None
                 or current.path.resolve(strict=False) != candidate.path.resolve(strict=False)
@@ -362,7 +363,11 @@ class TrashModel(QObject):
                 or not candidate.revision.matches(observed)
             ):
                 self._journal.finish(operation_id, "conflict", "The file revision changed.")
-                return {**base, "status": "conflict", "message": "The file changed after confirmation."}
+                return {
+                    **base,
+                    "status": "conflict",
+                    "message": "The file changed after confirmation.",
+                }
             context.raise_if_cancelled()
             with self._file_access.acquire(
                 TrackId.parse(candidate.track_id), "recycle audio file", timeout_seconds=0
@@ -377,7 +382,11 @@ class TrashModel(QObject):
                     or not candidate.revision.matches(observed)
                 ):
                     self._journal.finish(operation_id, "conflict", "The file revision changed.")
-                    return {**base, "status": "conflict", "message": "The file changed before recycling."}
+                    return {
+                        **base,
+                        "status": "conflict",
+                        "message": "The file changed before recycling.",
+                    }
                 context.raise_if_cancelled()
                 recycle_item_identity = self._service.recycle(candidate.path)
             message = "Moved to the Windows Recycle Bin."
@@ -394,7 +403,9 @@ class TrashModel(QObject):
                 updated = self._library.mark_recycled(candidate.track_id, candidate.revision)
             except Exception:
                 updated = False
-                message += " The library could not be updated; it will be reconciled on the next scan."
+                message += (
+                    " The library could not be updated; it will be reconciled on the next scan."
+                )
             if not updated and "reconciled" not in message:
                 message += " The library record will be reconciled on the next scan."
             return {

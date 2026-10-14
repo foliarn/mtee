@@ -242,7 +242,8 @@ class MediaProbeService:
                             probe,
                             destination,
                             "unsupported",
-                            "Source depth is unknown or unsupported. Choose an explicit output depth.",
+                            "Source depth is unknown or unsupported. "
+                            "Choose an explicit output depth.",
                         )
                     )
                     continue

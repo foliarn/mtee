@@ -97,9 +97,7 @@ class ArtworkProvider(QQuickImageProvider):
 
     def _invalidate_old_revisions(self, track_id: str, generation: int) -> None:
         with self._lock:
-            stale = [
-                key for key in self._cache if key[0] == track_id and key[1] != generation
-            ]
+            stale = [key for key in self._cache if key[0] == track_id and key[1] != generation]
             for key in stale:
                 removed = self._cache.pop(key)
                 self._cache_bytes -= removed.sizeInBytes()

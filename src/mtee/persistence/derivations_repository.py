@@ -191,7 +191,9 @@ class DerivationsRepository:
                         "track_id": str(attempt["source_track_id"]),
                         "destination_path": str(destination),
                         "status": "recovered",
-                        "message": "A matching published output was recovered from its journal proof.",
+                        "message": (
+                            "A matching published output was recovered from its journal proof."
+                        ),
                     }
                 )
             else:

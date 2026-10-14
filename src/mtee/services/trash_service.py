@@ -47,9 +47,7 @@ def _com_call(
     argument_types: tuple,
     *arguments,
 ):
-    vtable = ctypes.cast(
-        instance, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))
-    ).contents
+    vtable = ctypes.cast(instance, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
     method_type = ctypes.WINFUNCTYPE(result_type, ctypes.c_void_p, *argument_types)
     return method_type(vtable[index])(instance, *arguments)
 
@@ -200,7 +198,12 @@ class _RecycleReceiptSink:
         self._instance_type = type(
             "_RecycleReceiptInstance",
             (ctypes.Structure,),
-            {"_fields_": [("vtable", ctypes.POINTER(vtable_type)), ("references", ctypes.c_uint32)]},
+            {
+                "_fields_": [
+                    ("vtable", ctypes.POINTER(vtable_type)),
+                    ("references", ctypes.c_uint32),
+                ]
+            },
         )
         self._instance = self._instance_type(ctypes.pointer(self._vtable), self._references)
         self.pointer = ctypes.cast(ctypes.pointer(self._instance), ctypes.c_void_p)

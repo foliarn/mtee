@@ -225,9 +225,7 @@ def test_next_and_previous_keep_the_restart_rule(qapp, qtbot, tmp_path: Path) ->
     assert service.state.current_id == ids[0]
 
 
-def test_flyout_shows_the_loaded_track_and_its_playback_state(
-    qapp, qtbot, tmp_path: Path
-) -> None:
+def test_flyout_shows_the_loaded_track_and_its_playback_state(qapp, qtbot, tmp_path: Path) -> None:
     service, _backend, transport, _controls, _ids, _ = _start(qapp, qtbot, tmp_path)
 
     shown = transport.metadata[-1]
@@ -243,9 +241,7 @@ def test_flyout_shows_the_loaded_track_and_its_playback_state(
     assert transport.states[-1] is TransportState.STOPPED
 
 
-def test_cover_is_encoded_once_then_served_from_the_cache(
-    qapp, qtbot, tmp_path: Path
-) -> None:
+def test_cover_is_encoded_once_then_served_from_the_cache(qapp, qtbot, tmp_path: Path) -> None:
     service, _backend, transport, _controls, ids, artwork = _start(
         qapp, qtbot, tmp_path, covered=frozenset({"track-0"})
     )
@@ -263,12 +259,14 @@ def test_cover_is_encoded_once_then_served_from_the_cache(
     # at once and the cover is not decoded a second time.
     service.play_index(1)
     qtbot.waitUntil(lambda: service.state.current_id == ids[1])
-    qtbot.waitUntil(lambda: transport.metadata[-1] is not None
-                    and transport.metadata[-1].title == "Title 1")
+    qtbot.waitUntil(
+        lambda: transport.metadata[-1] is not None and transport.metadata[-1].title == "Title 1"
+    )
     service.play_index(0)
     qtbot.waitUntil(lambda: service.state.current_id == ids[0])
-    qtbot.waitUntil(lambda: transport.metadata[-1] is not None
-                    and transport.metadata[-1].title == "Title 0")
+    qtbot.waitUntil(
+        lambda: transport.metadata[-1] is not None and transport.metadata[-1].title == "Title 0"
+    )
     assert transport.metadata[-1].cover_png == cover
     assert artwork.thumbnail_reads == ["track-0"]
 
@@ -302,9 +300,7 @@ def test_button_presses_from_another_thread_reach_the_player_on_the_interface_th
     assert threads == [threading.get_ident()]
 
 
-def test_close_detaches_the_system_and_ignores_later_commands(
-    qapp, qtbot, tmp_path: Path
-) -> None:
+def test_close_detaches_the_system_and_ignores_later_commands(qapp, qtbot, tmp_path: Path) -> None:
     service, _backend, transport, controls, _ids, _ = _start(qapp, qtbot, tmp_path)
 
     controls.close()

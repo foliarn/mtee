@@ -378,9 +378,7 @@ class PlaylistsModel(QObject):
         def create(_context: JobContext) -> str:
             identity = self.repository.create(name, folder)
             try:
-                self.service.add(
-                    identity, ids, confirm_unknown=confirm_unknown
-                )
+                self.service.add(identity, ids, confirm_unknown=confirm_unknown)
             except Exception:
                 self.repository.delete(identity)
                 raise

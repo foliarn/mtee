@@ -17,8 +17,8 @@ from mutagen import File as MutagenFile
 from mutagen.aiff import AIFF
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import ID3
-from mutagen.mp4 import MP4, MP4Cover
 from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 from mutagen.wave import WAVE
@@ -125,7 +125,10 @@ class ConversionService:
             source_kind, covers = source_covers
             destination_kind = _cover_kind(destination_audio)
             if source_kind != destination_kind or destination_kind is None:
-                return "Not transferred: the source artwork format is incompatible with this output container."
+                return (
+                    "Not transferred: the source artwork format is incompatible "
+                    "with this output container."
+                )
             if destination_kind == "id3":
                 if destination_audio.tags is None:
                     destination_audio.add_tags()
@@ -361,8 +364,7 @@ class ConversionService:
                 conversion_id,
                 tuple(
                     sorted(
-                        (name, getattr(settings, name))
-                        for name in settings.__dataclass_fields__
+                        (name, getattr(settings, name)) for name in settings.__dataclass_fields__
                     )
                 ),
                 "converted",
@@ -586,10 +588,7 @@ def _cover_items(audio):
         values = audio.pictures
     else:
         encoded = tags.get("metadata_block_picture", ()) if tags is not None else ()
-        values = [
-            Picture(base64.b64decode(str(item), validate=True))
-            for item in encoded
-        ]
+        values = [Picture(base64.b64decode(str(item), validate=True)) for item in encoded]
     return kind, tuple(values)
 
 
