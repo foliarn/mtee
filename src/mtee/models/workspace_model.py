@@ -15,10 +15,13 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Property, QEvent, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QGuiApplication, QMouseEvent, QWindow
 
+from mtee.domain.artist_index import album_track_order
+from mtee.domain.artists import normalize_key
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationHistory, NavigationLocation
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
+from mtee.models.artist_index_model import ArtistListModel
 from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.file_move_model import FileMoveModel
 from mtee.models.folder_tree_model import FolderTreeModel
@@ -44,8 +47,11 @@ from mtee.services.metadata_reader import MetadataReader
 from mtee.services.platform.shell_reveal import WindowsShellReveal
 
 if TYPE_CHECKING:
+    from mtee.domain.artist_index import ArtistEntry, ArtistIndex
+
     # The artist manager is a plugin: the core only attaches it, it never builds it.
     from mtee.plugins.artist_manager.models import ArtistManagerModel
+    from mtee.services.artist_index_service import ArtistIndexService
 
 __all__ = ["WorkspaceModel"]
 
@@ -65,8 +71,7 @@ _SORT_KEYS = {
     "fileModifiedAt",
 }
 _COLUMN_KEYS = {key for key, _label in COLUMN_OPTIONS}
-# The artist manager has no activity entry in v0.1 (step 112 adds a core Artists view).
-_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "plugins", "profile"}
+_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "artists", "plugins", "profile"}
 
 
 def _known_activity(activity: str) -> str:
@@ -102,6 +107,7 @@ class WorkspaceModel(QObject):
     sessionWriteFinished = Signal(object, object)
     playlistCreationRequested = Signal(list)
     enqueuePrepared = Signal(int, object)
+    artistsChanged = Signal()
 
     def __init__(
         self,
@@ -132,6 +138,13 @@ class WorkspaceModel(QObject):
         self._playback_settings: PlaybackSettingsModel | None = None
         self._tag_conflicts: TagConflictsModel | None = None
         self._artist_manager: ArtistManagerModel | None = None
+        # The core artist index: the Artists view, the artist links and the artist tabs.
+        self._artist_index: ArtistIndexService | None = None
+        self._artist_list: ArtistListModel | None = None
+        self._artist_revision = 0
+        self._artist_index_seen: ArtistIndex | None = None
+        # An artist action in progress: the artist it was made on and the credits it changes.
+        self._pending_artist_choice: tuple[str, frozenset[str]] | None = None
         self._scanner = LibraryScanner()
         self._reader = MetadataReader()
         self._shell_reveal = WindowsShellReveal()
@@ -819,12 +832,12 @@ class WorkspaceModel(QObject):
             self.openPlaylist(reference)
             self._select_revealed_row("playlist:" + reference, identity)
             return
-        if kind == "artist" and self._artist_manager is not None:
-            name = self._artist_manager.artist_name(reference)
-            if name:
-                self.openArtistPage(reference, name)
-                self._select_revealed_row("artist:" + reference, identity)
-                return
+        if kind == "artist" and (
+            self._artist_entry(reference) is not None or self._is_plugin_artist(reference)
+        ):
+            self.openArtistPage(reference, "")
+            self._select_revealed_row("artist:" + reference, identity)
+            return
         if kind == "folder" and self._folder_source_exists(str(source)):
             self.selectExplorerTrack(identity, str(source))
             return
@@ -844,13 +857,16 @@ class WorkspaceModel(QObject):
 
     @Slot(str, result=list)
     def trackArtists(self, track_id: str) -> list[dict[str, str]]:
-        """Return the confirmed artists credited on a track, as {"id", "name"} in credit order."""
-        manager = self._artist_manager
-        if manager is None or not track_id:
+        """The artists credited on a track by the core index, as {"id", "name"} in credit order."""
+        if self._artist_index is None or not track_id:
             return []
-        identity = str(track_id)
-        credits = manager.service.repository.confirmed_credit_names([identity]).get(identity, [])
-        return [{"id": str(item["id"]), "name": str(item["name"])} for item in credits]
+        index = self._artist_index.index
+        found = []
+        for key in index.artists_by_track.get(str(track_id), ()):
+            entry = index.entry(key)
+            if entry is not None:
+                found.append({"id": entry.key, "name": entry.name})
+        return found
 
     @Slot(list)
     def addTracksToConvert(self, track_ids: list) -> None:
@@ -871,10 +887,10 @@ class WorkspaceModel(QObject):
             self.setFullscreen(False)
         if kind == "playlist" and reference:
             self.openPlaylist(reference)
-        elif kind == "artist" and self._artist_manager is not None:
-            name = self._artist_manager.artist_name(reference)
-            if name:
-                self.openArtistPage(reference, name)
+        elif kind == "artist" and (
+            self._artist_entry(reference) is not None or self._is_plugin_artist(reference)
+        ):
+            self.openArtistPage(reference, "")
         elif kind == "folder" and self._folder_source_exists(source):
             self.openFolder(source)
 
@@ -1231,6 +1247,158 @@ class WorkspaceModel(QObject):
         editor.refresh_selection()
         self._prepare_visible_metadata()
 
+    # ---------------------------------------------------------------- core artists
+
+    def attach_artist_index(self, service: ArtistIndexService) -> None:
+        """Attach the core artist index: the Artists view, the artist links and artist tabs."""
+        if self._artist_index is not None:
+            raise RuntimeError("An artist index is already attached to this workspace.")
+        self._artist_index = service
+        self._artist_list = ArtistListModel(service, self)
+        service.indexChanged.connect(self._on_artist_index_changed)
+
+    @Property(QObject, notify=layoutChanged)
+    def artistList(self) -> QObject | None:
+        """The artists of the library, filtered by the Artists sidebar; absent in the demo."""
+        return self._artist_list
+
+    @Property(int, notify=artistsChanged)
+    def artistRevision(self) -> int:
+        """Counts the finished index builds; a binding that reads artist facts depends on it."""
+        return self._artist_revision
+
+    @Slot(str, result=dict)
+    def artistInfo(self, key: str) -> dict[str, Any]:
+        """Header facts of an artist page: name, track count and the credits of each action."""
+        service = self._artist_index
+        entry = self._artist_entry(str(key))
+        if service is None or entry is None:
+            return {
+                "key": str(key),
+                "name": "",
+                "trackCount": 0,
+                "oneArtistCredits": [],
+                "splitCredits": [],
+            }
+        return {
+            "key": entry.key,
+            "name": entry.name,
+            "trackCount": entry.track_count,
+            "oneArtistCredits": service.one_artist_credits(entry.key),
+            "splitCredits": service.split_credits(entry.key),
+        }
+
+    @Slot(str)
+    def makeArtistOneArtist(self, key: str) -> None:
+        """ "This is one artist": keep the credits of this artist whole."""
+        self._apply_artist_choice(str(key), one_artist=True)
+
+    @Slot(str)
+    def splitArtist(self, key: str) -> None:
+        """ "Split into separate artists": cut the credits of this artist at every junction."""
+        self._apply_artist_choice(str(key), one_artist=False)
+
+    def _apply_artist_choice(self, key: str, *, one_artist: bool) -> None:
+        service = self._artist_index
+        if service is None or self._artist_entry(key) is None:
+            return
+        credits = service.one_artist_credits(key) if one_artist else service.split_credits(key)
+        if not credits:
+            self._set_message("This artist has no credit to change.")
+            return
+        if one_artist:
+            service.make_one_artist(key)
+        else:
+            service.split_artist(key)
+        # The index is rebuilt in the background. The artist the choice produces is opened
+        # when that rebuild lands, in _on_artist_index_changed.
+        origins = frozenset(normalize_key(credit) for credit in credits)
+        self._pending_artist_choice = (key, origins)
+        quoted = ", ".join("“" + credit + "”" for credit in credits)
+        self._set_message(
+            f"Kept {quoted} as one artist."
+            if one_artist
+            else f"Split {quoted} into separate artists."
+        )
+
+    def _on_artist_index_changed(self) -> None:
+        """Follow a finished index build: open the artist an action produced, refresh the tabs.
+
+        When the action made the current artist disappear, the first artist that holds one
+        of its credits is opened; the others stay in the sidebar list. An artist tab whose
+        artist no longer exists is closed, the others show the rebuilt track list.
+        """
+        service = self._artist_index
+        if service is None:
+            return
+        index = service.index
+        previous, self._artist_index_seen = self._artist_index_seen, index
+        self._artist_revision += 1
+        self.artistsChanged.emit()
+        pending, self._pending_artist_choice = self._pending_artist_choice, None
+        opened: ArtistEntry | None = None
+        if pending is not None and index.entry(pending[0]) is None:
+            for entry in index.artists:
+                if pending[1] & {normalize_key(origin) for origin in entry.origins}:
+                    opened = entry
+                    break
+        stale: list[tuple[int, str]] = []
+        retitled = reloaded = False
+        for group_index, group in enumerate(self._groups):
+            for tab_id in group["tabs"]:
+                if not tab_id.startswith("artist:"):
+                    continue
+                key = tab_id.removeprefix("artist:")
+                entry = index.entry(key)
+                if entry is None:
+                    if not self._is_plugin_artist(key):
+                        stale.append((group_index, tab_id))
+                    continue
+                state = self._tab_state(tab_id)
+                if state.get("title") != entry.name:
+                    state["title"] = entry.name
+                    retitled = True
+                # A rebuild that leaves this artist's tracks alone must not reload the tab:
+                # each reload is a job, and every job is a library change for the index.
+                tracks_now = index.tracks_by_artist.get(key)
+                if previous is None or previous.tracks_by_artist.get(key) != tracks_now:
+                    self._dirty_tabs.add(tab_id)
+                    reloaded = True
+        if opened is not None:
+            self.openArtistPage(opened.key, opened.name)
+        for group_index, tab_id in stale:
+            self.closeTab(group_index, tab_id)
+        if reloaded:
+            self._refresh_timer.start()
+        if retitled or stale:
+            self.layoutChanged.emit()
+
+    def _artist_entry(self, key: str) -> ArtistEntry | None:
+        return self._artist_index.index.entry(key) if self._artist_index is not None else None
+
+    def _artist_track_ids(self, key: str) -> list[str]:
+        """The tracks of an artist, read on the graphical thread before a job uses them."""
+        if self._artist_entry(key) is None and self._is_plugin_artist(key):
+            assert self._artist_manager is not None
+            return list(self._artist_manager.service.repository.catalog_track_ids(key))
+        return self._artist_index.tracks_of(key) if self._artist_index is not None else []
+
+    def _is_plugin_artist(self, key: str) -> bool:
+        """Whether ``key`` is an artist of the artist manager plugin and not of the core index."""
+        return bool(self._artist_manager is not None and self._plugin_artist_name(key))
+
+    def _plugin_artist_name(self, key: str) -> str:
+        return self._artist_manager.artist_name(key) if self._artist_manager is not None else ""
+
+    @Slot(str, result=bool)
+    def isPluginArtistPage(self, key: str) -> bool:
+        """Whether an artist page belongs to the plugin (behind the switch) and has its header."""
+        return self._artist_entry(str(key)) is None and self._is_plugin_artist(str(key))
+
+    def _artist_rows(self, track_ids: list[str]) -> list[dict[str, Any]]:
+        """Rows of an artist page: by album, then track number, then title."""
+        return sorted(self._library.tracks_by_ids(track_ids), key=album_track_order)
+
     def attach_artist_manager(self, model: ArtistManagerModel) -> None:
         """Attach the artist manager; its file applications refresh the rows and the player."""
         if self._artist_manager is not None:
@@ -1453,13 +1621,15 @@ class WorkspaceModel(QObject):
             with suppress(LookupError, ValueError):
                 self._jobs.cancel(JobId.parse(previous_job))
         self._track_request_keys[model_key] = key
+        # The index is read here, on the graphical thread, and the job gets its own copy.
+        artist_ids = self._artist_track_ids(ref) if kind == "artist" else []
 
         def read_rows(context: JobContext) -> None:
             context.raise_if_cancelled()
             if kind == "playlist" and self._playlists_model is not None:
                 rows = self._playlists_model.service.rows(ref)
             elif kind == "artist":
-                rows = self._artist_rows(ref)
+                rows = self._artist_rows(artist_ids)
             else:
                 root_id, relative = _parse_folder_ref(ref)
                 rows = self._library.tracks_in_folder(root_id, relative)
@@ -1521,14 +1691,6 @@ class WorkspaceModel(QObject):
             and pending["rows_generation"] == generation
         ):
             self._complete_explorer_track_action(pending, model)
-
-    def _artist_rows(self, artist_id: str) -> list[dict[str, Any]]:
-        """Rows of the tracks credited to an artist by a confirmed credit."""
-        manager = self._artist_manager
-        if manager is None:
-            return []
-        ids = manager.service.repository.catalog_track_ids(artist_id)
-        return self._library.tracks_by_ids(ids)
 
     def _request_folder_roots(self) -> None:
         self._folder_root_generation += 1
@@ -2136,16 +2298,23 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str)
     def openArtistPage(self, artist_id: str, name: str) -> None:
-        """Open the page of one artist: its tracks, listed like a playlist page."""
-        if self._artist_manager is None:
+        """Open the page of one artist, listed like a playlist page.
+
+        The core index names the artists of v0.1. An id it does not know opens nothing, unless
+        the artist manager plugin (behind the plugin switch) knows it: then that plugin page
+        opens, with the plugin's name for the artist.
+        """
+        entry = self._artist_entry(str(artist_id))
+        if entry is None and not self._is_plugin_artist(str(artist_id)):
             return
+        key = entry.key if entry is not None else str(artist_id)
         self._cancel_explorer_track_action()
         self._capture_navigation()
         self._sidebar_visible = True
-        tab_id = f"artist:{artist_id}"
+        tab_id = f"artist:{key}"
         group = self._groups[self._active_group]
         state = self._ensure_tab(tab_id)
-        state["title"] = name
+        state["title"] = entry.name if entry is not None else name or self._plugin_artist_name(key)
         self._place_tab(self._active_group, tab_id, preview=True)
         group["active"] = tab_id
         self._load_group_view(self._active_group)
@@ -2165,14 +2334,14 @@ class WorkspaceModel(QObject):
         if shuffled:
             random.shuffle(available)
         if available and self._player is not None:
-            name = (
-                self._artist_manager.artist_name(artist_id)
-                if self._artist_manager is not None
-                else ""
-            )
+            entry = self._artist_entry(str(artist_id))
             ids = [str(row["id"]) for row in available]
             self._player.playQueueWithRows(
-                ids, 0, f"artist:{artist_id}", name or "Artist", available
+                ids,
+                0,
+                f"artist:{artist_id}",
+                entry.name if entry else self._plugin_artist_name(str(artist_id)) or "Artist",
+                available,
             )
         elif not available:
             self._set_message("This artist has no track to play.")
@@ -2750,8 +2919,11 @@ class WorkspaceModel(QObject):
             root = self._roots_by_id.get(root_id, {})
             return str(root.get("name") or track.get("title") or "Folder")
         kind, _, reference = source.partition(":")
-        if kind == "artist" and self._artist_manager is not None:
-            return self._artist_manager.artist_name(reference) or "Artist"
+        if kind == "artist":
+            entry = self._artist_entry(reference)
+            return (
+                entry.name if entry is not None else self._plugin_artist_name(reference) or "Artist"
+            )
         return str(track.get("album") or track.get("title") or "Library")
 
     @Slot()
@@ -2876,11 +3048,8 @@ class WorkspaceModel(QObject):
                     "ref": ref,
                     "title": title,
                     "sortMode": "default",
-                    "sortKey": "index"
-                    if kind == "playlist"
-                    else "filename"
-                    if kind == "artist"
-                    else "fileCreatedAt",
+                    # A playlist keeps its order; an artist page is in album and track order.
+                    "sortKey": "index" if kind in {"playlist", "artist"} else "fileCreatedAt",
                     "sortAscending": kind in {"playlist", "artist"},
                     "view": "list",
                     "searchQuery": "",
@@ -3199,9 +3368,7 @@ class WorkspaceModel(QObject):
     def _set_default_sort(state: dict[str, Any]) -> None:
         state["sortMode"] = "default"
         kind = state.get("kind")
-        state["sortKey"] = (
-            "index" if kind == "playlist" else "filename" if kind == "artist" else "fileCreatedAt"
-        )
+        state["sortKey"] = "index" if kind in {"playlist", "artist"} else "fileCreatedAt"
         state["sortAscending"] = kind in {"playlist", "artist"}
 
     def _persist(self) -> None:

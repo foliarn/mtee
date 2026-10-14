@@ -21,6 +21,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from mtee.domain.artist_index import album_track_order
 from mtee.models.track_list_model import TrackListModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.artist_index_service import ArtistIndexService
@@ -206,7 +207,7 @@ class ArtistPageModel(QObject):
 
         def load(_context: JobContext) -> None:
             rows = self._library.tracks_by_ids(identifiers)
-            rows.sort(key=lambda row: (str(row.get("title", "")).casefold(), row.get("path", "")))
+            rows.sort(key=album_track_order)
             self._loaded.emit(rows, generation)
 
         with suppress(RuntimeError):

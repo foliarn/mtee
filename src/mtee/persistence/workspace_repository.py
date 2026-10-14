@@ -199,6 +199,7 @@ def _validated(value: Any) -> dict[str, Any]:
         "playlists",
         "convert",
         "tasks",
+        "artists",
         "plugins",
         "profile",
     }:

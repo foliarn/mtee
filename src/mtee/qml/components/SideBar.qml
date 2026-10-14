@@ -16,6 +16,7 @@ Rectangle {
         sourceComponent: sidebar.workspace.activity === "playlists" ? playlistsPane
             : sidebar.workspace.activity === "convert" ? convertPane
             : sidebar.workspace.activity === "tasks" ? tasksPane
+            : sidebar.workspace.activity === "artists" ? (sidebar.workspace.artistList ? artistsPane : artistsUnavailablePane)
             : sidebar.workspace.activity === "plugins" ? pluginsPane
             : sidebar.workspace.activity === "profile" ? profilePane
             : explorerPane
@@ -25,6 +26,15 @@ Rectangle {
     Component { id: playlistsPane; PlaylistsPane { workspace: sidebar.workspace } }
     Component { id: convertPane; ConvertPane { workspace: sidebar.workspace } }
     Component { id: tasksPane; TasksPane { workspace: sidebar.workspace } }
+    Component { id: artistsPane; ArtistsPane { workspace: sidebar.workspace } }
+    Component {
+        id: artistsUnavailablePane
+        PlaceholderPane {
+            title: "Artists"
+            icon: "artists"
+            message: "Artists are not available in this demo."
+        }
+    }
     Component {
         id: pluginsPane
         PluginsPane { workspace: sidebar.workspace }
