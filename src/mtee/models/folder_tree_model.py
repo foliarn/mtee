@@ -110,15 +110,6 @@ class FolderTreeModel(QAbstractListModel):
             self._loading.add(folder_id)
         self._rebuild()
 
-    def invalidate_root(self, root_id: str) -> None:
-        root_key = f"root:{root_id}"
-        for folder_id in tuple(self._branches):
-            if _root_key(folder_id) == root_key:
-                self._branches.pop(folder_id, None)
-                if folder_id in self._expanded:
-                    self._loading.add(folder_id)
-        self._rebuild()
-
     def invalidate_all_branches(self) -> None:
         self._branches.clear()
         self._loading = set(self._expanded)

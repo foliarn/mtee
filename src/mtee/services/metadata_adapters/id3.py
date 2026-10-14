@@ -189,22 +189,6 @@ class Id3WaveAdapter:
         self._verify_changed_fields(audio.tags, expected.expected_changes)
 
     @staticmethod
-    def _validate_patch(tags: ID3, patch: MetadataPatch) -> None:
-        for field, _value in patch.changes:
-            if field == "date" and "TDRC" in tags and "TYER" in tags:
-                raise ValueError("Both TDRC and TYER exist; Date editing is ambiguous.")
-            if field == "comment":
-                matching = [
-                    frame
-                    for frame in tags.getall("COMM")
-                    if frame.lang.casefold() in {"eng", "xxx"} and frame.desc == ""
-                ]
-                if len(matching) > 1:
-                    raise ValueError(
-                        "Multiple default comments exist; Comment editing is ambiguous."
-                    )
-
-    @staticmethod
     def _apply(tags: ID3, patch: MetadataPatch) -> None:
         for field, value in patch.changes:
             if field == "date":

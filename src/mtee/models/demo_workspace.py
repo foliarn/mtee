@@ -20,7 +20,7 @@ from mtee.demo.library import (
     TRACKS,
     DemoTrack,
 )
-from mtee.demo.scenarios import DEFAULT_SCENARIO, SCENARIO_NAMES, DemoScenario, load_scenario
+from mtee.demo.scenarios import DEFAULT_SCENARIO, DemoScenario, load_scenario
 from mtee.domain.durations import format_playlist_meta
 from mtee.domain.waveform import WAVEFORM_POINTS, WaveformPoints
 from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
@@ -877,11 +877,6 @@ class DemoWorkspace(QObject):
     @Slot(str, int, result=list)
     def playlistsContaining(self, track_id: str, _revision: int = 0) -> list[str]:
         return [pid for pid, p in self._playlists.items() if track_id in p["tracks"]]  # type: ignore[operator]
-
-    @staticmethod
-    def scenarioNames() -> list[str]:
-        """Return all names for command-line and test discovery."""
-        return list(SCENARIO_NAMES)
 
     # ------------------------------------------------------- layout actions
 

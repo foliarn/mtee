@@ -388,15 +388,3 @@ def split_statements(sql: str) -> Iterator[str]:
 def _utc_now() -> str:
     """Return the current UTC instant in ISO 8601, used by the stored rows."""
     return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def open_database(path: Path | str, *, migrations_dir: Path | None = None) -> Database:
-    """Open ``path``, apply the pending migrations and return the database."""
-    database = Database(path, migrations_dir=migrations_dir)
-    database.migrate()
-    return database
-
-
-def applied_versions(migrations: Sequence[Migration]) -> list[int]:
-    """Return the versions of ``migrations``, for reports and tests."""
-    return [migration.version for migration in migrations]
