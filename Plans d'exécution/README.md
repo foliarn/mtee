@@ -1,5 +1,21 @@
 # MTEE — index des plans d'exécution
 
+## MVP v0.1 — 2026-10-14
+
+Cadrage décidé en discussion avec l'utilisateur : publier MTEE v0.1 (dépôt public, portfolio) sans plugins, Genre Manager ni Artist manager. Étapes réalisées dans des worktrees puis fusionnées sur `main` ; la recette interactive de l'utilisateur reste à faire pour chacune.
+
+| Plan | Contenu et état |
+|---|---|
+| [111 — Retrait des managers du cœur](111-retrait-managers-du-coeur.md) | Artist manager déplacé dans `plugins/`, migrations 019/020/022/023 propres aux plugins, interface des plugins masquée ; fusionné (`30b6a6d`) |
+| [112 — Vue Artists depuis les tags](112-vue-artistes-depuis-tags.md) | Règles de découpage, choix utilisateur (migration 026), index, vue Artists, liens d'artistes, top artistes ; maquette validée, fusionné (`8f95263`, `0062a05`) |
+| [113 — Journal d'écoute](113-journal-ecoutes.md) | Écoutes permanentes (migration 024), seuil de 30 s, prêt pour une future synchronisation ; fusionné (`234416a`) |
+| [114 — Paramètres et profil](114-parametres-et-profil.md) | Paramètres en onglets internes, page Profil, données et confidentialité (sauvegarde, restauration) ; maquette validée avec correction de disposition, fusionné (`d0f9233`, `6058161`) |
+| [115 — Statistiques du profil](115-statistiques-profil.md) | Périodes calendaires, totaux, tops, graphique, colonnes Plays / Last played ; fusionné avec 114 |
+| [116 — Normalisation du volume](116-normalisation-volume.md) | Loudness mesurée par Analyze (migration 025), gain par morceau, plafond de pic −2 dBFS et +12 dB ; fusionné (`febff03`, `6058161`) |
+| [117 — Contrôles média Windows](117-controles-media-windows.md) | SMTC : touches multimédias, casques, panneau Windows ; fusionné (`7515166`) |
+
+Suite prévue : nettoyage approfondi du code, préparation du dépôt public (réécriture de l'historique, documents privés séparés), logo, puis publication de v0.1.0. Licence décidée : GPL-3.0-or-later (`ca35119`).
+
 ## Genre Manager en plugin — préparation du 2026-10-09
 
 Le [plan 110 — Genre Manager en plugin](110-plugin-genre-manager.md) est la référence active et remplace 109. Il transcrit le cadrage utilisateur : travail par dossier ou playlist, genre principal et secondaires ordonnés, tags libres initialement vides, validation Reviewed, rangement physique des seuls morceaux vérifiés et genres d'artistes déduits avec abstention sur les remix incertains.
