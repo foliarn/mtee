@@ -13,7 +13,8 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.domain.analysis import AnalysisSettings, TrackAnalysis, format_bpm
-from mtee.domain.artists import dedupe_names, normalize_key, split_credit
+from mtee.domain.artist_index import split_artist_credit
+from mtee.domain.artists import dedupe_names, normalize_key
 from mtee.domain.metadata import MetadataSnapshot
 from mtee.domain.metadata_edit import (
     EDITABLE_METADATA_FIELDS,
@@ -392,11 +393,12 @@ class MetadataEditorModel(QObject):
             return "camelot"
         return self._analysis_settings().notation
 
-    def _protected(self) -> list[str]:
+    def _cut(self, text: str) -> list[str]:
+        """The artists a credit gives under the credit rules; the plain rules if they fail."""
         try:
-            return self._artist_rules.protected_names()
+            return self._artist_rules.split(text)
         except Exception:
-            return []
+            return split_artist_credit(text)
 
     def _selected_sources(self, selection: tuple[str, ...]) -> list[TrackSource]:
         sources = [self._library.source_record(track_id) for track_id in selection]
@@ -494,9 +496,9 @@ class MetadataEditorModel(QObject):
 
     # ---------------------------------------------------------------- artist credits
 
-    def _base_artists(self, source: TrackSource, protected: list[str]) -> list[str]:
+    def _base_artists(self, source: TrackSource) -> list[str]:
         values = self._snapshot_of(source).artist
-        return dedupe_names(name for value in values for name in split_credit(value, protected))
+        return dedupe_names(name for value in values for name in self._cut(value))
 
     def _artist_ops(self, selection: tuple[str, ...]) -> dict[str, list[str]]:
         entry = self._staged.get(selection, {}).get("artist")
@@ -504,15 +506,9 @@ class MetadataEditorModel(QObject):
             return {"add": [], "remove": []}
         return {"add": list(entry["add"]), "remove": list(entry["remove"])}
 
-    def _names_for(
-        self, source: TrackSource, ops: dict[str, list[str]], protected: list[str]
-    ) -> list[str]:
+    def _names_for(self, source: TrackSource, ops: dict[str, list[str]]) -> list[str]:
         removed = {normalize_key(name) for name in ops["remove"]}
-        kept = [
-            name
-            for name in self._base_artists(source, protected)
-            if normalize_key(name) not in removed
-        ]
+        kept = [name for name in self._base_artists(source) if normalize_key(name) not in removed]
         return dedupe_names([*kept, *ops["add"]])
 
     @Property(list, notify=artistsChanged)
@@ -520,12 +516,11 @@ class MetadataEditorModel(QObject):
         """The artists of the selection after the staged edits, with how many tracks name each."""
         selection = self._selection()
         sources = self._selected_sources(selection)
-        protected = self._protected()
         ops = self._artist_ops(selection)
         added = {normalize_key(name) for name in ops["add"]}
         chips: dict[str, dict[str, Any]] = {}
         for source in sources:
-            for name in self._names_for(source, ops, protected):
+            for name in self._names_for(source, ops):
                 chip = chips.setdefault(
                     normalize_key(name),
                     {"name": name, "count": 0, "total": len(sources), "added": False},
@@ -556,10 +551,9 @@ class MetadataEditorModel(QObject):
         if key in {normalize_key(item) for item in ops["remove"]}:
             ops["remove"] = [item for item in ops["remove"] if normalize_key(item) != key]
         else:
-            protected = self._protected()
             sources = self._selected_sources(selection)
             everywhere = all(
-                key in {normalize_key(item) for item in self._base_artists(source, protected)}
+                key in {normalize_key(item) for item in self._base_artists(source)}
                 for source in sources
             )
             if not everywhere and key not in {normalize_key(item) for item in ops["add"]}:
@@ -592,8 +586,16 @@ class MetadataEditorModel(QObject):
 
     @Slot(str, result=list)
     def splitPreview(self, text: str) -> list[str]:
-        """The names a typed credit would give; one name when it is a known artist."""
-        return split_credit(text, self._protected())
+        """The artists a typed credit gives under the credit rules and the user's choices."""
+        return self._cut(text)
+
+    @Slot(str, result=bool)
+    def creditNeedsChoice(self, text: str) -> bool:
+        """Whether a typed credit holds a separator the user has not answered yet."""
+        try:
+            return bool(self._artist_rules.needs_choice(text))
+        except Exception:
+            return False
 
     @Slot(str, bool)
     def recordCreditChoice(self, text: str, one_artist: bool) -> None:
@@ -740,13 +742,12 @@ class MetadataEditorModel(QObject):
         targets = self._edit_targets.pop("selection:*", ())
         if not targets:
             return
-        protected = self._protected()
         sources = {source.track_id: source for source in self._selected_sources(selection)}
         artist_names: tuple[tuple[str, tuple[str, ...]], ...] = ()
         if "artist" in staged:
             ops = self._artist_ops(selection)
             artist_names = tuple(
-                (target.track_id, tuple(self._names_for(sources[target.track_id], ops, protected)))
+                (target.track_id, tuple(self._names_for(sources[target.track_id], ops)))
                 for target in targets
                 if target.track_id in sources
             )

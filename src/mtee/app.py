@@ -40,6 +40,7 @@ from mtee.models.trash_model import TrashModel
 from mtee.models.waveform_model import WaveformModel
 from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.analysis_repository import AnalysisRepository
+from mtee.persistence.credit_override_repository import CreditOverrideRepository
 from mtee.persistence.database import Database, DatabaseError
 from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.library_repository import LibraryRepository
@@ -58,7 +59,7 @@ from mtee.platform.windows_frame import WindowFrame
 from mtee.plugins.registry import load_plugin, plugin_ui_enabled
 from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
-from mtee.services.artist_credit_rules import NoArtistCreditRules
+from mtee.services.artist_index_service import ArtistIndexService
 from mtee.services.audio_analyzer import AudioAnalyzer
 from mtee.services.conversion_service import ConversionService
 from mtee.services.file_access import FileAccessCoordinator
@@ -250,6 +251,14 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             MetadataHistoryRepository(database),
             file_access,
         )
+        # The core artist index: the tag editor cuts and remembers credits with the same rules
+        # as the Artists view. It is rebuilt off the graphical thread after each library change.
+        artist_index = ArtistIndexService(
+            library, CreditOverrideRepository(database), jobs, parent=workspace
+        )
+        workspace.libraryChanged.connect(artist_index.refresh)
+        workspace.scanFinished.connect(lambda *_arguments: artist_index.refresh())
+        artist_index.refresh()
         metadata_editor = MetadataEditorModel(
             library,
             metadata_writer,
@@ -258,7 +267,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             player=player_model,
             analysis=analysis_repository,
             analysis_settings=lambda: analysis_settings.settings,
-            artist_rules=NoArtistCreditRules(),
+            artist_rules=artist_index,
         )
         workspace.attach_metadata_editor(metadata_editor)
         analysis_service = AnalysisService(

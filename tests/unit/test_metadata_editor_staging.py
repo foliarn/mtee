@@ -87,13 +87,16 @@ class _Writer:
 
 
 class _CreditRules:
-    """Credit rules without protected names; records the One/Several answers."""
+    """Credit rules that cut at commas only; records the One/Several answers."""
 
     def __init__(self) -> None:
         self.choices: list[tuple[str, bool]] = []
 
-    def protected_names(self) -> list[str]:
-        return []
+    def split(self, text: str) -> list[str]:
+        return [part.strip() for part in text.split(",") if part.strip()]
+
+    def needs_choice(self, text: str) -> bool:
+        return "," in text
 
     def suggestions(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
         return [{"id": "x", "name": "Hedex", "established": True}][:limit] if query else []
@@ -217,9 +220,13 @@ def test_default_credit_rules_split_as_typed_and_keep_nothing(qapp) -> None:
         jobs,
         lambda: ["one"],
     )
-    # No protected name: a comma or an ampersand always asks "One artist or several?".
+    # Without an index, a comma always splits, an ampersand between two names does not, and a
+    # comma or an ampersand asks "One artist or several?" until the user answers.
     assert editor.splitPreview("Nikita, the Wicked") == ["Nikita", "the Wicked"]
-    assert editor.splitPreview("Bou & Hedex") == ["Bou", "Hedex"]
+    assert editor.splitPreview("Bou & Hedex") == ["Bou & Hedex"]
+    assert editor.creditNeedsChoice("Nikita, the Wicked") is True
+    assert editor.creditNeedsChoice("Bou & Hedex") is True
+    assert editor.creditNeedsChoice("Bou") is False
     assert editor.artistSuggestions("Hed") == []
     editor.recordCreditChoice("Nikita, the Wicked", True)
     jobs.shutdown()
