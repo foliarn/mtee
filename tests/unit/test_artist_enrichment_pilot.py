@@ -24,6 +24,8 @@ from scripts.archive.artist_enrichment_pilot import (
     write_json,
 )
 
+pytestmark = pytest.mark.archive
+
 
 def track(index: int, name: str = "Artist", title: str = "Title") -> dict:
     return {

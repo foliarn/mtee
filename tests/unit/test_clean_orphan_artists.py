@@ -15,6 +15,8 @@ from clean_orphan_artists import main
 from mtee.persistence.database import Database
 from mtee.plugins.artist_manager.repository import ArtistRepository
 
+pytestmark = pytest.mark.archive
+
 
 @pytest.fixture
 def path(tmp_path: Path) -> Path:

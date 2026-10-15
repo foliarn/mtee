@@ -15,6 +15,8 @@ from artist_enrichment_worker import (
 )
 from artist_pilot_server import ReviewStore
 
+pytestmark = pytest.mark.archive
+
 
 @pytest.fixture
 def worker(tmp_path):

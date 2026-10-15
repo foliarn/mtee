@@ -26,6 +26,8 @@ from scripts.archive.audit_mapping_sample import (
     simulate_rename_proposals,
 )
 
+pytestmark = pytest.mark.archive
+
 
 def _row(
     index: int, extension: str = ".mp3", *, title: str = "Title", artist: str = "Artist"

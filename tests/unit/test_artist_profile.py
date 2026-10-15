@@ -209,8 +209,10 @@ def test_migration_adopts_a_table_created_by_the_review_tool(tmp_path: Path) -> 
 @pytest.fixture
 def manager(qapp, setup: _Setup):
     service = ArtistManagerService(setup.repository, cast(Any, None))
-    model = ArtistManagerModel(service, JobService(qapp, max_thread_count=1))
+    jobs = JobService(qapp, max_thread_count=1)
+    model = ArtistManagerModel(service, jobs)
     yield model
+    jobs.shutdown(1_000)
     model.deleteLater()
 
 

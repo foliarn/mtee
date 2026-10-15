@@ -12,6 +12,8 @@ from artist_enrichment_pilot import read_json, write_json
 from artist_pilot_server import ReviewStore
 from artist_research_session import ResearchSession
 
+pytestmark = pytest.mark.archive
+
 
 @pytest.fixture
 def session(tmp_path):

@@ -41,11 +41,12 @@ packages = ["src/mtee"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not archive'"
 qt_api = "pyside6"
 markers = [
     "native_audio: requires the pinned Windows libmpv runtime; missing runtime is a failure, not a skip",
     "windows_file_ops: requires native Windows file operation semantics",
+    "archive: tests for archived one-off scripts in scripts/archive (skipped by default)",
 ]
 
 [tool.ruff]

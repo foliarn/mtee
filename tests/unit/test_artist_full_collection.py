@@ -11,6 +11,8 @@ from artist_full_collection import import_validated_pilot, prepare_full
 from artist_pilot_server import ReviewStore
 from artist_review_database import ReviewDatabase
 
+pytestmark = pytest.mark.archive
+
 
 @pytest.fixture
 def catalog(tmp_path):

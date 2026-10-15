@@ -47,6 +47,7 @@ def test_the_rules_show_the_name_and_the_decision(qapp, database: Database) -> N
         assert rules["Duo"]["id"] == "duo"
     finally:
         assert jobs.wait_for_done(10_000)
+        jobs.shutdown(1_000)
 
 
 def test_removing_a_rule_forgets_it_in_the_store(qapp, database: Database) -> None:
@@ -62,6 +63,7 @@ def test_removing_a_rule_forgets_it_in_the_store(qapp, database: Database) -> No
         assert [row["text"] for row in overrides.all()] == ["Duo"]
     finally:
         assert jobs.wait_for_done(10_000)
+        jobs.shutdown(1_000)
 
 
 def test_removing_a_missing_rule_says_so_and_changes_nothing(qapp, database: Database) -> None:
@@ -74,6 +76,7 @@ def test_removing_a_missing_rule_says_so_and_changes_nothing(qapp, database: Dat
         assert [rule["text"] for rule in cast(list[dict[str, str]], model.rules)] == ["Duo"]
     finally:
         assert jobs.wait_for_done(10_000)
+        jobs.shutdown(1_000)
 
 
 def test_no_rule_gives_an_empty_list(qapp, database: Database) -> None:
@@ -82,3 +85,4 @@ def test_no_rule_gives_an_empty_list(qapp, database: Database) -> None:
         assert model.rules == []
     finally:
         assert jobs.wait_for_done(10_000)
+        jobs.shutdown(1_000)

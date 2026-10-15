@@ -42,3 +42,10 @@ Desktop.ini
 # Added by code-review-graph
 .code-review-graph/
 graphify-out/
+
+# Assistant & agent tooling
+.agents/
+.claude/
+.codex/
+skills-lock.json
+

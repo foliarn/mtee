@@ -1,8 +1,12 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "archive"))
 from track_genre_audit import audit_track
+
+pytestmark = pytest.mark.archive
 
 
 def test_compound_generic_tags_are_ignored_without_losing_specific_genres():

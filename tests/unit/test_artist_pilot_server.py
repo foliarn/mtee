@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "archiv
 from artist_enrichment_pilot import write_json
 from artist_pilot_server import ReviewStore, make_server
 
+pytestmark = pytest.mark.archive
+
 
 @pytest.fixture
 def pilot(tmp_path):
