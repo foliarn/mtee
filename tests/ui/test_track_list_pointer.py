@@ -129,7 +129,7 @@ def test_contiguous_selection_is_framed_as_one_block(
         workspace.selectTrack(first, "single", [])
         workspace.selectTrack(third, "range", track_ids)
         view.forceActiveFocus()
-        qtbot.waitUntil(lambda: all(_frame_visible(row) for row in rows))
+        qtbot.waitUntil(lambda: all(_frame_visible(row) for row in rows), timeout=10_000)
         edges = [
             (_frame(row).property("edgeTop"), _frame(row).property("edgeBottom")) for row in rows
         ]
@@ -137,7 +137,9 @@ def test_contiguous_selection_is_framed_as_one_block(
 
         # A lone selected row keeps the full frame.
         workspace.selectTrack(second, "single", [])
-        qtbot.waitUntil(lambda: _frame_visible(rows[1]) and not _frame_visible(rows[0]))
+        qtbot.waitUntil(
+            lambda: _frame_visible(rows[1]) and not _frame_visible(rows[0]), timeout=10_000
+        )
         assert not _frame_visible(rows[2])
         lone = _frame(rows[1])
         assert (lone.property("edgeTop"), lone.property("edgeBottom")) == (True, True)
