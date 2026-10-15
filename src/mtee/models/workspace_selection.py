@@ -79,11 +79,7 @@ def resolve_local_track_ids(
     track_rows: list[dict[str, Any]] | None,
 ) -> list[str]:
     """Resolve selection identities to track IDs, handling playlist entry IDs."""
-    lookup = (
-        {r["id"]: r.get("trackId", r["id"]) for r in track_rows}
-        if track_rows
-        else {}
-    )
+    lookup = {r["id"]: r.get("trackId", r["id"]) for r in track_rows} if track_rows else {}
     playlist = bool(track_rows and any("entryId" in r for r in track_rows))
     lookup.update({identity: identity for identity in lookup.values() if identity})
     return list(

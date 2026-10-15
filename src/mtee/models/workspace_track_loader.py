@@ -44,8 +44,7 @@ def filter_track_rows(rows: list[dict[str, Any]], query: str) -> list[dict[str, 
         for row in rows
         if folded
         in " ".join(
-            str(row.get(field, ""))
-            for field in ("title", "artist", "album", "genre", "filename")
+            str(row.get(field, "")) for field in ("title", "artist", "album", "genre", "filename")
         ).casefold()
     ]
 

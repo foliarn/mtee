@@ -18,9 +18,7 @@ def test_resolve_folder_source_exists() -> None:
 
     # Valid root
     assert (
-        resolve_folder_source_exists(
-            f"root:{root_uuid}", roots, lambda r: subfolders.get(r, [])
-        )
+        resolve_folder_source_exists(f"root:{root_uuid}", roots, lambda r: subfolders.get(r, []))
         is True
     )
 
@@ -35,9 +33,7 @@ def test_resolve_folder_source_exists() -> None:
     # Unknown root
     other_uuid = "87654321-4321-4321-4321-cba987654321"
     assert (
-        resolve_folder_source_exists(
-            f"root:{other_uuid}", roots, lambda r: subfolders.get(r, [])
-        )
+        resolve_folder_source_exists(f"root:{other_uuid}", roots, lambda r: subfolders.get(r, []))
         is False
     )
 

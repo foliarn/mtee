@@ -57,7 +57,6 @@ def test_resolve_local_track_ids() -> None:
     assert resolve_local_track_ids(["other-id"], folder_rows) == ["other-id"]
 
 
-
 def test_format_info_fields() -> None:
     track = {"title": "Song", "artist": "Band", "path": "C:/song.mp3", "duration": "3:20"}
     read_only = format_info_fields_read_only(track)

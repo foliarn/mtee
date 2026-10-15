@@ -168,9 +168,7 @@ class WorkspaceScanCoordinator:
 
     # --- Scan lifecycle & tracking ---
 
-    def prepare_scan_request(
-        self, root_id: str, request_id: str, *, quiet: bool
-    ) -> str | None:
+    def prepare_scan_request(self, root_id: str, request_id: str, *, quiet: bool) -> str | None:
         """Prepare tracking for a new scan request, returning previous job_id to cancel if any."""
         previous_job = self.jobs_by_root.get(root_id)
         if previous_job:

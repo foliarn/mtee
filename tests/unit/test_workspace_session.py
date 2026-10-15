@@ -181,4 +181,3 @@ def test_workspace_session_writer_mismatched_future() -> None:
     assert matched is False
     assert err is None
     writer.flush({})
-

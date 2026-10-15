@@ -47,6 +47,9 @@ jobs:
       - name: Run the tests
         run: uv run pytest
 
+      - name: Run the tests of the archived scripts
+        run: uv run pytest -m archive
+
       - name: Smoke test from the sources
         run: uv run python -m mtee --data-dir .local/ci/sources --smoke-test
 
