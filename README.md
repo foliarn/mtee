@@ -1,50 +1,80 @@
-# MTEE — Music Tagging and Editing Explorer
+# MTEE: Music Tagging and Editing Explorer
 
-Application desktop personnelle pour explorer, écouter, organiser, modifier et préparer une collection de fichiers audio locale. Python 3.12, PySide6 et QML, sans Electron ni WebView, Windows en premier. L'interface est en anglais, la documentation du projet en français.
+MTEE is a desktop application for exploring, listening to, tagging and preparing a local
+collection of audio files. It is written in Python 3.12 with PySide6 and QML, has no
+Electron or WebView, and targets Windows first. Everything runs locally: the library is
+read from your own folders, and your data stays in a local database.
 
-La fenêtre donne accès à la navigation locale, à la lecture, aux playlists, aux artistes et aux outils de préparation musicale, dont Genre Manager. Les données de démonstration restent séparées d'une collection réelle.
+> **Status:** version 0.1.0, first public release. Windows is the supported platform.
 
-## Documents
+## Screenshots
 
-- `PLAN.md` — vision produit et exigences validées.
-- `PLANS.md` — méthode des plans d'exécution et règles de livraison.
-- `Plans d'exécution/README.md` — index des étapes, de l'initialisation au portage.
-- `docs/architecture/overview.md` — couches du socle et sens des appels.
-- `docs/validation/` — comptes rendus de recette par étape.
+_Screenshots to be added: explorer, player with waveform, metadata editor, artists view,
+listening statistics._
 
-## Développer
+## Features in 0.1.0
 
-Le projet utilise [uv](https://docs.astral.sh/uv/) pour l'environnement et le verrouillage des dépendances.
+- **Library explorer.** Browse folders and tracks, sort and choose columns, search, and
+  follow the artists and albums of your collection.
+- **Playback.** Play with libmpv, with a queue, shuffle and repeat, a full-screen player and a
+  waveform view. Volume normalization uses loudness measured by the analysis.
+- **Windows media controls.** Keyboard media keys, headsets and the Windows media panel
+  control playback.
+- **Metadata editing.** Edit tags of one or many tracks. Changes are written with a history,
+  unknown tags and cover art are preserved, and no file is overwritten silently.
+- **File operations.** Move files by drag and drop, rename from tags, and send removed files to
+  the Recycle Bin. A permanent delete never replaces an unavailable Recycle Bin.
+- **Audio conversion.** Convert files through FFmpeg, with a visible job queue.
+- **Analysis without machine learning.** Tempo, musical key and loudness are computed from the
+  audio and stored separately from the tags you wrote.
+- **Playlists.** Local playlists, drag and drop, and export and import as archives.
+- **Artists.** A read-only artist index built from the Artist tags, with links from tracks and
+  top artists.
+- **Listening journal and profile.** A local record of what you play, with statistics by
+  period. Everything can be reviewed, backed up, restored or erased from the Settings.
+
+Demo data is available with `--demo`. It is kept in a storage separate from your library.
+
+## Build and run from source
+
+Requirements: Windows 10 or 11, [uv](https://docs.astral.sh/uv/), and PowerShell 7 for the
+helper scripts.
 
     uv sync --locked
-    uv run python -m mtee --demo
+    uv run python -m mtee
 
-Options reconnues : `--data-dir PATH` isole les données d'une recette, `--demo` affiche des données fictives dans un stockage séparé, `--smoke-test` charge la fenêtre puis quitte avec un code de succès ou d'échec.
+Useful options:
 
-Pour itérer sur l'application réelle sans repackager, lancer `uv run python -m mtee --data-dir .local/dev` depuis la racine. Redémarrer ce processus après une modification Python ou QML. `uv sync --locked` est nécessaire à l'installation initiale et lorsque les dépendances changent ; il n'est pas à relancer à chaque édition.
+- `--data-dir PATH` keeps the database, settings and caches of a session in a separate folder.
+- `--demo` starts with fictitious data in a separate storage.
+- `--smoke-test` loads the window, then exits with a success or failure code.
 
-## Genre Manager
+The audio runtimes are not stored in the repository. To use the playback and conversion
+features from source, fetch the pinned runtimes first:
 
-Dans **Plugins > Genre Manager**, ouvrir **Classify**, puis cliquer sur le nom de la source sous `FOLDER` ou `PLAYLIST`. La fenêtre interne propose les dossiers et playlists avec leur progression. Choisir un dossier n'attribue aucun genre ; **Tag folder songs…** demande un genre et une confirmation pour ses morceaux. La sélection et le pinceau permettent aussi de classer titre par titre. Le premier genre est principal, les suivants sont secondaires ; **Mark N as reviewed** valide uniquement la sélection.
+    pwsh -File scripts/fetch_mpv.ps1
+    pwsh -File scripts/fetch_ffmpeg.ps1
 
-**Genres & tags** donne accès au catalogue défilant, à **New root genre**, au `+` des racines et aux tags libres. **Organize files** montre les pistes vérifiées du lot courant et demande une destination explicite par racine et genre principal. Vérifier les chemins de l'aperçu avant **Move N files** ; les autres pistes restent en place. **Undo organization** prépare un nouvel aperçu de mouvements inverses. **Uncertain** présente les contributions aux artistes qui ne peuvent pas être attribuées avec certitude à partir des crédits confirmés. Les genres calculés restent distincts des tags manuels des artistes.
+Each script checks the size and SHA-256 hash of the downloaded archive against its manifest in
+`resources/native/` before installing anything into the git-ignored `vendor/` folder.
 
-L'installation neuve utilise les migrations 022 et 023 sans restaurer l'ancienne 021. Une base qui a enregistré 021 est refusée par le contrôle d'historique ; repartir d'une base neuve avant de repeupler la collection, en conservant séparément toute ancienne base nécessaire. Le plugin ne réécrit pas les tags audio.
-
-## Contrôles
+## Checks
 
     uv run ruff check .
     uv run ruff format --check .
     uv run pyright
     uv run pytest
 
-## Distribution Windows
-
-    pwsh -File scripts/build_windows.ps1
-    pwsh -File scripts/smoke_packaged.ps1
-
-La distribution monofichier est produite dans `dist/MTEE.exe`. Les commandes ci-dessus sont réservées aux demandes explicites de packaging ou de distribution Windows ; elles ne font pas partie de la clôture habituelle d'une tâche. Un lancement depuis les sources ne valide pas le paquet sur une machine Windows propre, sans Python ni Qt installés.
+Some tests need the pinned libmpv runtime. Without it they fail rather than skip.
 
 ## Licence
 
-MTEE est un logiciel libre distribué sous licence GNU GPL version 3 ou ultérieure (`GPL-3.0-or-later`) : voir [LICENSE](LICENSE). Les composants tiers et leurs licences sont listés dans [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MTEE is free software, distributed under the GNU General Public License version 3 or later
+(`GPL-3.0-or-later`). See [LICENSE](LICENSE). Third-party components and their licences are
+listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and their licence texts are in
+[LICENSES/](LICENSES/).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the rules for developers and coding agents in
+[AGENTS.md](AGENTS.md).
