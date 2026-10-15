@@ -60,11 +60,7 @@ def ensure_tab_state(
             try:
                 root_id, relative = parse_folder_ref(ref)
                 root = (roots_by_id or {}).get(root_id, {})
-                title = (
-                    relative.rsplit("/", 1)[-1]
-                    if relative
-                    else str(root.get("name", "Folder"))
-                )
+                title = relative.rsplit("/", 1)[-1] if relative else str(root.get("name", "Folder"))
             except (ValueError, StopIteration):
                 pass
         state.update(
@@ -87,9 +83,7 @@ def ensure_tab_state(
     if not isinstance(column_order, list):
         column_order = list(DEFAULT_COLUMN_PREFERENCES["order"])
     valid_order = [key for key in column_order if isinstance(key, str) and key in COLUMN_KEYS]
-    state["columnOrder"] = list(
-        dict.fromkeys(valid_order + DEFAULT_COLUMN_PREFERENCES["order"])
-    )
+    state["columnOrder"] = list(dict.fromkeys(valid_order + DEFAULT_COLUMN_PREFERENCES["order"]))
     hidden = state.get("hiddenColumns", DEFAULT_COLUMN_PREFERENCES["hidden"])
     state["hiddenColumns"] = (
         [key for key in hidden if isinstance(key, str) and key in COLUMN_KEYS]
@@ -180,10 +174,7 @@ def build_session_snapshot(
         "expanded": sorted(expanded),
         "groups": [
             {
-                "tabs": [
-                    dict(tab_states.get(tab_id, {}))
-                    for tab_id in group.get("tabs", [])
-                ],
+                "tabs": [dict(tab_states.get(tab_id, {})) for tab_id in group.get("tabs", [])],
                 "active": group.get("active", ""),
                 "selections": {
                     tab_id: {
@@ -309,4 +300,3 @@ class WorkspaceSessionWriter:
         finally:
             self._executor.shutdown(wait=True)
         return error
-

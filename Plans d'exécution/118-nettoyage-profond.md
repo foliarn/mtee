@@ -197,6 +197,7 @@ Le relevé de référence se refait avec la boucle fichier par fichier : `uv run
   - relecture des diffs (Opus).
 - [x] 2026-10-14 — Trois défauts de la corbeille corrigés à la demande de l'utilisateur, avant la phase 5 (voir le Decision Log).
 - [x] 2026-10-15 — Phase 5, étape 1 : fonctions de module de `workspace_model.py` déplacées dans `workspace_rows.py`. L'étape 2 (écriture de la session) a été annulée après une régression native, et l'étape 3 (navigation) abandonnée. La stratégie est révisée dans le plan détaillé.
+- [x] 2026-10-15 — Le découpage de `workspace_model.py` s'est poursuivi dans le plan `118b-decoupage-workspace-model.md` (commit `0d49cdb`), après le correctif du ramasse-miettes `34bf4e6`.
 - [ ] Phase 5, suite selon la stratégie révisée ; phase 6.
 
 ## Surprises & Discoveries

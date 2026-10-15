@@ -116,9 +116,7 @@ def build_playlist_track_playback(
         return None
 
     playable = [
-        dict(r) | {"id": r["trackId"]}
-        for r in captured
-        if r.get("available") and r.get("trackId")
+        dict(r) | {"id": r["trackId"]} for r in captured if r.get("available") and r.get("trackId")
     ]
     ids = [str(r["id"]) for r in playable]
     if chosen["trackId"] not in ids:
@@ -205,9 +203,7 @@ def format_playback_source_title(
     if kind == "artist":
         entry = artist_entry_fn(reference)
         return str(
-            entry.name
-            if entry is not None
-            else plugin_artist_name_fn(reference) or "Artist"
+            entry.name if entry is not None else plugin_artist_name_fn(reference) or "Artist"
         )
 
     return str(track.get("album") or track.get("title") or "Library")

@@ -14,6 +14,7 @@ Cadrage décidé en discussion avec l'utilisateur : publier MTEE v0.1 (dépôt p
 | [116 — Normalisation du volume](116-normalisation-volume.md) | Loudness mesurée par Analyze (migration 025), gain par morceau, plafond de pic −2 dBFS et +12 dB ; fusionné (`febff03`, `6058161`) |
 | [117 — Contrôles média Windows](117-controles-media-windows.md) | SMTC : touches multimédias, casques, panneau Windows ; fusionné (`7515166`) |
 | [118 — Nettoyage approfondi](118-nettoyage-profond.md) | Base de référence (lint, types, tests), inventaire du code mort et des prototypes, puis base verte, lint, nettoyage sémantique et découpage des monolithes ; phases 1 à 4 faites (code mort et prototypes supprimés, scripts archivés, base de tests rétablie hors un plantage à plusieurs runtimes, ruff et pyright à 0, exceptions revues), phases 5-6 à venir |
+| [118b — Découpage de WorkspaceModel](118b-decoupage-workspace-model.md) | Façade QML inchangée, 11 modules collaborateurs extraits, workspace_model.py 3 526 → 3 078 lignes ; fusionné (`0d49cdb`) |
 
 Suite prévue : nettoyage approfondi du code, préparation du dépôt public (réécriture de l'historique, documents privés séparés), logo, puis publication de v0.1.0. Licence décidée : GPL-3.0-or-later (`ca35119`).
 

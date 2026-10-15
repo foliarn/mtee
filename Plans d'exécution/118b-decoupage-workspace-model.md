@@ -2,10 +2,10 @@
 
 ## Statut et Objectif
 
-- **Fichier cible** : [`src/mtee/models/workspace_model.py`](file:///C:/Users/flori/Desktop/dev/MTEE/src/mtee/models/workspace_model.py)
-- **État actuel** : **3 526 lignes**, 1 classe God Object, 269 méthodes, 124 slots, 64 propriétés, 21 signaux Qt.
-- **Objectif** : Décomposer le monolithe en modules modulaires à responsabilité unique (SRP) de **400 à 500 lignes maximum**, tout en préservant à 100% le contrat QML (propriétés, slots, signaux, rôles).
-- **Règle fondamentale** : Zéro régression comportementale, zéro cycle de références Qt/Python (prévention absolue des plantages natifs du ramasse-miettes CPython 3.12 sur Windows).
+- **Fichier cible** : `src/mtee/models/workspace_model.py`
+- **Résultat réel (commit `0d49cdb`)** : **3 526 → 3 078 lignes** (−448), soit une façade Qt `WorkspaceModel` et **11 modules collaborateurs** extraits, en plus de `workspace_rows.py` déjà extrait. La façade garde 188 membres Qt (64 propriétés, 124 slots, 21 signaux) ; le contrat QML est inchangé.
+- **Objectif initial (abandonné)** : décomposer le monolithe en modules à responsabilité unique (SRP) de **400 à 500 lignes maximum**. **Cible abandonnée** pour `workspace_model.py` : une façade Qt de 188 membres ne descend pas sous ~900–1 000 lignes (voir section 7.C). Les modules collaborateurs restent sous 315 lignes.
+- **Règle fondamentale** : zéro régression comportementale, contrat QML préservé à 100 %. Les collaborateurs purs ne détiennent aucune référence vers le modèle. Un cycle modèle ↔ writer subsiste (voir section 9) ; il est inoffensif depuis `34bf4e6`, car la collecte cyclique ne s'exécute que sur le thread graphique.
 
 ---
 
@@ -13,23 +13,21 @@
 
 `WorkspaceModel` est actuellement le point de convergence de presque toutes les fonctionnalités de l'application MTEE :
 
-```
-                               ┌────────────────────────┐
-                               │     WorkspaceModel     │
-                               │      (3 526 LOC)       │
-                               └───────────┬────────────┘
-         ┌──────────────────┬──────────────┼──────────────┬──────────────────┐
-         ▼                  ▼              ▼              ▼                  ▼
-   [Navigation &      [Selection &   [Async Track   [Scan & Folder     [Artist Index
-      Layout]          Reordering]     Loading]        Watching]         Decisions]
-    ~650 LOC            ~350 LOC       ~450 LOC        ~450 LOC           ~350 LOC
-         │                  │              │              │                  │
-         └──────────────────┴──────────────┼──────────────┴──────────────────┘
-                                           ▼
-                                [Session Persistence &
-                                   Delegation Facade]
-                                       ~1 250 LOC
-```
+                                   ┌────────────────────────┐
+                                   │     WorkspaceModel     │
+                                   │      (3 526 LOC)       │
+                                   └───────────┬────────────┘
+             ┌──────────────────┬──────────────┼──────────────┬──────────────────┐
+             ▼                  ▼              ▼              ▼                  ▼
+       [Navigation &      [Selection &   [Async Track   [Scan & Folder     [Artist Index
+          Layout]          Reordering]     Loading]        Watching]         Decisions]
+        ~650 LOC            ~350 LOC       ~450 LOC        ~450 LOC           ~350 LOC
+             │                  │              │              │                  │
+             └──────────────────┴──────────────┼──────────────┴──────────────────┘
+                                               ▼
+                                    [Session Persistence &
+                                       Delegation Facade]
+                                           ~1 250 LOC
 
 ### Inventaire des responsabilités intriquées
 
@@ -69,22 +67,20 @@ Conformément aux meilleures pratiques d'ingénierie logicielle pour les applica
 
 ---
 
-## 3. Architecture Modulaire Cible (Modules < 500 LOC)
+## 3. Architecture Modulaire Cible (Modules < 500 LOC ; cible abandonnée pour la façade, voir 7.C)
 
 Le dossier `src/mtee/models/` sera structuré comme suit :
 
-```
-src/mtee/models/
-├── workspace_model.py           (~500 LOC) - Façade Qt principale pour QML
-├── workspace_rows.py            (188 LOC)  - [Déjà extrait] Tri, Camelot, refs dossiers
-├── workspace_session.py         (~250 LOC) - Sérialisation, instantanés, normalisation
-├── workspace_navigation.py      (~300 LOC) - Pile d'historique, ancres, défilement
-├── workspace_tabs.py            (~350 LOC) - Groupes scindés, états d'onglets, onglets spéciaux
-├── workspace_selection.py       (~250 LOC) - Mathématiques de sélection, caches par onglet
-├── workspace_track_loader.py    (~350 LOC) - Requêtes asynchrones de pistes, filtres, stats
-├── workspace_artists.py         (~250 LOC) - Décisions suite aux changements d'index artistes
-└── workspace_scan_coordinator.py(~300 LOC) - Suivi des branches sales, scans et veille dossiers
-```
+    src/mtee/models/
+    ├── workspace_model.py           (3 078 LOC ; ~500 abandonné, voir 7.C) - Façade Qt principale pour QML
+    ├── workspace_rows.py            (188 LOC)  - [Déjà extrait] Tri, Camelot, refs dossiers
+    ├── workspace_session.py         (~250 LOC) - Sérialisation, instantanés, normalisation
+    ├── workspace_navigation.py      (~300 LOC) - Pile d'historique, ancres, défilement
+    ├── workspace_tabs.py            (~350 LOC) - Groupes scindés, états d'onglets, onglets spéciaux
+    ├── workspace_selection.py       (~250 LOC) - Mathématiques de sélection, caches par onglet
+    ├── workspace_track_loader.py    (~350 LOC) - Requêtes asynchrones de pistes, filtres, stats
+    ├── workspace_artists.py         (~250 LOC) - Décisions suite aux changements d'index artistes
+    └── workspace_scan_coordinator.py(~300 LOC) - Suivi des branches sales, scans et veille dossiers
 
 ### Détail des responsabilités par module extrait
 
@@ -146,7 +142,7 @@ src/mtee/models/
   - Décision de temporisation (`unstable` folders retry).
   - Calcul des dossiers cibles pour la synchronisation des veilleurs natifs (`FolderWatchService`).
 
-#### 8. `workspace_model.py` (Façade affinée, ~500 LOC)
+#### 8. `workspace_model.py` (Façade, 3 078 LOC réelles ; ~500 LOC visées, abandonné, voir 7.C)
 - **Rôle** : Façade QML unique.
 - Instancie et assemble les collaborateurs.
 - Déclare les signaux et slots Qt.
@@ -159,25 +155,23 @@ src/mtee/models/
 
 Pour garantir une refonte **100% robuste et sans régression**, le travail est découpé en phases strictement séquentielles :
 
-```
-[Étape 1 : Tests de Caractérisation Préalables]
-                   ↓
-[Étape 2 : Extraction de workspace_session.py]  → Vérification pyright + tests
-                   ↓
-[Étape 3 : Extraction de workspace_selection.py]→ Vérification pyright + tests
-                   ↓
-[Étape 4 : Extraction de workspace_navigation.py]→ Vérification pyright + tests
-                   ↓
-[Étape 5 : Extraction de workspace_tabs.py]     → Vérification pyright + tests
-                   ↓
-[Étape 6 : Extraction de workspace_artists.py]  → Vérification pyright + tests
-                   ↓
-[Étape 7 : Extraction de workspace_track_loader.py] → Vérification pyright + tests
-                   ↓
-[Étape 8 : Extraction de workspace_scan_coordinator.py] → Vérification pyright + tests
-                   ↓
-[Étape 9 : Réduction finale de workspace_model.py] → Suite complète de tests + ruff + pyright
-```
+    [Étape 1 : Tests de Caractérisation Préalables]
+                       ↓
+    [Étape 2 : Extraction de workspace_session.py]  → Vérification pyright + tests
+                       ↓
+    [Étape 3 : Extraction de workspace_selection.py]→ Vérification pyright + tests
+                       ↓
+    [Étape 4 : Extraction de workspace_navigation.py]→ Vérification pyright + tests
+                       ↓
+    [Étape 5 : Extraction de workspace_tabs.py]     → Vérification pyright + tests
+                       ↓
+    [Étape 6 : Extraction de workspace_artists.py]  → Vérification pyright + tests
+                       ↓
+    [Étape 7 : Extraction de workspace_track_loader.py] → Vérification pyright + tests
+                       ↓
+    [Étape 8 : Extraction de workspace_scan_coordinator.py] → Vérification pyright + tests
+                       ↓
+    [Étape 9 : Réduction finale de workspace_model.py] → Suite complète de tests + ruff + pyright
 
 ### Vérifications à chaque étape unitaire
 1. `uv run ruff check src tests` (0 avertissement)
@@ -191,11 +185,11 @@ Pour garantir une refonte **100% robuste et sans régression**, le travail est d
 
 | Métrique | Avant découpage | Après découpage cible |
 |---|---|---|
-| Fichier le plus volumineux | `workspace_model.py` (3 526 LOC) | `workspace_model.py` (~500 LOC) |
-| Nombre de modules modèles | 2 (`workspace_model`, `workspace_rows`) | 9 modules spécialisés |
+| Fichier le plus volumineux | `workspace_model.py` (3 526 LOC) | `workspace_model.py` (3 078 LOC réelles ; ~500 LOC visées, **abandonné**, voir 7.C) |
+| Nombre de modules modèles | 2 (`workspace_model`, `workspace_rows`) | 13 modules : la façade, `workspace_rows` et 11 collaborateurs |
 | Taille moyenne par module | ~1 760 LOC | ~320 LOC |
 | Testabilité unitaire | Nécessite un runtime Qt complexe | Modules purs testables sans moteur Qt |
-| Risque de plantage GC natif | Élevé (cycles possibles) | Éliminé (découplage et structures pures) |
+| Risque de plantage GC natif | Élevé (cycles possibles) | Réduit : collecte cyclique ramenée au thread graphique (`34bf4e6`) ; un cycle modèle ↔ writer subsiste |
 
 ---
 
@@ -223,7 +217,7 @@ Pour garantir une refonte **100% robuste et sans régression**, le travail est d
 ### Étape 4 : Extraction de `workspace_navigation.py` (Complété)
 - Création de `src/mtee/models/workspace_navigation.py` (196 LOC) : tracker d'historique pur `WorkspaceNavigationTracker`, fonction pure `build_navigation_location`, et `restore_scroll_and_anchor`.
 - Création des tests `tests/unit/test_workspace_navigation.py` (6 tests unitaires purs).
-- Délégation branchée dans `workspace_model.py` : `canNavigateBack`, `canNavigateForward`, `_navigation_location`, `_capture_navigation`, `_record_navigation`, `setNavigationScroll`, `navigationScroll`, `navigationAnchor`, `_navigate_history`, `_replay_navigation`, `splitActiveGroup`, `closeSplit`, `clearSelection`, `selectTrack`, `selectAll`, et consommation de la sélection lors du chargement des pistes.
+- Délégation branchée dans `workspace_model.py` : `canNavigateBack`, `canNavigateForward`, `_navigation_location`, `_capture_navigation`, `_record_navigation`, `setNavigationScroll`, `navigationScroll`, `navigationAnchor`, `_navigate_history`, `_replay_navigation`, `clearSelection`, `selectTrack`, `selectAll`, et consommation de la sélection lors du chargement des pistes.
 - Suppression des variables d'instance dispersées (`_navigation_histories`, `_navigation_scroll`, `_navigation_anchor`, `_navigation_replaying`, `_pending_navigation_selection`).
 - Lignes de `workspace_model.py` : passées de 3 388 à 3 338 (-50 LOC).
 - Vérification : ruff check OK, pyright OK (0 erreur), 39 tests (unitaires et UI) passés avec succès.
@@ -238,7 +232,7 @@ Pour garantir une refonte **100% robuste et sans régression**, le travail est d
 ### Étape 6 : Extraction de `workspace_artists.py` (Complété)
 - Création de `src/mtee/models/workspace_artists.py` (114 LOC) : dataclass `ArtistIndexEffects`, fonctions pures `decide_artist_index_effects`, `format_artist_decision_message`, `sort_artist_tracks`, `prepare_artist_playback_rows`.
 - Création des tests `tests/unit/test_workspace_artists.py` (4 tests unitaires purs).
-- Délégation branchée dans `workspace_model.py` : `keepArtistDecision`, `_on_artist_index_changed`, `_artist_rows`, `playArtistRows`.
+- Délégation branchée dans `workspace_model.py` : `_on_artist_index_changed`, `_artist_rows`, `playArtistRows`.
 - Suppression des imports de domaine inutiles (`album_track_order`, `normalize_key`) et du `import random` inline.
 - Lignes de `workspace_model.py` : passées de 3 316 à 3 302 (-14 LOC).
 - Vérification : ruff check OK, pyright OK (0 erreur), 61 tests passés avec succès.
@@ -258,7 +252,7 @@ Pour garantir une refonte **100% robuste et sans régression**, le travail est d
   - `FolderBranchTracker` : suivi des générations et annulations de jobs pour le dépliement des branches dans l'arborescence des dossiers.
   - Fonctions pures : `compute_folder_watch_targets` et `format_scan_finished_message`.
 - Création des tests `tests/unit/test_workspace_scan_coordinator.py` (6 tests unitaires purs).
-- Délégation branchée dans `workspace_model.py` : `_refresh_library`, `_refresh_models`, `_sync_folder_watches`, `_on_folder_watch_changed`, `_on_application_state_changed`, `_request_folder_refresh`, `_on_folder_refreshed`, `_on_scan_batch`, `_on_scan_finished`, `_start_root_scan`, `toggleFolder`, `_request_folder_branch`, `_on_folder_branch_ready`, et tous les marquages d'onglets sales (`openPlaylist`, `openArtistPage`, `sortTab`, `_refresh_hidden_sorts`, `setSearch`, etc.).
+- Délégation branchée dans `workspace_model.py` : `_refresh_library`, `_refresh_models`, `_sync_folder_watches`, `_on_folder_watch_changed`, `_on_application_state_changed`, `_request_folder_refresh`, `_on_folder_refreshed`, `_on_scan_batch`, `_on_scan_finished`, `_start_root_scan`, `toggleFolder`, `_request_folder_branch`, `_on_folder_branch_ready`, et tous les marquages d'onglets sales (`openPlaylist`, `openArtistPage`, `_refresh_hidden_sorts`, `setSearch`, etc.).
 - Suppression de 14 variables d'instance directes dispersées dans `WorkspaceModel`.
 - Lignes de `workspace_model.py` : passées de 3 291 à 3 210 lignes brutes (dont 2 892 lignes réelles de code/docstrings).
 - Vérification : ruff check OK (0 avertissement), pyright OK (0 erreur), 66 tests passés avec succès.
@@ -294,7 +288,7 @@ Or, dans le framework PySide6 / QML :
 - Le plancher absolu et incompressible d'une façade purement délégative de 188 membres Qt est de **~900 à 1 000 LOC**.
 - Pour descendre en dessous de 500 LOC pour `workspace_model.py`, il faudrait soit scinder `WorkspaceModel` via des classes mixins Qt (`WorkspacePlaybackMixin`, `WorkspaceLayoutMixin`, etc.), soit modifier les contrats QML pour consommer des sous-objets imbriqués.
 
-**Décision approuvée par l'utilisateur (Option A)** :
+**Décision retenue (option A)** :
 Conserver `WorkspaceModel` comme une Façade Qt unique, 100% délégative, sans algorithmes métier, et extraire tous les modules collaborateurs (`workspace_playback.py`, `workspace_explorer.py`, `workspace_actions.py`, `workspace_columns.py`, `workspace_scan_coordinator.py`, etc.) en modules purs entre **100 et 315 LOC chacun**. Cela élimine tout risque de conflit de métaclasses ou de corruption d'introspection Qt/Shiboken sur Windows CPython 3.12.
 
 ---
@@ -334,22 +328,21 @@ Conserver `WorkspaceModel` comme une Façade Qt unique, 100% délégative, sans 
 
 ### Étape 9.5 : Persistance Asynchrone dans `workspace_session.py` (`WorkspaceSessionWriter`) (Complété)
 - Enrichissement de `src/mtee/models/workspace_session.py` (porté à 312 LOC) :
-  - Classe `WorkspaceSessionWriter` : découplage complet de la persistance disque asynchrone (debounce, thread pool non-bloquant, sérialisation propre, gestion des exceptions de concurrence Windows, méthode `flush_sync` pour la fermeture propre).
+  - Classe `WorkspaceSessionWriter` : découplage complet de la persistance disque asynchrone (debounce, thread pool non-bloquant, sérialisation propre, gestion des exceptions de concurrence Windows, méthode `flush` pour la fermeture propre (appelée par `flush_session`)).
 - Extension des tests `tests/unit/test_workspace_session.py` (7 tests).
-- Délégation branchée dans `workspace_model.py` : `saveSession`, `_persist_session`, `closeEvent` / shutdown.
+- Délégation branchée dans `workspace_model.py` : `_write_pending_session`, `_session_snapshot`, `_on_session_write_finished`, `flush_session` (appelé depuis `src/mtee/app.py`).
 - Vérification : ruff check OK, pyright OK, tests OK.
 
 ---
 
-## 9. Découverte Critique & Résolution des Plantages Natifs Windows (Win32 Access Violation)
+## 9. Cause des plantages natifs Windows et correctif
 
-Lors de la vérification de la suite complète de tests sur Windows avec CPython 3.12, un plantage aléatoire `Windows fatal exception: access violation` a été identifié lors de l'exécution concurrente de `pytest`.
-- **Origine identifiée** :
-  - Les modules `test_plugins_hidden.py`, `test_artist_profile.py` et `test_artist_rules_model.py` instanciant `JobService` et SQLite `Database` ne fermaient pas explicitement leurs threads d'arrière-plan ni leur connexion SQLite avant la fin du test (`jobs.shutdown(1_000)` et `database.close()`).
-  - Lorsque pytest détruisait le dossier temporaire `tmp_path`, un thread worker SQLite en cours d'exécution tentait d'écrire dans la base supprimée, déclenchant une violation d'accès native Win32 `0xC0000005`.
-- **Correctif apporté** :
-  - Ajout des nettoyages explicites (`jobs.shutdown(1_000)`, `database.close()`) dans les blocs `finally` ou fixtures teardown des tests concernés.
-  - Résultat : stabilité absolue sous Windows, zéro violation d'accès.
+Pendant la suite complète sous Windows avec CPython 3.12, des plantages natifs `access violation` (`0xC0000005`) apparaissaient de façon intermittente.
+
+- **Cause établie** : la collecte cyclique automatique de CPython pouvait s'exécuter sur un thread de travail de `JobService`. Elle détruisait alors, dans un cycle de références, des objets Qt possédés par Python, comme un `WorkspaceModel` abandonné. Le `QFileSystemWatcher` de ce modèle laissait un filtre d'événements natif pendant dans le répartiteur d'événements du thread graphique, que le `processEvents` suivant appelait.
+- **Correctif** : commit `34bf4e6` (plan 118). `src/mtee/services/main_thread_gc.py` désactive la collecte automatique et exécute la même collecte depuis un `QTimer` du thread graphique.
+- **Ce qui n'est pas le correctif** : l'hypothèse initiale (un `tmp_path` supprimé sous un worker SQLite) est fausse. Les appels `jobs.shutdown(1_000)` et `database.close()` ajoutés à `test_plugins_hidden.py`, `test_artist_profile.py` et `test_artist_rules_model.py` relèvent de l'hygiène de libération des ressources : ils arrêtent les threads et ferment les connexions SQLite de ces tests. Ils ne corrigent pas le plantage.
+- **Cycle résiduel** : le modèle passe son signal lié `self.sessionWriteFinished.emit` à `WorkspaceSessionWriter` (`src/mtee/models/workspace_model.py`, vers la ligne 294). Un cycle modèle ↔ writer subsiste. Il est inoffensif depuis `34bf4e6`, car la collecte ne s'exécute que sur le thread graphique. Les collaborateurs purs ne détiennent aucune référence vers le modèle.
 
 ---
 
@@ -370,16 +363,40 @@ Lors de la vérification de la suite complète de tests sur Windows avec CPython
 | `workspace_tabs.py` | Géométrie split, états d'onglets, onglets spéciaux | Pur Python | 154 |
 | `workspace_track_loader.py` | Requêtes asynchrones, filtrage multi-champ, stats | Pur Python | 138 |
 | `workspace_model.py` | Façade Qt QML (64 props, 124 slots, 21 signaux) | Qt / PySide6 | 3 078 |
-| **Total Collaborateurs Purs** | **12 modules spécialisés, SRP strict** | **Pur Python** | **2 167 (moy. 180 LOC)** |
+| **Total Collaborateurs Purs** | **12 modules (11 extraits par 118b, plus `workspace_rows`)** | **Pur Python** | **2 167 (moy. 180 LOC)** |
 
 ### Respect des objectifs
 - Tous les modules collaborateurs extraits font **moins de 315 lignes** (très largement en-dessous du plafond de 400–500 LOC).
 - Le cœur algorithmique et métier est 100% découplé de Qt, testé unitairement sans dépendance d'interface graphique.
 - `workspace_model.py` agit exclusivement comme la Façade Qt / QML requise par le moteur PySide6 de l'application, préservant l'intégralité du contrat public QML sans la moindre régression.
-- Tous les tests de l'application (plus de 1 000 tests) passent avec 100% de succès.
+- Vérifié à l'audit du 2026-10-15 : les 23 fichiers de test concernés passent, lancés un par un (145 tests). Les 94 tests `archive` passent avec `-m archive`. La suite complète n'a pas été relancée à l'audit.
 
+---
 
+## Progress
 
+- [x] 2026-10-15 : étapes 1 à 8 et 9.1 à 9.5 faites (commit `0d49cdb`, découpage de `WorkspaceModel` en 11 modules collaborateurs).
+- [x] 2026-10-15 : corrections d'audit faites, non encore poussées (formatage ruff, étape CI des tests archivés, plan 118b corrigé, renvoi dans le plan 118).
+- [ ] Push des corrections d'audit.
 
+## Surprises & Discoveries
 
+- Attribution du plantage corrigée : l'hypothèse « `tmp_path` supprimé sous un worker SQLite » est fausse. La cause établie est la collecte cyclique sur un thread de travail (docstring de `src/mtee/services/main_thread_gc.py`, commit `34bf4e6`).
+- Cycle résiduel : `self.sessionWriteFinished.emit` est passé à `WorkspaceSessionWriter` (`src/mtee/models/workspace_model.py`, vers la ligne 294). Un cycle modèle ↔ writer subsiste ; il est inoffensif depuis `34bf4e6`. L'affirmation « zéro cycle » antérieure est retirée.
+- Cible de 500 LOC pour `workspace_model.py` abandonnée : les 188 membres Qt imposent un plancher d'environ 900–1 000 lignes (section 7.C).
+- Les 94 tests marqués `archive` étaient ignorés par `addopts = "-q -m 'not archive'"` dans `pyproject.toml`, donc absents de la CI. Une étape CI dédiée les exécute désormais ; exécution locale hors écran : 94 passés.
+- 11 fichiers n'étaient pas formatés dans `0d49cdb` ; `ruff format` les a corrigés, dont `workspace_model.py` (3 078 → 3 071 lignes).
+- Huit noms de méthodes cités à tort dans le plan (trois de sauvegarde de session, de fermeture et de scission, et deux de tri et d'artiste) n'existaient pas dans `src` (vérifié par `git grep`) ; ils ont été retirés ou remplacés par les noms réels.
 
+## Decision Log
+
+- Date non consignée dans le plan (décision antérieure à `0d49cdb`) : façade Qt unique, 100 % délégative, sans algorithme métier (option A de la section 7.C). Motif : éviter les risques de métaclasse et d'introspection Qt/Shiboken sous Windows. Coût accepté : abandon de la cible de 500 lignes. Auteur : utilisateur.
+- 2026-10-15 : marqueur `archive` conservé dans `pyproject.toml` pour le comportement local par défaut, avec une étape CI dédiée (`uv run pytest -m archive`) plutôt que retrait du filtre. Auteur : Opus (audit) / Haiku.
+- 2026-10-15 : corrections après audit du plan (attribution du plantage, cycle résiduel, chiffres réels, noms de méthodes inexistants, blocs de code indentés, sections de suivi ajoutées). Auteur : Opus (audit) / Haiku.
+
+## Outcomes & Retrospective
+
+- `src/mtee/models/workspace_model.py` : 3 526 → 3 078 lignes à `0d49cdb` (3 071 après `ruff format`). Les 11 modules collaborateurs font de 112 à 312 lignes, auxquels s'ajoute `workspace_rows.py` (187 lignes).
+- Contrat QML inchangé : 124 slots, 64 propriétés et 21 signaux, identiques au commit précédent (vérifiés par analyse AST).
+- 23 fichiers de tests concernés passent, exécutés un par un.
+- Limites : la cible de 500 lignes n'est pas atteinte (abandonnée, section 7.C) ; le cycle modèle ↔ writer subsiste ; l'étape CI ajoutée n'a pas encore été exécutée sur GitHub (non observé) ; aucun build Windows n'a été lancé pour ces corrections.

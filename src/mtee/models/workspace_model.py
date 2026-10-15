@@ -1604,10 +1604,7 @@ class WorkspaceModel(QObject):
         self._track_tracker.on_rows_ready(model_key)
         model.replace(rows)
         revealed_track_id = self._explorer_coordinator.consume_pending_reveal_for_tab(tab_id)
-        if (
-            revealed_track_id is not None
-            and self._groups[self._active_group]["active"] == tab_id
-        ):
+        if revealed_track_id is not None and self._groups[self._active_group]["active"] == tab_id:
             self._select_revealed_row(tab_id, revealed_track_id)
             self._explorer_coordinator.clear_pending_reveal()
         if group_index < len(self._groups) and self._groups[group_index]["active"] == tab_id:
@@ -1796,9 +1793,7 @@ class WorkspaceModel(QObject):
             self._set_message("This folder is no longer in the library.")
             return ""
         request_id = os.urandom(16).hex()
-        previous_job = self._scan_coordinator.prepare_scan_request(
-            root_id, request_id, quiet=quiet
-        )
+        previous_job = self._scan_coordinator.prepare_scan_request(root_id, request_id, quiet=quiet)
         if previous_job:
             with suppress(LookupError, ValueError):
                 self._jobs.cancel(JobId.parse(previous_job))
@@ -2627,9 +2622,7 @@ class WorkspaceModel(QObject):
         self._nav.clear_pending_if_matches(self._active_group, tab_id)
         selected = self._selection_by_tab.setdefault(key, [])
         anchor = self._anchor_by_tab.get(key, "")
-        new_selected, new_anchor = calculate_selection(
-            selected, anchor, track_id, mode, ordered
-        )
+        new_selected, new_anchor = calculate_selection(selected, anchor, track_id, mode, ordered)
         selected[:] = new_selected
         self._anchor_by_tab[key] = new_anchor
         self.selectionChanged.emit()

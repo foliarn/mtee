@@ -146,9 +146,7 @@ def test_format_playback_source_title() -> None:
 
     # Folder root
     assert (
-        format_playback_source_title(
-            f"folder:{r1}", {}, roots, lambda k: None, lambda k: ""
-        )
+        format_playback_source_title(f"folder:{r1}", {}, roots, lambda k: None, lambda k: "")
         == "Music Root"
     )
 

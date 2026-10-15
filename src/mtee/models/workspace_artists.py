@@ -95,9 +95,7 @@ def format_artist_decision_message(
     origins = frozenset(normalize_key(credit) for credit in credits)
     quoted = ", ".join("“" + credit + "”" for credit in credits)
     message = (
-        f"Kept {quoted} as one artist."
-        if one_artist
-        else f"Split {quoted} into separate artists."
+        f"Kept {quoted} as one artist." if one_artist else f"Split {quoted} into separate artists."
     )
     return origins, message
 
