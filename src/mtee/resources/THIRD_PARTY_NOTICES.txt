@@ -39,8 +39,8 @@ scripts are licensed under MIT. License texts and source are available at:
 
 The builder cautions that it cannot guarantee all LGPL-incompatible packages
 were disabled. MTEE has not completed a transitive dependency or legal audit
-of this binary. See docs/native-dependencies.md in the source distribution
-for the observed dependencies, provenance, and remaining redistribution work.
+of this binary. See THIRD_PARTY_NOTICES.md in the source distribution
+for the observed dependencies, provenance, and open redistribution questions.
 
 No ffmpeg.exe or ffprobe.exe is included. The FFmpeg libraries described above
 are statically linked inside the bundled libmpv runtime.

@@ -110,7 +110,6 @@ Rectangle {
                             : tab.modelData.kind === "convert" ? "convert"
                             : tab.modelData.kind === "tasks" ? "tasks"
                             : tab.modelData.kind === "artists" || tab.modelData.kind === "artist" ? "artists"
-                            : tab.modelData.kind === "genre_manager" ? "plugins"
                             : tab.modelData.kind === "profile" ? "profile"
                             : "settings"
                         size: 15
@@ -197,8 +196,7 @@ Rectangle {
             : group.activeTab.kind === "settings" ? settingsComponent
             : group.activeTab.kind === "profile" ? profileComponent
             : group.activeTab.kind === "tasks" ? tasksComponent
-            : group.activeTab.kind === "artists" ? (group.activeTab.id === "artists:catalog" ? artistCatalogComponent : artistReviewComponent)
-            : group.activeTab.kind === "genre_manager" ? genreManagerComponent
+            : group.activeTab.kind === "artists" ? artistCatalogComponent
             : listComponent
     }
 
@@ -232,24 +230,6 @@ Rectangle {
         id: artistCatalogComponent
         ArtistsView {
             workspace: group.workspace
-            bottomInset: group.bottomInset
-        }
-    }
-
-    Component {
-        id: artistReviewComponent
-        ArtistReviewView {
-            workspace: group.workspace
-            tab: group.activeTab
-            bottomInset: group.bottomInset
-        }
-    }
-
-    Component {
-        id: genreManagerComponent
-        GenreManagerView {
-            workspace: group.workspace
-            tab: group.activeTab
             bottomInset: group.bottomInset
         }
     }

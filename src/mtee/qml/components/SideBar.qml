@@ -17,7 +17,6 @@ Rectangle {
             : sidebar.workspace.activity === "convert" ? convertPane
             : sidebar.workspace.activity === "tasks" ? tasksPane
             : sidebar.workspace.activity === "artists" ? (sidebar.workspace.artistList ? artistsPane : artistsUnavailablePane)
-            : sidebar.workspace.activity === "plugins" ? pluginsPane
             : explorerPane
     }
 
@@ -33,10 +32,6 @@ Rectangle {
             icon: "artists"
             message: "Artists are not available in this demo."
         }
-    }
-    Component {
-        id: pluginsPane
-        PluginsPane { workspace: sidebar.workspace }
     }
 
     Rectangle {
