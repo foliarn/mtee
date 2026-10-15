@@ -48,15 +48,6 @@ datas = [
     (str(package_dir / "qml"), "mtee/qml"),
     (str(package_dir / "resources"), "mtee/resources"),
     (str(package_dir / "persistence" / "migrations"), "mtee/persistence/migrations"),
-    # Plugin-owned migration sets, applied only when their plugin is loaded (step 111).
-    (
-        str(package_dir / "plugins" / "artist_manager" / "migrations"),
-        "mtee/plugins/artist_manager/migrations",
-    ),
-    (
-        str(package_dir / "plugins" / "genre_manager" / "migrations"),
-        "mtee/plugins/genre_manager/migrations",
-    ),
     (str(ffmpeg_license), "mtee/resources"),
     # MTEE's own licence travels with the program it covers.
     (str(project_root / "LICENSE"), "mtee/resources/licenses/mtee"),

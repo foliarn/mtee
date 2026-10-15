@@ -6,7 +6,7 @@ import "components"
 import "views"
 
 // Frameless MTEE window: title bar, activity bar, sidebar, editor groups,
-// right panel and the floating player island (PLAN.md §3, revision 2).
+// right panel and the floating player island (layout revision 2).
 Window {
     id: root
 

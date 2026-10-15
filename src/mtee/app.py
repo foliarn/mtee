@@ -11,7 +11,6 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, QUrl
 from PySide6.QtGui import QFont, QGuiApplication, QWindow
@@ -60,7 +59,6 @@ from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.media_transport import create_media_transport
 from mtee.platform.windows_frame import WindowFrame
-from mtee.plugins.registry import load_plugin, plugin_ui_enabled
 from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.artist_index_service import ArtistIndexService
@@ -81,9 +79,6 @@ from mtee.services.playlist_exchange import PlaylistExchange
 from mtee.services.playlist_service import PlaylistService
 from mtee.services.profile_service import PROFILE_DIRECTORY_NAME, ProfileService
 from mtee.services.trash_service import TrashService
-
-if TYPE_CHECKING:
-    from mtee.plugins.artist_manager.identification import ArtistIdentificationService
 
 __all__ = ["EXIT_OK", "create_application", "main", "run"]
 
@@ -251,14 +246,6 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace.libraryChanged.connect(artist_index.refresh)
         workspace.scanFinished.connect(lambda *_arguments: artist_index.refresh())
         artist_index.refresh()
-        # Plugins load only when the plugin switch is on; v0.1 builds none of them.
-        plugins_enabled = plugin_ui_enabled()
-        if plugins_enabled:
-            workspace.attach_genre_manager_factory(
-                lambda: load_plugin(
-                    "genre_manager", database, library, PlaylistsRepository(database), file_access
-                )
-            )
         # The profile first: its constructor moves the former playlist creator name.
         profile = ProfileService(settings, paths.data_dir / PROFILE_DIRECTORY_NAME)
         profile_model = ProfileModel(profile, jobs, application)
@@ -296,7 +283,6 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         profile_model.nameChanged.connect(lambda _name: playlists_model.refresh())
         playlists_model.refresh()
         workspace.attach_playlists(playlists_model)
-        identification = _artist_identification(database, library) if plugins_enabled else None
         metadata_writer = MetadataEditService(
             library,
             MetadataHistoryRepository(database),
@@ -319,7 +305,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             analysis_repository,
             AudioAnalyzer(MediaDecodeService(file_access), file_access),
             metadata_writer,
-            identification,
+            None,
         )
         analysis_model = AnalysisModel(
             library,
@@ -327,23 +313,13 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             jobs,
             analysis_settings,
             application,
-            identification=identification,
+            identification=None,
         )
         workspace.attach_analysis(
             analysis_settings,
             analysis_model,
             TagConflictsModel(jobs, analysis_service.resolve_tag_conflict, application),
         )
-        if plugins_enabled:
-            _attach_artist_manager(
-                workspace,
-                database,
-                library,
-                metadata_writer,
-                file_access,
-                jobs,
-                analysis_model,
-            )
         conversion_model = ConversionQueueModel(
             library,
             jobs,
@@ -470,38 +446,6 @@ def _apply_scheduled_restore(paths: AppPaths, database: Database) -> None:
         return
     if outcome is not None:
         _report(outcome.message)
-
-
-def _artist_identification(
-    database: Database, library: LibraryRepository
-) -> ArtistIdentificationService:
-    """Build the artist phase of the analysis. Only the artist manager plugin uses it."""
-    from mtee.plugins.artist_manager.identification import ArtistIdentificationService
-    from mtee.plugins.artist_manager.repository import ArtistRepository
-
-    return ArtistIdentificationService(library, ArtistRepository(database))
-
-
-def _attach_artist_manager(
-    workspace: WorkspaceModel,
-    database: Database,
-    library: LibraryRepository,
-    metadata_writer: MetadataEditService,
-    file_access: FileAccessCoordinator,
-    jobs: JobService,
-    analysis_model: AnalysisModel,
-) -> None:
-    """Attach the artist manager plugin; called only while the plugin switch is on."""
-    from mtee.plugins.artist_manager.file_service import ArtistFileService
-    from mtee.plugins.artist_manager.models import ArtistManagerModel
-    from mtee.plugins.artist_manager.repository import ArtistRepository
-    from mtee.plugins.artist_manager.service import ArtistManagerService
-
-    repository = ArtistRepository(database)
-    files = ArtistFileService(database, library, repository, metadata_writer, file_access)
-    workspace.attach_artist_manager(
-        ArtistManagerModel(ArtistManagerService(repository, files), jobs, analysis_model)
-    )
 
 
 def _destroy_windows(runtime: _Runtime) -> None:
