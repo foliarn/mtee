@@ -14,7 +14,7 @@ been checked against the binary or the text, and must be checked before a binary
 | pywinrt: winrt-runtime, winrt-Windows.Foundation, winrt-Windows.Media, winrt-Windows.Media.Playback, winrt-Windows.Storage, winrt-Windows.Storage.Streams, 3.2.1 | Python projection of the Windows Runtime, system media controls (Windows only) | MIT (wheel metadata: `License-Expression: MIT`) | Locked version; MIT text in `LICENSES/pywinrt-MIT.txt`, taken from the pywinrt repository rather than from the wheel; not checked in a built distribution |
 | Visual C++ runtime `msvcp140.dll` | Dependency of the pywinrt extensions; the `winrt-runtime` wheel ships a copy in `winrt/` | Microsoft Visual C++ redistribution terms | **Unverified.** See the findings below |
 | libmpv (`vendor/mpv/libmpv-2.dll`) | Playback engine | LGPL-2.1-or-later per the manifest | **Partly verified.** See the findings below |
-| FFmpeg runtime (`vendor/ffmpeg/bin`, `resources/native/ffmpeg/manifest.json`) | Conversion and analysis of audio | LGPL-3.0-or-later per the manifest (archive name `lgpl-shared`) | **Open question.** See the findings below |
+| FFmpeg runtime (`vendor/ffmpeg/bin`, `resources/native/ffmpeg/manifest.json`) | Conversion and analysis of audio | LGPL-3.0-or-later (build configuration and encoder list checked) | **Verified** on 2026-10-26. See the findings below |
 | PyInstaller | Build tool, not redistributed | GPL v2 with an exception for the executables it produces | To confirm against the locked version |
 | Plus Jakarta Sans | Display font (Bold, ExtraBold) | SIL Open Font License 1.1 | Licence text in `LICENSES/PlusJakartaSans-OFL.txt` |
 | Geist Sans | Interface font | Expected under the SIL Open Font License | Unverified: font files are not versioned in the repository |
@@ -35,17 +35,15 @@ commands used were byte searches of the binaries; no build was run.
   DLL. No FFmpeg configuration string was found in it, so the LGPL-3.0-or-later status of that
   part stays unverified.
 
-**FFmpeg runtime, `vendor/ffmpeg/bin/avcodec-63.dll`** (and the other DLLs of the same build).
+**FFmpeg runtime, `vendor/ffmpeg/bin`** (checked on 2026-10-26).
 
-- The configuration string contains `--enable-version3` and `--enable-shared`, and does not
-  contain `--enable-gpl`. That combination is consistent with an LGPL-3.0-or-later build.
-- However, the names `libx264`, `libx265` and `libxvid` also occur in `avcodec-63.dll`. Whether
-  these encoders are compiled in was not established. If they are, the build is governed by
-  the GPL, and the notice above, the manifest and the packaged licence text
-  (`mtee/resources/LICENSE.txt`, LGPL-3.0) would all be wrong for that build.
-- Action before any binary release: check the encoder list (for example with `ffmpeg -encoders`)
-  of the pinned `ffmpeg.exe`. If a GPL encoder is present, ship the GPL licence text and correct
-  the manifest.
+- All nine binaries and the licence text match their SHA-256 in `resources/native/ffmpeg/manifest.json`.
+- `ffmpeg.exe -buildconf` shows `--enable-version3` and `--enable-shared`, and no `--enable-gpl` or
+  `--enable-nonfree`. The build is therefore LGPL-3.0-or-later, as the manifest states.
+- `ffmpeg.exe -encoders` lists no `libx264`, `libx265` or `libxvid`. The strings found in the DLL
+  in an earlier byte search do not correspond to compiled-in encoders. The remaining
+  third-party encoders (`libkvazaar`, `libopenh264`, `libvpx`, `libopus`, `libmp3lame`) are
+  permissively licensed or LGPL.
 
 **msvcp140.dll.**
 
