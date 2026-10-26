@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, QUrl
-from PySide6.QtGui import QFont, QGuiApplication, QWindow
+from PySide6.QtGui import QFont, QGuiApplication, QIcon, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 
 from mtee import __version__
-from mtee.assets import main_qml, qml_dir
+from mtee.assets import brand_dir, main_qml, qml_dir
 from mtee.cli import AppOptions, parse_arguments
 from mtee.fonts import register_fonts, resolve_ui_family
 from mtee.models.analysis_model import AnalysisModel
@@ -123,7 +123,9 @@ def create_application(argv: Sequence[str] | None = None) -> QGuiApplication:
     QCoreApplication.setOrganizationDomain(ORGANIZATION_DOMAIN)
     QCoreApplication.setApplicationName(APPLICATION_NAME)
     QCoreApplication.setApplicationVersion(__version__)
-    return QGuiApplication(list(argv) if argv is not None else [])
+    application = QGuiApplication(list(argv) if argv is not None else [])
+    application.setWindowIcon(QIcon(str(brand_dir() / "mtee-icon.ico")))
+    return application
 
 
 def main(argv: Sequence[str] | None = None) -> int:
