@@ -10,7 +10,7 @@ profiles; the best correlation names the key.
 
 Weights and thresholds were chosen on a collection of tracks whose key had been
 tagged by other tools, on a plateau of settings rather than a single optimum; see
-``docs/validation/33-analyse-audio.md``.
+the validation notes of the analysis step (step 33).
 
 Profiles: Krumhansl and Kessler (1982) and Temperley (2005), values as printed in
 the literature. Their average is used because each errs on different relative

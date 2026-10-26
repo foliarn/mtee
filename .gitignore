@@ -49,3 +49,6 @@ graphify-out/
 .codex/
 skills-lock.json
 
+
+# Private material kept out of the public repository (plan 119)
+private/
