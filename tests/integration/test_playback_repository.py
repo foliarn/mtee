@@ -71,7 +71,7 @@ def test_migration_from_17_keeps_data_and_creates_consistent_backup(tmp_path: Pa
 
     database = Database(path)
     applied = database.migrate()
-    # Core migrations only: the artist and genre manager plugins ship their own (d32b64d).
+    # Core migrations only: the public build ships no plugin migration set.
     expected = sorted(
         int(source.name[:3]) for source in MIGRATIONS_DIR.glob("*.sql") if int(source.name[:3]) > 17
     )

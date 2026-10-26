@@ -141,9 +141,6 @@ from mtee.services.platform.shell_reveal import WindowsShellReveal
 
 if TYPE_CHECKING:
     from mtee.domain.artist_index import ArtistEntry, ArtistIndex
-
-    # The artist manager is a plugin: the core only attaches it, it never builds it.
-    from mtee.plugins.artist_manager.models import ArtistManagerModel
     from mtee.services.artist_index_service import ArtistIndexService
 
 __all__ = ["WorkspaceModel"]
@@ -218,7 +215,7 @@ class WorkspaceModel(QObject):
         self._playback_settings: PlaybackSettingsModel | None = None
         self._play_log: PlayLogRepository | None = None
         self._tag_conflicts: TagConflictsModel | None = None
-        self._artist_manager: ArtistManagerModel | None = None
+        self._artist_manager: Any = None
         # The core artist index: the Artists view, the artist links and the artist tabs.
         self._artist_index: ArtistIndexService | None = None
         self._artist_list: ArtistListModel | None = None
@@ -1349,7 +1346,7 @@ class WorkspaceModel(QObject):
         """Rows of an artist page: by album, then track number, then title."""
         return sort_artist_tracks(self._library.tracks_by_ids(track_ids))
 
-    def attach_artist_manager(self, model: ArtistManagerModel) -> None:
+    def attach_artist_manager(self, model: Any) -> None:
         """Attach the artist manager; its file applications refresh the rows and the player."""
         if self._artist_manager is not None:
             raise RuntimeError("An artist manager is already attached to this workspace.")

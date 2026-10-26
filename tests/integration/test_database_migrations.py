@@ -80,7 +80,7 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         "track_waveforms",
         "playback_session",
     } <= tables
-    # Plugin-owned tables are created only when their plugin is loaded (step 111).
+    # The public build ships no plugin: its tables are never created.
     assert not {name for name in tables if name.startswith(("artist", "track_artist", "gm_"))}
     assert "artist_enrichment_schema" not in tables
     operation_columns = {

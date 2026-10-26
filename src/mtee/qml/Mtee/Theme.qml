@@ -1,7 +1,7 @@
 pragma Singleton
 import QtQuick
 
-// Visual direction of docs/ux/specification.md, revision 2: palette Acid,
+// Visual direction, revision 2: palette Acid,
 // neutral dark greys, square corners, lime primary and magenta secondary.
 // Colours and sizes live here only.
 QtObject {

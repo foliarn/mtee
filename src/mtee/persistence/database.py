@@ -32,10 +32,9 @@ __all__ = [
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{3})_([A-Za-z0-9_\-]+)\.sql$")
 _RETIRED_MIGRATIONS = {10: "audio_analysis"}
-# Scripts that left the core for a plugin-owned set (step 111). Their files live in
-# ``mtee/plugins/<plugin>/migrations`` and run only when that plugin is loaded. A database
-# that applied them before keeps its records: the core accepts them by name and never runs
-# them. Every plugin script must be registered here, with the plugin that owns it.
+# Scripts of the former bundled plugins (steps 111 and 118). Their files are no longer part
+# of the public tree. A database that applied them keeps its records: the core accepts them
+# by name and never runs them.
 PLUGIN_OWNED_MIGRATIONS: dict[int, tuple[str, str]] = {
     19: ("artist_manager", "artist_manager"),
     20: ("artist_manager", "artist_enrichment"),
@@ -207,41 +206,6 @@ class Database:
         if current > 0:
             self._validate_migration_history(current, migrations)
         recorded = self._recorded_versions()
-        pending = [migration for migration in migrations if migration.version not in recorded]
-        if not pending:
-            return []
-        if current > 0:
-            self.backup_to(self.backup_path_for(current))
-        applied: list[Migration] = []
-        for migration in pending:
-            self._apply(migration)
-            applied.append(migration)
-        return applied
-
-    def migrate_plugin(self, plugin_id: str, migrations: Sequence[Migration]) -> list[Migration]:
-        """Apply the pending scripts of one plugin-owned set and return those applied.
-
-        Only versions registered in ``PLUGIN_OWNED_MIGRATIONS`` for ``plugin_id`` are
-        accepted. The file is backed up first when it already holds data, exactly like the
-        core migrations. The plugin's tables therefore exist only once that plugin is loaded.
-        """
-        current = self.schema_version()
-        if current > self.supported_version:
-            raise SchemaTooRecentError(current, self.supported_version)
-        if current == 0:
-            # The plugin tables reference core tables: the core schema comes first.
-            raise DatabaseError("The core schema must be migrated before a plugin schema.")
-        recorded = self._recorded_versions()
-        for migration in migrations:
-            if PLUGIN_OWNED_MIGRATIONS.get(migration.version) != (plugin_id, migration.name):
-                raise UnsupportedMigrationHistoryError(
-                    f"Migration {migration.file_name} is not registered for plugin {plugin_id}."
-                )
-            if recorded.get(migration.version, migration.name) != migration.name:
-                raise UnsupportedMigrationHistoryError(
-                    f"The database records another migration for version {migration.version}. "
-                    "The database was left unchanged."
-                )
         pending = [migration for migration in migrations if migration.version not in recorded]
         if not pending:
             return []
