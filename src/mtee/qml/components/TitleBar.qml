@@ -35,17 +35,15 @@ Rectangle {
         onDoubleClicked: windowFrame.toggleMaximized()
     }
 
-    Text {
+    // The application logo, from resources/brand next to the QML tree.
+    Image {
         id: logo
         width: Theme.activityBarWidth
         height: parent.height
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        text: "M"
-        color: Theme.primary
-        font.family: Theme.fontFamily
-        font.pixelSize: 16
-        font.weight: Font.Black
+        fillMode: Image.PreserveAspectFit
+        sourceSize: Qt.size(64, 64)
+        smooth: true
+        source: Qt.resolvedUrl("../../resources/brand/mtee-64.png")
     }
 
     Row {
