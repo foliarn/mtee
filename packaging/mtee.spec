@@ -136,6 +136,7 @@ exe = EXE(
     [],
     exclude_binaries=False,
     name="MTEE",
+    icon=str(project_root / "src" / "mtee" / "resources" / "brand" / "mtee-icon.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

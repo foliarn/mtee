@@ -1,3 +1,5 @@
+<p align="center"><img src="src/mtee/resources/brand/mtee-512.png" width="128" alt="MTEE logo"></p>
+
 # MTEE: Music Tagging and Editing Explorer
 
 MTEE is a desktop application for exploring, listening to, tagging and preparing a local

@@ -9,7 +9,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-__all__ = ["fonts_dir", "icons_dir", "is_frozen", "main_qml", "qml_dir", "resources_root"]
+__all__ = [
+    "brand_dir",
+    "fonts_dir",
+    "icons_dir",
+    "is_frozen",
+    "main_qml",
+    "qml_dir",
+    "resources_root",
+]
 
 
 def is_frozen() -> bool:
@@ -38,6 +46,11 @@ def main_qml() -> Path:
 def fonts_dir() -> Path:
     """Return the directory of the embedded fonts."""
     return resources_root() / "resources" / "fonts"
+
+
+def brand_dir() -> Path:
+    """Return the directory of the application logo and its icon files."""
+    return resources_root() / "resources" / "brand"
 
 
 def icons_dir() -> Path:
