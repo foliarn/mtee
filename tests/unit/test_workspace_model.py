@@ -108,7 +108,7 @@ def test_page_history_replays_settings_and_forks_per_group(qapp, tmp_path: Path)
     )
     workspace.openSettings()
     workspace.setSettingsPage("analysis")
-    workspace.openConvert()
+    workspace.openTasks()
     assert workspace.canNavigateBack
     workspace.navigateBack()
     assert workspace.groups_snapshot()[0]["active"] == "settings:"
@@ -119,7 +119,7 @@ def test_page_history_replays_settings_and_forks_per_group(qapp, tmp_path: Path)
     assert not workspace.canNavigateForward
     workspace.toggleSplit()
     workspace.setActiveGroup(1)
-    workspace.openConvert()
+    workspace.openTasks()
     workspace.navigateBack()
     assert workspace.groups_snapshot()[1]["active"] == "settings:"
     workspace.setActiveGroup(0)

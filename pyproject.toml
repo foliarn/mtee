@@ -62,6 +62,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 # Qt imposes the name of the overridden methods, of the signals and of the
 # properties read by QML; renaming them would break the binding.
 "src/mtee/models/*.py" = ["N802", "N815"]
+"src/mtee/plugins/conversion/models.py" = ["N802", "N815"]
 "src/mtee/platform/windows_frame.py" = ["N802", "N815"]
 "src/mtee/services/jobs.py" = ["N815"]
 "src/mtee/services/player_service.py" = ["N815"]

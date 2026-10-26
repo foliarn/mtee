@@ -26,7 +26,6 @@ listening statistics._
   unknown tags and cover art are preserved, and no file is overwritten silently.
 - **File operations.** Move files by drag and drop, rename from tags, and send removed files to
   the Recycle Bin. A permanent delete never replaces an unavailable Recycle Bin.
-- **Audio conversion.** Convert files through FFmpeg, with a visible job queue.
 - **Analysis without machine learning.** Tempo, musical key and loudness are computed from the
   audio and stored separately from the tags you wrote.
 - **Playlists.** Local playlists, drag and drop, and export and import as archives.
@@ -51,7 +50,7 @@ Useful options:
 - `--demo` starts with fictitious data in a separate storage.
 - `--smoke-test` loads the window, then exits with a success or failure code.
 
-The audio runtimes are not stored in the repository. To use the playback and conversion
+The audio runtimes are not stored in the repository. To use the playback, analysis and waveform
 features from source, fetch the pinned runtimes first:
 
     pwsh -File scripts/fetch_mpv.ps1

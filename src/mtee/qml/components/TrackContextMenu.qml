@@ -56,6 +56,7 @@ AppMenu {
     AppMenuSeparator {}
 
     AppMenuItem {
+        visible: menu.workspace.pluginUiEnabled
         text: "Convert…"
         onTriggered: {
             menu.workspace.addSelectionToConvert()

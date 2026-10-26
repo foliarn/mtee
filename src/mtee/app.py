@@ -24,7 +24,6 @@ from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artist_rules_model import ArtistRulesModel
 from mtee.models.artwork_provider import ARTWORK_PROVIDER_ID, ArtworkProvider
-from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.cover_accent_model import CoverAccentModel
 from mtee.models.data_privacy_model import DataPrivacyModel
 from mtee.models.demo_workspace import DemoWorkspace
@@ -45,7 +44,6 @@ from mtee.models.workspace_model import WorkspaceModel
 from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.credit_override_repository import CreditOverrideRepository
 from mtee.persistence.database import Database, DatabaseError
-from mtee.persistence.derivations_repository import DerivationsRepository
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import MetadataHistoryRepository
 from mtee.persistence.play_log_repository import PlayLogRepository, load_or_create_device_id
@@ -59,11 +57,11 @@ from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.media_transport import create_media_transport
 from mtee.platform.windows_frame import WindowFrame
+from mtee.plugins.registry import load_plugin, plugin_ui_enabled
 from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.artist_index_service import ArtistIndexService
 from mtee.services.audio_analyzer import AudioAnalyzer
-from mtee.services.conversion_service import ConversionService
 from mtee.services.data_privacy import RestoreLayout, apply_pending_restore
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveService
@@ -322,15 +320,11 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             analysis_model,
             TagConflictsModel(jobs, analysis_service.resolve_tag_conflict, application),
         )
-        conversion_model = ConversionQueueModel(
-            library,
-            jobs,
-            ConversionService(),
-            file_access,
-            DerivationsRepository(database),
-            application,
-        )
-        workspace.attach_conversion_model(conversion_model)
+        if plugin_ui_enabled():
+            conversion_model = load_plugin(
+                "conversion", library, jobs, file_access, database, application
+            )
+            workspace.attach_conversion_model(conversion_model)
         trash_model = TrashModel(
             library,
             jobs,

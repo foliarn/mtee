@@ -20,13 +20,13 @@ def test_a_run_without_argument_uses_the_normal_mode() -> None:
 
 def test_the_recipe_options_are_recognised(tmp_path: Path) -> None:
     options = parse_arguments(
-        ["--data-dir", str(tmp_path), "--demo", "--smoke-test", "--scenario", "convert-error"]
+        ["--data-dir", str(tmp_path), "--demo", "--smoke-test", "--scenario", "tasks"]
     )
 
     assert options.data_dir == tmp_path
     assert options.demo is True
     assert options.smoke_test is True
-    assert options.scenario == "convert-error"
+    assert options.scenario == "tasks"
 
 
 def test_an_unknown_argument_is_refused_with_the_usage(capsys: pytest.CaptureFixture[str]) -> None:

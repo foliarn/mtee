@@ -29,8 +29,8 @@ from mtee.plugins.registry import plugin_ui_enabled
 
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
-ACTIVITIES = ("explorer", "playlists", "convert", "tasks", "artists", "plugins")
-TAB_KINDS = ("folder", "playlist", "convert", "settings", "profile", "tasks")
+ACTIVITIES = ("explorer", "playlists", "tasks", "artists", "plugins")
+TAB_KINDS = ("folder", "playlist", "settings", "profile", "tasks")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")
 MAX_GROUPS = 2
@@ -908,8 +908,6 @@ class DemoWorkspace(QObject):
             self._activity = activity
             self._sidebar_visible = True
             self._fullscreen = False
-        if activity == "convert" and self._sidebar_visible:
-            self._open_tab("convert:")
         self.layoutChanged.emit()
 
     @Slot(bool)
@@ -950,6 +948,8 @@ class DemoWorkspace(QObject):
 
     @Slot()
     def openConvert(self) -> None:
+        if not plugin_ui_enabled():  # the Convert plugin is not part of this build
+            return
         self._open_tab("convert:")
         self.layoutChanged.emit()
 

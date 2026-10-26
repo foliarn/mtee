@@ -184,7 +184,6 @@ def test_the_more_menu_has_six_entries_and_targets_the_playing_track(qapp, tmp_p
             for name in (
                 "playingEditInfo",
                 "playingAddToPlaylist",
-                "playingConvert",
                 "playingAnalyze",
                 "playingShowInExplorer",
             )
@@ -192,28 +191,15 @@ def test_the_more_menu_has_six_entries_and_targets_the_playing_track(qapp, tmp_p
         assert labels == [
             "Edit info",
             "Add to playlist…",
-            "Convert…",
             "Analyze",
             "Show in Explorer",
         ]
-        menu = cast(QObject, _find(root, "playingConvert")).parent()
+        # The Convert entry belongs to the conversion plugin: it exists but stays hidden.
+        convert_item = _find(root, "playingConvert")
+        assert convert_item is not None
+        assert convert_item.property("visible") is False
+        menu = cast(QObject, _find(root, "playingEditInfo")).parent()
         assert menu.property("trackId") == playing
-
-
-def test_convert_adds_the_playing_track_not_the_selection(qapp, tmp_path) -> None:
-    with _demo(qapp, tmp_path) as (root, workspace):
-        workspace.setFullscreen(True)
-        QCoreApplication.processEvents()
-        playing = workspace.playingId
-        _click(cast(QQuickWindow, root), "fullscreenMore")
-        item = _find(root, "playingConvert")
-        assert item is not None
-        _invoke_method(item, "triggered")
-        QCoreApplication.processEvents()
-        assert not workspace.fullscreen
-        inputs = [str(row.get("id", "")) for row in workspace.convertInputs]
-        assert playing in inputs
-        assert "dnb03" not in inputs
 
 
 def test_edit_info_selects_the_playing_track_and_opens_info(qapp, tmp_path) -> None:
@@ -421,7 +407,7 @@ def test_a_missing_source_falls_back_to_the_folder_of_the_file(
         qtbot.waitUntil(lambda: workspace.selectedIds == [ids[0]], timeout=5000)
 
 
-def test_convert_in_the_real_workspace_takes_the_playing_track(
+def test_convert_is_inert_in_the_real_workspace_without_the_plugin(
     qapp, qtbot, tmp_path, monkeypatch
 ) -> None:
     with _real(qapp, tmp_path, monkeypatch) as (_window, workspace, root_id, ids, _runtime):
@@ -433,8 +419,8 @@ def test_convert_in_the_real_workspace_takes_the_playing_track(
         workspace.selectTrack(ids[1], "single", [])
         workspace.addTracksToConvert([ids[0]])
         assert not workspace.fullscreen
-        inputs = [str(row.get("trackId", "")) for row in workspace.convertInputs]
-        assert inputs == [ids[0]]
+        assert workspace.activity != "convert"
+        assert workspace.convertInputs == []
 
 
 def test_the_source_name_opens_the_playing_folder(qapp, qtbot, tmp_path, monkeypatch) -> None:

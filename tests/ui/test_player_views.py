@@ -201,7 +201,7 @@ def test_space_goes_to_search_while_a_track_is_playing(
         workspace.openSettings()
         QTest.keyClick(root, Qt.Key.Key_Space)
         assert not backend.paused
-        workspace.openConvert()
+        workspace.openTasks()
         QTest.keyClick(root, Qt.Key.Key_Space)
         assert backend.paused
         QTest.keyClick(root, Qt.Key.Key_Space, Qt.KeyboardModifier.ControlModifier)

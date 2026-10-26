@@ -22,7 +22,15 @@ Rectangle {
 
     Component { id: explorerPane; ExplorerPane { workspace: sidebar.workspace } }
     Component { id: playlistsPane; PlaylistsPane { workspace: sidebar.workspace } }
-    Component { id: convertPane; ConvertPane { workspace: sidebar.workspace } }
+    // The Convert pane belongs to the conversion plugin: it is loaded only when that
+    // activity is chosen, which the workspace allows only when the plugin is enabled.
+    Component {
+        id: convertPane
+        Loader {
+            anchors.fill: parent
+            Component.onCompleted: setSource("ConvertPane.qml", { "workspace": sidebar.workspace })
+        }
+    }
     Component { id: tasksPane; TasksPane { workspace: sidebar.workspace } }
     Component { id: artistsPane; ArtistsPane { workspace: sidebar.workspace } }
     Component {

@@ -32,7 +32,10 @@ Rectangle {
 
         ActivityButton { activity: "explorer"; icon: "explorer"; tip: "Explorer (Ctrl+Shift+E)" }
         ActivityButton { activity: "playlists"; icon: "playlists"; tip: "Playlists" }
-        ActivityButton { activity: "convert"; icon: "convert"; tip: "Convert" }
+        ActivityButton {
+            visible: bar.workspace.pluginUiEnabled
+            activity: "convert"; icon: "convert"; tip: "Convert"
+        }
         ActivityButton { activity: "tasks"; icon: "tasks"; tip: "Tasks"; badge: bar.runningTasks }
         ActivityButton { activity: "artists"; icon: "artists"; tip: "Artists" }
         ActivityButton {
