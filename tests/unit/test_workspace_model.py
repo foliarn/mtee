@@ -268,6 +268,42 @@ def test_opening_a_folder_picks_up_files_added_on_disk(qapp, qtbot, tmp_path: Pa
     database.close()
 
 
+def test_a_moved_track_leaves_the_open_folder_list_at_once(qapp, qtbot, tmp_path: Path) -> None:
+    folder = tmp_path / "audio"
+    database = Database(tmp_path / "moved.sqlite3")
+    database.migrate()
+    library = LibraryRepository(database)
+    root = library.add_root(folder)
+    generation = library.begin_scan(root["id"])
+    for name in ("first.wav", "second.wav"):
+        path = folder / name
+        _write_wav(path)
+        library.upsert_location(
+            root["id"],
+            name,
+            path,
+            SourceRevision.observe(path),
+            MetadataSnapshot(title=(name,)),
+            generation,
+        )
+    library.finish_scan(root["id"], generation, complete=True)
+    jobs = JobService(qapp, max_thread_count=2)
+    workspace = WorkspaceModel(library=library, session=WorkspaceRepository(database), jobs=jobs)
+    qtbot.waitUntil(lambda: bool(workspace._roots_by_id), timeout=5_000)
+    tab_id = f"folder:{root['id']}/"
+    workspace.openFolder(tab_id)
+    model = workspace.trackModelForTab(tab_id, "folder", f"{root['id']}/", "filename", True, 0)
+    qtbot.waitUntil(lambda: len(model.trackIds) == 2, timeout=10_000)
+
+    leaving = model.trackIds[0]
+    workspace._on_tracks_moved([{"trackId": leaving, "path": ""}])
+
+    assert leaving not in model.trackIds
+    assert len(model.trackIds) == 1
+    jobs.shutdown(1_000)
+    database.close()
+
+
 def test_the_tasks_page_is_a_tab_that_back_and_forward_replay(qapp, tmp_path: Path) -> None:
     database = Database(tmp_path / "tasks.sqlite3")
     database.migrate()

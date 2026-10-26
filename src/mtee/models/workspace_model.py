@@ -1422,8 +1422,32 @@ class WorkspaceModel(QObject):
     @Slot(object)
     def _on_tracks_moved(self, _moved: object) -> None:
         """Files changed folder: reload the tree, the open lists and the inspector."""
+        self._drop_moved_rows(_moved)
         self._refresh_library()
         self.metadataChanged.emit()
+
+    def _drop_moved_rows(self, moved: object) -> None:
+        """Take moved tracks out of the open folder lists at once.
+
+        The reload that follows reads through worker connections that can take a while to
+        open; until its rows arrive, a list must not keep showing a file that left the folder.
+        Rows of a read already running are dropped too: that read may predate the move.
+        """
+        if not isinstance(moved, list):
+            return
+        moved_ids = {str(item.get("trackId", "")) for item in moved if isinstance(item, dict)}
+        moved_ids.discard("")
+        for model_key, model in tuple(self._track_models.items()):
+            group_index, tab_id = self._model_identity(model_key)
+            state = dict(self._tab_state(tab_id))
+            state.update(self._group_tab_states.get((group_index, tab_id), {}))
+            if state.get("kind") != "folder":
+                continue
+            job_id = self._track_tracker.cancel_and_release(model_key)
+            if job_id:
+                with suppress(LookupError, ValueError):
+                    self._jobs.cancel(JobId.parse(job_id))
+            model.replace([row for row in model.rows_snapshot() if str(row["id"]) not in moved_ids])
 
     def attach_analysis(
         self,
