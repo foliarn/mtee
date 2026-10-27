@@ -94,9 +94,9 @@ def test_tabs_open_close_and_split_like_an_editor() -> None:
     assert len(workspace.groups) == 1
 
     workspace.openSettings()
-    workspace.openConvert()
+    workspace.openConvert()  # the Convert plugin is not part of this build: no tab opens
     tabs = [tab["id"] for tab in workspace.groups[0]["tabs"]]
-    assert tabs[-2:] == ["settings:", "convert:"]
+    assert tabs[-1:] == ["settings:"]
 
 
 def test_double_click_plays_and_captures_the_visible_order() -> None:
@@ -241,10 +241,8 @@ def test_info_and_queue_share_the_right_panel() -> None:
     assert workspace.rightPanelVisible is False
 
 
-def test_conversion_error_can_be_retried() -> None:
-    workspace = _workspace("convert-error")
-    assert workspace.conversionError is True
-
-    workspace.retryConversion()
-
-    assert workspace.conversionError is False
+def test_the_convert_scenarios_are_not_offered_in_this_build() -> None:
+    assert "convert" not in ACTIVITIES
+    assert "convert" not in SCENARIO_NAMES
+    with pytest.raises(ValueError):
+        _workspace("convert-error")

@@ -2,7 +2,8 @@
 
 The scenarios are deliberately small and deterministic. They describe what a
 reviewer sees; they do not model an audio file, call a service or touch disk.
-A tab is written ``kind:ref``, for example ``folder:dnb`` or ``convert:``.
+A tab is written ``kind:ref``, for example ``folder:dnb`` or ``settings:``. The Convert
+scenarios belong to the conversion plugin and are not offered in this build.
 """
 
 from __future__ import annotations
@@ -46,14 +47,10 @@ SCENARIO_NAMES = (
     "explorer-no-artwork",
     "playing-queue",
     "fullscreen",
-    "convert",
-    "convert-error",
     "tasks",
     "playlists",
     "settings",
 )
-
-_CONVERT_TABS = (("folder:dnb", "convert:"),)
 
 _SCENARIOS = {
     "explorer": DemoScenario(name="explorer"),
@@ -80,21 +77,6 @@ _SCENARIOS = {
         name="playing-queue", right_panel="queue", shuffle=True, repeat="all", position=187
     ),
     "fullscreen": DemoScenario(name="fullscreen", fullscreen=True, position=131),
-    "convert": DemoScenario(
-        name="convert",
-        activity="convert",
-        groups=_CONVERT_TABS,
-        active_tabs=("convert:",),
-        selected=("dnb01", "dnb02"),
-    ),
-    "convert-error": DemoScenario(
-        name="convert-error",
-        activity="convert",
-        groups=_CONVERT_TABS,
-        active_tabs=("convert:",),
-        selected=("dnb01", "dnb02"),
-        conversion_error=True,
-    ),
     "tasks": DemoScenario(name="tasks", activity="tasks"),
     "playlists": DemoScenario(
         name="playlists",

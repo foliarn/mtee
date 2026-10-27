@@ -14,7 +14,6 @@ First public release. Windows is the supported platform.
 - Windows media controls: media keys, headsets and the system media panel.
 - Metadata editing with history; unknown tags and cover art are preserved.
 - File moves by drag and drop; removed files go to the Recycle Bin.
-- Audio conversion through FFmpeg with a visible job queue.
 - Analysis of tempo, musical key and loudness, stored apart from the tags.
 - Volume normalization from the measured loudness, with a peak ceiling.
 - Local playlists with export and import as archives.
@@ -28,6 +27,8 @@ First public release. Windows is the supported platform.
 - The artist and genre management tools were removed from the core and are not part of this
   release. The database keeps the history of their migrations, so an older database opens
   without error.
+- Audio conversion is a plugin and is not part of this release. FFmpeg remains in use for
+  analysis and waveforms.
 
 ### Notes
 

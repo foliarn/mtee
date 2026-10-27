@@ -17,7 +17,6 @@ from mtee.domain.navigation_history import NavigationLocation
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artist_index_model import ArtistListModel
-from mtee.models.conversion_queue_model import ConversionQueueModel
 from mtee.models.file_move_model import FileMoveModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
@@ -158,7 +157,7 @@ def _known_activity(activity: str) -> str:
 
     A saved state can name an activity that was removed or hidden in the meantime.
     """
-    if activity == "plugins" and not plugin_ui_enabled():
+    if activity in {"convert", "plugins"} and not plugin_ui_enabled():
         return "explorer"
     return activity if activity in _ACTIVITIES else "explorer"
 
@@ -207,7 +206,8 @@ class WorkspaceModel(QObject):
         self._genre_manager_model: QObject | None = None
         self._enqueue_tracker = EnqueueTracker()
         self._metadata_editor: MetadataEditorModel | None = None
-        self._conversion_model: ConversionQueueModel | None = None
+        # The conversion queue is a plugin service: attached only when the plugin is enabled.
+        self._conversion_model: Any | None = None
         self._trash_model: TrashModel | None = None
         self._file_move_model: FileMoveModel | None = None
         self._analysis_model: AnalysisModel | None = None
@@ -749,7 +749,7 @@ class WorkspaceModel(QObject):
     def conversionModel(self) -> QObject:
         return self._conversion_model if self._conversion_model is not None else self
 
-    def attach_conversion_model(self, model: ConversionQueueModel) -> None:
+    def attach_conversion_model(self, model: Any) -> None:
         self._conversion_model = model
         model.changed.connect(self.libraryChanged.emit)
         model.recoveryNotice.connect(self._set_message)
@@ -2161,6 +2161,8 @@ class WorkspaceModel(QObject):
 
     @Slot()
     def openConvert(self) -> None:
+        if self._conversion_model is None:  # the Convert plugin is not loaded in this build
+            return
         self._cancel_explorer_track_action()
         self._capture_navigation()
         self._activity = "convert"

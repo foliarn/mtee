@@ -210,11 +210,16 @@ Rectangle {
         }
     }
 
+    // The Convert view belongs to the conversion plugin: it is loaded only for a Convert tab,
+    // which the workspace opens only when the plugin is enabled.
     Component {
         id: convertComponent
-        ConvertView {
-            workspace: group.workspace
-            bottomInset: group.bottomInset
+        Loader {
+            anchors.fill: parent
+            Component.onCompleted: setSource("../views/ConvertView.qml", {
+                "workspace": group.workspace,
+                "bottomInset": group.bottomInset
+            })
         }
     }
 

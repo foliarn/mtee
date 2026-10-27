@@ -146,6 +146,7 @@ Rectangle {
         AppMenuItem { text: "New playlist"; onTriggered: bar.workspace.addToNewPlaylist([]) }
         AppMenuSeparator {}
         AppMenuItem {
+            visible: bar.workspace.pluginUiEnabled
             text: "Convert selection"
             enabled: bar.workspace.selectedIds.length > 0
             onTriggered: { bar.workspace.addSelectionToConvert(); bar.workspace.openConvert() }
@@ -180,7 +181,11 @@ Rectangle {
         objectName: "viewMenu"
         AppMenuItem { text: "Explorer"; hint: "Ctrl+Shift+E"; onTriggered: bar.workspace.setActivity("explorer") }
         AppMenuItem { text: "Playlists"; onTriggered: bar.workspace.setActivity("playlists") }
-        AppMenuItem { text: "Convert"; onTriggered: bar.workspace.setActivity("convert") }
+        AppMenuItem {
+            visible: bar.workspace.pluginUiEnabled
+            text: "Convert"
+            onTriggered: bar.workspace.setActivity("convert")
+        }
         AppMenuItem { text: "Tasks"; onTriggered: bar.workspace.setActivity("tasks") }
         AppMenuItem { text: "Tasks page"; onTriggered: bar.workspace.openTasks() }
         AppMenuSeparator {}

@@ -23,6 +23,7 @@ AppMenu {
     }
     AppMenuItem {
         objectName: "playingConvert"
+        visible: menu.workspace.pluginUiEnabled
         text: "Convert…"
         onTriggered: menu.workspace.addTracksToConvert([menu.trackId])
     }

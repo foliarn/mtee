@@ -72,14 +72,13 @@ def test_every_scenario_loads_the_window(qapp, tmp_path: Path, scenario: str) ->
         _close(application, runtime)
 
 
-def test_convert_error_scenario_loads_the_convert_tab(qapp, tmp_path: Path) -> None:
-    application, runtime = _runtime(qapp, tmp_path, "convert-error")
+def test_the_demo_starts_without_the_convert_plugin(qapp, tmp_path: Path) -> None:
+    application, runtime = _runtime(qapp, tmp_path, "tasks")
     try:
         QCoreApplication.processEvents()
-        root = runtime.engine.rootObjects()[0]
-        assert cast(DemoWorkspace, runtime.workspace).conversionError is True
-        assert _visible(root, "convertView")
-        assert _visible(root, "convertPane")
+        workspace = cast(DemoWorkspace, runtime.workspace)
+        assert workspace.pluginUiEnabled is False
+        assert workspace.activity == "tasks"
     finally:
         _close(application, runtime)
 
