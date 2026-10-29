@@ -1,37 +1,59 @@
-"""Discovery of the plugins in the folders the user gave.
+"""Discovery and lifecycle of the plugins in the folders the user gave.
 
 Nothing is loaded from a folder the user did not give (``--plugin-dir`` or a saved folder).
 A plugin folder holds plugin packages: ``<folder>/<id>/manifest.py`` and ``__init__.py``.
 Discovery imports only the ``manifest.py`` of each package, never the package itself, so
 the code of a plugin runs only once it is enabled.
+
+``PluginManager`` then loads the enabled plugins after the core services: it applies the
+plugin's migrations, runs its factory and reads its contributions. A plugin that fails in
+any of these steps is marked ``Failed`` alone; the application keeps starting.
 """
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import importlib.util
+import logging
 import re
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import mtee.plugins
+from mtee.persistence.database import DatabaseError, discover_migrations
 from mtee.persistence.settings_repository import SettingsRepository
-from mtee.plugins.api import SUPPORTED_API_VERSIONS, PluginManifest
+from mtee.plugins.api import (
+    SUPPORTED_API_VERSIONS,
+    Contribution,
+    PluginContext,
+    PluginManifest,
+    PluginService,
+)
 from mtee.plugins.registry import bundled_plugins
 
 __all__ = [
     "MANIFEST_ATTRIBUTE",
     "MANIFEST_FILE",
+    "MIGRATIONS_DIRECTORY",
     "SETTING_ENABLED",
     "SETTING_FOLDERS",
     "DiscoveredPlugin",
+    "LoadedPlugin",
+    "PluginManager",
     "PluginPreferences",
+    "PluginStatus",
     "add_to_package_path",
     "discover",
     "remove_from_package_path",
     "split_existing_folders",
 ]
+
+_LOGGER = logging.getLogger(__name__)
+MIGRATIONS_DIRECTORY = "migrations"
 
 MANIFEST_FILE = "manifest.py"
 MANIFEST_ATTRIBUTE = "MANIFEST"
@@ -137,7 +159,12 @@ def discover(folders: Sequence[Path]) -> list[DiscoveredPlugin]:
     for folder in folders:
         if not folder.is_dir():
             continue
-        for package_dir in sorted(folder.iterdir(), key=lambda path: path.name):
+        try:
+            children = sorted(folder.iterdir(), key=lambda path: path.name)
+        except OSError as error:
+            _LOGGER.warning("Plugin folder %s cannot be read: %s", folder, error)
+            continue
+        for package_dir in children:
             if not (package_dir / MANIFEST_FILE).is_file():
                 continue
             plugin = _inspect(folder, package_dir, reserved)
@@ -166,6 +193,199 @@ def remove_from_package_path(folder: Path) -> None:
     entry = str(folder)
     if entry in mtee.plugins.__path__:
         mtee.plugins.__path__.remove(entry)
+
+
+class PluginStatus(StrEnum):
+    """The state shown for a plugin in Settings > Plugins."""
+
+    DISABLED = "Disabled"
+    RUNNING = "Running"
+    FAILED = "Failed"
+
+
+@dataclass(slots=True)
+class LoadedPlugin:
+    """A discovered plugin with its state; ``error`` is the readable reason of a failure."""
+
+    discovered: DiscoveredPlugin
+    status: PluginStatus
+    error: str = ""
+    service: PluginService | None = None
+    contributions: tuple[Contribution, ...] = ()
+
+    @property
+    def plugin_id(self) -> str:
+        return self.discovered.plugin_id
+
+    @property
+    def title(self) -> str:
+        manifest = self.discovered.manifest
+        return manifest.title if manifest is not None else self.discovered.plugin_id
+
+
+ContextFactory = Callable[[PluginManifest], PluginContext]
+
+
+class PluginManager:
+    """Loads the enabled plugins of the saved folders and unloads them on exit.
+
+    The plugin folders and the enabled list come from ``PluginPreferences``. A plugin is
+    switched on or off in the preferences and the change applies at the next start.
+    """
+
+    def __init__(
+        self, preferences: PluginPreferences, *, notify: Callable[[str], None] | None = None
+    ) -> None:
+        self._preferences = preferences
+        self._notify = notify
+        self._plugins: list[LoadedPlugin] = []
+        self._missing: list[Path] = []
+        self._path_entries: list[Path] = []
+
+    @property
+    def plugins(self) -> list[LoadedPlugin]:
+        """Every plugin found in the last ``load_enabled``, with its state."""
+        return list(self._plugins)
+
+    @property
+    def missing_folders(self) -> list[Path]:
+        """The saved folders that no longer exist; they are skipped."""
+        return list(self._missing)
+
+    def load_enabled(self, context_factory: ContextFactory) -> list[LoadedPlugin]:
+        """Discover the plugins, then load those the user enabled; return all of them.
+
+        The failure of one plugin is stored on it, logged, and announced in one notice
+        that names it; the others load as usual.
+        """
+        self.unload_all()
+        existing, self._missing = split_existing_folders(self._preferences.folders())
+        enabled = set(self._preferences.enabled())
+        self._plugins = []
+        failed: list[LoadedPlugin] = []
+        for discovered in discover(existing):
+            if not discovered.is_valid:
+                record = LoadedPlugin(discovered, PluginStatus.FAILED, discovered.error)
+                _LOGGER.warning("Plugin %s refused: %s", discovered.plugin_id, discovered.error)
+            elif discovered.plugin_id in enabled:
+                record = self._load(discovered, context_factory)
+            else:
+                record = LoadedPlugin(discovered, PluginStatus.DISABLED)
+            if record.status is PluginStatus.FAILED and discovered.plugin_id in enabled:
+                failed.append(record)
+            self._plugins.append(record)
+        self._announce(failed)
+        return self.plugins
+
+    def unload_all(self) -> None:
+        """Unload the running plugins, newest first, and forget their modules.
+
+        A plugin that fails to unload is logged and does not stop the others. Data stays.
+        """
+        for record in reversed(self._plugins):
+            if record.service is not None:
+                self._release(record)
+                record.status = PluginStatus.DISABLED
+            record.service = None
+            record.contributions = ()
+        for folder in self._path_entries:
+            remove_from_package_path(folder)
+        self._path_entries = []
+
+    def _load(self, discovered: DiscoveredPlugin, context_factory: ContextFactory) -> LoadedPlugin:
+        """Run the migrations, the factory and ``contributions()`` of one plugin."""
+        manifest = discovered.manifest
+        assert manifest is not None  # a valid plugin always has its manifest
+        record = LoadedPlugin(discovered, PluginStatus.FAILED)
+        service: PluginService | None = None
+        try:
+            add_to_package_path(discovered.folder)
+            if discovered.folder not in self._path_entries:
+                self._path_entries.append(discovered.folder)
+            importlib.invalidate_caches()
+            context = context_factory(manifest)
+            migrations = discovered.package_dir / MIGRATIONS_DIRECTORY
+            if migrations.is_dir():
+                context.database.migrate_plugin(manifest.plugin_id, discover_migrations(migrations))
+            module_name, _, function_name = manifest.factory.partition(":")
+            factory = getattr(importlib.import_module(module_name), function_name)
+            service = factory(context)
+            record.contributions = _read_contributions(service)
+        except Exception as error:
+            _LOGGER.error("Plugin %s failed to load.", manifest.plugin_id, exc_info=error)
+            record.error = _describe(error)
+            record.contributions = ()
+            if service is not None:
+                self._release_service(manifest.plugin_id, service)
+            _forget_modules(manifest.plugin_id)
+        else:
+            record.status = PluginStatus.RUNNING
+            record.service = service
+        return record
+
+    def _release(self, record: LoadedPlugin) -> None:
+        if record.service is not None:
+            self._release_service(record.plugin_id, record.service)
+        _forget_modules(record.plugin_id)
+
+    @staticmethod
+    def _release_service(plugin_id: str, service: PluginService) -> None:
+        try:
+            service.unload()
+        except Exception as error:
+            _LOGGER.error("Plugin %s did not unload cleanly.", plugin_id, exc_info=error)
+
+    def _announce(self, failed: list[LoadedPlugin]) -> None:
+        """Show one notice for the plugins that could not start."""
+        if not failed or self._notify is None:
+            return
+        if len(failed) == 1:
+            record = failed[0]
+            self._notify(
+                f"The plugin {record.title} could not start and is disabled: {record.error}"
+            )
+            return
+        names = ", ".join(record.title for record in failed)
+        self._notify(
+            f"{len(failed)} plugins could not start and are disabled: {names}. "
+            "See Settings > Plugins."
+        )
+
+
+def _read_contributions(service: object) -> tuple[Contribution, ...]:
+    """Return what ``service`` contributes, refusing a service or a contribution that is broken."""
+    contributions = getattr(service, "contributions", None)
+    unload = getattr(service, "unload", None)
+    if not callable(contributions) or not callable(unload):
+        raise TypeError(
+            "The plugin factory must return an object with contributions() and unload()."
+        )
+    declared = contributions()
+    if isinstance(declared, str | bytes) or not isinstance(declared, Sequence):
+        raise TypeError("contributions() must return a list of contributions.")
+    for index, item in enumerate(declared):
+        if not isinstance(item, Contribution):
+            raise TypeError(
+                f"Contribution {index + 1} is a {type(item).__name__}, not a Contribution."
+            )
+    return tuple(declared)
+
+
+def _describe(error: Exception) -> str:
+    """Return the sentence stored for a failure; the type is added unless it is a database error."""
+    if isinstance(error, DatabaseError):
+        return str(error)
+    text = str(error)
+    return f"{type(error).__name__}: {text}" if text else type(error).__name__
+
+
+def _forget_modules(plugin_id: str) -> None:
+    """Drop the imported modules of a plugin, so a later load imports it again."""
+    package = f"mtee.plugins.{plugin_id}"
+    for name in [key for key in sys.modules if key == package or key.startswith(f"{package}.")]:
+        del sys.modules[name]
+    with contextlib.suppress(AttributeError):
+        delattr(mtee.plugins, plugin_id)
 
 
 def _inspect(folder: Path, package_dir: Path, reserved: frozenset[str]) -> DiscoveredPlugin:

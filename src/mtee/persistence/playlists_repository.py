@@ -163,6 +163,29 @@ class PlaylistsRepository:
                     ),
                 )
 
+    def replace_entries(self, identity: str, entries: list[dict[str, Any]], version: int) -> None:
+        """Replace every entry of a playlist in one transaction, keeping the given order."""
+        with self.database.transaction() as connection:
+            result = connection.execute(
+                "UPDATE playlists SET version=version+1,updated_at_utc=? "
+                "WHERE playlist_id=? AND version=?",
+                (_now(), identity, version),
+            )
+            if result.rowcount != 1:
+                raise ValueError("This playlist changed. Reopen it and try again.")
+            connection.execute("DELETE FROM playlist_entries WHERE playlist_id=?", (identity,))
+            for index, entry in enumerate(entries):
+                connection.execute(
+                    "INSERT INTO playlist_entries VALUES(?,?,?,?,?)",
+                    (
+                        str(uuid4()),
+                        identity,
+                        entry.get("track_id"),
+                        index,
+                        json.dumps(entry["snapshot"], ensure_ascii=False),
+                    ),
+                )
+
     def remove(self, identity: str, entry_ids: list[str]) -> None:
         with self.database.transaction() as connection:
             connection.executemany(

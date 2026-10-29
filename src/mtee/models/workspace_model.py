@@ -130,6 +130,7 @@ from mtee.persistence.workspace_repository import (
     DEFAULT_COLUMN_PREFERENCES,
     WorkspaceRepository,
 )
+from mtee.plugins.context import PluginHost
 from mtee.plugins.registry import plugin_ui_enabled
 from mtee.services.folder_refresh import refresh_folder
 from mtee.services.folder_watch import FolderWatchService
@@ -1405,6 +1406,11 @@ class WorkspaceModel(QObject):
         model.setParent(self)
         model.tracksMoved.connect(self._on_tracks_moved)
         model.noticeRaised.connect(self._set_message)
+
+    def attach_plugin_host(self, host: PluginHost) -> None:
+        """Show the notices of the plugins on the message line."""
+        host.setParent(self)
+        host.noticeRaised.connect(self._set_message)
 
     @Slot(list, str)
     def moveTracksToFolder(self, track_ids: list, folder_id: str) -> None:

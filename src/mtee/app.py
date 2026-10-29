@@ -57,6 +57,8 @@ from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.media_transport import create_media_transport
 from mtee.platform.windows_frame import WindowFrame
+from mtee.plugins.context import PluginHost
+from mtee.plugins.loader import PluginManager, PluginPreferences
 from mtee.plugins.registry import load_plugin, plugin_ui_enabled
 from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
@@ -110,6 +112,7 @@ class _Runtime:
     frame: WindowFrame
     artwork_provider: ArtworkProvider | None
     media_controls: MediaControls | None
+    plugins: PluginManager | None
 
 
 def create_application(argv: Sequence[str] | None = None) -> QGuiApplication:
@@ -185,6 +188,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     statistics_model: StatisticsModel | None = None
     data_privacy_model: DataPrivacyModel | None = None
     artist_rules_model: ArtistRulesModel | None = None
+    plugin_manager: PluginManager | None = None
     if options.demo:
         workspace = DemoWorkspace(options.scenario)
         workspace.attach_analysis_settings(analysis_settings, TagConflictsModel(parent=application))
@@ -334,9 +338,30 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             player=player_model,
         )
         workspace.attach_trash_model(trash_model)
-        workspace.attach_file_move_model(
-            FileMoveModel(FileMoveService(database, library, file_access), jobs)
-        )
+        file_move_service = FileMoveService(database, library, file_access)
+        workspace.attach_file_move_model(FileMoveModel(file_move_service, jobs))
+        # Plugins load last, once every core service they can use exists. Without a plugin
+        # folder (--plugin-dir or saved) nothing below runs and MTEE behaves as without plugins.
+        plugin_preferences = PluginPreferences(settings)
+        plugin_preferences.add_folders(options.plugin_dirs)
+        if plugin_preferences.folders():
+            plugin_host = PluginHost(
+                data_dir=paths.data_dir,
+                database=database,
+                settings=settings,
+                library=library,
+                playlists=playlist_service,
+                jobs=jobs,
+                file_moves=file_move_service,
+                recycle=trash_model,
+                roots=workspace,
+                refresh_playlists=playlists_model.refresh,
+            )
+            workspace.attach_plugin_host(plugin_host)
+            plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
+            plugin_manager.load_enabled(plugin_host.context_for)
+            for missing in plugin_manager.missing_folders:
+                _report(f"The plugin folder {missing} does not exist and was skipped.")
         artwork_provider = ArtworkProvider(library)
         # Never fatal: without the system controls the application keeps working.
         media_controls = MediaControls(
@@ -382,7 +407,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     window_file = main_qml()
     if not window_file.is_file():
         _report(f"MTEE cannot find its interface file: {window_file}")
-        _discard_partial_startup(database, jobs, player_service, engine, workspace, media_controls)
+        _discard_partial_startup(
+            database, jobs, player_service, engine, workspace, media_controls, plugin_manager
+        )
         return None
     engine.load(QUrl.fromLocalFile(str(window_file)))
     engine.warnings.disconnect(capture_qml_diagnostics)
@@ -390,7 +417,9 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         for diagnostic in qml_diagnostics:
             _report(diagnostic)
         _report(f"MTEE could not load its interface from {window_file}")
-        _discard_partial_startup(database, jobs, player_service, engine, workspace, media_controls)
+        _discard_partial_startup(
+            database, jobs, player_service, engine, workspace, media_controls, plugin_manager
+        )
         return None
     window = engine.rootObjects()[0]
     if isinstance(window, QWindow) and isinstance(workspace, WorkspaceModel):
@@ -410,6 +439,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         frame=frame,
         artwork_provider=artwork_provider,
         media_controls=media_controls,
+        plugins=plugin_manager,
     )
     if isinstance(workspace, WorkspaceModel):
         workspace.resumeRoots()
@@ -464,6 +494,9 @@ def _shutdown(runtime: _Runtime) -> None:
         runtime.workspace.flush_session()
     if runtime.media_controls is not None:
         runtime.media_controls.close()
+    # Before the job service stops accepting work: a plugin may finish a job while unloading.
+    if runtime.plugins is not None:
+        runtime.plugins.unload_all()
     runtime.jobs.begin_shutdown()
     runtime.frame.detach()
     _shutdown_services(runtime.database, runtime.jobs, runtime.player_service)
@@ -476,12 +509,15 @@ def _discard_partial_startup(
     engine: QQmlApplicationEngine,
     workspace: QObject | None = None,
     media_controls: MediaControls | None = None,
+    plugins: PluginManager | None = None,
 ) -> None:
     """Release native services if startup fails before a runtime is returned."""
     if isinstance(workspace, WorkspaceModel):
         workspace.flush_session()
     if media_controls is not None:
         media_controls.close()
+    if plugins is not None:
+        plugins.unload_all()
     _shutdown_services(database, jobs, player_service)
     engine.deleteLater()
 

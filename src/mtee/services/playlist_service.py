@@ -93,6 +93,32 @@ class PlaylistService:
                 self.repository.add_entries(identity, additions, playlist["version"])
             return len(additions)
 
+    def create_playlist(self, name: str, track_ids: list[str] | tuple[str, ...] = ()) -> str:
+        """Create a local playlist holding ``track_ids`` in order, and return its identity.
+
+        A track listed twice is kept once (a playlist holds a track once). Unlike ``add``, no
+        entry is merged by musical identity: the caller owns the list.
+        """
+        with self.lock:
+            return self.repository.create(name, entries=self._entries_for(track_ids))
+
+    def replace_entries(self, identity: str, track_ids: list[str] | tuple[str, ...]) -> None:
+        """Replace all the entries of a playlist with ``track_ids``, in the order given."""
+        with self.lock:
+            entries = self._entries_for(track_ids)
+            self.repository.replace_entries(
+                identity, entries, self.repository.playlist(identity)["version"]
+            )
+
+    def _entries_for(self, track_ids: list[str] | tuple[str, ...]) -> list[dict[str, Any]]:
+        entries = []
+        for track_id in dict.fromkeys(track_ids):
+            track = self.library.track(track_id)
+            if not track:
+                raise LookupError("A selected track is no longer in the library.")
+            entries.append({"track_id": track_id, "snapshot": portable_snapshot(track)})
+        return entries
+
     def memberships(self) -> dict[str, list[str]]:
         result: dict[str, list[str]] = {}
         music: dict[Any, set[str]] = {}
