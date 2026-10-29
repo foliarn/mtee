@@ -217,6 +217,58 @@ class Database:
             applied.append(migration)
         return applied
 
+    def migrate_plugin(self, plugin_id: str, migrations: Sequence[Migration]) -> list[Migration]:
+        """Apply the pending scripts of one plugin and return those actually applied.
+
+        A plugin numbers its scripts from 001 and records them in ``plugin_migrations``,
+        apart from the core history. The recorded history must match the scripts given
+        (same versions, same names, nothing newer than the plugin ships); otherwise the
+        database is left unchanged and ``UnsupportedMigrationHistoryError`` is raised.
+        The file is backed up before the first pending script. Each script runs in its own
+        transaction: a failing script is rolled back and re-raised, and the scripts applied
+        before it stay recorded.
+        """
+        if not plugin_id:
+            raise DatabaseError("A plugin identifier is required to apply plugin migrations.")
+        if "plugin_migrations" not in self._table_names():
+            raise DatabaseError("The core migrations must be applied before a plugin's.")
+        shipped = sorted(migrations)
+        versions = [migration.version for migration in shipped]
+        if len(set(versions)) != len(versions) or any(version < 1 for version in versions):
+            raise DatabaseError(f"The migrations of plugin {plugin_id} are not numbered from 001.")
+        recorded = {
+            int(row["version"]): str(row["name"])
+            for row in self.connection().execute(
+                "SELECT version, name FROM plugin_migrations WHERE plugin_id = ?", (plugin_id,)
+            )
+        }
+        known = {migration.version: migration.name for migration in shipped}
+        if any(known.get(version) != name for version, name in recorded.items()):
+            raise UnsupportedMigrationHistoryError(
+                f"The database records migrations of plugin {plugin_id} that this version of "
+                "the plugin does not ship. The database was left unchanged."
+            )
+        pending = [migration for migration in shipped if migration.version not in recorded]
+        if recorded and any(migration.version < max(recorded) for migration in pending):
+            raise UnsupportedMigrationHistoryError(
+                f"The migrations of plugin {plugin_id} do not continue its recorded history. "
+                "The database was left unchanged."
+            )
+        if not pending:
+            return []
+        self.backup_to(self.backup_path_for(self.schema_version()))
+        for migration in pending:
+            self._apply_plugin(plugin_id, migration)
+        return pending
+
+    def _table_names(self) -> set[str]:
+        return {
+            str(row["name"])
+            for row in self.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+
     def _recorded_versions(self) -> dict[int, str]:
         """Return the versions and names recorded in ``schema_migrations``."""
         connection = self.connection()
@@ -312,6 +364,24 @@ class Database:
             row = connection.execute("PRAGMA user_version").fetchone()
             reached = max(int(row[0]) if row is not None else 0, migration.version)
             connection.execute(f"PRAGMA user_version = {reached:d}")
+        except Exception as error:
+            connection.execute("ROLLBACK")
+            raise MigrationFailedError(migration, error) from error
+        else:
+            connection.execute("COMMIT")
+
+    def _apply_plugin(self, plugin_id: str, migration: Migration) -> None:
+        connection = self.connection()
+        statements = list(split_statements(migration.read_sql()))
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO plugin_migrations (plugin_id, version, name, applied_at_utc) "
+                "VALUES (?, ?, ?, ?)",
+                (plugin_id, migration.version, migration.name, _utc_now()),
+            )
         except Exception as error:
             connection.execute("ROLLBACK")
             raise MigrationFailedError(migration, error) from error
