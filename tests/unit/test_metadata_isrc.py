@@ -91,7 +91,11 @@ def _opus(path: Path, isrc: str | None) -> None:
     audio.save()
 
 
-def _m4a(path: Path, isrc: str | None) -> None:
+_M4A_FREEFORM_ISRC = "----:com.apple.iTunes:ISRC"
+_M4A_PLAIN_ISRC = "isrc"
+
+
+def _m4a(path: Path, isrc: str | None, atom: str = _M4A_FREEFORM_ISRC) -> None:
     """A silent AAC-LC track with no samples, enough for Mutagen to read its tags."""
     ftyp = _box(b"ftyp", b"M4A " + struct.pack(">I", 0) + b"M4A mp42isom")
     mvhd = _full_box(
@@ -143,8 +147,16 @@ def _m4a(path: Path, isrc: str | None) -> None:
     audio.add_tags()
     assert audio.tags is not None
     if isrc is not None:
-        audio.tags["----:com.apple.iTunes:ISRC"] = [MP4FreeForm(isrc.encode("utf-8"))]
+        if atom == _M4A_PLAIN_ISRC:
+            # Mutagen stores a plain text atom as str; this is how tidal-dl-ng writes it.
+            audio.tags[atom] = [isrc]
+        else:
+            audio.tags[atom] = [MP4FreeForm(isrc.encode("utf-8"))]
     audio.save()
+
+
+def _m4a_plain(path: Path, isrc: str | None) -> None:
+    _m4a(path, isrc, _M4A_PLAIN_ISRC)
 
 
 _BUILDERS = {
@@ -153,6 +165,7 @@ _BUILDERS = {
     "ogg": ("track.ogg", _ogg_vorbis),
     "opus": ("track.opus", _opus),
     "m4a": ("track.m4a", _m4a),
+    "m4a-plain-isrc": ("track.m4a", _m4a_plain),
 }
 
 
@@ -199,6 +212,17 @@ def test_missing_isrc_reads_as_none(tmp_path: Path, container: str) -> None:
 
     assert snapshot.status == "readable", snapshot.error
     assert snapshot.isrc is None
+
+
+def test_m4a_plain_isrc_is_used_when_freeform_isrc_is_malformed(tmp_path: Path) -> None:
+    path = tmp_path / "both-atoms.m4a"
+    _m4a(path, "not-an-isrc", _M4A_FREEFORM_ISRC)
+    audio = MP4(path)
+    assert audio.tags is not None
+    audio.tags[_M4A_PLAIN_ISRC] = [_VALID]
+    audio.save()
+
+    assert MetadataReader().read(path).isrc == _VALID
 
 
 def test_normalize_isrc_accepts_only_twelve_character_codes() -> None:

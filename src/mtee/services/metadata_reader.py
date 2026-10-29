@@ -13,6 +13,8 @@ __all__ = ["MetadataReader"]
 
 _ID3_SUFFIXES = frozenset({".wav", ".mp3", ".aif", ".aiff"})
 _MP4_ISRC_ATOM = "----:com.apple.iTunes:ISRC"
+# Written by tidal-dl-ng as a plain atom rather than the iTunes freeform one.
+_MP4_PLAIN_ISRC_ATOM = "isrc"
 _MP4_INITIAL_KEY_ATOM = "----:com.apple.iTunes:initialkey"
 
 _TAG_ALIASES = {
@@ -122,7 +124,11 @@ def _read_isrc(source: Path, easy_tags: Any) -> str | None:
     """Return the first well-formed ISRC of the file, read only; malformed values are ignored."""
     suffix = source.suffix.casefold()
     if suffix == ".m4a":
-        values = _read_mp4_freeform(_read_raw_tags(source), _MP4_ISRC_ATOM)
+        raw_tags = _read_raw_tags(source)
+        values = (
+            *_read_mp4_freeform(raw_tags, _MP4_ISRC_ATOM),
+            *_read_mp4_freeform(raw_tags, _MP4_PLAIN_ISRC_ATOM),
+        )
     elif suffix in _ID3_SUFFIXES:
         values = _read_id3_frame_text(_read_raw_tags(source), "TSRC")
     else:
