@@ -7,6 +7,7 @@ appear while the plugin runs and be absent when it is off or when no plugin fold
 from __future__ import annotations
 
 import sys
+import threading
 import wave
 from collections.abc import Iterator
 from itertools import pairwise
@@ -15,7 +16,7 @@ from typing import Any, cast
 
 import pytest
 import shiboken6
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QObject, QPointF, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 from tests.helpers.ui_plugin import (
@@ -294,6 +295,18 @@ def test_the_plugin_list_has_unavailable_rows_a_column_and_header_buttons(
         local = cast(QQuickItem, _find(window, "trackRow_1"))
         assert cast(QQuickItem, _find_child(local, "trackAdd_r1")).isVisible()
         assert not cast(QQuickItem, _find_child(local, "trackRowAction")).isVisible()
+        # A button the plugin disables says why in its tooltip and does not run.
+        sync = cast(QQuickItem, _find(window, "pluginHeaderAction_ui_probe.sync"))
+        assert sync.property("enabledAction") is False
+        assert sync.property("tip") == "Needs the probe account"
+        _click(window, sync)
+        assert "sync alpha" not in module.EVENTS
+        # The tab of a plugin draws the same cover as a local playlist, and the title follows it.
+        cover = cast(QQuickItem, _find(window, "playlistCover"))
+        title = cast(QQuickItem, _find(window, "playlistTitleText"))
+        assert cover.isVisible() and cover.width() > 100 and cover.width() == cover.height()
+        origin = QPointF(0, 0)
+        assert title.mapToScene(origin).x() == cover.mapToScene(origin).x() + cover.width() + 24
         # The buttons run the plugin's functions with the ref of the tab.
         _click(window, cast(QQuickItem, _find(window, "pluginHeaderAction_ui_probe.download")))
         assert module.EVENTS[-1] == "download alpha"
@@ -301,6 +314,43 @@ def test_the_plugin_list_has_unavailable_rows_a_column_and_header_buttons(
         assert module.EVENTS[-1] == "row action r2"
         _click(window, cast(QQuickItem, _find(window, "pluginHeaderAction_ui_probe.watch")))
         assert module.EVENTS[-1] == "watch"
+    finally:
+        _shutdown(runtime)
+
+
+def test_a_plugin_opens_its_own_tab_with_open_tab_and_adds_to_a_playlist_meta_line(
+    qapp, tmp_path: Path
+) -> None:
+    runtime, module = _start(tmp_path)
+    try:
+        workspace = _workspace(runtime)
+        window = _window(runtime)
+        assert module is not None
+        plugin = next(p for p in runtime.plugins.plugins if p.plugin_id == PLUGIN_ID)  # type: ignore[union-attr]
+        # From a thread of the plugin: the tab opens on the graphical thread, once.
+        thread = threading.Thread(
+            target=lambda: plugin.service.context.open_tab(LIST_KIND, "beta")  # type: ignore[union-attr]
+        )
+        thread.start()
+        thread.join()
+        _settle(runtime)
+        active = cast(Any, workspace).groups[workspace.activeGroup]["active"]
+        assert active == f"{LIST_KIND}:beta"
+        plugin.service.context.open_tab(LIST_KIND, "alpha")  # type: ignore[union-attr]
+        plugin.service.context.open_tab(LIST_KIND, "beta")  # type: ignore[union-attr]
+        _settle(runtime)
+        tabs = [tab["id"] for group in workspace.groups_snapshot() for tab in group["tabs"]]
+        assert tabs.count(f"{LIST_KIND}:beta") == 1  # focused, not opened twice
+        assert cast(Any, workspace).groups[workspace.activeGroup]["active"] == f"{LIST_KIND}:beta"
+
+        # The meta line of a local playlist carries the phrase of the plugin.
+        model = cast(Any, workspace).playlistModel
+        model.create("Mine", "", [])
+        _settle(runtime)
+        identity = next(p["id"] for p in model._playlists if p["name"] == "Mine")
+        workspace.openPlaylist(identity)
+        _settle(runtime)
+        assert any(text.endswith("probe linked") for text in _texts(window))
     finally:
         _shutdown(runtime)
 

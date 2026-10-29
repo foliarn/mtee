@@ -29,6 +29,7 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins.api import (
     LibraryScanned,
     PaneAction,
+    PlaylistMeta,
     PluginActivity,
     PluginDialog,
     SettingsPage,
@@ -78,6 +79,7 @@ class PluginUiModel(QObject):
         self._track_actions: dict[str, _Owned[TrackAction]] = {}
         self._pages: dict[str, _Owned[SettingsPage]] = {}
         self._scan_hooks: list[_Owned[LibraryScanned]] = []
+        self._playlist_meta: list[_Owned[PlaylistMeta]] = []
         self._waiting: dict[str, _Owned[WaitingItems]] = {}
         self._dialogs: dict[str, _Owned[PluginDialog]] = {}
         self._waiting_count = 0
@@ -122,6 +124,8 @@ class PluginUiModel(QObject):
                     self._waiting[f"{plugin_id}.{item.section_id}"] = _Owned(plugin_id, title, item)
                 elif isinstance(item, LibraryScanned):
                     self._scan_hooks.append(_Owned(plugin_id, title, item))
+                elif isinstance(item, PlaylistMeta):
+                    self._playlist_meta.append(_Owned(plugin_id, title, item))
                 elif isinstance(item, PluginDialog):
                     self._dialogs[f"{plugin_id}.{item.dialog_id}"] = _Owned(plugin_id, title, item)
                     self._adopt(item.backend)
@@ -346,6 +350,13 @@ class PluginUiModel(QObject):
                 enabled = bool(
                     self._guard(owned.plugin_title, "reading a button", action.enabled, ref)
                 )
+            reason = ""
+            if action.disabled_reason is not None:
+                reason = str(
+                    self._guard(owned.plugin_title, "reading a button", action.disabled_reason, ref)
+                    or ""
+                )
+                enabled = enabled and not reason
             checked = False
             if action.checked is not None:
                 checked = bool(
@@ -359,9 +370,24 @@ class PluginUiModel(QObject):
                     "kind": action.kind,
                     "checked": checked,
                     "enabled": enabled,
+                    "reason": reason,
                 }
             )
         return buttons
+
+    @Slot(str, int, result=str)
+    def playlistMeta(self, playlist_id: str, _revision: int = 0) -> str:
+        """The phrases plugins add to the meta line of a local playlist, joined with `` · ``."""
+        phrases = [
+            str(
+                self._guard(
+                    owned.plugin_title, "describing a playlist", owned.item.text, playlist_id
+                )
+                or ""
+            )
+            for owned in self._playlist_meta
+        ]
+        return " · ".join(phrase for phrase in phrases if phrase)
 
     @Slot(str, str)
     def runHeaderAction(self, action_key: str, ref: str) -> None:

@@ -42,6 +42,7 @@ __all__ = [
     "PaneAction",
     "PlaylistAccess",
     "PlaylistEntry",
+    "PlaylistMeta",
     "PluginActivity",
     "PluginContext",
     "PluginDialog",
@@ -96,8 +97,8 @@ class Contribution:
     The core renders contributions; a plugin only describes them as data. The kinds are
     ``PluginActivity``, ``SidebarSection``, ``TabKind``, ``TabAction``, ``TrackColumn``,
     ``TrackAction``, ``SettingsPage``, ``StartupTask``, ``LibraryScanned``,
-    ``WaitingItems`` and ``PluginDialog``, defined below. Plugin QML reaches the core
-    components with ``import Mtee``; a contribution never names a QML type.
+    ``WaitingItems``, ``PluginDialog`` and ``PlaylistMeta``, defined below. Plugin QML reaches
+    the core components with ``import Mtee``; a contribution never names a QML type.
     """
 
 
@@ -250,6 +251,9 @@ class PluginContext:
     logged under the plugin's logger and does not stop the application.
     ``open_dialog(dialog_id, ref)`` opens one of the plugin's ``PluginDialog`` as a modal
     popup over the window; any thread may call it. ``ref`` is handed to the dialog's QML.
+    ``open_tab(kind, ref)`` opens, or focuses when it is already open, a tab of one of the
+    plugin's own ``TabKind`` (``kind`` must start with ``<plugin_id>.``); any thread may call
+    it, the tab opens on the graphical thread.
     """
 
     plugin_id: str
@@ -265,6 +269,7 @@ class PluginContext:
     refresh_ui: Callable[[], None] = field(default=lambda: None)
     run_on_gui: Callable[[Callable[[], None]], None] = field(default=lambda call: call())
     open_dialog: Callable[[str, str], None] = field(default=lambda dialog_id, ref="": None)
+    open_tab: Callable[[str, str], None] = field(default=lambda kind, ref="": None)
 
     @property
     def data_dir(self) -> Path:
@@ -408,7 +413,10 @@ class TabAction(Contribution):
 
     ``tab_kind`` is a ``TabKind.kind`` of the plugin, or ``"playlist"`` for local playlists.
     The functions receive the ref of the tab (the playlist identifier for a local one).
-    ``label`` may be a function of the ref, for text such as a count.
+    ``label`` may be a function of the ref, for text such as a count. ``enabled`` returning
+    ``False`` greys the button out. ``disabled_reason`` returns a sentence when the button
+    cannot be used now, and ``""`` when it can: the button then looks disabled and shows the
+    sentence as its tooltip, so the user learns why (for example a missing dependency).
     """
 
     action_id: str
@@ -419,6 +427,7 @@ class TabAction(Contribution):
     kind: ActionKind = "neutral"
     checked: Callable[[str], bool] | None = None
     enabled: Callable[[str], bool] | None = None
+    disabled_reason: Callable[[str], str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -538,3 +547,16 @@ class PluginDialog(Contribution):
     dialog_id: str
     content: Path
     backend: QObject | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistMeta(Contribution):
+    """A phrase a plugin adds to the meta line of the header of every local playlist.
+
+    ``text(playlist_id)`` returns the phrase (for example ``"linked to Spotify"``) or ``""``
+    for none. The core joins the phrases of all plugins to the meta line with `` · `` and reads
+    them again after ``refresh_ui``. ``text`` runs on the graphical thread while the header is
+    drawn: keep it cheap.
+    """
+
+    text: Callable[[str], str]

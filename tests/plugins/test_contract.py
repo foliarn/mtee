@@ -515,8 +515,9 @@ def test_a_refused_manifest_never_imports_the_factory_module(
 
 def test_contract_plugins_know_their_folder() -> None:
     """The helper that parametrizes the tests lists the sample and what the environment adds."""
-    assert contract_plugins() == [SAMPLE]
     with pytest.MonkeyPatch.context() as patch:
+        patch.delenv(CONTRACT_DIRS_ENVIRONMENT, raising=False)
+        assert contract_plugins() == [SAMPLE]
         patch.setenv(CONTRACT_DIRS_ENVIRONMENT, str(_HERE))
         listed = [item.plugin_id for item in contract_plugins()]
     assert listed == ["sample"]  # the sample is listed once; the failing sample is left out

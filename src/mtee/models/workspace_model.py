@@ -1447,6 +1447,7 @@ class WorkspaceModel(QObject):
         host.noticeRaised.connect(self._set_message)
         host.uiRefreshRequested.connect(self._plugin_ui.refresh)
         host.dialogRequested.connect(self._plugin_ui.open_dialog)
+        host.tabRequested.connect(self.openPluginTab)
 
     def attach_plugin_settings(self, model: PluginSettingsModel) -> None:
         """Attach the Plugins page of Settings, which exists only when a plugin folder is set."""

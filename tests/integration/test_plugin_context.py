@@ -344,6 +344,34 @@ def test_a_function_queued_with_run_on_gui_runs_on_the_graphical_thread(
     assert "plugin bug" in caplog.text
 
 
+def test_a_plugin_opens_its_own_tab_from_any_thread_on_the_graphical_thread(
+    setup: _Setup, qapp, caplog: pytest.LogCaptureFixture
+) -> None:
+    asked: list[tuple[str, str, bool]] = []
+    main = threading.current_thread()
+    setup.host.tabRequested.connect(
+        lambda kind, ref: asked.append((kind, ref, threading.current_thread() is main))
+    )
+    open_tab = setup.context().open_tab
+
+    thread = threading.Thread(target=lambda: open_tab("sample.review", "pair-7"))
+    thread.start()
+    thread.join()
+    assert asked == []  # queued: nothing happens in the calling thread
+    with caplog.at_level("ERROR", logger="mtee.plugins.sample"):
+        open_tab("other.review", "x")  # the kind of another plugin
+        open_tab("review", "x")
+    for _ in range(50):
+        qapp.processEvents()
+        if asked:
+            break
+        time.sleep(0.01)
+    qapp.processEvents()
+
+    assert asked == [("sample.review", "pair-7", True)]
+    assert "only its own tab kinds" in caplog.text
+
+
 def test_playlists_report_their_name_and_existence(setup: _Setup) -> None:
     playlists = setup.context().playlists
     identity = playlists.create("Synced", [setup.ids[0]])

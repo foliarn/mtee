@@ -26,6 +26,7 @@ from mtee.plugins.api import (
     Contribution,
     LibraryScanned,
     PaneAction,
+    PlaylistMeta,
     PluginActivity,
     PluginDialog,
     SettingsPage,
@@ -372,6 +373,57 @@ def test_header_buttons_read_their_state_for_the_tab(qapp) -> None:
     assert ui.headerActions("pl.list", "locked", 1)[1]["enabled"] is False
     assert [b["label"] for b in ui.headerActions("playlist", "id", 0)] == ["Push"]
     assert ui.headerActions("folder", "x", 0) == []
+
+
+def test_a_header_button_can_say_why_it_is_disabled(qapp) -> None:
+    ui, _notices = _ui(
+        [
+            _kind(),
+            TabAction(
+                "d",
+                "pl.list",
+                "Download",
+                _run,
+                enabled=lambda ref: ref != "off",
+                disabled_reason=lambda ref: "Install the downloader first" if ref == "no" else "",
+            ),
+        ]
+    )
+
+    assert [(b["enabled"], b["reason"]) for b in ui.headerActions("pl.list", "yes", 0)] == [
+        (True, "")
+    ]
+    assert [(b["enabled"], b["reason"]) for b in ui.headerActions("pl.list", "no", 0)] == [
+        (False, "Install the downloader first")
+    ]
+    # Disabled without a sentence: grey, no tooltip.
+    assert [(b["enabled"], b["reason"]) for b in ui.headerActions("pl.list", "off", 0)] == [
+        (False, "")
+    ]
+    with pytest.raises(ValueError, match="not callable"):
+        check_contributions(
+            "pl",
+            [_kind(), TabAction("d", "pl.list", "D", _run, disabled_reason="no")],  # type: ignore[arg-type]
+        )
+
+
+def test_plugins_add_phrases_to_the_meta_line_of_a_local_playlist(qapp) -> None:
+    def raises(_playlist_id: str) -> str:
+        raise RuntimeError("no phrase")
+
+    ui, notices = _ui(
+        [
+            PlaylistMeta(lambda playlist_id: "linked to Pl" if playlist_id == "p1" else ""),
+            PlaylistMeta(lambda playlist_id: "twice" if playlist_id == "p1" else ""),
+            PlaylistMeta(raises),
+        ]
+    )
+
+    assert ui.playlistMeta("p1", 0) == "linked to Pl · twice"
+    assert ui.playlistMeta("p2", 0) == ""
+    assert len(notices) == 1 and "no phrase" in notices[0]
+    with pytest.raises(ValueError, match="not callable"):
+        check_contributions("pl", [PlaylistMeta("text")])  # type: ignore[arg-type]
 
 
 def test_plugin_objects_are_owned_by_the_model_not_by_the_qml(qapp) -> None:

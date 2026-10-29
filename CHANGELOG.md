@@ -16,6 +16,14 @@ All notable changes to MTEE are listed here. The format follows
   tests every plugin passes.
 - Settings rows (group, switch, action, stepper, text field, read-only value, notice and code
   badge) are shared components of the `Mtee` QML module, so plugin pages look like the core.
+- A plugin can open a modal dialog (`open_dialog`), open or focus one of its tabs from any
+  thread (`open_tab`), list work that waits for the user in the Tasks pane (`WaitingItems`),
+  explain why a header button is disabled (`TabAction.disabled_reason`) and add a phrase to the
+  meta line of local playlists (`PlaylistMeta`).
+
+### Fixed
+
+- Entries of the track context menu that are hidden no longer leave an empty band in it.
 
 ## [0.1.0] - 2026-10-15
 

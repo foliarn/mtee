@@ -138,6 +138,7 @@ core is reachable from it.
 | `refresh_ui()` | Asks the core to read the rows, header buttons and cells of the plugin again after its data changed. Any thread. |
 | `run_on_gui(fn)` | Runs `fn()` on the graphical thread, after the current event: a queued call, also when called from the graphical thread. Any thread. A `fn` that raises is logged under the plugin's logger. |
 | `open_dialog(dialog_id, ref)` | Opens one of the plugin's `PluginDialog` as a modal popup over the window. Any thread. `ref` is handed to the dialog's QML. |
+| `open_tab(kind, ref)` | Opens, or focuses when it is already open, a tab of one of the plugin's own `TabKind` (`kind` starts with `<plugin_id>.`, another is refused and logged). Any thread; the tab opens on the graphical thread. |
 
 `files.import_file(source, folder) -> Path` moves a file that is **not in the library yet**
 (for example a download) into a folder of the library and returns its final path. It never
@@ -182,10 +183,13 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   Shuffle and the queue, without "Add to playlist". `data` comes back to the plugin's
   functions with the row.
 - `TabAction(action_id, tab_kind, label, run, icon="", kind="neutral", checked=None,
-  enabled=None)`: a button beside Play and Shuffle. `tab_kind` is a `TabKind.kind` of the
-  plugin or `"playlist"` for local playlists. `label` is a string or a function of the ref;
-  `kind` is `primary`, `neutral`, `ghost` or `toggle` (a chip showing `checked(ref)`);
-  `run`, `checked` and `enabled` receive the ref.
+  enabled=None, disabled_reason=None)`: a button beside Play and Shuffle. `tab_kind` is a
+  `TabKind.kind` of the plugin or `"playlist"` for local playlists. `label` is a string or a
+  function of the ref; `kind` is `primary`, `neutral`, `ghost` or `toggle` (a chip showing
+  `checked(ref)`); `run`, `checked`, `enabled` and `disabled_reason` receive the ref.
+  `enabled` returning `False` greys the button out. `disabled_reason` returns a sentence while
+  the button cannot be used and `""` otherwise: the button is then greyed out and shows the
+  sentence as its tooltip, so the user learns why (a missing dependency, a missing login).
 - `TrackColumn(column_id, title, value_fn, default_visible_for=(), width=112, run_action=None)`:
   a column of the track lists, listed in the column picker with the plugin name and saved like
   the others (key `<plugin_id>.<column_id>`). `value_fn(row)` returns `None` for an empty cell
@@ -221,6 +225,10 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   click outside) and loads the file in it; the file draws the title, fields and buttons with the
   components of `Mtee` and gives its `implicitHeight`. It receives `workspace`, `backend`, `ref`
   and `dialog`, whose `close()` closes the popup. The sample plugin's `dialog.qml` shows it.
+- `PlaylistMeta(text)`: `text(playlist_id)` returns a phrase (for example `linked to Spotify`)
+  or `""`. The core joins the phrases of all plugins to the meta line of the header of every
+  local playlist with ` · `, and reads them again after `refresh_ui()`. `text` runs on the
+  graphical thread while the header is drawn: keep it cheap.
 - `LibraryScanned(callback)`: `callback(root)` is called on the graphical thread after the scan
   of a library folder completed (a folder added, a rescan, or the scan at start). `root` is the
   `Path` of that library folder; the scanned tracks are already in the library. A scan that was

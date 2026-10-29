@@ -25,7 +25,12 @@ Item {
     readonly property int coverSize: compact ? Theme.playlistCoverCompact : Theme.playlistCoverLarge
     readonly property int playRow: 56
     readonly property bool editable: tab.ref !== "liked" && !pluginTab
-    readonly property string metaText: header.details.metaText || header.details.summary || ""
+    // What plugins add to the meta line of a local playlist ("linked to Spotify").
+    readonly property string pluginMeta: pluginUi !== null && !pluginTab
+        ? pluginUi.playlistMeta(tab.ref, pluginUi.revision) : ""
+    readonly property string baseMeta: header.details.metaText || header.details.summary || ""
+    readonly property string metaText: pluginMeta.length > 0
+        ? (baseMeta.length > 0 ? baseMeta + " · " + pluginMeta : pluginMeta) : baseMeta
     // 24 above the cover, the cover, 24, the Play row, 24 below.
     implicitHeight: 24 + coverSize + 24 + playRow + 24
 
@@ -57,6 +62,7 @@ Item {
 
     PlaylistCover {
         id: cover
+        objectName: "playlistCover"
         x: 24; y: 24
         width: header.coverSize; height: width
         source: header.details.coverUrl || ""
@@ -214,6 +220,7 @@ Item {
                         icon: modelData.icon
                         kind: modelData.kind
                         enabledAction: modelData.enabled
+                        tip: modelData.enabled ? "" : (modelData.reason || "")
                         onClicked: header.pluginUi.runHeaderAction(modelData.id, header.tab.ref)
                     }
                 }

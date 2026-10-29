@@ -16,6 +16,7 @@ from PySide6.QtCore import QAbstractItemModel
 from mtee.plugins.api import (
     Contribution,
     LibraryScanned,
+    PlaylistMeta,
     PluginActivity,
     PluginDialog,
     SettingsPage,
@@ -87,6 +88,8 @@ def check_contributions(plugin_id: str, contributions: Sequence[Contribution]) -
     for dialog in dialogs:
         _check_dialog(dialog)
     _unique("dialog", [item.dialog_id for item in dialogs])
+    for meta in (item for item in contributions if isinstance(item, PlaylistMeta)):
+        _need_callable("playlist meta", "text", meta.text)
     for hook in (item for item in contributions if isinstance(item, LibraryScanned)):
         _need_callable("library scan hook", "callback", hook.callback)
 
@@ -150,6 +153,8 @@ def _check_tab_action(action: TabAction, own_kinds: set[str]) -> None:
             "playlist nor a tab kind of this plugin."
         )
     _need_callable("tab action", action.action_id, action.run)
+    if action.disabled_reason is not None:
+        _need_callable("tab action", action.action_id, action.disabled_reason)
     if action.kind not in ("primary", "neutral", "ghost", "toggle"):
         raise ValueError(f"The tab action {action.action_id} has an unknown kind {action.kind!r}.")
 

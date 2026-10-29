@@ -87,7 +87,8 @@ from pathlib import Path
 from PySide6.QtCore import Property, QObject
 
 from mtee.plugins.api import (
-    CellValue, LibraryScanned, PaneAction, PluginActivity, PluginRowsModel, SettingsPage,
+    CellValue, LibraryScanned, PaneAction, PlaylistMeta, PluginActivity, PluginRowsModel,
+    SettingsPage,
     SidebarSection, StartupTask, TabAction, TabHeader, TabKind, TabRequest, TrackAction,
     TrackColumn, TrackListRow, WaitingItems,
 )
@@ -175,6 +176,9 @@ class Service:
                       lambda ref: EVENTS.append("download " + ref), icon="arrow-down"),
             TabAction("watch", "ui_probe.list", "Watch", self._toggle_watch, kind="toggle",
                       checked=lambda ref: self.watching),
+            TabAction("sync", "ui_probe.list", "Sync", lambda ref: EVENTS.append("sync " + ref),
+                      disabled_reason=lambda ref: "Needs the probe account"),
+            PlaylistMeta(lambda playlist_id: "probe linked"),
             TabAction("push", "playlist", "Push to probe",
                       lambda ref: EVENTS.append("push " + ref), kind="ghost"),
             TrackColumn("status", "Probe status", self._cell,
