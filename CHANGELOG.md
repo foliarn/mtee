@@ -8,6 +8,14 @@ All notable changes to MTEE are listed here. The format follows
 ### Added
 
 - MTEE reads the ISRC tag of MP3, FLAC/Ogg and M4A files (not shown yet).
+- Plugins load from the folders the user gives (`--plugin-dir`, or Settings > Plugins). A plugin
+  is imported only once it is switched on, applies its own database migrations, and adds a
+  sidebar section or activity, editor tabs, track list columns, track menu actions, a Settings
+  page and startup tasks. A plugin that fails to start is disabled alone and shown as Failed.
+  The contract is in `docs/plugins.md`; `tests/plugins/` holds a sample plugin and the contract
+  tests every plugin passes.
+- Settings rows (group, switch, action, stepper, text field, read-only value, notice and code
+  badge) are shared components of the `Mtee` QML module, so plugin pages look like the core.
 
 ## [0.1.0] - 2026-10-15
 
