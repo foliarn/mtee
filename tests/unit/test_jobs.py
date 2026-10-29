@@ -74,6 +74,24 @@ def test_a_failing_task_carries_a_structured_error_and_does_not_stay_running(
     assert label_for_status(status) == "Failed"
 
 
+def test_an_error_that_is_a_readable_sentence_is_shown_without_its_class_name(
+    service: JobService,
+) -> None:
+    class NotConnected(Exception):
+        readable = True
+        code = "not_connected"
+
+    def task(context: JobContext) -> None:
+        raise NotConnected("TIDAL is not connected. Log in from Settings > Accounts.")
+
+    job_id = service.submit(task, label="Download")
+
+    assert _wait_until(lambda: service.status(job_id).is_terminal)
+    error = service.status(job_id).error
+    assert error is not None and error.code == "not_connected"
+    assert error.message == "TIDAL is not connected. Log in from Settings > Accounts."
+
+
 def test_a_running_task_observes_its_cancellation(service: JobService) -> None:
     started = threading.Event()
 

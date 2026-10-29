@@ -20,6 +20,7 @@ All notable changes to MTEE are listed here. The format follows
   thread (`open_tab`), list work that waits for the user in the Tasks pane (`WaitingItems`),
   explain why a header button is disabled (`TabAction.disabled_reason`) and add a phrase to the
   meta line of local playlists (`PlaylistMeta`).
+- A job error whose exception says `readable = True` is shown in Tasks as its sentence alone.
 
 ### Fixed
 

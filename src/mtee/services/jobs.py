@@ -137,10 +137,10 @@ class _JobRunnable(QRunnable):
             code = getattr(error, "code", ERROR_UNHANDLED)
             if not isinstance(code, str) or not code:
                 code = ERROR_UNHANDLED
-            # A partial failure reads as a sentence; the failed items carry the detail.
-            message = (
-                str(error) if code in PARTIAL_ERROR_CODES else f"{type(error).__name__}: {error}"
-            )
+            # A partial failure reads as a sentence; the failed items carry the detail. So does
+            # an error that says it is one (``readable = True``, see docs/plugins.md).
+            sentence = code in PARTIAL_ERROR_CODES or getattr(error, "readable", False) is True
+            message = str(error) if sentence else f"{type(error).__name__}: {error}"
             service.finish(job_id, JobState.FAILED, JobError(code=code, message=message))
         else:
             service.finish(job_id, JobState.SUCCEEDED, None)

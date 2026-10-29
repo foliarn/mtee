@@ -282,7 +282,10 @@ The sample plugin's `settings.qml` shows the rows in use.
 - A plugin that produces new files reports them as derived outputs through the core, so they
   are tracked and can be found again.
 - Long work runs as a job through `context.jobs`, with a state, a progress value, a way to
-  cancel and a readable error.
+  cancel and a readable error. Tasks shows an exception as `ClassName: message`; an exception
+  with the class attribute `readable = True` is shown as its message alone, so write that
+  message as a sentence that names the cause and where to fix it. An optional `code` attribute
+  (a string) is kept as the error code of the job.
 - The plugin's UI uses the existing layouts and components. It does not add a new screen layout
   without a review, as the Architecture rules of `AGENTS.md` require.
 - Dependencies a plugin needs are pinned and recorded like any other dependency
