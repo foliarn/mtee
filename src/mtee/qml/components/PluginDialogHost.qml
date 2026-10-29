@@ -38,7 +38,7 @@ Item {
         objectName: "pluginDialog"
         parent: Overlay.overlay
         width: Math.min(480, parent.width - 32)
-        height: loader.height + 40
+        height: (loader.item ? loader.item.implicitHeight : 0) + 40
         x: (parent.width - width) / 2
         y: Math.max(16, (parent.height - height) / 2)
         modal: true
@@ -50,8 +50,6 @@ Item {
 
         contentItem: Loader {
             id: loader
-            width: popup.width - 40
-            height: item ? item.implicitHeight : 0
             onLoaded: {
                 item.workspace = host.workspace
                 item.backend = host.ui.dialogBackend(host.key)
