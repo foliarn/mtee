@@ -1,15 +1,34 @@
-"""A tiny plugin that makes one of each UI contribution, for the tests of plan 121.5.
+"""Helpers for the tests of plugins in the live window (plans 121.5 to 121.7).
 
-``write_ui_plugin`` writes the package ``ui_probe`` into a plugin folder. The plugin keeps
-its calls in ``mtee.plugins.ui_probe.EVENTS`` (a list of strings) so a test can see which
-function the core ran. The first row of its track list plays the first library track; the
-second and third rows have no local file.
+``write_ui_plugin`` writes a tiny plugin, ``ui_probe``, that makes one of each UI
+contribution into a plugin folder. The plugin keeps its calls in
+``mtee.plugins.ui_probe.EVENTS`` (a list of strings) so a test can see which function the
+core ran. The first row of its track list plays the first library track; the second and third
+rows have no local file.
+
+The other helpers start the real application with plugin folders (``start_app``), find QML
+items by object name and click them. The sample plugin tests of ``tests/plugins`` use them too.
 """
 
 from __future__ import annotations
 
+import sys
 import textwrap
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, cast
+
+from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtQuick import QQuickItem, QQuickWindow
+from PySide6.QtTest import QTest
+
+from mtee.app import _build_runtime, _Runtime, create_application
+from mtee.cli import AppOptions
+from mtee.models.workspace_model import WorkspaceModel
+from mtee.persistence.database import Database
+from mtee.persistence.settings_repository import SettingsRepository
+from mtee.plugins.loader import PluginPreferences
+from mtee.services.app_paths import resolve_app_paths
 
 PLUGIN_ID = "ui_probe"
 LIST_KIND = "ui_probe.list"
@@ -175,3 +194,99 @@ def write_ui_plugin(folder: Path) -> Path:
     (package / "page.qml").write_text(textwrap.dedent(_PAGE_QML), encoding="utf-8")
     (package / "settings.qml").write_text(textwrap.dedent(_SETTINGS_QML), encoding="utf-8")
     return package
+
+
+def start_app(
+    data_dir: Path, plugin_dirs: Sequence[Path] = (), enabled: Sequence[str] = ()
+) -> _Runtime:
+    """Start the real application on ``data_dir`` with ``plugin_dirs`` and ``enabled`` switched on.
+
+    The plugin switches are saved first, as Settings > Plugins would save them. The window is
+    1440 x 900, offscreen. Call ``_shutdown(runtime)`` when done; ``start_app`` may be called
+    again on the same ``data_dir`` to restart.
+    """
+    if enabled:
+        paths = resolve_app_paths(data_dir).ensure()
+        database = Database(paths.database_path)
+        database.migrate()
+        preferences = PluginPreferences(SettingsRepository(database))
+        for plugin_id in enabled:
+            preferences.set_enabled(plugin_id, True)
+        database.close()
+    application = create_application(["mtee"])
+    options = AppOptions(
+        data_dir=data_dir, demo=False, scenario="explorer", plugin_dirs=tuple(plugin_dirs)
+    )
+    runtime = _build_runtime(application, options)
+    assert runtime is not None
+    window_of(runtime).resize(1440, 900)
+    return runtime
+
+
+def window_of(runtime: _Runtime) -> QQuickWindow:
+    return cast(QQuickWindow, runtime.engine.rootObjects()[0])
+
+
+def workspace_of(runtime: _Runtime) -> WorkspaceModel:
+    return cast(WorkspaceModel, runtime.workspace)
+
+
+def plugin_ui_of(workspace: WorkspaceModel) -> Any:
+    """The plugin contributions model; QML-facing members are untyped for pyright."""
+    return cast(Any, workspace).pluginUi
+
+
+def plugin_module(plugin_id: str) -> Any:
+    """Return the imported package of a plugin, or ``None`` while it is not imported."""
+    return sys.modules.get(f"mtee.plugins.{plugin_id}")
+
+
+def find_child(root: QQuickItem, name: str) -> QQuickItem | None:
+    """Return the first item named ``name`` at or below ``root``."""
+    pending = [root]
+    while pending:
+        item = pending.pop()
+        if item.objectName() == name:
+            return item
+        pending.extend(item.childItems())
+    return None
+
+
+def find_item(window: QQuickWindow, name: str) -> QQuickItem | None:
+    """Return the first item named ``name`` in the window."""
+    return find_child(window.contentItem(), name)
+
+
+def need_item(window: QQuickWindow, name: str) -> QQuickItem:
+    """Return the item named ``name``, failing the test when it is missing."""
+    item = find_item(window, name)
+    assert item is not None, f"no QML item named {name}"
+    return item
+
+
+def visible_texts(window: QQuickWindow) -> list[str]:
+    """Return the ``text`` of every visible item of the window."""
+    found: list[str] = []
+    pending = [window.contentItem()]
+    while pending:
+        item = pending.pop()
+        text = item.property("text")
+        if isinstance(text, str) and item.isVisible():
+            found.append(text)
+        pending.extend(item.childItems())
+    return found
+
+
+def click(window: QQuickWindow, item: QQuickItem) -> None:
+    """Click the centre of ``item`` with the left mouse button."""
+    centre = item.mapToScene(item.boundingRect().center()).toPoint()
+    QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, centre)
+    QTest.qWait(30)
+
+
+def settle(runtime: _Runtime) -> None:
+    """Let the background jobs and the queued signals finish."""
+    for _ in range(30):
+        runtime.jobs.wait_for_done(500)
+        QCoreApplication.processEvents()
+        QTest.qWait(20)

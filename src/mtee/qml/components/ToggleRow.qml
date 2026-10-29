@@ -40,6 +40,7 @@ Item {
 
     ToggleSwitch {
         id: toggle
+        objectName: "toggle_" + toggleRow.objectName
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         checked: toggleRow.checked

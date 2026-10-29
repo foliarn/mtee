@@ -13,10 +13,24 @@ from typing import Any, cast
 
 import pytest
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QObject, Qt
+from PySide6.QtCore import QObject, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
-from tests.helpers.ui_plugin import LIST_KIND, PAGE_KIND, PLUGIN_ID, write_ui_plugin
+from tests.helpers.ui_plugin import (
+    LIST_KIND,
+    PAGE_KIND,
+    PLUGIN_ID,
+    start_app,
+    write_ui_plugin,
+)
+from tests.helpers.ui_plugin import click as _click
+from tests.helpers.ui_plugin import find_child as _find_child
+from tests.helpers.ui_plugin import find_item as _find
+from tests.helpers.ui_plugin import plugin_ui_of as _plugin_ui
+from tests.helpers.ui_plugin import settle as _settle
+from tests.helpers.ui_plugin import visible_texts as _texts
+from tests.helpers.ui_plugin import window_of as _window
+from tests.helpers.ui_plugin import workspace_of as _workspace
 from tests.ui.track_list_fixtures import add_folder_tracks
 
 import mtee.plugins
@@ -39,74 +53,14 @@ def restore_plugin_path() -> Iterator[None]:
         del sys.modules[name]
 
 
-def _find(window: QQuickWindow, name: str) -> QQuickItem | None:
-    pending = [window.contentItem()]
-    while pending:
-        item = pending.pop()
-        if item.objectName() == name:
-            return item
-        pending.extend(item.childItems())
-    return None
-
-
-def _texts(window: QQuickWindow) -> list[str]:
-    found: list[str] = []
-    pending = [window.contentItem()]
-    while pending:
-        item = pending.pop()
-        text = item.property("text")
-        if isinstance(text, str) and item.isVisible():
-            found.append(text)
-        pending.extend(item.childItems())
-    return found
-
-
-def _click(window: QQuickWindow, item: QQuickItem) -> None:
-    centre = item.mapToScene(item.boundingRect().center()).toPoint()
-    QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, centre)
-    QTest.qWait(30)
-
-
-def _settle(runtime: _Runtime) -> None:
-    for _ in range(30):
-        runtime.jobs.wait_for_done(500)
-        QCoreApplication.processEvents()
-        QTest.qWait(20)
-
-
 def _start(tmp_path: Path, *, folder: bool = True, enabled: bool = True) -> tuple[_Runtime, Any]:
     """Start the real application, optionally with the probe plugin folder and its switch."""
-    data = tmp_path / "data"
     plugins = tmp_path / "plugins"
     write_ui_plugin(plugins)
-    if enabled:
-        paths = resolve_app_paths(data).ensure()
-        database = Database(paths.database_path)
-        database.migrate()
-        PluginPreferences(SettingsRepository(database)).set_enabled(PLUGIN_ID, True)
-        database.close()
-    application = create_application(["mtee"])
-    options = AppOptions(
-        data_dir=data, demo=False, scenario="explorer", plugin_dirs=(plugins,) if folder else ()
+    runtime = start_app(
+        tmp_path / "data", (plugins,) if folder else (), (PLUGIN_ID,) if enabled else ()
     )
-    runtime = _build_runtime(application, options)
-    assert runtime is not None
-    window = cast(QQuickWindow, runtime.engine.rootObjects()[0])
-    window.resize(1440, 900)
     return runtime, sys.modules.get(f"mtee.plugins.{PLUGIN_ID}")
-
-
-def _plugin_ui(workspace: WorkspaceModel) -> Any:
-    """The plugin contributions model; QML-facing members are untyped for pyright."""
-    return cast(Any, workspace).pluginUi
-
-
-def _workspace(runtime: _Runtime) -> WorkspaceModel:
-    return cast(WorkspaceModel, runtime.workspace)
-
-
-def _window(runtime: _Runtime) -> QQuickWindow:
-    return cast(QQuickWindow, runtime.engine.rootObjects()[0])
 
 
 def test_without_a_plugin_folder_nothing_is_added(qapp, tmp_path: Path) -> None:
@@ -297,16 +251,6 @@ def _rows(workspace: WorkspaceModel, source: str) -> list[dict[str, Any]]:
     model = workspace._active_track_model(source)
     assert model is not None
     return model.rows_snapshot()
-
-
-def _find_child(root: QQuickItem, name: str) -> QQuickItem | None:
-    pending = [root]
-    while pending:
-        item = pending.pop()
-        if item.objectName() == name:
-            return item
-        pending.extend(item.childItems())
-    return None
 
 
 def test_play_skips_the_rows_without_a_local_file(qapp, tmp_path: Path) -> None:

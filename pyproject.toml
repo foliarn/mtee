@@ -64,6 +64,8 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 "src/mtee/models/*.py" = ["N802", "N815"]
 "src/mtee/plugins/conversion/models.py" = ["N802", "N815"]
 "src/mtee/plugins/context.py" = ["N802", "N815"]
+# The sample plugin shows what QML reads: Qt slots and properties keep their camelCase names.
+"tests/plugins/sample/*.py" = ["N802", "N815"]
 "src/mtee/platform/windows_frame.py" = ["N802", "N815"]
 "src/mtee/services/jobs.py" = ["N815"]
 "src/mtee/services/player_service.py" = ["N815"]
