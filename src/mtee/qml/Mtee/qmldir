@@ -16,3 +16,5 @@ ProgressLine 1.0 ProgressLine.qml
 PaneHeader 1.0 PaneHeader.qml
 ToggleSwitch 1.0 ToggleSwitch.qml
 SectionLabel 1.0 SectionLabel.qml
+FilterChip 1.0 ../components/FilterChip.qml
+CheckLine 1.0 ../components/CheckLine.qml

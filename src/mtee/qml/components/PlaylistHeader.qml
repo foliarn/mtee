@@ -11,14 +11,31 @@ Item {
     required property var workspace
     required property var tab
     required property var trackModel
-    readonly property var details: { workspace.revision; return workspace.playlistModel.details(tab.ref) }
+    // A tab of a plugin lists its rows like a playlist; the plugin describes the header.
+    readonly property var pluginUi: workspace.pluginUi || null
+    readonly property bool pluginTab: pluginUi !== null && pluginUi.isTrackList(tab.kind)
+    readonly property var details: {
+        workspace.revision
+        return pluginTab ? pluginUi.tabHeader(tab.kind, tab.ref, pluginUi.revision) : workspace.playlistModel.details(tab.ref)
+    }
+    // Buttons that plugins add beside Play and Shuffle, for this tab kind (or local playlists).
+    readonly property var pluginActions: pluginUi !== null
+        ? pluginUi.headerActions(tab.kind, tab.ref, pluginUi.revision) : []
     readonly property bool compact: width < 800
     readonly property int coverSize: compact ? Theme.playlistCoverCompact : Theme.playlistCoverLarge
     readonly property int playRow: 56
-    readonly property bool editable: tab.ref !== "liked"
+    readonly property bool editable: tab.ref !== "liked" && !pluginTab
     readonly property string metaText: header.details.metaText || header.details.summary || ""
     // 24 above the cover, the cover, 24, the Play row, 24 below.
     implicitHeight: 24 + coverSize + 24 + playRow + 24
+
+    // Play and Shuffle skip the rows without a local file, in a local playlist and in a plugin list.
+    function play(shuffled) {
+        if (pluginTab)
+            workspace.playPluginRows(tab.kind, tab.ref, trackModel.rows, shuffled)
+        else
+            workspace.playPlaylistRows(tab.ref, trackModel.rows, shuffled)
+    }
 
     // Soft shadow behind the cover, drawn by a rounded plate under it.
     Rectangle {
@@ -96,7 +113,7 @@ Item {
 
         Text {
             objectName: "playlistKind"
-            text: "Playlist"
+            text: header.pluginTab ? header.details.kindLabel : "Playlist"
             color: Theme.textPrimary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSecondary
@@ -138,20 +155,22 @@ Item {
             spacing: 6
             Text {
                 id: creatorText
-                text: header.workspace.playlistModel.creator
+                visible: text.length > 0
+                text: header.pluginTab ? (header.details.creator || "") : header.workspace.playlistModel.creator
                 color: Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
                 font.weight: Font.DemiBold
             }
             Text {
+                visible: creatorText.visible
                 text: "•"
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
             }
             Text {
-                width: Math.max(0, parent.width - creatorText.width - 2 * parent.spacing - 12)
+                width: Math.max(0, parent.width - (creatorText.visible ? creatorText.width + 2 * parent.spacing + 12 : 0))
                 text: header.metaText
                 elide: Text.ElideRight
                 color: Theme.textSecondary
@@ -172,13 +191,43 @@ Item {
             icon: "play"; iconSize: 24; iconColor: Theme.editor
             color: Theme.primary; radius: width / 2; hoverColor: Theme.editor
             tip: "Play visible tracks"
-            onClicked: header.workspace.playPlaylistRows(header.tab.ref, header.trackModel.rows, false)
+            onClicked: header.play(false)
         }
         IconButton {
             objectName: "playlistShuffle"
             anchors.verticalCenter: parent.verticalCenter
             icon: "shuffle"; iconSize: 24; tip: "Shuffle visible tracks"
-            onClicked: header.workspace.playPlaylistRows(header.tab.ref, header.trackModel.rows, true)
+            onClicked: header.play(true)
+        }
+        Repeater {
+            model: header.pluginActions
+            delegate: Loader {
+                required property var modelData
+                anchors.verticalCenter: parent.verticalCenter
+                sourceComponent: modelData.kind === "toggle" ? chipAction : buttonAction
+
+                Component {
+                    id: buttonAction
+                    TextButton {
+                        objectName: "pluginHeaderAction_" + modelData.id
+                        text: modelData.label
+                        icon: modelData.icon
+                        kind: modelData.kind
+                        enabledAction: modelData.enabled
+                        onClicked: header.pluginUi.runHeaderAction(modelData.id, header.tab.ref)
+                    }
+                }
+                Component {
+                    id: chipAction
+                    FilterChip {
+                        objectName: "pluginHeaderAction_" + modelData.id
+                        implicitHeight: 32
+                        text: modelData.label
+                        checked: modelData.checked
+                        onToggled: header.pluginUi.runHeaderAction(modelData.id, header.tab.ref)
+                    }
+                }
+            }
         }
     }
 }

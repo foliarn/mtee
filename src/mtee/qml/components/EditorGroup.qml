@@ -111,7 +111,8 @@ Rectangle {
                             : tab.modelData.kind === "tasks" ? "tasks"
                             : tab.modelData.kind === "artists" || tab.modelData.kind === "artist" ? "artists"
                             : tab.modelData.kind === "profile" ? "profile"
-                            : "settings"
+                            : tab.modelData.kind === "settings" ? "settings"
+                            : tab.modelData.icon || "settings"
                         size: 15
                         color: tab.isActive ? Theme.primary : Theme.textMuted
                     }
@@ -197,6 +198,7 @@ Rectangle {
             : group.activeTab.kind === "profile" ? profileComponent
             : group.activeTab.kind === "tasks" ? tasksComponent
             : group.activeTab.kind === "artists" ? artistCatalogComponent
+            : group.workspace.pluginUi && group.workspace.pluginUi.tabQml(group.activeTab.kind).length > 0 ? pluginTabComponent
             : listComponent
     }
 
@@ -220,6 +222,28 @@ Rectangle {
                 "workspace": group.workspace,
                 "bottomInset": group.bottomInset
             })
+        }
+    }
+
+    // A tab of a plugin whose content is a QML file of the plugin. The public tree names no
+    // plugin type: the file is loaded by URL and gets the workspace and the plugin's backend.
+    Component {
+        id: pluginTabComponent
+        Loader {
+            anchors.fill: parent
+            readonly property string kind: group.activeTab ? group.activeTab.kind : ""
+            function load() {
+                setSource(group.workspace.pluginUi.tabQml(kind), {
+                    "workspace": group.workspace,
+                    "groupIndex": group.groupIndex,
+                    "bottomInset": group.bottomInset,
+                    "backend": group.workspace.pluginUi.tabBackend(kind)
+                })
+            }
+            Component.onCompleted: load()
+            onKindChanged: load()
+            // The page follows the tab that is active in this group.
+            onLoaded: item.tab = Qt.binding(() => group.activeTab)
         }
     }
 

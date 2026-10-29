@@ -238,6 +238,8 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         reuseItems: true
         model: pane.treeModel || pane.workspace.explorerRows
+        // The sections of the plugins that chose the Explorer: none without a plugin.
+        footer: PluginSections { workspace: pane.workspace; activity: "explorer"; width: tree.width }
         ScrollBar.vertical: ThinScrollBar {}
         WheelScrollHandler {
             flickable: tree

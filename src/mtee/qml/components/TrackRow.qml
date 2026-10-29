@@ -92,7 +92,8 @@ Rectangle {
     signal playlistRequested(var anchor)
 
     height: Theme.rowHeight
-    opacity: available ? 1 : 0.55
+    // A row without a local file is greyed cell by cell, so the badge of a plugin column and the
+    // buttons of the row stay readable.
     color: "transparent"
     Accessible.name: row.track.title + (row.track.artist.length > 0 ? " — " + row.track.artist : "")
 
@@ -184,6 +185,7 @@ Rectangle {
         x: row.columns.padding
         width: row.columns.playSlot
         anchors.verticalCenter: parent.verticalCenter
+        opacity: row.available ? 1 : 0.55
         visible: !playButton.visible && row.track.number !== undefined
         horizontalAlignment: Text.AlignHCenter
         text: row.track.number !== undefined ? String(row.track.number) : ""
@@ -225,8 +227,40 @@ Rectangle {
                     return String(values[columnKey] || "")
                 }
 
+                // The cell of a plugin column: a badge ({text, tone}) written by the core from the
+                // column's value function.
+                readonly property var pluginCell: row.track.plugin !== undefined
+                    && row.track.plugin[columnKey] !== undefined ? row.track.plugin[columnKey] : null
+
                 width: modelData.width
                 height: row.height
+                opacity: row.available || pluginCell !== null ? 1 : 0.55
+
+                Rectangle {
+                    id: pluginBadge
+                    objectName: "pluginBadge_" + field.columnKey
+                    visible: field.pluginCell !== null
+                    anchors.verticalCenter: parent.verticalCenter
+                    readonly property string tone: field.pluginCell ? field.pluginCell.tone : "neutral"
+                    // The outline of a neutral badge, the tone colour otherwise, on a 14 % tint.
+                    readonly property color toneColor: tone === "warning" ? Theme.warning
+                        : tone === "secondary" ? Theme.secondary : Theme.separator
+                    width: badgeText.implicitWidth + 14
+                    height: 20
+                    radius: Theme.badgeRadius
+                    color: tone === "neutral" ? "transparent" : Qt.alpha(toneColor, 0.14)
+                    border.width: 1
+                    border.color: toneColor
+
+                    Text {
+                        id: badgeText
+                        anchors.centerIn: parent
+                        text: field.pluginCell ? field.pluginCell.text : ""
+                        color: pluginBadge.tone === "neutral" ? Theme.textSecondary : pluginBadge.toneColor
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+                }
 
                 CoverArt {
                     id: cover
@@ -275,7 +309,7 @@ Rectangle {
                 }
 
                 Text {
-                    visible: field.columnKey !== "title" && field.columnKey !== "key"
+                    visible: field.columnKey !== "title" && field.columnKey !== "key" && field.pluginCell === null
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width
                     horizontalAlignment: field.columnKey === "bpm" || field.columnKey === "duration"
@@ -318,6 +352,7 @@ Rectangle {
                 objectName: "trackAdd_" + row.track.id
                 anchors.verticalCenter: parent.verticalCenter
                 hoverBackground: false
+                visible: row.available
                 icon: row.inPlaylist ? "check" : "add-playlist"
                 iconSize: 18
                 iconColor: row.inPlaylist ? Theme.secondary
@@ -327,8 +362,19 @@ Rectangle {
                 onClicked: row.playlistRequested(addButton)
             }
 
+            // A plugin names one button for its rows (a download, a review): the column's handler runs it.
             TextButton {
-                visible: !row.available
+                objectName: "trackRowAction"
+                visible: (row.track.rowAction || "").length > 0
+                anchors.verticalCenter: parent.verticalCenter
+                implicitHeight: 28
+                text: row.track.rowAction || ""; kind: "ghost"
+                onClicked: row.workspace.pluginUi.runRowAction(row.track)
+            }
+            // Only a playlist entry can be located; a row of a plugin list has no entry.
+            TextButton {
+                visible: !row.available && (row.track.rowAction || "").length === 0
+                    && (row.track.entryId || "").length > 0
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Locate"; kind: "ghost"
                 onClicked: row.workspace.playlistModel.requestUI("locate", row.track.entryId, [row.track.id])

@@ -17,6 +17,7 @@ Rectangle {
             : sidebar.workspace.activity === "convert" ? convertPane
             : sidebar.workspace.activity === "tasks" ? tasksPane
             : sidebar.workspace.activity === "artists" ? (sidebar.workspace.artistList ? artistsPane : artistsUnavailablePane)
+            : sidebar.workspace.activity.indexOf(".") > 0 ? pluginPane
             : explorerPane
     }
 
@@ -31,6 +32,8 @@ Rectangle {
             Component.onCompleted: setSource("ConvertPane.qml", { "workspace": sidebar.workspace })
         }
     }
+    // The pane of an activity that a plugin owns, drawn from its contributions.
+    Component { id: pluginPane; PluginPane { workspace: sidebar.workspace; activity: sidebar.workspace.activity } }
     Component { id: tasksPane; TasksPane { workspace: sidebar.workspace } }
     Component { id: artistsPane; ArtistsPane { workspace: sidebar.workspace } }
     Component {

@@ -19,15 +19,27 @@ Rectangle {
     property string page: workspace.settingsPageForGroup(groupIndex)
     readonly property var analysis: workspace.analysisSettings
     readonly property var playback: workspace.playbackSettings
-    readonly property var categories: [
-        { "key": "general", "label": "General" },
-        { "key": "library", "label": "Library" },
-        { "key": "playback", "label": "Playback" },
-        { "key": "analysis", "label": "Analysis" },
-        { "key": "shortcuts", "label": "Keyboard shortcuts" },
-        { "key": "privacy", "label": "Data & privacy" },
-        { "key": "about", "label": "About" }
-    ]
+    // The Plugins page exists only when a plugin folder is set; the Settings pages of the running
+    // plugins follow it, before About.
+    readonly property var pluginSettings: workspace.pluginSettings || null
+    readonly property bool pluginsAvailable: pluginSettings !== null && pluginSettings.available
+    readonly property var pluginPages: workspace.pluginUi ? workspace.pluginUi.settingsPages : []
+    readonly property var categories: {
+        const pages = [
+            { "key": "general", "label": "General" },
+            { "key": "library", "label": "Library" },
+            { "key": "playback", "label": "Playback" },
+            { "key": "analysis", "label": "Analysis" },
+            { "key": "shortcuts", "label": "Keyboard shortcuts" },
+            { "key": "privacy", "label": "Data & privacy" }
+        ]
+        if (pluginsAvailable)
+            pages.push({ "key": "plugins", "label": "Plugins" })
+        for (const page of pluginPages)
+            pages.push(page)
+        pages.push({ "key": "about", "label": "About" })
+        return pages
+    }
     readonly property bool privacyAvailable: typeof dataPrivacy !== "undefined"
     readonly property bool rulesAvailable: typeof artistRules !== "undefined"
     readonly property bool historyAvailable: typeof workspace.playerModel !== "undefined"
@@ -50,6 +62,18 @@ Rectangle {
         sequence: "Esc"
         enabled: settings.dialog.length > 0
         onActivated: settings.dialog = ""
+    }
+
+    // The last plugin folder was removed: the Plugins page is gone, so show General.
+    onPluginsAvailableChanged: {
+        if (!pluginsAvailable && page === "plugins")
+            workspace.setSettingsPageForGroup(groupIndex, "general")
+    }
+
+    FolderDialog {
+        id: pluginFolderPicker
+        title: "Add a plugin folder"
+        onAccepted: settings.pluginSettings.addFolder(selectedFolder.toString())
     }
 
     Connections {
@@ -94,7 +118,8 @@ Rectangle {
             Flickable {
                 id: tabFlick
                 objectName: "settingsTabs"
-                width: content.width
+                // With plugin pages the tabs may not fit the 720 px column: the strip takes the page width.
+                width: settings.pluginsAvailable || settings.pluginPages.length > 0 ? settings.width - 48 : content.width
                 height: Theme.tabHeight
                 contentWidth: tabRow.width
                 contentHeight: Theme.tabHeight
@@ -564,6 +589,132 @@ Rectangle {
                 }
             }
 
+            // Plugins: the plugins found in the folders the user gave, and those folders. A switch
+            // only saves the choice; it applies the next time MTEE starts.
+            Column {
+                objectName: "pluginsSettings"
+                width: content.width
+                visible: settings.page === "plugins" && settings.pluginsAvailable
+                spacing: 0
+
+                Group { title: "Plugins" }
+
+                Text {
+                    width: parent.width
+                    topPadding: 8
+                    bottomPadding: 8
+                    wrapMode: Text.WordWrap
+                    text: "Plugins add features to MTEE. A plugin's code runs only while it is switched on, and a plugin that cannot start is switched off alone. Changes apply the next time MTEE starts."
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Repeater {
+                    model: settings.pluginsAvailable ? settings.pluginSettings.plugins : []
+                    delegate: PluginRow { required property var modelData; plugin: modelData }
+                }
+
+                Group { title: "Plugin folders" }
+
+                Text {
+                    width: parent.width
+                    topPadding: 8
+                    bottomPadding: 8
+                    wrapMode: Text.WordWrap
+                    text: "MTEE looks for plugins only in these folders, and reads their manifests first. A folder given with --plugin-dir is added here."
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Repeater {
+                    model: settings.pluginsAvailable ? settings.pluginSettings.folders : []
+                    delegate: Item {
+                        id: folderRow
+                        required property var modelData
+                        width: content.width
+                        height: 52
+
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: removeFolder.left
+                            anchors.rightMargin: 24
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+
+                            Text {
+                                width: parent.width
+                                text: folderRow.modelData.path
+                                elide: Text.ElideMiddle
+                                color: Theme.textPrimary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeBody
+                            }
+
+                            Text {
+                                text: folderRow.modelData.found
+                                    ? folderRow.modelData.count + (folderRow.modelData.count === 1 ? " plugin found" : " plugins found")
+                                    : "This folder no longer exists. It is skipped."
+                                color: folderRow.modelData.found ? Theme.textSecondary : Theme.warning
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSmall
+                            }
+                        }
+
+                        TextButton {
+                            id: removeFolder
+                            objectName: "removePluginFolder"
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            implicitHeight: 28
+                            kind: "ghost"
+                            text: "Remove"
+                            onClicked: settings.pluginSettings.removeFolder(folderRow.modelData.path)
+                        }
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: Theme.separator
+                        }
+                    }
+                }
+
+                Item {
+                    width: parent.width
+                    height: 52
+
+                    TextButton {
+                        objectName: "addPluginFolder"
+                        anchors.verticalCenter: parent.verticalCenter
+                        implicitHeight: 28
+                        kind: "ghost"
+                        text: "Add folder…"
+                        onClicked: pluginFolderPicker.open()
+                    }
+                }
+            }
+
+            // The Settings pages of the running plugins: a QML file of the plugin, loaded by URL.
+            Repeater {
+                model: settings.pluginPages
+                delegate: Loader {
+                    id: pluginPage
+                    required property var modelData
+                    objectName: "pluginPage_" + modelData.key
+                    width: content.width
+                    visible: settings.page === modelData.key
+                    active: visible
+                    onLoaded: {
+                        item.workspace = settings.workspace
+                        item.backend = settings.workspace.pluginUi.settingsPageBackend(modelData.key)
+                    }
+                    source: settings.workspace.pluginUi.settingsPageQml(modelData.key)
+                }
+            }
+
             // About: the version comes from the application (mtee.__version__).
             Column {
                 objectName: "aboutSettings"
@@ -754,6 +905,146 @@ Rectangle {
 
         Rectangle { width: parent.width; height: 1; color: Theme.separator }
     }
+
+    // A plugin of Settings > Plugins: name, version, network badge, description, state and switch.
+    component PluginRow: Item {
+        id: pluginRow
+
+        property var plugin: ({})
+        readonly property string status: plugin.status
+        readonly property bool failed: status === "failed"
+
+        objectName: "pluginRow_" + plugin.id
+        width: content.width
+        height: Math.max(64, rowBody.implicitHeight + 24)
+
+        Column {
+            id: rowBody
+            anchors.left: parent.left
+            anchors.right: rowControls.left
+            anchors.rightMargin: 24
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 3
+
+            Row {
+                spacing: 8
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: pluginRow.plugin.title
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeBody
+                }
+
+                Text {
+                    visible: pluginRow.plugin.version.length > 0
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "v" + pluginRow.plugin.version
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Rectangle {
+                    visible: pluginRow.plugin.network
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: networkText.implicitWidth + 12
+                    height: 18
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Theme.separator
+                    radius: Theme.badgeRadius
+
+                    Text {
+                        id: networkText
+                        anchors.centerIn: parent
+                        text: "Uses network"
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeCaption
+                    }
+                }
+            }
+
+            Text {
+                width: parent.width
+                text: pluginRow.plugin.description
+                wrapMode: Text.WordWrap
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
+            Row {
+                visible: pluginRow.plugin.error.length > 0
+                width: parent.width
+                spacing: 6
+                topPadding: 2
+
+                Icon {
+                    name: "alert"
+                    size: 14
+                    color: Theme.danger
+                }
+
+                Text {
+                    objectName: "pluginError"
+                    width: parent.width - 20
+                    text: pluginRow.plugin.error
+                    wrapMode: Text.WordWrap
+                    color: Theme.danger
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+            }
+
+            Text {
+                visible: pluginRow.plugin.pending.length > 0
+                width: parent.width
+                topPadding: 2
+                text: pluginRow.plugin.pending
+                wrapMode: Text.WordWrap
+                color: Theme.warning
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+        }
+
+        Row {
+            id: rowControls
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 12
+
+            Text {
+                objectName: "pluginStatus"
+                width: 64
+                anchors.verticalCenter: parent.verticalCenter
+                horizontalAlignment: Text.AlignRight
+                text: pluginRow.status === "running" ? "Running" : pluginRow.failed ? "Failed" : "Disabled"
+                color: pluginRow.status === "running" ? Theme.primary : pluginRow.failed ? Theme.danger : Theme.textMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
+            ToggleSwitch {
+                objectName: "pluginSwitch"
+                anchors.verticalCenter: parent.verticalCenter
+                enabled: pluginRow.plugin.switchable
+                checked: pluginRow.plugin.enabled
+                onToggled: (checked) => settings.pluginSettings.setEnabled(pluginRow.plugin.id, checked)
+            }
+        }
+
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            color: Theme.separator
+        }
+    }
+
 
     component ToggleRow: Item {
         id: toggleRow

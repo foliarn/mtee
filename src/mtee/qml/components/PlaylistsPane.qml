@@ -30,6 +30,8 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         model: pane.live ? pane.playlistsModel.tree : pane.workspace.playlists
+        // The sections of the plugins that chose Playlists, below the local tree.
+        footer: PluginSections { workspace: pane.workspace; activity: "playlists"; width: tree.width }
         ScrollBar.vertical: ThinScrollBar {}
         DropArea {
             anchors.fill: parent

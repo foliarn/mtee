@@ -53,7 +53,12 @@ FocusScope {
         if (selectionIds.length === 0)
             list.currentIndex = -1
     }
-    readonly property bool isPlaylist: tab.kind === "playlist" && modelBacked
+    // A track list of a plugin tab kind is laid out like a playlist, with its own saved columns.
+    readonly property var pluginUi: workspace.pluginUi || null
+    readonly property bool isPluginList: modelBacked && pluginUi !== null && pluginUi.isTrackList(tab.kind)
+    readonly property bool isPlaylist: (tab.kind === "playlist" || isPluginList) && modelBacked
+    // The kind that decides which plugin columns start visible.
+    readonly property string columnKind: isPluginList ? tab.kind : "playlist"
     readonly property bool isArtist: tab.kind === "artist" && modelBacked
     property bool playlistSearchOpen: false
     readonly property var playlistOptions: ["title", "artist", "album", "bpm", "key", "duration"]
@@ -64,6 +69,17 @@ FocusScope {
     function asArray(value) {
         return value !== undefined && value !== null && typeof value.length === "number"
             ? Array.from(value) : null
+    }
+
+    // The saved layout of a playlist or plugin list (read again when the plugins' revision moves).
+    readonly property var playlistPreferences: !isPlaylist ? null
+        : isPluginList ? pluginUi.tabColumns(tab.kind, pluginUi.revision) : workspace.playlistModel.columns
+
+    function savePlaylistColumns(prefs) {
+        if (isPluginList)
+            pluginUi.setTabColumns(tab.kind, prefs)
+        else
+            workspace.playlistModel.setColumns(prefs)
     }
 
     readonly property var columns: {
@@ -85,7 +101,11 @@ FocusScope {
             { key: "fileCreatedAt", label: "Date created" },
             { key: "fileModifiedAt", label: "Date modified" }
         ]
-        const options = (view.workspace.columnOptions || fallbackOptions).filter(o => !view.isPlaylist || view.playlistOptions.indexOf(o.key) >= 0)
+        // Plugin columns can be shown in any playlist and in the lists of plugins.
+        const pluginOptions = view.isPlaylist && view.pluginUi !== null ? view.pluginUi.columnOptions : []
+        const options = (view.workspace.columnOptions || fallbackOptions)
+            .filter(o => !view.isPlaylist || view.playlistOptions.indexOf(o.key) >= 0)
+            .concat(pluginOptions)
         const defaults = options.length > 0
             ? options.map((option) => option.key)
             : ["title", "artist", "album", "genre", "bpm", "key", "duration", "format", "filename", "bitrate", "fileCreatedAt", "fileModifiedAt"]
@@ -99,14 +119,18 @@ FocusScope {
             widths: baseWidths,
             showArtwork: true
         }
-        const preferences = view.isPlaylist ? view.workspace.playlistModel.columns : (view.workspace.columnPreferences || fallbackPreferences)
+        for (const option of pluginOptions)
+            baseWidths[option.key] = option.width
+        const preferences = view.playlistPreferences !== null ? view.playlistPreferences : (view.workspace.columnPreferences || fallbackPreferences)
         const configuredOrder = view.asArray(preferences.order) || defaults
         const order = configuredOrder.filter((key, index) => defaults.indexOf(key) >= 0 && configuredOrder.indexOf(key) === index)
         for (const key of defaults) {
             if (order.indexOf(key) < 0)
                 order.push(key)
         }
-        const hidden = view.asArray(preferences.hidden) || ["album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"]
+        const hidden = view.isPlaylist && view.pluginUi !== null
+            ? view.asArray(view.pluginUi.hiddenColumns(view.columnKind, preferences)) || []
+            : view.asArray(preferences.hidden) || ["album", "genre", "duration", "format", "filename", "bitrate", "fileModifiedAt"]
         let keys = order.filter((key) => hidden.indexOf(key) < 0)
         if (keys.length === 0)
             keys = ["title"]
@@ -248,7 +272,7 @@ FocusScope {
         item.dragTrackIds = payload.trackIds
         item.dragCanAdd = payload.canAdd
         item.dragSource = view.source
-        item.dragVersion = view.isPlaylist ? Number(view.workspace.playlistModel.details(view.tab.ref).version) : -1
+        item.dragVersion = view.isPlaylist && !view.isPluginList ? Number(view.workspace.playlistModel.details(view.tab.ref).version) : -1
         item.dragPrepared = true
         dragSession.dragTrackIds = item.dragTrackIds
         dragSession.dragEntryIds = item.dragEntryIds
@@ -526,26 +550,32 @@ FocusScope {
             objectName: "columnChooserMenu"
 
             AppMenuItem { text: "COLUMNS"; enabled: false }
-            AppMenuItem { text: "Custom order"; visible: view.isPlaylist; onTriggered: view.workspace.customPlaylistOrder(view.tab.id) }
+            AppMenuItem { text: "Custom order"; visible: view.isPlaylist && !view.isPluginList; onTriggered: view.workspace.customPlaylistOrder(view.tab.id) }
 
             Instantiator {
-                model: view.workspace.columnOptions.filter(o => !view.isPlaylist || view.playlistOptions.indexOf(o.key) >= 0)
+                // The core columns, then the columns of plugins with the plugin's name on the right.
+                model: view.workspace.columnOptions
+                    .filter(o => !view.isPlaylist || view.playlistOptions.indexOf(o.key) >= 0)
+                    .concat(view.isPlaylist && view.pluginUi !== null ? view.pluginUi.columnOptions : [])
                 delegate: AppMenuItem {
                     required property var modelData
                     objectName: "columnOption_" + modelData.key
                     text: modelData.label
+                    hint: modelData.plugin ? modelData.plugin + " plugin" : ""
                     checkable: true
                     checked: view.columns.keys.indexOf(modelData.key) >= 0
                     mark: checked
                     enabled: view.isPlaylist ? (!checked || view.columns.keys.length > 1) : checked || view.columns.keys.length > 1
                     onTriggered: {
-                        if (view.isPlaylist) {
-                            const prefs = Object.assign({}, view.workspace.playlistModel.columns)
+                        if (view.isPlaylist && modelData.plugin) {
+                            view.savePlaylistColumns(view.pluginUi.toggledColumns(view.columnKind, view.playlistPreferences, modelData.key))
+                        } else if (view.isPlaylist) {
+                            const prefs = Object.assign({}, view.playlistPreferences)
                             let hidden = Array.from(prefs.hidden)
                             if (hidden.indexOf(modelData.key) >= 0) hidden = hidden.filter(k => k !== modelData.key)
                             else if (hidden.length < 5) hidden.push(modelData.key)
                             prefs.hidden = hidden
-                            view.workspace.playlistModel.setColumns(prefs)
+                            view.savePlaylistColumns(prefs)
                         } else view.workspace.toggleColumn(view.tab.id, modelData.key)
                     }
                 }
@@ -562,9 +592,9 @@ FocusScope {
                 mark: checked
                 onTriggered: {
                     if (view.isPlaylist) {
-                        const prefs = Object.assign({}, view.workspace.playlistModel.columns)
+                        const prefs = Object.assign({}, view.playlistPreferences)
                         prefs.showArtwork = !checked
-                        view.workspace.playlistModel.setColumns(prefs)
+                        view.savePlaylistColumns(prefs)
                     } else view.workspace.setShowArtwork(!checked)
                 }
             }
@@ -573,7 +603,9 @@ FocusScope {
                 text: "Reset columns"
                 onTriggered: {
                     view.localColumnWidths = ({})
-                    if (view.isPlaylist) view.workspace.playlistModel.resetColumns(); else view.workspace.resetColumns()
+                    if (view.isPluginList) view.pluginUi.resetTabColumns(view.tab.kind)
+                    else if (view.isPlaylist) view.workspace.playlistModel.resetColumns()
+                    else view.workspace.resetColumns()
                 }
             }
         }
@@ -830,6 +862,7 @@ FocusScope {
                         contextMenu.trackIds = view.selectionIds
                         contextMenu.orderedIds = view.orderedIds
                         contextMenu.captureQueueTargets()
+                        contextMenu.prepare(modelData.available !== false)
                         contextMenu.popup(trackRow, x, y)
                     }
                 }
@@ -1042,7 +1075,7 @@ FocusScope {
                     onClicked: view.workspace.toggleLike(tile.modelData.trackId || tile.modelData.id)
                 }
                 IconButton { visible: tile.modelData.available !== false; icon: "add-playlist"; iconSize: 18; tip: "Add to playlist"; onClicked: view.openPlaylistMenu(this, tile.modelData.id) }
-                TextButton { visible: tile.modelData.available === false && view.isPlaylist; text: "Locate"; onClicked: view.workspace.playlistModel.requestUI("locate", tile.modelData.entryId, [tile.modelData.id]) }
+                TextButton { visible: tile.modelData.available === false && view.isPlaylist && !view.isPluginList; text: "Locate"; onClicked: view.workspace.playlistModel.requestUI("locate", tile.modelData.entryId, [tile.modelData.id]) }
             }
             MouseArea {
                 id: tileMouse
@@ -1058,6 +1091,7 @@ FocusScope {
                         contextMenu.trackIds = view.selectionIds
                         contextMenu.orderedIds = view.orderedIds
                         contextMenu.captureQueueTargets()
+                        contextMenu.prepare(tile.modelData.available !== false)
                         contextMenu.popup(tile, event.x, event.y)
                     }
                 }

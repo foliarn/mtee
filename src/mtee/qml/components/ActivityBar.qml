@@ -38,6 +38,14 @@ Rectangle {
         }
         ActivityButton { activity: "tasks"; icon: "tasks"; tip: "Tasks"; badge: bar.runningTasks }
         ActivityButton { activity: "artists"; icon: "artists"; tip: "Artists" }
+        // The activities that plugins own: none without a plugin.
+        Repeater {
+            model: bar.workspace.pluginUi ? bar.workspace.pluginUi.activities : []
+            delegate: ActivityButton {
+                required property var modelData
+                activity: modelData.id; icon: modelData.icon; tip: modelData.tip
+            }
+        }
         ActivityButton {
             visible: bar.workspace.pluginUiEnabled
             activity: "plugins"
