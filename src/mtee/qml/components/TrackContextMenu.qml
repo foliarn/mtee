@@ -20,14 +20,12 @@ AppMenu {
 
     AppMenuItem {
         visible: menu.rowAvailable
-        height: visible ? implicitHeight : 0
         text: "Play"
         hint: "Enter"
         onTriggered: menu.workspace.playTrack(menu.trackId, menu.source)
     }
     AppMenuItem {
         visible: menu.rowAvailable
-        height: visible ? implicitHeight : 0
         objectName: "addToQueueAction"
         text: "Add to queue"
         onTriggered: menu.workspace.enqueueTracks(menu.queueTargets, menu.queueSource, [])
@@ -35,7 +33,6 @@ AppMenu {
 
     AppMenuItem {
         visible: menu.rowAvailable
-        height: visible ? implicitHeight : 0
         text: "Edit info"
         hint: "Ctrl+I"
         onTriggered: menu.workspace.showRightPanel("info")
@@ -43,7 +40,6 @@ AppMenu {
 
     AppMenuItem {
         visible: menu.rowAvailable
-        height: visible ? implicitHeight : 0
         text: "Add to playlist…"
         onTriggered: playlistPopup.popup(menu.parent, menu.x, menu.y)
     }
@@ -65,7 +61,7 @@ AppMenu {
         onTriggered: menu.workspace.movePlaylistEntry(menu.source, menu.trackId, 1)
     }
 
-    AppMenuSeparator { visible: menu.rowAvailable; height: visible ? implicitHeight : 0 }
+    AppMenuSeparator { visible: menu.rowAvailable }
 
     AppMenuItem {
         visible: menu.workspace.pluginUiEnabled
@@ -79,19 +75,17 @@ AppMenu {
     AppMenuItem {
         objectName: "analyzeAction"
         visible: menu.rowAvailable
-        height: visible ? implicitHeight : 0
         text: "Analyze"
         onTriggered: menu.workspace.analyzeTracks(typeof menu.workspace.localTrackIds === "function" ? menu.workspace.localTrackIds(menu.targetIds()) : menu.targetIds(), false)
     }
 
     AppMenuItem {
         visible: menu.rowAvailable
-        height: visible ? implicitHeight : 0
         text: "Show in Explorer"
         onTriggered: menu.workspace.showInExplorer(typeof menu.workspace.localTrackIds === "function" ? menu.workspace.localTrackIds([menu.trackId])[0] || "" : menu.trackId)
     }
 
-    AppMenuSeparator { visible: menu.rowAvailable; height: visible ? implicitHeight : 0 }
+    AppMenuSeparator { visible: menu.rowAvailable }
 
     // The actions of plugins, one captioned group each, flat, before the file actions.
     Instantiator {
@@ -110,7 +104,6 @@ AppMenu {
     AppMenuSeparator {
         id: fileSeparator
         visible: menu.rowAvailable && menu.pluginItems.length > 0
-        height: visible ? implicitHeight : 0
     }
 
     FileActionsMenu {
@@ -138,7 +131,6 @@ AppMenu {
             const item = itemAt(i)
             if (item && item.subMenu === fileActions) {
                 item.visible = available
-                item.height = available ? item.implicitHeight : 0
             }
         }
     }

@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import wave
 from collections.abc import Iterator
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
 
@@ -375,6 +376,68 @@ def test_the_context_menu_shows_the_plugin_group_for_the_selected_rows(
         assert local_labels.index("PROBE") < local_labels.index("File actions")
     finally:
         _shutdown(runtime)
+
+
+def test_hidden_menu_entries_and_separators_take_no_height(qapp, tmp_path: Path) -> None:
+    runtime, _module = _start(tmp_path)
+    try:
+        add_folder_tracks(runtime, tmp_path / "audio", 1)
+        workspace = _workspace(runtime)
+        window = _window(runtime)
+        workspace.openPluginTab(LIST_KIND, "alpha")
+        _settle(runtime)
+        # A row without a file hides most of the menu: what is left starts at the top, one
+        # entry right under the other, and the menu is as tall as they are.
+        entries, menu_height = _open_menu_geometry(window, 2)
+        shown = [entry for entry in entries if entry["visible"]]
+        assert [entry["text"] for entry in shown if entry["text"]] == [
+            "PROBE",
+            "Link to a local track",
+            "Get a better copy",
+        ]
+        assert all(entry["height"] == 0 for entry in entries if not entry["visible"])
+        assert shown[0]["y"] == 0
+        for above, below in pairwise(shown):
+            assert below["y"] == above["y"] + above["height"]
+        assert menu_height <= shown[-1]["y"] + shown[-1]["height"] + 2 * 4 + 2  # padding, border
+        # With a file the same menu is taller, and still has no gap.
+        full_entries, full_height = _open_menu_geometry(window, 1)
+        assert full_height > menu_height
+        full_shown = [entry for entry in full_entries if entry["visible"]]
+        for above, below in pairwise(full_shown):
+            assert below["y"] == above["y"] + above["height"]
+    finally:
+        _shutdown(runtime)
+
+
+def _open_menu_geometry(
+    window: QQuickWindow, row_number: int
+) -> tuple[list[dict[str, Any]], float]:
+    """Right-click a row; return each entry of the track menu (text, place) and the menu height."""
+    row = cast(QQuickItem, _find(window, f"trackRow_{row_number}"))
+    QTest.mouseClick(
+        window,
+        Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+        row.mapToScene(row.boundingRect().center()).toPoint(),
+    )
+    QTest.qWait(100)
+    menu = _menu(window)
+    content = cast(QQuickItem, menu.property("contentItem"))
+    entries = sorted(content.childItems()[0].childItems(), key=lambda item: item.y())
+    found = [
+        {
+            "text": str(item.property("text") or ""),
+            "visible": item.isVisible(),
+            "y": item.y(),
+            "height": item.height(),
+        }
+        for item in entries
+    ]
+    height = float(menu.property("height"))
+    QTest.keyClick(window, Qt.Key.Key_Escape)
+    QTest.qWait(50)
+    return found, height
 
 
 _KEEP_ALIVE: list[Any] = []

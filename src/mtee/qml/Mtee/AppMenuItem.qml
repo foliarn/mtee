@@ -10,6 +10,8 @@ MenuItem {
 
     implicitWidth: 252
     implicitHeight: 28
+    // A hidden entry takes no room: the menu's list lays out every entry by its height.
+    height: visible ? implicitHeight : 0
     padding: 0
     indicator: null
 
