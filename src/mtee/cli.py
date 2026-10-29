@@ -28,6 +28,7 @@ class AppOptions:
     smoke_test: bool = False
     scenario: str = DEFAULT_SCENARIO
     diagnostic_no_native_frame: bool = False
+    plugin_dirs: tuple[Path, ...] = ()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +58,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Open a deterministic demo review scenario.",
     )
     parser.add_argument(
+        "--plugin-dir",
+        type=Path,
+        action="append",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Load plugins from the plugin packages in PATH. Repeat for several folders. "
+            "The folders given are saved and used again at the next start."
+        ),
+    )
+    parser.add_argument(
         "--diagnostic-no-native-frame",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -76,4 +88,5 @@ def parse_arguments(argv: Sequence[str] | None = None) -> AppOptions:
         smoke_test=bool(parsed.smoke_test),
         scenario=str(parsed.scenario),
         diagnostic_no_native_frame=bool(parsed.diagnostic_no_native_frame),
+        plugin_dirs=tuple(parsed.plugin_dir or ()),
     )

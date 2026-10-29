@@ -3,6 +3,10 @@
 MTEE 0.1 ships no bundled plugin. ``PLUGIN_UI_ENABLED`` is ``False``, so no plugin entry
 is shown and no plugin service is built. The code of a plugin is not part of the public tree:
 ``conversion`` is loaded from the private plugin repository, and only when the switch is on.
+
+This legacy registry coexists with the plugin folders of ``mtee.plugins.loader`` (step 121):
+it keeps serving the old plugins behind ``PLUGIN_UI_ENABLED``, and the loader refuses a
+plugin folder whose name is one of the identifiers listed here.
 """
 
 from __future__ import annotations

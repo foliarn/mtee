@@ -47,3 +47,20 @@ def test_the_help_lists_the_supported_options(capsys: pytest.CaptureFixture[str]
     assert "--demo" in printed
     assert "--smoke-test" in printed
     assert "--scenario" in printed
+
+
+def test_plugin_dirs_default_to_none_and_can_be_repeated(tmp_path: Path) -> None:
+    assert parse_arguments([]).plugin_dirs == ()
+
+    options = parse_arguments(
+        ["--plugin-dir", str(tmp_path / "one"), "--plugin-dir", str(tmp_path / "two")]
+    )
+
+    assert options.plugin_dirs == (tmp_path / "one", tmp_path / "two")
+
+
+def test_the_help_lists_the_plugin_dir_option(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_arguments(["--help"])
+
+    assert "--plugin-dir" in capsys.readouterr().out
