@@ -64,6 +64,11 @@ Window {
         sourceComponent: Component { PlaylistDialogs { workspace: root.ws } }
     }
 
+    Loader {
+        active: !shell.demoMode
+        sourceComponent: Component { PluginDialogHost { workspace: root.ws } }
+    }
+
     TitleBar {
         id: titleBar
         anchors.top: parent.top

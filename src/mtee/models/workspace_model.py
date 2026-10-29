@@ -1446,6 +1446,7 @@ class WorkspaceModel(QObject):
         host.setParent(self)
         host.noticeRaised.connect(self._set_message)
         host.uiRefreshRequested.connect(self._plugin_ui.refresh)
+        host.dialogRequested.connect(self._plugin_ui.open_dialog)
 
     def attach_plugin_settings(self, model: PluginSettingsModel) -> None:
         """Attach the Plugins page of Settings, which exists only when a plugin folder is set."""
@@ -1675,10 +1676,10 @@ class WorkspaceModel(QObject):
         def read_rows(context: JobContext) -> None:
             context.raise_if_cancelled()
             if kind == "playlist" and self._playlists_model is not None:
-                rows = self._plugin_ui.decorate(self._playlists_model.service.rows(ref))
+                rows = self._plugin_ui.decorate(self._playlists_model.service.rows(ref), kind, ref)
             elif plugin_list:
                 rows = self._plugin_ui.decorate(
-                    self._plugin_ui.track_rows(kind, ref, self._library.track)
+                    self._plugin_ui.track_rows(kind, ref, self._library.track), kind, ref
                 )
             elif kind == "artist":
                 rows = self._artist_rows(artist_ids)

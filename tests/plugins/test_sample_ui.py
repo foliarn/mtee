@@ -459,3 +459,27 @@ def test_a_sample_that_is_off_shows_no_waiting_group(qapp, tmp_path: Path) -> No
         assert not any(text.startswith("Waiting for you") for text in visible_texts(window))
     finally:
         _shutdown(runtime)
+
+
+def test_the_sample_opens_its_dialog_in_a_core_popup_and_closes_it(qapp, tmp_path: Path) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        window = window_of(runtime)
+        settle(runtime)
+        click(window, need_item(window, ACTIVITY))
+        settle(runtime)
+        assert find_item(window, "sampleDialog") is None
+
+        # The pane action asks the core; the popup loads the plugin file with the given ref.
+        click(window, need_item(window, "pluginPaneAction_note"))
+        settle(runtime)
+        title = need_item(window, "sampleDialogTitle")
+        assert title.property("text") == "Sample dialog: from the pane"
+        assert title.isVisible()
+
+        # The plugin file closes the popup through the ``dialog`` the core gave it.
+        click(window, need_item(window, "sampleDialogClose"))
+        settle(runtime)
+        assert find_item(window, "sampleDialog") is None
+    finally:
+        _shutdown(runtime)

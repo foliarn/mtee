@@ -100,13 +100,18 @@ def toggled_columns(
 
 
 def decorate_rows(
-    rows: list[dict[str, Any]], columns: Collection[RegisteredColumn]
+    rows: list[dict[str, Any]],
+    columns: Collection[RegisteredColumn],
+    kind: str = "",
+    ref: str = "",
 ) -> list[dict[str, Any]]:
     """Return the rows with the cell of every plugin column, and the inline button of the row.
 
     ``plugin`` maps a column key to ``{"text", "tone"}``; ``rowAction`` is the label of the
-    inline button and ``rowActionColumn`` the column that handles it. A column that fails is
-    logged and leaves its cells empty.
+    inline button and ``rowActionColumn`` the column that handles it. Every row also carries
+    ``tabKind`` and ``tabRef``, the list it belongs to (``"playlist"`` and the playlist
+    identifier, or a plugin tab kind and its ref), so a column can tell lists apart. A column
+    that fails is logged and leaves its cells empty.
     """
     if not columns:
         return rows
@@ -114,6 +119,8 @@ def decorate_rows(
     decorated: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        item["tabKind"] = kind
+        item["tabRef"] = ref
         cells: dict[str, dict[str, str]] = {}
         for registered in columns:
             if registered.key in broken:

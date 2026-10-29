@@ -61,6 +61,7 @@ class PluginHost(QObject):
 
     noticeRaised = Signal(str)
     uiRefreshRequested = Signal()
+    dialogRequested = Signal(str, str)
     _callRequested = Signal(object)
 
     def __init__(
@@ -108,6 +109,7 @@ class PluginHost(QObject):
             log=log,
             refresh_ui=self._request_ui_refresh,
             run_on_gui=lambda call: self._run_on_gui(call, log),
+            open_dialog=lambda dialog_id, ref="": self._open_dialog(plugin_id, dialog_id, ref),
         )
 
     def run_startup_tasks(self, plugins: Sequence[LoadedPlugin]) -> None:
@@ -127,6 +129,10 @@ class PluginHost(QObject):
 
     def _request_ui_refresh(self) -> None:
         self.uiRefreshRequested.emit()
+
+    def _open_dialog(self, plugin_id: str, dialog_id: str, ref: str) -> None:
+        """Ask the window to open the dialog ``<plugin_id>.<dialog_id>``, from any thread."""
+        self._call_later(lambda: self.dialogRequested.emit(f"{plugin_id}.{dialog_id}", ref))
 
     def _run_on_gui(self, call: Callable[[], None], log: logging.Logger) -> None:
         """Queue ``call`` for the graphical thread; a failure is logged, never raised there."""

@@ -27,6 +27,7 @@ from mtee.plugins.api import (
     LibraryScanned,
     PaneAction,
     PluginActivity,
+    PluginDialog,
     SettingsPage,
     SidebarSection,
     TabAction,
@@ -579,3 +580,55 @@ def test_only_a_running_plugin_has_waiting_items(qapp) -> None:
     assert ui.property("active") is False
     assert ui.property("waitingGroups") == []
     assert ui.property("waitingCount") == 0
+
+
+# ------------------------------------------------------------------------ the dialogs
+
+
+def test_a_dialog_needs_an_identifier_and_an_existing_qml_file(qapp, tmp_path: Path) -> None:
+    content = tmp_path / "dialog.qml"
+    content.write_text("import QtQuick\nItem {}\n", encoding="utf-8")
+    check_contributions("pl", [PluginDialog("note", content)])
+    with pytest.raises(ValueError, match="does not exist"):
+        check_contributions("pl", [PluginDialog("note", tmp_path / "missing.qml")])
+    with pytest.raises(ValueError, match="lowercase snake_case"):
+        check_contributions("pl", [PluginDialog("Note", content)])
+    with pytest.raises(ValueError, match="declared twice"):
+        check_contributions("pl", [PluginDialog("note", content), PluginDialog("note", content)])
+
+
+def test_a_dialog_request_reaches_the_window_only_for_a_known_dialog(qapp, tmp_path: Path) -> None:
+    content = tmp_path / "dialog.qml"
+    content.write_text("import QtQuick\nItem {}\n", encoding="utf-8")
+    backend = QObject()
+    running = LoadedPlugin(
+        DiscoveredPlugin("pl", Path("."), Path("."), None),
+        PluginStatus.RUNNING,
+        contributions=(PluginDialog("note", content, backend=backend),),
+    )
+    ui = PluginUiModel()
+    ui.register([running])
+    asked: list[tuple[str, str]] = []
+    ui.dialogRequested.connect(lambda key, ref: asked.append((key, ref)))
+
+    ui.open_dialog("pl.note", "ref one")
+    ui.open_dialog("pl.other", "ignored")
+
+    assert asked == [("pl.note", "ref one")]
+    assert ui.dialogQml("pl.note").endswith("dialog.qml")
+    assert ui.dialogQml("pl.other") == ""
+    assert ui.dialogBackend("pl.note") is backend
+    assert backend.parent() is ui  # owned by the model, never by the QML
+
+
+def test_rows_say_which_list_they_belong_to() -> None:
+    seen: list[tuple[object, object]] = []
+
+    def value(row: Any) -> CellValue:
+        seen.append((row["tabKind"], row["tabRef"]))
+        return CellValue("Local")
+
+    rows = decorate_rows([{"id": "a"}], [_column(value_fn=value)], "playlist", "p-1")
+
+    assert seen == [("playlist", "p-1")]
+    assert rows[0]["tabKind"] == "playlist" and rows[0]["tabRef"] == "p-1"

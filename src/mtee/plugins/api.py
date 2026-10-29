@@ -44,6 +44,7 @@ __all__ = [
     "PlaylistEntry",
     "PluginActivity",
     "PluginContext",
+    "PluginDialog",
     "PluginFactory",
     "PluginJobs",
     "PluginManifest",
@@ -94,9 +95,9 @@ class Contribution:
 
     The core renders contributions; a plugin only describes them as data. The kinds are
     ``PluginActivity``, ``SidebarSection``, ``TabKind``, ``TabAction``, ``TrackColumn``,
-    ``TrackAction``, ``SettingsPage``, ``StartupTask``, ``LibraryScanned`` and
-    ``WaitingItems``, defined below. Plugin QML reaches the core components with
-    ``import Mtee``; a contribution never names a QML type.
+    ``TrackAction``, ``SettingsPage``, ``StartupTask``, ``LibraryScanned``,
+    ``WaitingItems`` and ``PluginDialog``, defined below. Plugin QML reaches the core
+    components with ``import Mtee``; a contribution never names a QML type.
     """
 
 
@@ -247,6 +248,8 @@ class PluginContext:
     ``fn`` on the graphical thread, after the current event (a queued call, also when it is
     called from the graphical thread); any thread may call it. A ``fn`` that raises is
     logged under the plugin's logger and does not stop the application.
+    ``open_dialog(dialog_id, ref)`` opens one of the plugin's ``PluginDialog`` as a modal
+    popup over the window; any thread may call it. ``ref`` is handed to the dialog's QML.
     """
 
     plugin_id: str
@@ -261,6 +264,7 @@ class PluginContext:
     log: logging.Logger
     refresh_ui: Callable[[], None] = field(default=lambda: None)
     run_on_gui: Callable[[Callable[[], None]], None] = field(default=lambda call: call())
+    open_dialog: Callable[[str, str], None] = field(default=lambda dialog_id, ref="": None)
 
     @property
     def data_dir(self) -> Path:
@@ -431,8 +435,9 @@ class TrackColumn(Contribution):
     """A column of the track lists, listed in the column picker with the plugin name.
 
     ``value_fn`` receives the row of the list (``id``, ``trackId``, ``title``, ``artist``,
-    ``album``, ``available``, and ``data`` for a plugin row) and returns ``None`` for an
-    empty cell. ``default_visible_for`` lists the tab kinds where the column is shown until
+    ``album``, ``available``, ``data`` for a plugin row, and ``tabKind`` / ``tabRef``, the
+    list the row is shown in) and returns ``None`` for an empty cell. ``default_visible_for``
+    lists the tab kinds where the column is shown until
     the user hides it (``"playlist"`` or a ``TabKind.kind``); elsewhere it starts hidden.
     ``run_action`` is called with the row when the user presses the inline button named by
     ``CellValue.action``.
@@ -515,3 +520,21 @@ class WaitingItems(Contribution):
     model: QAbstractItemModel
     run: Callable[[str], TabRequest | None]
     dismiss: Callable[[str], None]
+
+
+@dataclass(frozen=True, slots=True)
+class PluginDialog(Contribution):
+    """A modal dialog the plugin opens with ``PluginContext.open_dialog(dialog_id, ref)``.
+
+    ``content`` is a plugin QML file. The core draws the popup (surface, border, rounded
+    corners, a width of at most 480 px, centred over the window, closed by Escape or a click
+    outside) and loads the file in it with a ``Loader``; the file sets its own title, fields
+    and buttons with the components of ``Mtee``, and gives its ``implicitHeight``. It
+    receives ``workspace``, ``backend``, ``ref`` (the text given to ``open_dialog``) and
+    ``dialog``, whose ``close()`` closes the popup. ``ref`` changes each time the dialog is
+    opened, so every binding must read it again.
+    """
+
+    dialog_id: str
+    content: Path
+    backend: QObject | None = None

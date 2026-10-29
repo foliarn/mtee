@@ -30,6 +30,7 @@ from mtee.plugins.api import (
     LibraryScanned,
     PaneAction,
     PluginActivity,
+    PluginDialog,
     SettingsPage,
     SidebarSection,
     TabAction,
@@ -65,6 +66,7 @@ class PluginUiModel(QObject):
     refreshRequested = Signal()
     noticeRaised = Signal(str)
     waitingChanged = Signal()
+    dialogRequested = Signal(str, str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -77,6 +79,7 @@ class PluginUiModel(QObject):
         self._pages: dict[str, _Owned[SettingsPage]] = {}
         self._scan_hooks: list[_Owned[LibraryScanned]] = []
         self._waiting: dict[str, _Owned[WaitingItems]] = {}
+        self._dialogs: dict[str, _Owned[PluginDialog]] = {}
         self._waiting_count = 0
         self._columns_store = PluginColumnStore(None)
         self._revision = 0
@@ -119,6 +122,9 @@ class PluginUiModel(QObject):
                     self._waiting[f"{plugin_id}.{item.section_id}"] = _Owned(plugin_id, title, item)
                 elif isinstance(item, LibraryScanned):
                     self._scan_hooks.append(_Owned(plugin_id, title, item))
+                elif isinstance(item, PluginDialog):
+                    self._dialogs[f"{plugin_id}.{item.dialog_id}"] = _Owned(plugin_id, title, item)
+                    self._adopt(item.backend)
                 elif isinstance(item, SettingsPage):
                     self._pages[f"{SETTINGS_PAGE_PREFIX}{plugin_id}.{item.page_id}"] = _Owned(
                         plugin_id, title, item
@@ -375,9 +381,11 @@ class PluginUiModel(QObject):
     def has_column(self, key: str) -> bool:
         return any(item.key == key for item in self._columns)
 
-    def decorate(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Add the plugin cells to the rows of a list (job thread)."""
-        return decorate_rows(rows, self._columns)
+    def decorate(
+        self, rows: list[dict[str, Any]], kind: str = "", ref: str = ""
+    ) -> list[dict[str, Any]]:
+        """Add the plugin cells to the rows of the list ``kind``/``ref`` (job thread)."""
+        return decorate_rows(rows, self._columns, kind, ref)
 
     def sort_text(self, key: str, row: Mapping[str, Any]) -> str:
         """The text a plugin column shows for a row, to sort by it."""
@@ -535,6 +543,24 @@ class PluginUiModel(QObject):
         owned = self._waiting.get(key)
         if owned is not None:
             self._guard(owned.plugin_title, "dismissing a waiting item", owned.item.dismiss, row_id)
+
+    # ------------------------------------------------------------------ dialogs
+
+    def open_dialog(self, key: str, ref: str) -> None:
+        """Ask the window to show the dialog ``key`` (``<plugin_id>.<dialog_id>``)."""
+        if key in self._dialogs:
+            self.dialogRequested.emit(key, ref)
+
+    @Slot(str, result=str)
+    def dialogQml(self, key: str) -> str:
+        """The URL of the QML file of a dialog, or an empty text."""
+        owned = self._dialogs.get(key)
+        return QUrl.fromLocalFile(str(owned.item.content)).toString() if owned else ""
+
+    @Slot(str, result=QObject)
+    def dialogBackend(self, key: str) -> QObject | None:
+        owned = self._dialogs.get(key)
+        return owned.item.backend if owned is not None else None
 
     # ------------------------------------------------------------------ library scans
 

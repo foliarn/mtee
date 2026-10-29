@@ -17,6 +17,7 @@ from mtee.plugins.api import (
     Contribution,
     LibraryScanned,
     PluginActivity,
+    PluginDialog,
     SettingsPage,
     SidebarSection,
     StartupTask,
@@ -82,6 +83,10 @@ def check_contributions(plugin_id: str, contributions: Sequence[Contribution]) -
     for group in waiting:
         _check_waiting(group)
     _unique("waiting group", [item.section_id for item in waiting])
+    dialogs = [item for item in contributions if isinstance(item, PluginDialog)]
+    for dialog in dialogs:
+        _check_dialog(dialog)
+    _unique("dialog", [item.dialog_id for item in dialogs])
     for hook in (item for item in contributions if isinstance(item, LibraryScanned)):
         _need_callable("library scan hook", "callback", hook.callback)
 
@@ -167,6 +172,12 @@ def _check_page(page: SettingsPage) -> None:
     _need_text("settings page", page.page_id, page.label, "label")
     if not page.content.is_file():
         raise ValueError(f"The QML file of settings page {page.page_id} does not exist.")
+
+
+def _check_dialog(dialog: PluginDialog) -> None:
+    _need_identifier("dialog", dialog.dialog_id)
+    if not dialog.content.is_file():
+        raise ValueError(f"The QML file of dialog {dialog.dialog_id} does not exist.")
 
 
 def _need_identifier(what: str, value: object) -> None:

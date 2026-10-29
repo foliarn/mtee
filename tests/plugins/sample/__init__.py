@@ -22,6 +22,7 @@ from mtee.plugins.api import (
     PaneAction,
     PluginActivity,
     PluginContext,
+    PluginDialog,
     PluginRowsModel,
     PluginService,
     PluginSettings,
@@ -217,6 +218,10 @@ class Service:
         EVENTS.append(f"imported {placed.name}")
         library.rescan(placed.parent)
 
+    def _open_dialog(self) -> None:
+        """Ask the core to open the sample dialog, with a text for its QML."""
+        self._context.open_dialog("note", "from the pane")
+
     def _make_playlist(self) -> None:
         """Create a local playlist and ask the core what it is called and whether it exists."""
         playlists = self._context.playlists
@@ -241,6 +246,7 @@ class Service:
                     PaneAction(
                         "playlist", "Make a sample playlist", "playlists", self._make_playlist
                     ),
+                    PaneAction("note", "Open the sample dialog", "info", self._open_dialog),
                 ),
                 foot=self._foot,
             ),
@@ -292,6 +298,7 @@ class Service:
                 enabled_fn=self._only_missing,
             ),
             SettingsPage("settings", "Sample", HERE / "settings.qml", backend=self._backend),
+            PluginDialog("note", HERE / "dialog.qml", backend=self._backend),
             WaitingItems("waiting", "Waiting for you", self._waiting, self._pick, self._dismiss),
             StartupTask("hello", self._start),
             LibraryScanned(self._scanned),

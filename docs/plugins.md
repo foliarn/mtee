@@ -137,6 +137,7 @@ core is reachable from it.
 | `log` | A logger named `mtee.plugins.<id>`. |
 | `refresh_ui()` | Asks the core to read the rows, header buttons and cells of the plugin again after its data changed. Any thread. |
 | `run_on_gui(fn)` | Runs `fn()` on the graphical thread, after the current event: a queued call, also when called from the graphical thread. Any thread. A `fn` that raises is logged under the plugin's logger. |
+| `open_dialog(dialog_id, ref)` | Opens one of the plugin's `PluginDialog` as a modal popup over the window. Any thread. `ref` is handed to the dialog's QML. |
 
 `files.import_file(source, folder) -> Path` moves a file that is **not in the library yet**
 (for example a download) into a folder of the library and returns its final path. It never
@@ -196,7 +197,9 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
 - `TrackAction(action_id, label, group, run, enabled_fn=None)`: an entry of the track context
   menu, in a captioned group named `group` before "File actions". `enabled_fn(rows)` decides
   whether it shows for the selected rows; `run(rows)` usually submits a job. A row is a
-  dictionary with `id`, `trackId`, `title`, `artist`, `album`, `available` and `data`.
+  dictionary with `id`, `trackId`, `title`, `artist`, `album`, `available`, `data` (a plugin row
+  only), `tabKind` and `tabRef` (the list the row is shown in: `"playlist"` and the playlist
+  identifier, or the plugin's tab kind and its ref). Columns receive the same row.
 - `SettingsPage(page_id, label, content, backend=None)`: an extra in-page tab of Settings,
   after Plugins and before About. `content` is a QML file.
 - `StartupTask(task_id, run)`: submitted as a hidden job once the plugin is registered. `run`
@@ -212,6 +215,12 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   thread. A group with no row is not drawn, nothing is drawn for a plugin that is off, and the
   rows of all groups count in the badge of the Tasks activity, with the running jobs and the
   tag conflicts.
+- `PluginDialog(dialog_id, content, backend=None)`: a modal dialog, opened with
+  `context.open_dialog(dialog_id, ref)`. `content` is a QML file. The core draws the popup
+  (surface, border, radius 8, 20 px padding, at most 480 px wide, centred, closed by Escape or a
+  click outside) and loads the file in it; the file draws the title, fields and buttons with the
+  components of `Mtee` and gives its `implicitHeight`. It receives `workspace`, `backend`, `ref`
+  and `dialog`, whose `close()` closes the popup. The sample plugin's `dialog.qml` shows it.
 - `LibraryScanned(callback)`: `callback(root)` is called on the graphical thread after the scan
   of a library folder completed (a folder added, a rescan, or the scan at start). `root` is the
   `Path` of that library folder; the scanned tracks are already in the library. A scan that was
@@ -235,6 +244,7 @@ after loading, so every binding must work while a property is still unset:
 
 - a **tab file** (`TabKind.content` as a `Path`) receives `workspace`, `tab`, `groupIndex`,
   `bottomInset` and `backend`;
+- a **dialog file** receives `workspace`, `backend`, `ref` and `dialog` (see `PluginDialog`);
 - a **Settings page file** receives `workspace` and `backend`. Its root fills the width of the
   page.
 
