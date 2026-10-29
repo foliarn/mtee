@@ -25,7 +25,9 @@ from mtee.plugins.api import (
     PlaylistEntry,
     PluginContext,
     PluginManifest,
+    StartupTask,
 )
+from mtee.plugins.loader import LoadedPlugin, PluginStatus
 from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
 from mtee.services.playlist_service import PlaylistService
@@ -58,6 +60,7 @@ class PluginHost(QObject):
     """
 
     noticeRaised = Signal(str)
+    uiRefreshRequested = Signal()
     _callRequested = Signal(object)
 
     def __init__(
@@ -102,11 +105,26 @@ class PluginHost(QObject):
             base_dir=self._data_dir / PLUGIN_DATA_DIRECTORY / plugin_id,
             notify=self.notify,
             log=logging.getLogger(f"mtee.plugins.{plugin_id}"),
+            refresh_ui=self._request_ui_refresh,
         )
+
+    def run_startup_tasks(self, plugins: Sequence[LoadedPlugin]) -> None:
+        """Submit the ``StartupTask`` of every running plugin as a background job."""
+        for record in plugins:
+            if record.status is not PluginStatus.RUNNING:
+                continue
+            for task in record.contributions:
+                if isinstance(task, StartupTask):
+                    self._jobs.submit(
+                        task.run, label=f"{record.title}: {task.task_id}", visible=False
+                    )
 
     def notify(self, text: str) -> None:
         """Show ``text`` on the workspace message line, from any thread."""
         self.noticeRaised.emit(text)
+
+    def _request_ui_refresh(self) -> None:
+        self.uiRefreshRequested.emit()
 
     def _call_later(self, call: Callable[[], None]) -> None:
         """Run ``call`` on the graphical thread, after the current event."""
@@ -186,6 +204,7 @@ class _Library:
                     album=snapshot.album[0] if snapshot.album else "",
                     duration_us=snapshot.technical.duration_us or 0,
                     readable=source.status == "readable",
+                    isrc=snapshot.isrc,
                 )
             )
         return found

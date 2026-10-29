@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +16,8 @@ __all__ = [
     "DEFAULT_WORKSPACE",
     "WorkspaceRepository",
 ]
+
+_PLUGIN_ACTIVITY = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 
 COLUMN_OPTIONS = (
     ("title", "Title"),
@@ -204,14 +207,20 @@ def _validated(value: Any) -> dict[str, Any]:
         if isinstance(expanded, list)
         else []
     )
-    if not isinstance(result["activity"], str) or result["activity"] not in {
-        "explorer",
-        "playlists",
-        "convert",
-        "tasks",
-        "artists",
-        "plugins",
-    }:
+    # The activity of a plugin is written "<plugin_id>.<activity>"; whether that plugin runs is
+    # known only once the plugins are loaded, so the saved value is kept.
+    if not isinstance(result["activity"], str) or (
+        result["activity"]
+        not in {
+            "explorer",
+            "playlists",
+            "convert",
+            "tasks",
+            "artists",
+            "plugins",
+        }
+        and not _PLUGIN_ACTIVITY.match(result["activity"])
+    ):
         result["activity"] = "explorer"
     if not isinstance(result["rightPanelTab"], str) or result["rightPanelTab"] not in {
         "info",

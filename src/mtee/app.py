@@ -34,6 +34,7 @@ from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
+from mtee.models.plugin_settings_model import PluginSettingsModel
 from mtee.models.profile_model import PROFILE_PROVIDER_ID, ProfileAvatarProvider, ProfileModel
 from mtee.models.shell_controller import ShellController
 from mtee.models.statistics_model import StatisticsModel
@@ -362,6 +363,13 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             plugin_manager.load_enabled(plugin_host.context_for)
             for missing in plugin_manager.missing_folders:
                 _report(f"The plugin folder {missing} does not exist and was skipped.")
+            workspace.attach_plugin_settings(
+                PluginSettingsModel(plugin_manager, plugin_preferences)
+            )
+            workspace.register_plugins(plugin_manager.plugins, settings)
+            plugin_host.run_startup_tasks(plugin_manager.plugins)
+        else:
+            workspace.register_plugins([], settings)
         artwork_provider = ArtworkProvider(library)
         # Never fatal: without the system controls the application keeps working.
         media_controls = MediaControls(

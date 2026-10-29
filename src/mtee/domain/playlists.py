@@ -8,6 +8,12 @@ from typing import Any
 
 LIKED_PLAYLIST_ID = "liked"
 PLAYLIST_COLUMNS = ("title", "artist", "album", "bpm", "key", "duration")
+_PLUGIN_COLUMN_KEY = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
+
+
+def is_plugin_column_key(key: object) -> bool:
+    """Return whether ``key`` names a column added by a plugin: ``<plugin_id>.<column_id>``."""
+    return isinstance(key, str) and _PLUGIN_COLUMN_KEY.match(key) is not None
 
 
 def normalized(value: str) -> str:

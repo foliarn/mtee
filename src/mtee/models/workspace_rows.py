@@ -120,7 +120,9 @@ def listening_details(stats: TrackPlayStats | None) -> list[dict[str, str]]:
 
 
 def sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[dict[str, Any]]:
-    if key not in SORT_KEYS or key == "index":
+    # A key with a dot is a plugin column: its rows are ordered by the text of their cell.
+    plugin_column = "." in key
+    if (key not in SORT_KEYS and not plugin_column) or key == "index":
         return list(rows)
     field = {
         "duration": "seconds",
@@ -143,7 +145,11 @@ def sort_rows(rows: list[dict[str, Any]], key: str, ascending: bool) -> list[dic
                     (order, str(row.get("title", "")).casefold(), str(row.get("id", "")), row)
                 )
             continue
-        value = row.get(field)
+        value = (
+            ((row.get("plugin") or {}).get(key) or {}).get("text")
+            if plugin_column
+            else row.get(field)
+        )
         if value is None or value == "":
             missing.append(row)
             continue

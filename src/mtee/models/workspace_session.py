@@ -17,11 +17,20 @@ __all__ = [
     "build_session_snapshot",
     "ensure_tab_state",
     "extract_view_fields",
+    "keeps_order",
     "restore_session_groups",
     "set_default_sort",
 ]
 
 COLUMN_KEYS = {key for key, _label in COLUMN_OPTIONS}
+
+
+def keeps_order(kind: object) -> bool:
+    """Whether a tab of this kind lists its rows in their own order by default.
+
+    A playlist and an artist page do; so does a tab kind of a plugin, whose name has a dot.
+    """
+    return kind in {"playlist", "artist"} or (isinstance(kind, str) and "." in kind)
 
 
 def extract_view_fields(tab: dict[str, Any]) -> dict[str, Any]:
@@ -37,8 +46,8 @@ def set_default_sort(state: dict[str, Any]) -> None:
     """Set the default sort mode, key and direction based on tab kind."""
     state["sortMode"] = "default"
     kind = state.get("kind")
-    state["sortKey"] = "index" if kind in {"playlist", "artist"} else "fileCreatedAt"
-    state["sortAscending"] = kind in {"playlist", "artist"}
+    state["sortKey"] = "index" if keeps_order(kind) else "fileCreatedAt"
+    state["sortAscending"] = keeps_order(kind)
 
 
 def ensure_tab_state(
@@ -71,8 +80,8 @@ def ensure_tab_state(
                 "title": title,
                 "sortMode": "default",
                 # A playlist keeps its order; an artist page is in album and track order.
-                "sortKey": "index" if kind in {"playlist", "artist"} else "fileCreatedAt",
-                "sortAscending": kind in {"playlist", "artist"},
+                "sortKey": "index" if keeps_order(kind) else "fileCreatedAt",
+                "sortAscending": keeps_order(kind),
                 "view": "list",
                 "searchQuery": "",
                 "selectedIds": [],

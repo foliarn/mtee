@@ -10,12 +10,15 @@ enabled.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+from PySide6.QtCore import QAbstractItemModel, QObject
 
 from mtee.domain.jobs import JobId
+from mtee.models.plugin_rows_model import PluginRowsModel
 from mtee.persistence.database import Database
 from mtee.services.file_move_service import FileMoveResult
 from mtee.services.jobs import JobContext, JobTask
@@ -23,6 +26,8 @@ from mtee.services.jobs import JobContext, JobTask
 __all__ = [
     "API_VERSION",
     "SUPPORTED_API_VERSIONS",
+    "ActionKind",
+    "CellValue",
     "Contribution",
     "Database",
     "FileMoveResult",
@@ -32,14 +37,28 @@ __all__ = [
     "JobTask",
     "LibraryAccess",
     "LibraryTrack",
+    "PaneAction",
     "PlaylistAccess",
     "PlaylistEntry",
+    "PluginActivity",
     "PluginContext",
     "PluginFactory",
     "PluginJobs",
     "PluginManifest",
+    "PluginRowsModel",
     "PluginService",
     "PluginSettings",
+    "SettingsPage",
+    "SidebarSection",
+    "StartupTask",
+    "TabAction",
+    "TabHeader",
+    "TabKind",
+    "TabRequest",
+    "Tone",
+    "TrackAction",
+    "TrackColumn",
+    "TrackListRow",
 ]
 
 # The version of the contract between the core and a plugin (see docs/plugins.md, section 9).
@@ -70,9 +89,10 @@ class PluginManifest:
 class Contribution:
     """Base of everything a plugin adds to the interface; ``PluginService`` returns them.
 
-    The core renders contributions; a plugin only describes them as data. The kinds
-    (sidebar section, tab kind, track column, track action, Settings page, startup task)
-    are subclasses defined with the interface contributions of step 121.5.
+    The core renders contributions; a plugin only describes them as data. The kinds are
+    ``PluginActivity``, ``SidebarSection``, ``TabKind``, ``TabAction``, ``TrackColumn``,
+    ``TrackAction``, ``SettingsPage`` and ``StartupTask``, defined below. Plugin QML reaches
+    the core components with ``import Mtee``; a contribution never names a QML type.
     """
 
 
@@ -87,6 +107,7 @@ class LibraryTrack:
     album: str
     duration_us: int
     readable: bool
+    isrc: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +213,8 @@ class PluginContext:
     Only existing core services are exposed. ``database`` is shared: a plugin uses only
     its own tables, whose names start with its identifier. ``base_dir`` is
     ``<data-dir>/plugins/<id>/``; it is created when ``data_dir`` is first read.
+    ``refresh_ui`` asks the core to read the rows, the header buttons and the cells of the
+    plugin again after its data changed; any thread may call it.
     """
 
     plugin_id: str
@@ -204,6 +227,7 @@ class PluginContext:
     base_dir: Path
     notify: Callable[[str], None]
     log: logging.Logger
+    refresh_ui: Callable[[], None] = field(default=lambda: None)
 
     @property
     def data_dir(self) -> Path:
@@ -225,3 +249,201 @@ class PluginService(Protocol):
 
 
 PluginFactory = Callable[[PluginContext], PluginService]
+
+
+# --------------------------------------------------------------------- UI contributions
+# Data only: the core draws them with its own components and colours. The functions a
+# contribution carries run on the graphical thread, except ``TabKind.content`` (rows) and
+# ``TrackColumn.value_fn``, which run on a job thread while a list loads: keep them cheap and
+# read only the plugin's own data. A plugin names an icon with an icon name of the core.
+
+Tone = Literal["neutral", "secondary", "warning"]
+"""Badge colour: an outline, the secondary colour, or the warning colour (14 % tint)."""
+
+ActionKind = Literal["primary", "neutral", "ghost", "toggle"]
+"""Look of a ``TabAction``: ``toggle`` is a chip that shows ``checked``."""
+
+
+@dataclass(frozen=True, slots=True)
+class TabRequest:
+    """A tab to open: ``kind`` is one of the plugin's ``TabKind`` and ``ref`` names the content."""
+
+    kind: str
+    ref: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PaneAction:
+    """An icon button in the header of a sidebar pane or section."""
+
+    action_id: str
+    tip: str
+    icon: str
+    run: Callable[[], None]
+
+
+@dataclass(frozen=True, slots=True)
+class SidebarSection(Contribution):
+    """A collapsible section of a sidebar pane, listing the rows of ``model``.
+
+    ``activity`` is ``"playlists"`` (below the local playlists), ``"explorer"``, or the
+    ``activity_id`` of a ``PluginActivity`` of the same plugin. ``model`` is a
+    ``PluginRowsModel`` the plugin keeps up to date. ``activate`` receives the ``id`` of the
+    row the user clicked and answers which tab to open, or ``None`` for none.
+    """
+
+    section_id: str
+    title: str
+    activity: str
+    model: QAbstractItemModel
+    actions: tuple[PaneAction, ...] = ()
+    activate: Callable[[str], TabRequest | None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PluginActivity(Contribution):
+    """An activity of its own: a button in the activity bar and a sidebar pane.
+
+    The pane shows ``title`` with ``actions`` in its header, then the ``SidebarSection`` of
+    the plugin that name this activity. ``foot`` is an optional ``PluginRowsModel`` of
+    ``{"text", "tone"}`` rows drawn at the bottom of the pane.
+    """
+
+    activity_id: str
+    title: str
+    icon: str
+    actions: tuple[PaneAction, ...] = ()
+    foot: QAbstractItemModel | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TrackListRow:
+    """One row of a plugin track list.
+
+    A row with an empty ``track_id`` has no local file: it is greyed out, cannot be played,
+    is skipped by Play, Shuffle and the queue, and offers no "Add to playlist". ``row_id`` is
+    unique in the list; ``track_id`` is the library track that plays the row. ``data`` is
+    handed back to the plugin's functions with the row.
+    """
+
+    row_id: str
+    title: str
+    artist: str = ""
+    album: str = ""
+    duration_seconds: float = 0.0
+    track_id: str = ""
+    data: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class TabHeader:
+    """The header of a plugin track list tab, laid out like a playlist header."""
+
+    title: str
+    kind_label: str = "Playlist"
+    description: str = ""
+    creator: str = ""
+    meta: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TabKind(Contribution):
+    """A kind of editor tab. ``kind`` is ``"<plugin_id>.<name>"``; tabs are not restored.
+
+    ``content`` is either the path of a plugin QML file, loaded in the tab with a ``Loader``
+    and given ``workspace``, ``tab``, ``groupIndex``, ``bottomInset`` and ``backend``, or a
+    function that returns the ``TrackListRow`` of a ref, which the core shows with its own
+    track list (search, sort, selection, queue and context menu included). ``title_fn``
+    gives the title of the tab for a ref; ``header`` the header of a track list tab.
+    """
+
+    kind: str
+    title_fn: Callable[[str], str]
+    content: Path | Callable[[str], Sequence[TrackListRow]]
+    header: Callable[[str], TabHeader] | None = None
+    backend: QObject | None = None
+    icon: str = "playlists"
+
+
+@dataclass(frozen=True, slots=True)
+class TabAction(Contribution):
+    """A button beside Play and Shuffle in the header of a plugin or local playlist tab.
+
+    ``tab_kind`` is a ``TabKind.kind`` of the plugin, or ``"playlist"`` for local playlists.
+    The functions receive the ref of the tab (the playlist identifier for a local one).
+    ``label`` may be a function of the ref, for text such as a count.
+    """
+
+    action_id: str
+    tab_kind: str
+    label: str | Callable[[str], str]
+    run: Callable[[str], None]
+    icon: str = ""
+    kind: ActionKind = "neutral"
+    checked: Callable[[str], bool] | None = None
+    enabled: Callable[[str], bool] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CellValue:
+    """What a plugin column shows for a row: a badge, and optionally one inline button."""
+
+    text: str
+    tone: Tone = "neutral"
+    action: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TrackColumn(Contribution):
+    """A column of the track lists, listed in the column picker with the plugin name.
+
+    ``value_fn`` receives the row of the list (``id``, ``trackId``, ``title``, ``artist``,
+    ``album``, ``available``, and ``data`` for a plugin row) and returns ``None`` for an
+    empty cell. ``default_visible_for`` lists the tab kinds where the column is shown until
+    the user hides it (``"playlist"`` or a ``TabKind.kind``); elsewhere it starts hidden.
+    ``run_action`` is called with the row when the user presses the inline button named by
+    ``CellValue.action``.
+    """
+
+    column_id: str
+    title: str
+    value_fn: Callable[[Mapping[str, Any]], CellValue | None]
+    default_visible_for: tuple[str, ...] = ()
+    width: int = 112
+    run_action: Callable[[Mapping[str, Any]], None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TrackAction(Contribution):
+    """An entry of the track context menu, in a captioned group before "File actions".
+
+    ``enabled_fn`` receives the selected rows and decides whether the entry shows for them
+    (``None``: always). ``run`` receives the same rows; it usually submits a job.
+    """
+
+    action_id: str
+    label: str
+    group: str
+    run: Callable[[Sequence[Mapping[str, Any]]], None]
+    enabled_fn: Callable[[Sequence[Mapping[str, Any]]], bool] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsPage(Contribution):
+    """An extra page of Settings, after Plugins and before About.
+
+    ``content`` is a plugin QML file given ``workspace`` and ``backend``.
+    """
+
+    page_id: str
+    label: str
+    content: Path
+    backend: QObject | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StartupTask(Contribution):
+    """Work submitted as a job once the plugin is registered."""
+
+    task_id: str
+    run: JobTask

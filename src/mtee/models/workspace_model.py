@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future
 from contextlib import suppress
 from pathlib import Path
@@ -23,6 +23,8 @@ from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
+from mtee.models.plugin_settings_model import PluginSettingsModel
+from mtee.models.plugin_ui_model import PluginUiModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
@@ -125,12 +127,14 @@ from mtee.models.workspace_track_loader import (
 )
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.play_log_repository import PlayLogRepository
+from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.workspace_repository import (
     COLUMN_OPTIONS,
     DEFAULT_COLUMN_PREFERENCES,
     WorkspaceRepository,
 )
 from mtee.plugins.context import PluginHost
+from mtee.plugins.loader import LoadedPlugin
 from mtee.plugins.registry import plugin_ui_enabled
 from mtee.services.folder_refresh import refresh_folder
 from mtee.services.folder_watch import FolderWatchService
@@ -158,6 +162,8 @@ def _known_activity(activity: str) -> str:
 
     A saved state can name an activity that was removed or hidden in the meantime.
     """
+    if "." in activity:
+        return activity  # a plugin activity: kept until the plugins are loaded and can be asked
     if activity in {"convert", "plugins"} and not plugin_ui_enabled():
         return "explorer"
     return activity if activity in _ACTIVITIES else "explorer"
@@ -209,6 +215,9 @@ class WorkspaceModel(QObject):
         self._metadata_editor: MetadataEditorModel | None = None
         # The conversion queue is a plugin service: attached only when the plugin is enabled.
         self._conversion_model: Any | None = None
+        # What the running plugins add to the interface: empty without a plugin.
+        self._plugin_ui = PluginUiModel(self)
+        self._plugin_settings: PluginSettingsModel | None = None
         self._trash_model: TrashModel | None = None
         self._file_move_model: FileMoveModel | None = None
         self._analysis_model: AnalysisModel | None = None
@@ -314,6 +323,9 @@ class WorkspaceModel(QObject):
         self.trackRowsReady.connect(self._on_track_rows_ready)
         self.explorerTrackReady.connect(self._on_explorer_track_ready)
         self.enqueuePrepared.connect(self._on_enqueue_prepared)
+        self._plugin_ui.tabRequested.connect(self.openPluginTab)
+        self._plugin_ui.refreshRequested.connect(self._refresh_plugin_lists)
+        self._plugin_ui.noticeRaised.connect(self._set_message)
         if player is not None:
             player.playbackChanged.connect(self.playbackChanged.emit)
             player.positionChanged.connect(self.positionChanged.emit)
@@ -471,11 +483,17 @@ class WorkspaceModel(QObject):
     def setSettingsPage(self, page: str) -> None:
         self.setSettingsPageForGroup(self._active_group, page)
 
+    def _settings_page_known(self, page: str) -> bool:
+        """The core pages, Plugins when a plugin folder is set, and the pages of plugins."""
+        if page == "plugins":
+            return self._plugin_settings is not None and self._plugin_settings.is_available()
+        return page in SETTINGS_PAGES or self._plugin_ui.has_settings_page(page)
+
     @Slot(int, str)
     def setSettingsPageForGroup(self, group_index: int, page: str) -> None:
         if (
             not 0 <= group_index < len(self._groups)
-            or page not in SETTINGS_PAGES
+            or not self._settings_page_known(page)
             or page == self._settings_pages[group_index]
         ):
             return
@@ -1030,6 +1048,12 @@ class WorkspaceModel(QObject):
             else {}
         )
         source_title = str(detail.get("name", "Playlist")) if playlist_id else source
+        plugin_kind, _, plugin_ref = source.partition(":")
+        if self._plugin_ui.is_track_list_kind(plugin_kind):
+            # The rows of a plugin list are not library tracks: the open list says which ones play.
+            source_title = self._plugin_ui.tab_title(plugin_kind, plugin_ref)
+            model = self._active_track_model(source)
+            captured_rows = model.rows_snapshot() if model is not None else []
 
         def prepare(context: JobContext) -> None:
             try:
@@ -1141,6 +1165,16 @@ class WorkspaceModel(QObject):
     def pluginUiEnabled(self) -> bool:
         """Whether the Plugins entry and the plugin services exist in this build."""
         return plugin_ui_enabled()
+
+    @Property(QObject, constant=True)
+    def pluginUi(self) -> QObject:
+        """What the running plugins contribute; every list is empty without a plugin."""
+        return self._plugin_ui
+
+    @Property(QObject, constant=True)
+    def pluginSettings(self) -> QObject | None:
+        """The Plugins page of Settings; ``None`` when no plugin folder is set."""
+        return self._plugin_settings
 
     @Property(QObject, constant=True)
     def tagConflicts(self) -> QObject:
@@ -1411,6 +1445,81 @@ class WorkspaceModel(QObject):
         """Show the notices of the plugins on the message line."""
         host.setParent(self)
         host.noticeRaised.connect(self._set_message)
+        host.uiRefreshRequested.connect(self._plugin_ui.refresh)
+
+    def attach_plugin_settings(self, model: PluginSettingsModel) -> None:
+        """Attach the Plugins page of Settings, which exists only when a plugin folder is set."""
+        self._plugin_settings = model
+        model.setParent(self)
+
+    def register_plugins(
+        self, plugins: Sequence[LoadedPlugin], settings: SettingsRepository | None
+    ) -> None:
+        """Show what the running plugins contribute, once they are loaded.
+
+        A saved plugin activity that no running plugin provides falls back to the Explorer.
+        """
+        self._plugin_ui.register(plugins, settings)
+        if "." in self._activity and not self._plugin_ui.has_activity(self._activity):
+            self._activity = "explorer"
+            self._persist()
+        self.layoutChanged.emit()
+
+    @Slot(str, str)
+    def openPluginTab(self, kind: str, ref: str) -> None:
+        """Open a tab of a plugin's ``TabKind``, as a preview tab like a playlist."""
+        if not self._plugin_ui.is_plugin_kind(kind):
+            return
+        self._cancel_explorer_track_action()
+        self._capture_navigation()
+        tab_id = f"{kind}:{ref}"
+        state = self._ensure_tab(tab_id)
+        state["title"] = self._plugin_ui.tab_title(kind, ref)
+        state["icon"] = self._plugin_ui.tab_icon(kind)
+        group = self._groups[self._active_group]
+        self._place_tab(self._active_group, tab_id, preview=True)
+        group["active"] = tab_id
+        self._load_group_view(self._active_group)
+        self._record_navigation()
+        self._scan_coordinator.mark_tab_dirty(tab_id)
+        self._refresh_timer.start()
+        self.layoutChanged.emit()
+        self.selectionChanged.emit()
+
+    @Slot()
+    def _refresh_plugin_lists(self) -> None:
+        """A plugin's data changed: the open playlists and plugin lists read their rows again."""
+        for tab_id, state in self._tab_states.items():
+            kind = state.get("kind")
+            if kind == "playlist" or self._plugin_ui.is_track_list_kind(str(kind)):
+                self._scan_coordinator.mark_tab_dirty(tab_id)
+        self._refresh_timer.start()
+
+    @Slot(str, str, list, bool)
+    def playPluginRows(self, kind: str, ref: str, rows: list, shuffled: bool) -> None:
+        """Play the rows of a plugin list that have a local file; the others are skipped."""
+        available = prepare_playlist_playback_rows(rows, shuffled=shuffled)
+        if available and self._player is not None:
+            ids = [str(row["id"]) for row in available]
+            title = self._plugin_ui.tab_title(kind, ref)
+            self._player.playQueueWithRows(ids, 0, f"{kind}:{ref}", title, available)
+        elif not available:
+            self._set_message("There are no available tracks in these results.")
+
+    @Slot(str, list, result=list)
+    def pluginTrackActions(self, source: str, ids: list) -> list[dict[str, Any]]:
+        """The menu entries the plugins offer for the selected rows of a list."""
+        return self._plugin_ui.track_action_items(self._rows_of(source, ids))
+
+    @Slot(str, list, str)
+    def runPluginTrackAction(self, source: str, ids: list, key: str) -> None:
+        self._plugin_ui.run_track_action(key, self._rows_of(source, ids))
+
+    def _rows_of(self, source: str, ids: Sequence[object]) -> list[dict[str, Any]]:
+        """The rows of the open list ``source`` that carry these identifiers."""
+        model = self._active_track_model(source)
+        wanted = {str(identity) for identity in ids}
+        return [row for row in model.rows_snapshot() if str(row["id"]) in wanted] if model else []
 
     @Slot(list, str)
     def moveTracksToFolder(self, track_ids: list, folder_id: str) -> None:
@@ -1523,7 +1632,7 @@ class WorkspaceModel(QObject):
         if model is None:
             model = TrackListModel(self)
             self._track_models[model_key] = model
-        if kind in {"folder", "playlist", "artist"}:
+        if kind in {"folder", "playlist", "artist"} or self._plugin_ui.is_track_list_kind(kind):
             self._request_track_rows(model_key, tab_id, group, kind, ref, sort_key, ascending)
         else:
             model.replace([])
@@ -1557,7 +1666,8 @@ class WorkspaceModel(QObject):
             with suppress(LookupError, ValueError):
                 self._jobs.cancel(JobId.parse(previous_job))
         # Read on the GUI thread, before the job starts: the job never reads the preferences.
-        add_play_stats = kind != "playlist" and self._needs_play_stats(sort_key)
+        plugin_list = self._plugin_ui.is_track_list_kind(kind)
+        add_play_stats = kind != "playlist" and not plugin_list and self._needs_play_stats(sort_key)
         # The index is read here, on the graphical thread, and the job gets its own copy.
         artist_ids = self._artist_track_ids(ref) if kind == "artist" else []
         query = key[4]
@@ -1565,7 +1675,11 @@ class WorkspaceModel(QObject):
         def read_rows(context: JobContext) -> None:
             context.raise_if_cancelled()
             if kind == "playlist" and self._playlists_model is not None:
-                rows = self._playlists_model.service.rows(ref)
+                rows = self._plugin_ui.decorate(self._playlists_model.service.rows(ref))
+            elif plugin_list:
+                rows = self._plugin_ui.decorate(
+                    self._plugin_ui.track_rows(kind, ref, self._library.track)
+                )
             elif kind == "artist":
                 rows = self._artist_rows(artist_ids)
             else:
@@ -2122,7 +2236,11 @@ class WorkspaceModel(QObject):
 
     @Slot(str)
     def setActivity(self, activity: str) -> None:
-        if _known_activity(activity) != activity:
+        if (
+            not self._plugin_ui.has_activity(activity)
+            if "." in activity
+            else _known_activity(activity) != activity
+        ):
             return
         self._cancel_explorer_track_action()
         self._capture_navigation()
@@ -2372,9 +2490,14 @@ class WorkspaceModel(QObject):
         self.selectionChanged.emit()
         self._persist()
 
+    def _plugin_list_kind(self, tab_id: str) -> str:
+        """The tab kind of ``tab_id`` when it is a track list of a plugin, else an empty string."""
+        kind = tab_id.partition(":")[0]
+        return kind if self._plugin_ui.is_track_list_kind(kind) else ""
+
     @Slot(str, str)
     def setSort(self, tab_id: str, key: str) -> None:
-        if key not in _COLUMN_KEYS:
+        if key not in _COLUMN_KEYS and not self._plugin_ui.has_column(key):
             return
         self._cancel_explorer_track_action_for_tab(tab_id)
         self._keep(tab_id)
@@ -2411,6 +2534,10 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, int)
     def resizeColumn(self, tab_id: str, key: str, width: int) -> None:
+        plugin_kind = self._plugin_list_kind(tab_id)
+        if plugin_kind:
+            self._plugin_ui.resize_column(plugin_kind, key, width)
+            return
         if tab_id.startswith("playlist:") and self._playlists_model is not None:
             self._playlists_model.resizeColumn(key, width)
             return
@@ -2424,6 +2551,10 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, int)
     def moveColumn(self, tab_id: str, key: str, offset: int) -> None:
+        plugin_kind = self._plugin_list_kind(tab_id)
+        if plugin_kind:
+            self._plugin_ui.move_column(plugin_kind, key, offset)
+            return
         if tab_id.startswith("playlist:") and self._playlists_model is not None:
             self._playlists_model.moveColumn(key, offset)
             return
@@ -2437,6 +2568,10 @@ class WorkspaceModel(QObject):
 
     @Slot(str, str, str, bool)
     def moveColumnRelative(self, tab_id: str, key: str, target_key: str, after: bool) -> None:
+        plugin_kind = self._plugin_list_kind(tab_id)
+        if plugin_kind:
+            self._plugin_ui.move_column_relative(plugin_kind, key, target_key, after)
+            return
         if tab_id.startswith("playlist:") and self._playlists_model is not None:
             self._playlists_model.moveColumnRelative(key, target_key, after)
             return
@@ -2647,19 +2782,27 @@ class WorkspaceModel(QObject):
     @Slot(str, str, list)
     def playTrack(self, track_id: str, source: str, rows: list | None = None) -> None:
         self._cancel_explorer_track_action()
-        if source.startswith("playlist:"):
+        plugin_kind, _, plugin_ref = source.partition(":")
+        plugin_list = self._plugin_ui.is_track_list_kind(plugin_kind)
+        if source.startswith("playlist:") or plugin_list:
             model = self._active_track_model(source)
             captured = rows if rows is not None else model.rows_snapshot() if model else []
-            detail = (
-                self._playlists_model.details(source.partition(":")[2])
-                if self._playlists_model
-                else {}
-            )
-            playback_args = build_playlist_track_playback(
-                captured, track_id, str(detail.get("name", "Playlist")), source
-            )
+            if plugin_list:
+                name = self._plugin_ui.tab_title(plugin_kind, plugin_ref)
+            else:
+                detail = (
+                    self._playlists_model.details(source.partition(":")[2])
+                    if self._playlists_model
+                    else {}
+                )
+                name = str(detail.get("name", "Playlist"))
+            playback_args = build_playlist_track_playback(captured, track_id, name, source)
             if playback_args is None:
-                self._set_message("This track is unavailable. Locate a local file first.")
+                self._set_message(
+                    "This track has no local file."
+                    if plugin_list
+                    else "This track is unavailable. Locate a local file first."
+                )
                 return
             ids, chosen_index, title, playable = playback_args
             if self._player is not None:
@@ -2872,7 +3015,10 @@ class WorkspaceModel(QObject):
                 continue
             state = dict(self._tab_state(tab_id))
             state.update(self._group_tab_states.get((group_index, tab_id), {}))
-            if state.get("kind") not in {"folder", "playlist", "artist"}:
+            kind = str(state.get("kind", ""))
+            if kind not in {"folder", "playlist", "artist"} and not (
+                self._plugin_ui.is_track_list_kind(kind)
+            ):
                 model.replace([])
                 continue
             self._track_tracker.invalidate_key(model_key)

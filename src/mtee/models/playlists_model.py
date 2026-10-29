@@ -20,7 +20,7 @@ from PySide6.QtCore import (
 
 from mtee.domain.durations import format_playlist_meta
 from mtee.domain.jobs import JobCancelledError, JobId, JobStatus
-from mtee.domain.playlists import LIKED_PLAYLIST_ID, PLAYLIST_COLUMNS
+from mtee.domain.playlists import LIKED_PLAYLIST_ID, PLAYLIST_COLUMNS, is_plugin_column_key
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.services.jobs import JobContext, JobService
 from mtee.services.playlist_exchange import PlaylistExchange
@@ -463,14 +463,14 @@ class PlaylistsModel(QObject):
 
     @Slot(str, int)
     def resizeColumn(self, key: str, width: int) -> None:
-        if key in PLAYLIST_COLUMNS:
+        if key in PLAYLIST_COLUMNS or is_plugin_column_key(key):
             value = dict(self._columns)
             value["widths"] = dict(value["widths"]) | {key: min(max(width, 44), 640)}
             self.setColumns(value)
 
     @Slot(str, int)
     def moveColumn(self, key: str, offset: int) -> None:
-        order = list(self._columns["order"])
+        order = self._order_with_plugin_columns(key)
         if key in order and offset in {-1, 1}:
             index = order.index(key)
             order.insert(min(max(index + offset, 0), len(order) - 1), order.pop(index))
@@ -478,11 +478,17 @@ class PlaylistsModel(QObject):
 
     @Slot(str, str, bool)
     def moveColumnRelative(self, key: str, target: str, after: bool) -> None:
-        order = list(self._columns["order"])
+        order = self._order_with_plugin_columns(key, target)
         if key in order and target in order and key != target:
             order.remove(key)
             order.insert(order.index(target) + int(after), key)
             self.setColumns(dict(self._columns) | {"order": order})
+
+    def _order_with_plugin_columns(self, *keys: str) -> list[str]:
+        """The saved column order, followed by the plugin columns among ``keys`` it never listed."""
+        order = list(self._columns["order"])
+        order.extend(key for key in keys if is_plugin_column_key(key) and key not in order)
+        return order
 
     @Slot(str)
     def duplicate(self, identity: str) -> None:

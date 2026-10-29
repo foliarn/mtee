@@ -80,6 +80,7 @@ class _Setup:
                         title=(title,) if title else (),
                         artist=artists,
                         album=("Album",) if index == 0 else (),
+                        isrc="USRC17607839" if index == 0 else None,
                         technical=TechnicalInfo(duration_us=3_000_000 + index),
                     ),
                     generation,
@@ -174,6 +175,8 @@ def test_the_library_is_readable_as_tracks(setup: _Setup) -> None:
     assert first.duration_us == 3_000_000
     assert first.path == setup.music / "track0.wav"
     assert first.readable
+    assert first.isrc == "USRC17607839"
+    assert third.isrc is None
     assert third.title == "track2"
     assert third.artists == ()
 

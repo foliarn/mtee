@@ -33,6 +33,7 @@ from mtee.plugins.api import (
     PluginManifest,
     PluginService,
 )
+from mtee.plugins.contributions import check_contributions
 from mtee.plugins.registry import bundled_plugins
 
 __all__ = [
@@ -310,7 +311,7 @@ class PluginManager:
             module_name, _, function_name = manifest.factory.partition(":")
             factory = getattr(importlib.import_module(module_name), function_name)
             service = factory(context)
-            record.contributions = _read_contributions(service)
+            record.contributions = _read_contributions(manifest.plugin_id, service)
         except Exception as error:
             _LOGGER.error("Plugin %s failed to load.", manifest.plugin_id, exc_info=error)
             record.error = _describe(error)
@@ -352,7 +353,7 @@ class PluginManager:
         )
 
 
-def _read_contributions(service: object) -> tuple[Contribution, ...]:
+def _read_contributions(plugin_id: str, service: object) -> tuple[Contribution, ...]:
     """Return what ``service`` contributes, refusing a service or a contribution that is broken."""
     contributions = getattr(service, "contributions", None)
     unload = getattr(service, "unload", None)
@@ -368,6 +369,7 @@ def _read_contributions(service: object) -> tuple[Contribution, ...]:
             raise TypeError(
                 f"Contribution {index + 1} is a {type(item).__name__}, not a Contribution."
             )
+    check_contributions(plugin_id, declared)
     return tuple(declared)
 
 
