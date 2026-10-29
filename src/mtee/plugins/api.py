@@ -20,7 +20,7 @@ from PySide6.QtCore import QAbstractItemModel, QObject
 from mtee.domain.jobs import JobId
 from mtee.models.plugin_rows_model import PluginRowsModel
 from mtee.persistence.database import Database
-from mtee.services.file_move_service import FileMoveResult
+from mtee.services.file_move_service import FileMoveError, FileMoveResult
 from mtee.services.jobs import JobContext, JobTask
 
 __all__ = [
@@ -30,12 +30,14 @@ __all__ = [
     "CellValue",
     "Contribution",
     "Database",
+    "FileMoveError",
     "FileMoveResult",
     "FileOperations",
     "JobContext",
     "JobId",
     "JobTask",
     "LibraryAccess",
+    "LibraryScanned",
     "LibraryTrack",
     "PaneAction",
     "PlaylistAccess",
@@ -91,8 +93,9 @@ class Contribution:
 
     The core renders contributions; a plugin only describes them as data. The kinds are
     ``PluginActivity``, ``SidebarSection``, ``TabKind``, ``TabAction``, ``TrackColumn``,
-    ``TrackAction``, ``SettingsPage`` and ``StartupTask``, defined below. Plugin QML reaches
-    the core components with ``import Mtee``; a contribution never names a QML type.
+    ``TrackAction``, ``SettingsPage``, ``StartupTask`` and ``LibraryScanned``, defined below.
+    Plugin QML reaches the core components with ``import Mtee``; a contribution never names
+    a QML type.
     """
 
 
@@ -157,6 +160,14 @@ class PlaylistAccess(Protocol):
         """
         ...
 
+    def name(self, playlist_id: str) -> str | None:
+        """Return the name of a local playlist, or ``None`` when it no longer exists."""
+        ...
+
+    def exists(self, playlist_id: str) -> bool:
+        """Return whether a local playlist with this identifier still exists."""
+        ...
+
     def replace_entries(self, playlist_id: str, track_ids: Sequence[str]) -> None:
         """Replace all the entries of a playlist with ``track_ids``, in one transaction."""
         ...
@@ -191,6 +202,23 @@ class FileOperations(Protocol):
         """Ask to send tracks to the Recycle Bin; the user confirms in the usual dialog."""
         ...
 
+    def import_file(self, source: Path, folder: Path) -> Path:
+        """Move a file that is not in the library yet into a library folder; return its path.
+
+        The file never replaces another one: when the name is taken, the next free
+        ``name (2).ext``, ``name (3).ext``... is used, also when the name is taken while the
+        file is being moved. A file on another volume is copied to a hidden ``.part`` file of
+        ``folder`` first and put in place at the end, so the scanner never reads a
+        half-written file under its final name. ``folder`` is created when it is missing.
+        The library is not updated here: the scanner picks the file up at the next scan
+        (``context.library.rescan``).
+
+        Any thread. Raises ``FileMoveError`` when ``folder`` is not inside a library folder
+        or ``source`` already belongs to the library (use ``move_track``), and ``OSError``
+        when the file cannot be moved; ``source`` is then untouched.
+        """
+        ...
+
 
 class PluginSettings(Protocol):
     """A key-value store reserved to one plugin (``plugins.<id>.<key>`` in the settings)."""
@@ -214,7 +242,10 @@ class PluginContext:
     its own tables, whose names start with its identifier. ``base_dir`` is
     ``<data-dir>/plugins/<id>/``; it is created when ``data_dir`` is first read.
     ``refresh_ui`` asks the core to read the rows, the header buttons and the cells of the
-    plugin again after its data changed; any thread may call it.
+    plugin again after its data changed; any thread may call it. ``run_on_gui(fn)`` runs
+    ``fn`` on the graphical thread, after the current event (a queued call, also when it is
+    called from the graphical thread); any thread may call it. A ``fn`` that raises is
+    logged under the plugin's logger and does not stop the application.
     """
 
     plugin_id: str
@@ -228,6 +259,7 @@ class PluginContext:
     notify: Callable[[str], None]
     log: logging.Logger
     refresh_ui: Callable[[], None] = field(default=lambda: None)
+    run_on_gui: Callable[[Callable[[], None]], None] = field(default=lambda call: call())
 
     @property
     def data_dir(self) -> Path:
@@ -447,3 +479,17 @@ class StartupTask(Contribution):
 
     task_id: str
     run: JobTask
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryScanned(Contribution):
+    """A function the core calls after a library scan or rescan has finished.
+
+    ``callback`` receives the library folder (the root a folder was added with) whose scan
+    completed, as a ``Path``, on the graphical thread. The tracks of the scan are already in
+    the library, so ``context.library`` finds them. A scan that was cancelled, superseded by a
+    newer one or interrupted is not announced. The call ends with the plugin: nothing is
+    called once it is unloaded or disabled.
+    """
+
+    callback: Callable[[Path], None]

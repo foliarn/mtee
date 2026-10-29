@@ -15,6 +15,7 @@ from PySide6.QtCore import QAbstractItemModel
 
 from mtee.plugins.api import (
     Contribution,
+    LibraryScanned,
     PluginActivity,
     SettingsPage,
     SidebarSection,
@@ -76,6 +77,8 @@ def check_contributions(plugin_id: str, contributions: Sequence[Contribution]) -
         _need_identifier("startup task", task.task_id)
         _need_callable("startup task", task.task_id, task.run)
     _unique("startup task", [item.task_id for item in tasks])
+    for hook in (item for item in contributions if isinstance(item, LibraryScanned)):
+        _need_callable("library scan hook", "callback", hook.callback)
 
 
 def _check_activity(activity: PluginActivity) -> None:

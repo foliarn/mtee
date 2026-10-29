@@ -3135,6 +3135,9 @@ class WorkspaceModel(QObject):
         if msg is not None:
             self._set_message(msg)
         self._persist()
+        root = self._roots_by_id.get(root_id)
+        if root is not None and result.get("complete") and not result.get("cancelled"):
+            self._plugin_ui.library_scanned(Path(str(root["path"])))
 
     def _on_metadata_changed(self) -> None:
         self._revision += 1

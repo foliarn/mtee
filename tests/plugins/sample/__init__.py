@@ -7,6 +7,7 @@ functions in ``EVENTS`` so that a test can see what the core ran.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 from mtee.plugins.api import (
     CellValue,
     Contribution,
+    JobContext,
+    LibraryScanned,
     PaneAction,
     PluginActivity,
     PluginContext,
@@ -158,6 +161,45 @@ class Service:
         self._watching = not self._watching
         EVENTS.append("watch")
 
+    def _start(self, _job: JobContext) -> None:
+        """Run as a hidden job on a worker thread; ``run_on_gui`` hands a step to the GUI."""
+        EVENTS.append("startup")
+        self._context.run_on_gui(lambda: EVENTS.append("gui"))
+
+    @staticmethod
+    def _scanned(root: Path) -> None:
+        """Called on the graphical thread after a library scan finished."""
+        EVENTS.append(f"scanned {root.name}")
+
+    def _import(self) -> None:
+        """Bring a copy of the first library track in as a new file, through the core."""
+        library = self._context.library
+        found = library.tracks(library.track_ids()[:1])
+        if not found:
+            EVENTS.append("import: empty library")
+            return
+        incoming = self._context.data_dir / "incoming"
+        incoming.mkdir(parents=True, exist_ok=True)
+        source = incoming / "imported.wav"
+        shutil.copyfile(found[0].path, source)
+        # The folder is chosen once: later imports go to the same place.
+        folder = self._context.settings.get("import_folder") or str(
+            found[0].path.parent / "Imported"
+        )
+        self._context.settings.set("import_folder", folder)
+        placed = self._context.files.import_file(source, Path(folder))
+        EVENTS.append(f"imported {placed.name}")
+        library.rescan(placed.parent)
+
+    def _make_playlist(self) -> None:
+        """Create a local playlist and ask the core what it is called and whether it exists."""
+        playlists = self._context.playlists
+        identity = playlists.create("Sample playlist", self._context.library.track_ids()[:2])
+        EVENTS.append(
+            f"playlist {playlists.name(identity)} {playlists.exists(identity)} "
+            f"{playlists.name('missing')} {playlists.exists('missing')}"
+        )
+
     # -- the contributions
     def contributions(self) -> Sequence[Contribution]:
         return [
@@ -168,6 +210,10 @@ class Service:
                 actions=(
                     PaneAction(
                         "refresh", "Refresh the samples", "repeat", lambda: EVENTS.append("refresh")
+                    ),
+                    PaneAction("import", "Import a sample file", "arrow-down", self._import),
+                    PaneAction(
+                        "playlist", "Make a sample playlist", "playlists", self._make_playlist
                     ),
                 ),
                 foot=self._foot,
@@ -220,7 +266,8 @@ class Service:
                 enabled_fn=self._only_missing,
             ),
             SettingsPage("settings", "Sample", HERE / "settings.qml", backend=self._backend),
-            StartupTask("hello", lambda job_context: EVENTS.append("startup")),
+            StartupTask("hello", self._start),
+            LibraryScanned(self._scanned),
         ]
 
     def unload(self) -> None:

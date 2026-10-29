@@ -20,7 +20,7 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins.api import PluginContext, PluginManifest
 from mtee.plugins.context import PluginHost
 from mtee.services.file_access import FileAccessCoordinator
-from mtee.services.file_move_service import FileMoveService
+from mtee.services.file_move_service import FileMoveError, FileMoveService
 from mtee.services.jobs import JobContext, JobService
 from mtee.services.playlist_service import PlaylistService
 
@@ -302,3 +302,142 @@ def test_a_notice_from_a_job_thread_reaches_the_graphical_thread(setup: _Setup, 
         time.sleep(0.01)
 
     assert received == [("Sync finished", True)]
+
+
+def test_a_function_queued_with_run_on_gui_runs_on_the_graphical_thread(
+    setup: _Setup, qapp, caplog: pytest.LogCaptureFixture
+) -> None:
+    ran: list[tuple[str, bool]] = []
+    main = threading.current_thread()
+    run_on_gui = setup.context().run_on_gui
+
+    thread = threading.Thread(
+        target=lambda: run_on_gui(
+            lambda: ran.append(("from a worker", threading.current_thread() is main))
+        )
+    )
+    thread.start()
+    thread.join()
+    run_on_gui(lambda: ran.append(("from the gui", threading.current_thread() is main)))
+    assert ran == []  # queued also from the graphical thread: nothing runs in place
+    for _ in range(50):
+        qapp.processEvents()
+        if len(ran) == 2:
+            break
+        time.sleep(0.01)
+
+    assert sorted(ran) == [("from a worker", True), ("from the gui", True)]
+
+    def explodes() -> None:
+        raise RuntimeError("plugin bug")
+
+    with caplog.at_level("ERROR", logger="mtee.plugins.sample"):
+        run_on_gui(explodes)
+        run_on_gui(lambda: ran.append(("after", True)))
+        for _ in range(50):
+            qapp.processEvents()
+            if ("after", True) in ran:
+                break
+            time.sleep(0.01)
+
+    assert ("after", True) in ran  # a failing function does not stop the next ones
+    assert "plugin bug" in caplog.text
+
+
+def test_playlists_report_their_name_and_existence(setup: _Setup) -> None:
+    playlists = setup.context().playlists
+    identity = playlists.create("Synced", [setup.ids[0]])
+
+    assert playlists.name(identity) == "Synced"
+    assert playlists.exists(identity) is True
+    assert playlists.name("missing") is None
+    assert playlists.exists("missing") is False
+    setup.playlists.repository.delete(identity)
+    assert playlists.name(identity) is None
+    assert playlists.exists(identity) is False
+
+
+def _staged(setup: _Setup, name: str, content: bytes) -> Path:
+    staging = setup.base / "staging"
+    staging.mkdir(exist_ok=True)
+    path = staging / name
+    path.write_bytes(content)
+    return path
+
+
+def test_a_file_is_imported_into_a_library_folder_and_never_replaces_one(setup: _Setup) -> None:
+    files = setup.context().files
+    folder = setup.music / "Downloads"
+
+    first = files.import_file(_staged(setup, "new.wav", b"first"), folder)
+    second = files.import_file(_staged(setup, "new.wav", b"second"), folder)
+    third = files.import_file(_staged(setup, "new.wav", b"third"), folder)
+    taken = (setup.music / "track0.wav").read_bytes()
+    clash = files.import_file(_staged(setup, "track0.wav", b"other"), setup.music)
+
+    assert [path.name for path in (first, second, third)] == [
+        "new.wav",
+        "new (2).wav",
+        "new (3).wav",
+    ]
+    assert [path.read_bytes() for path in (first, second, third)] == [b"first", b"second", b"third"]
+    assert clash == setup.music / "track0 (2).wav"
+    assert (setup.music / "track0.wav").read_bytes() == taken  # byte-identical after a collision
+    assert not (setup.base / "staging" / "new.wav").exists()
+    assert setup.library.path_owner(first) is None  # the scanner records it, not the import
+
+
+def test_an_import_skips_a_name_the_library_still_owns(setup: _Setup) -> None:
+    files = setup.context().files
+    (setup.music / "track1.wav").unlink()  # gone from disk, still owned until the next scan
+
+    placed = files.import_file(_staged(setup, "track1.wav", b"again"), setup.music)
+
+    assert placed == setup.music / "track1 (2).wav"
+    assert not (setup.music / "track1.wav").exists()
+
+
+def test_an_import_refuses_what_is_not_a_new_file_for_a_library_folder(setup: _Setup) -> None:
+    files = setup.context().files
+    staged = _staged(setup, "new.wav", b"first")
+
+    with pytest.raises(FileMoveError, match="not in the library"):
+        files.import_file(staged, setup.base / "elsewhere")
+    with pytest.raises(FileMoveError, match="not in the library"):
+        files.import_file(staged, Path(str(setup.music) + "_other"))
+    with pytest.raises(FileMoveError, match="already in the library"):
+        files.import_file(setup.music / "track0.wav", setup.music / "Downloads")
+    with pytest.raises(FileNotFoundError):
+        files.import_file(setup.base / "staging" / "none.wav", setup.music)
+
+    assert staged.read_bytes() == b"first"
+    assert not (setup.base / "elsewhere").exists()
+    assert not (setup.music / "Downloads").exists()
+    assert (setup.music / "track0.wav").is_file()
+
+
+def test_a_file_already_in_the_destination_folder_is_left_where_it_is(setup: _Setup) -> None:
+    files = setup.context().files
+    loose = setup.music / "loose.wav"
+    loose.write_bytes(b"loose")
+
+    assert files.import_file(loose, setup.music) == loose
+    assert loose.read_bytes() == b"loose"
+    assert sorted(path.name for path in setup.music.iterdir()).count("loose (2).wav") == 0
+
+
+def test_an_import_can_run_on_a_job_thread(setup: _Setup) -> None:
+    files = setup.context().files
+    staged = _staged(setup, "worker.wav", b"from a worker")
+    done = threading.Event()
+    placed: list[Path] = []
+
+    def work(_context: JobContext) -> None:
+        placed.append(files.import_file(staged, setup.music))
+        done.set()
+
+    setup.context().jobs.submit(work, label="Import", visible=False)
+
+    assert done.wait(10)
+    assert placed == [setup.music / "worker.wav"]
+    assert placed[0].read_bytes() == b"from a worker"

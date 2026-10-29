@@ -7,6 +7,7 @@ appear while the plugin runs and be absent when it is off or when no plugin fold
 from __future__ import annotations
 
 import sys
+import wave
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -171,6 +172,28 @@ def test_a_running_plugin_adds_its_activity_sections_and_foot(qapp, tmp_path: Pa
         _settle(runtime)
         assert "PROBE SIDE" in [text.upper() for text in _texts(window)]
         assert "Gamma" in _texts(window)
+    finally:
+        _shutdown(runtime)
+
+
+def test_a_running_plugin_hears_a_finished_scan_and_queues_work_for_the_gui(
+    qapp, tmp_path: Path
+) -> None:
+    runtime, module = _start(tmp_path)
+    try:
+        workspace = _workspace(runtime)
+        assert module is not None
+        assert "startup on the gui" in _after_jobs(runtime, module)  # run_on_gui from a job
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        with wave.open(str(audio / "one.wav"), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(8000)
+            handle.writeframes(b"\x00\x00" * 800)
+        assert workspace.addRoot(str(audio))
+        assert "scanned audio" in _after_jobs(runtime, module)
+        assert module.EVENTS.count("scanned audio") == 1
     finally:
         _shutdown(runtime)
 

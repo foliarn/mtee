@@ -24,6 +24,7 @@ from mtee.models.workspace_rows import sort_rows
 from mtee.plugins.api import (
     CellValue,
     Contribution,
+    LibraryScanned,
     PaneAction,
     PluginActivity,
     SettingsPage,
@@ -404,3 +405,44 @@ def test_a_saved_plugin_activity_is_kept_until_the_plugins_are_loaded(qapp, tmp_
             assert repository.load()["activity"] == expected
     finally:
         database.close()
+
+
+# ------------------------------------------------------------------ library scan hooks
+
+
+def test_a_library_scan_hook_must_be_callable(qapp) -> None:
+    check_contributions("pl", [LibraryScanned(lambda root: None)])
+    with pytest.raises(ValueError, match="not callable"):
+        check_contributions("pl", [LibraryScanned(None)])  # type: ignore[arg-type]
+
+
+def test_a_scan_hook_receives_the_scanned_folder_and_a_failure_is_announced_once(
+    tmp_path: Path, qapp
+) -> None:
+    seen: list[Path] = []
+
+    def explodes(_root: Path) -> None:
+        raise RuntimeError("hook bug")
+
+    ui, notices = _ui([LibraryScanned(seen.append), LibraryScanned(explodes)])
+
+    ui.library_scanned(tmp_path / "music")
+    ui.library_scanned(tmp_path / "more")
+
+    assert seen == [tmp_path / "music", tmp_path / "more"]  # the next hook runs after a failure
+    assert len(notices) == 1 and "hook bug" in notices[0]
+
+
+def test_only_a_running_plugin_is_told_about_a_scan(tmp_path: Path, qapp) -> None:
+    seen: list[Path] = []
+    disabled = LoadedPlugin(
+        DiscoveredPlugin("q", Path("."), Path("."), None),
+        PluginStatus.DISABLED,
+        contributions=(LibraryScanned(seen.append),),
+    )
+    ui = PluginUiModel()
+    ui.register([disabled])
+
+    ui.library_scanned(tmp_path)
+
+    assert seen == []

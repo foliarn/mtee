@@ -18,6 +18,7 @@ from mtee.domain.tracks import SourceRevision, TrackId
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository, normalize_path
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
+from mtee.services.file_import import place_without_overwrite
 
 __all__ = ["FileMoveError", "FileMoveResult", "FileMoveService"]
 
@@ -60,6 +61,33 @@ class FileMoveService:
         if not resolved.is_dir():
             raise FileMoveError("The destination is not a folder.")
         return resolved
+
+    def import_file(self, source: Path, folder: Path) -> Path:
+        """Move a file that is not in the library into a library folder; return its new path.
+
+        The file never replaces another one (``place_without_overwrite``). ``folder`` must lie
+        inside a library folder and is created when missing. The scanner records the file at
+        the next scan. Raises ``FileMoveError`` for a destination outside the library or a
+        source the library already owns, and ``OSError`` when the file cannot be moved.
+        """
+        source = Path(source)
+        folder = Path(folder)
+        if not source.is_file():
+            raise FileNotFoundError(f"The file to import does not exist: {source}")
+        if self._library.path_owner(source) is not None:
+            raise FileMoveError("This file is already in the library.")
+        wanted = Path(normalize_path(folder))
+        if not any(
+            wanted.is_relative_to(Path(normalize_path(str(root["path"]))))
+            for root in self._library.roots()
+        ):
+            raise FileMoveError("The destination folder is not in the library.")
+        folder.mkdir(parents=True, exist_ok=True)
+        if normalize_path(source.parent) == normalize_path(folder):
+            return source
+        return place_without_overwrite(
+            source, folder, lambda target: self._library.path_owner(target) is not None
+        )
 
     def move(
         self,

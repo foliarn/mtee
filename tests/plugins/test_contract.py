@@ -24,7 +24,7 @@ import re
 import shutil
 import sys
 import textwrap
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,7 +36,15 @@ import mtee.plugins
 from mtee.models.plugin_ui_model import PluginUiModel
 from mtee.persistence.database import Database, discover_migrations
 from mtee.persistence.settings_repository import SettingsRepository
-from mtee.plugins.api import PluginContext, PluginManifest, TabKind
+from mtee.plugins.api import (
+    LibraryTrack,
+    PaneAction,
+    PluginActivity,
+    PluginContext,
+    PluginManifest,
+    StartupTask,
+    TabKind,
+)
 from mtee.plugins.loader import (
     LoadedPlugin,
     PluginManager,
@@ -126,19 +134,30 @@ class Harness:
         self.preferences = PluginPreferences(SettingsRepository(self.database))
         self.notices: list[str] = []
         self.manager = PluginManager(self.preferences, notify=self.notices.append)
+        self.library = MagicMock()
+        self.playlists = MagicMock()
+        self.files = MagicMock()
+        self.gui_calls: list[Callable[[], None]] = []
+
+    def run_gui_calls(self) -> None:
+        """Run what the plugin queued with ``run_on_gui``, as the graphical thread would."""
+        queued, self.gui_calls = self.gui_calls, []
+        for call in queued:
+            call()
 
     def context(self, manifest: PluginManifest) -> PluginContext:
         return PluginContext(
             plugin_id=manifest.plugin_id,
             database=self.database,
-            library=MagicMock(),
-            playlists=MagicMock(),
+            library=self.library,
+            playlists=self.playlists,
             jobs=MagicMock(),
-            files=MagicMock(),
+            files=self.files,
             settings=_DictSettings(),
             base_dir=self.base / "plugins" / manifest.plugin_id,
             notify=self.notices.append,
             log=logging.getLogger(f"mtee.plugins.{manifest.plugin_id}"),
+            run_on_gui=self.gui_calls.append,
         )
 
     def stage(self, *plugins: ContractPlugin) -> Path:
@@ -400,6 +419,24 @@ def test_its_ui_entries_are_hidden_when_it_is_disabled(
     assert harness.notices == []
 
 
+def test_its_library_scan_hooks_take_the_scanned_folder_and_fail_nothing(
+    harness: Harness, plugin: ContractPlugin, tmp_path: Path
+) -> None:
+    folder = harness.stage(plugin)
+    running = _record_of(harness, folder, plugin.plugin_id, enabled=True)
+    assert running.status is PluginStatus.RUNNING, running.error
+    shown = PluginUiModel()
+    notices: list[str] = []
+    shown.noticeRaised.connect(notices.append)
+    shown.register([running])
+
+    shown.library_scanned(tmp_path / "music")  # a plugin without a hook is simply not called
+    harness.run_gui_calls()
+
+    assert notices == []
+    assert harness.notices == []
+
+
 _TRIPWIRE = """
 from pathlib import Path as _Path
 
@@ -454,3 +491,92 @@ def test_contract_plugins_know_their_folder() -> None:
         patch.setenv(CONTRACT_DIRS_ENVIRONMENT, str(_HERE))
         listed = [item.plugin_id for item in contract_plugins()]
     assert listed == ["sample"]  # the sample is listed once; the failing sample is left out
+
+
+# ------------------------------------------------------- the sample and the optional capabilities
+
+
+def _sample_events() -> list[str]:
+    module = sys.modules[f"mtee.plugins.{SAMPLE.plugin_id}"]
+    return module.EVENTS
+
+
+def _pane_action(record: LoadedPlugin, action_id: str) -> PaneAction:
+    for item in record.contributions:
+        if isinstance(item, PluginActivity):
+            for action in item.actions:
+                if action.action_id == action_id:
+                    return action
+    raise AssertionError(f"the sample has no pane action {action_id}")
+
+
+def test_the_sample_queues_work_for_the_graphical_thread_with_run_on_gui(
+    harness: Harness,
+) -> None:
+    folder = harness.stage(SAMPLE)
+    record = harness.start(folder, SAMPLE.plugin_id)[SAMPLE.plugin_id]
+    startup = next(item for item in record.contributions if isinstance(item, StartupTask))
+    events = _sample_events()
+    events.clear()
+
+    startup.run(MagicMock())  # the startup job, here on the calling thread
+
+    assert events == ["startup"]  # the last step waits for the graphical thread
+    assert len(harness.gui_calls) == 1
+    harness.run_gui_calls()
+    assert events == ["startup", "gui"]
+
+
+def test_the_sample_hears_a_finished_scan_only_while_it_runs(
+    harness: Harness, tmp_path: Path
+) -> None:
+    folder = harness.stage(SAMPLE)
+    running = harness.start(folder, SAMPLE.plugin_id)[SAMPLE.plugin_id]
+    events = _sample_events()
+    events.clear()
+    shown = PluginUiModel()
+    shown.register([running])
+
+    shown.library_scanned(tmp_path / "music")
+
+    assert events == ["scanned music"]
+    # Switched off: the next start registers no hook, so nothing is called.
+    harness.manager.unload_all()
+    disabled = _record_of(harness, folder, SAMPLE.plugin_id, enabled=False)
+    events.clear()
+    none = PluginUiModel()
+    none.register([disabled])
+    none.library_scanned(tmp_path / "music")
+    assert events == []
+
+
+def test_the_sample_imports_a_file_and_asks_for_a_playlist_name_through_the_context(
+    harness: Harness, tmp_path: Path
+) -> None:
+    folder = harness.stage(SAMPLE)
+    record = harness.start(folder, SAMPLE.plugin_id)[SAMPLE.plugin_id]
+    library_folder = tmp_path / "music"
+    library_folder.mkdir()
+    track = library_folder / "first.wav"
+    track.write_bytes(b"audio")
+    harness.library.track_ids.return_value = ["t1", "t2"]
+    harness.library.tracks.return_value = [
+        LibraryTrack("t1", track, "First", ("Ann",), "", 1_000_000, True)
+    ]
+    harness.files.import_file.side_effect = lambda source, target: target / source.name
+    harness.playlists.create.return_value = "p1"
+    harness.playlists.name.side_effect = lambda identity: (
+        "Sample playlist" if identity == "p1" else None
+    )
+    harness.playlists.exists.side_effect = lambda identity: identity == "p1"
+    events = _sample_events()
+    events.clear()
+
+    _pane_action(record, "import").run()
+    _pane_action(record, "playlist").run()
+
+    source, target = harness.files.import_file.call_args.args
+    assert source == harness.base / "plugins" / SAMPLE.plugin_id / "incoming" / "imported.wav"
+    assert target == library_folder / "Imported"
+    harness.library.rescan.assert_called_once_with(library_folder / "Imported")
+    assert events == ["imported imported.wav", "playlist Sample playlist True None False"]

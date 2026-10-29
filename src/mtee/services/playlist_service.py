@@ -102,6 +102,13 @@ class PlaylistService:
         with self.lock:
             return self.repository.create(name, entries=self._entries_for(track_ids))
 
+    def playlist_name(self, identity: str) -> str | None:
+        """Return the name of a local playlist, or ``None`` when it does not exist."""
+        try:
+            return str(self.repository.playlist(identity)["name"])
+        except LookupError:
+            return None
+
     def replace_entries(self, identity: str, track_ids: list[str] | tuple[str, ...]) -> None:
         """Replace all the entries of a playlist with ``track_ids``, in the order given."""
         with self.lock:

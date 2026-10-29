@@ -27,6 +27,7 @@ from mtee.models.plugin_columns import (
 )
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins.api import (
+    LibraryScanned,
     PaneAction,
     PluginActivity,
     SettingsPage,
@@ -72,6 +73,7 @@ class PluginUiModel(QObject):
         self._columns: list[RegisteredColumn] = []
         self._track_actions: dict[str, _Owned[TrackAction]] = {}
         self._pages: dict[str, _Owned[SettingsPage]] = {}
+        self._scan_hooks: list[_Owned[LibraryScanned]] = []
         self._columns_store = PluginColumnStore(None)
         self._revision = 0
         self._reported: set[str] = set()
@@ -109,6 +111,8 @@ class PluginUiModel(QObject):
                     self._track_actions[f"{plugin_id}.{item.action_id}"] = _Owned(
                         plugin_id, title, item
                     )
+                elif isinstance(item, LibraryScanned):
+                    self._scan_hooks.append(_Owned(plugin_id, title, item))
                 elif isinstance(item, SettingsPage):
                     self._pages[f"{SETTINGS_PAGE_PREFIX}{plugin_id}.{item.page_id}"] = _Owned(
                         plugin_id, title, item
@@ -465,6 +469,13 @@ class PluginUiModel(QObject):
     def settingsPageBackend(self, key: str) -> QObject | None:
         owned = self._pages.get(key)
         return owned.item.backend if owned is not None else None
+
+    # ------------------------------------------------------------------ library scans
+
+    def library_scanned(self, root: Path) -> None:
+        """Tell the running plugins that the scan of the library folder ``root`` finished."""
+        for owned in self._scan_hooks:
+            self._guard(owned.plugin_title, "reading a scanned folder", owned.item.callback, root)
 
     # ------------------------------------------------------------------ guard
 

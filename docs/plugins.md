@@ -127,14 +127,27 @@ core is reachable from it.
 | `plugin_id` | The plugin's id. |
 | `database` | The shared `Database`. Use only your own tables. Each thread has its own connection. |
 | `library` | `track_ids()`, `tracks(ids)` (`LibraryTrack`: id, path, title, artists, album, `duration_us`, `readable`, `isrc`), `add_watched_folder(path)` and `rescan(path)`. The last two on the graphical thread only. |
-| `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids)`, `entries(playlist_id)`, through the core playlist service. |
+| `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids)`, `entries(playlist_id)`, `name(playlist_id)` (`None` when it is gone) and `exists(playlist_id)`, through the core playlist service. |
 | `jobs` | `submit(task, label=..., visible=...)` and `cancel(job_id)` on the core job service. |
-| `files` | The core write services: `move_track(track_id, root_id, relative_folder)` and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. |
+| `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)` and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. See below. |
 | `settings` | A key-value store scoped to the plugin: `get`, `set`, `get_json`, `set_json`, `delete`. Keys live under `plugins.<id>.` in the settings. |
 | `base_dir`, `data_dir` | `<data-dir>/plugins/<id>/`. `data_dir` creates the folder when first read; use it for tokens and caches. |
 | `notify(text)` | Shows a message on the workspace message line. Any thread. |
 | `log` | A logger named `mtee.plugins.<id>`. |
 | `refresh_ui()` | Asks the core to read the rows, header buttons and cells of the plugin again after its data changed. Any thread. |
+| `run_on_gui(fn)` | Runs `fn()` on the graphical thread, after the current event: a queued call, also when called from the graphical thread. Any thread. A `fn` that raises is logged under the plugin's logger. |
+
+`files.import_file(source, folder) -> Path` moves a file that is **not in the library yet**
+(for example a download) into a folder of the library and returns its final path. It never
+replaces a file: a taken name gets the next free `name (2).ext`, `name (3).ext`..., also when
+the name is taken while the file is being moved, and a path the library still owns counts as
+taken. On another volume the file is copied to a hidden `.<name>.part` file of the folder and
+put in place at the end, so the scanner never reads a half-written file under its final name.
+`folder` is created when missing. The import does not touch the library: the scanner records
+the file at the next scan, which the plugin may ask for with `library.rescan(folder)`. It may
+be called from any thread. It raises `FileMoveError` when `folder` is outside the library or
+`source` already belongs to it (use `move_track`), and `OSError` when the move fails, with
+`source` untouched. A `source` already in `folder` is returned as it is.
 
 The factory returns a `PluginService` with two methods: `contributions()`, returning a list of
 contributions, and `unload()`, which releases threads and files and leaves the data.
@@ -187,6 +200,11 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   after Plugins and before About. `content` is a QML file.
 - `StartupTask(task_id, run)`: submitted as a hidden job once the plugin is registered. `run`
   is a job task.
+- `LibraryScanned(callback)`: `callback(root)` is called on the graphical thread after the scan
+  of a library folder completed (a folder added, a rescan, or the scan at start). `root` is the
+  `Path` of that library folder; the scanned tracks are already in the library. A scan that was
+  cancelled, replaced by a newer one or interrupted is not announced. Nothing is called for a
+  plugin that is off or unloaded. A `callback` that raises is caught, logged and announced once.
 
 `TrackListRow` rows, `TabKind` track list functions and `TrackColumn.value_fn` run on a **job
 thread** while a list loads. Keep them cheap, read only the plugin's own data (the database

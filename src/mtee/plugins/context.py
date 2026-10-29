@@ -94,6 +94,7 @@ class PluginHost(QObject):
     def context_for(self, manifest: PluginManifest) -> PluginContext:
         """Return the context of one plugin."""
         plugin_id = manifest.plugin_id
+        log = logging.getLogger(f"mtee.plugins.{plugin_id}")
         return PluginContext(
             plugin_id=plugin_id,
             database=self._database,
@@ -104,8 +105,9 @@ class PluginHost(QObject):
             settings=_ScopedSettings(self._settings, plugin_id),
             base_dir=self._data_dir / PLUGIN_DATA_DIRECTORY / plugin_id,
             notify=self.notify,
-            log=logging.getLogger(f"mtee.plugins.{plugin_id}"),
+            log=log,
             refresh_ui=self._request_ui_refresh,
+            run_on_gui=lambda call: self._run_on_gui(call, log),
         )
 
     def run_startup_tasks(self, plugins: Sequence[LoadedPlugin]) -> None:
@@ -125,6 +127,17 @@ class PluginHost(QObject):
 
     def _request_ui_refresh(self) -> None:
         self.uiRefreshRequested.emit()
+
+    def _run_on_gui(self, call: Callable[[], None], log: logging.Logger) -> None:
+        """Queue ``call`` for the graphical thread; a failure is logged, never raised there."""
+
+        def guarded() -> None:
+            try:
+                call()
+            except Exception:
+                log.exception("A function queued with run_on_gui failed.")
+
+        self._call_later(guarded)
 
     def _call_later(self, call: Callable[[], None]) -> None:
         """Run ``call`` on the graphical thread, after the current event."""
@@ -237,6 +250,12 @@ class _Playlists:
         self._service.replace_entries(playlist_id, tuple(track_ids))
         self._changed()
 
+    def name(self, playlist_id: str) -> str | None:
+        return self._service.playlist_name(playlist_id)
+
+    def exists(self, playlist_id: str) -> bool:
+        return self._service.playlist_name(playlist_id) is not None
+
     def entries(self, playlist_id: str) -> list[PlaylistEntry]:
         return [
             PlaylistEntry(
@@ -281,3 +300,6 @@ class _Files:
     def recycle(self, track_ids: Sequence[str]) -> None:
         identifiers = list(track_ids)
         self._call_later(lambda: self._recycle.request_recycle(identifiers))
+
+    def import_file(self, source: Path, folder: Path) -> Path:
+        return self._file_moves.import_file(source, folder)

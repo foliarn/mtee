@@ -87,9 +87,9 @@ from pathlib import Path
 from PySide6.QtCore import Property, QObject
 
 from mtee.plugins.api import (
-    CellValue, PaneAction, PluginActivity, PluginRowsModel, SettingsPage, SidebarSection,
-    StartupTask, TabAction, TabHeader, TabKind, TabRequest, TrackAction, TrackColumn,
-    TrackListRow,
+    CellValue, LibraryScanned, PaneAction, PluginActivity, PluginRowsModel, SettingsPage,
+    SidebarSection, StartupTask, TabAction, TabHeader, TabKind, TabRequest, TrackAction,
+    TrackColumn, TrackListRow,
 )
 
 EVENTS = []
@@ -136,6 +136,10 @@ class Service:
         self.watching = not self.watching
         EVENTS.append("watch")
 
+    def _start(self, job):
+        EVENTS.append("startup")
+        self.context.run_on_gui(lambda: EVENTS.append("startup on the gui"))
+
     def contributions(self):
         return [
             PluginActivity(
@@ -172,7 +176,8 @@ class Service:
             TrackAction("better", "Get a better copy", "Probe",
                         lambda rows: EVENTS.append("better")),
             SettingsPage("accounts", "Accounts", HERE / "settings.qml", backend=self.backend),
-            StartupTask("hello", lambda context: EVENTS.append("startup")),
+            StartupTask("hello", self._start),
+            LibraryScanned(lambda root: EVENTS.append("scanned " + root.name)),
         ]
 
     def unload(self):

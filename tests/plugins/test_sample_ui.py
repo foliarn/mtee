@@ -8,6 +8,7 @@ once it is off, and the failing sample shown as Failed while the application kee
 
 from __future__ import annotations
 
+import wave
 from pathlib import Path
 from typing import Any, cast
 
@@ -286,5 +287,60 @@ def test_the_failing_sample_is_shown_failed_and_mtee_keeps_running(qapp, tmp_pat
         assert _switch(window, FAILING.plugin_id).property("checked") is True
         workspace.setActivity("explorer")
         settle(runtime)
+    finally:
+        _shutdown(runtime)
+
+
+def _write_wav(path: Path) -> None:
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(8000)
+        handle.writeframes(b"\x00\x00" * 800)
+
+
+def test_the_sample_uses_the_optional_capabilities_of_the_plugin_interface(
+    qapp, tmp_path: Path
+) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        workspace = workspace_of(runtime)
+        window = window_of(runtime)
+        module = plugin_module(SAMPLE_ID)
+        assert module is not None
+        settle(runtime)
+        # run_on_gui: the startup job ran on a worker and handed its last step to the GUI.
+        assert "startup" in module.EVENTS and "gui" in module.EVENTS
+
+        # The scan hook: adding a library folder scans it, and the plugin hears about it.
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        for name in ("one.wav", "two.wav"):
+            _write_wav(audio / name)
+        assert workspace.addRoot(str(audio))
+        settle(runtime)
+        assert module.EVENTS.count("scanned audio") == 1
+
+        # import_file: a new file lands in a folder of the library and is picked up by the
+        # rescan the plugin asks for; a second import never replaces the first.
+        click(window, need_item(window, ACTIVITY))
+        settle(runtime)
+        click(window, need_item(window, "pluginPaneAction_import"))
+        settle(runtime)
+        first = audio / "Imported" / "imported.wav"
+        assert "imported imported.wav" in module.EVENTS
+        assert first.is_file()
+        taken = first.read_bytes()
+        assert module.EVENTS.count("scanned audio") == 2  # the plugin's own rescan finished
+        click(window, need_item(window, "pluginPaneAction_import"))
+        settle(runtime)
+        assert "imported imported (2).wav" in module.EVENTS
+        assert (audio / "Imported" / "imported (2).wav").is_file()
+        assert first.read_bytes() == taken
+
+        # PlaylistAccess.name and .exists.
+        click(window, need_item(window, "pluginPaneAction_playlist"))
+        settle(runtime)
+        assert "playlist Sample playlist True None False" in module.EVENTS
     finally:
         _shutdown(runtime)
