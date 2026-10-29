@@ -111,7 +111,7 @@ def _entry(found: DiscoveredPlugin, record: LoadedPlugin | None, enabled: bool) 
         error = found.error
     elif status is PluginStatus.FAILED and record is not None:
         error = (
-            f"Could not start: {record.error}. "
+            f"Could not start: {record.error.rstrip('.')}. "
             "The plugin was switched off for this session and MTEE kept running."
         )
     elif status is PluginStatus.RUNNING and not enabled:
