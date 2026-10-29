@@ -5,7 +5,7 @@ import "../components"
 
 // Tasks page: every background job of this session with its counter, current item,
 // time spent and left, cancellation and the items that failed, plus the tag
-// conflicts waiting for the user. The sidebar keeps a compact summary.
+// conflicts and the items plugins leave to the user. The sidebar keeps a compact summary.
 Rectangle {
     id: page
 
@@ -13,6 +13,8 @@ Rectangle {
     property int bottomInset: 0
     readonly property var conflicts: workspace.tagConflicts
     readonly property bool hasConflictModel: conflicts && typeof conflicts.count === "number"
+    readonly property var pluginUi: workspace.pluginUi || null
+    readonly property int waitingCount: pluginUi !== null ? pluginUi.waitingCount : 0
     readonly property int active: jobsModel.activeCount
     readonly property int finished: jobsModel.finishedCount
     readonly property string summary: {
@@ -145,6 +147,53 @@ Rectangle {
                 }
             }
 
+            // The items plugins leave to the user ("Waiting for you"): a card per item, like
+            // the cards of the jobs. A group with no item is hidden.
+            Repeater {
+                model: page.pluginUi !== null ? page.pluginUi.waitingGroups : []
+                delegate: Column {
+                    id: waitingGroup
+
+                    required property var modelData
+
+                    objectName: "waitingGroup"
+                    visible: waitingRepeater.count > 0
+                    width: column.width
+                    spacing: 18
+
+                    SectionLabel {
+                        text: waitingGroup.modelData.title + " (" + waitingRepeater.count + ")"
+                    }
+
+                    Repeater {
+                        id: waitingRepeater
+                        model: page.pluginUi.waitingModel(waitingGroup.modelData.key)
+                        delegate: Rectangle {
+                            id: waitingCard
+
+                            required property var modelData
+
+                            width: waitingGroup.width
+                            height: waitingRow.implicitHeight + 28
+                            color: Theme.surface
+                            radius: 6
+
+                            TaskChoiceRow {
+                                id: waitingRow
+                                x: 16
+                                y: 14
+                                width: parent.width - 32
+                                title: waitingCard.modelData.title || ""
+                                detail: waitingCard.modelData.subtitle || ""
+                                actionText: waitingCard.modelData.action || "Open"
+                                onChosen: page.pluginUi.runWaiting(waitingGroup.modelData.key, waitingCard.modelData.id)
+                                onDismissRequested: page.pluginUi.dismissWaiting(waitingGroup.modelData.key, waitingCard.modelData.id)
+                            }
+                        }
+                    }
+                }
+            }
+
             SectionLabel {
                 visible: page.active > 0
                 text: "Running"
@@ -172,7 +221,7 @@ Rectangle {
             }
 
             Text {
-                visible: page.active === 0 && page.finished === 0
+                visible: page.active === 0 && page.finished === 0 && page.waitingCount === 0
                 width: parent.width
                 text: "No background tasks in this session."
                 color: Theme.textSecondary

@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Mtee
 
-// Tag conflicts waiting for the user, then the background jobs of this session in three
-// groups: what runs now (a job that just succeeded stays there a few seconds), what needs
+// Tag conflicts waiting for the user, the groups of items plugins leave to the user ("Waiting
+// for you"), then the background jobs of this session in three groups: what runs now (a job that just succeeded stays there a few seconds), what needs
 // attention (failed or partly done, with a link to the details on the Tasks page) and,
 // collapsed, everything else that finished.
 Item {
@@ -12,6 +12,8 @@ Item {
     required property var workspace
     readonly property var conflicts: workspace.tagConflicts
     readonly property bool hasConflictModel: conflicts && typeof conflicts.count === "number"
+    readonly property var pluginUi: workspace.pluginUi || null
+    readonly property int waitingCount: pluginUi !== null ? pluginUi.waitingCount : 0
     property bool doneOpen: false
 
     objectName: "tasksPane"
@@ -98,6 +100,40 @@ Item {
                     error: errorMessage
                     onReplaceRequested: pane.conflicts.resolve(trackId)
                     onDismissRequested: pane.conflicts.dismiss(trackId)
+                }
+            }
+
+            // The items plugins leave to the user, one group per plugin contribution; a group
+            // with no item is hidden.
+            Repeater {
+                model: pane.pluginUi !== null ? pane.pluginUi.waitingGroups : []
+                delegate: Column {
+                    id: waitingGroup
+
+                    required property var modelData
+
+                    objectName: "waitingGroup"
+                    visible: waitingRepeater.count > 0
+                    width: content.width
+                    spacing: 14
+
+                    SectionLabel {
+                        text: waitingGroup.modelData.title + " (" + waitingRepeater.count + ")"
+                    }
+
+                    Repeater {
+                        id: waitingRepeater
+                        model: pane.pluginUi.waitingModel(waitingGroup.modelData.key)
+                        delegate: TaskChoiceRow {
+                            required property var modelData
+                            width: waitingGroup.width
+                            title: modelData.title || ""
+                            detail: modelData.subtitle || ""
+                            actionText: modelData.action || "Open"
+                            onChosen: pane.pluginUi.runWaiting(waitingGroup.modelData.key, modelData.id)
+                            onDismissRequested: pane.pluginUi.dismissWaiting(waitingGroup.modelData.key, modelData.id)
+                        }
+                    }
                 }
             }
 
@@ -310,7 +346,8 @@ Item {
             }
 
             Text {
-                visible: jobsModel.liveCount + jobsModel.attentionCount + jobsModel.settledCount === 0
+                visible: jobsModel.liveCount + jobsModel.attentionCount + jobsModel.settledCount
+                    + pane.waitingCount === 0
                 width: parent.width
                 text: "No background tasks in this session."
                 color: Theme.textSecondary

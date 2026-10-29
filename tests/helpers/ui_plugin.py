@@ -89,7 +89,7 @@ from PySide6.QtCore import Property, QObject
 from mtee.plugins.api import (
     CellValue, LibraryScanned, PaneAction, PluginActivity, PluginRowsModel, SettingsPage,
     SidebarSection, StartupTask, TabAction, TabHeader, TabKind, TabRequest, TrackAction,
-    TrackColumn, TrackListRow,
+    TrackColumn, TrackListRow, WaitingItems,
 )
 
 EVENTS = []
@@ -114,6 +114,9 @@ class Service:
         self.foot = PluginRowsModel([{"text": "Connected as probe", "tone": "secondary"}])
         self.watching = False
         self.backend = Backend()
+        self.waiting = PluginRowsModel([
+            {"id": "w1", "title": "Probe one", "subtitle": "Needs a pick", "action": "Pick"},
+        ])
 
     def _rows(self, ref):
         ids = self.context.library.track_ids()
@@ -135,6 +138,14 @@ class Service:
     def _toggle_watch(self, ref):
         self.watching = not self.watching
         EVENTS.append("watch")
+
+    def _answer(self, item_id):
+        EVENTS.append("answer " + item_id)
+        return TabRequest("ui_probe.list", "alpha")
+
+    def _forget(self, item_id):
+        EVENTS.append("forget " + item_id)
+        self.waiting.replace([])
 
     def _start(self, job):
         EVENTS.append("startup")
@@ -176,6 +187,7 @@ class Service:
             TrackAction("better", "Get a better copy", "Probe",
                         lambda rows: EVENTS.append("better")),
             SettingsPage("accounts", "Accounts", HERE / "settings.qml", backend=self.backend),
+            WaitingItems("waiting", "Waiting for you", self.waiting, self._answer, self._forget),
             StartupTask("hello", self._start),
             LibraryScanned(lambda root: EVENTS.append("scanned " + root.name)),
         ]
@@ -260,6 +272,18 @@ def find_child(root: QQuickItem, name: str) -> QQuickItem | None:
 def find_item(window: QQuickWindow, name: str) -> QQuickItem | None:
     """Return the first item named ``name`` in the window."""
     return find_child(window.contentItem(), name)
+
+
+def find_items(window: QQuickWindow, name: str) -> list[QQuickItem]:
+    """Return every item named ``name`` in the window, in no particular order."""
+    found: list[QQuickItem] = []
+    pending = [window.contentItem()]
+    while pending:
+        item = pending.pop()
+        if item.objectName() == name:
+            found.append(item)
+        pending.extend(item.childItems())
+    return found
 
 
 def need_item(window: QQuickWindow, name: str) -> QQuickItem:

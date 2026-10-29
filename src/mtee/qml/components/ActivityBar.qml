@@ -15,12 +15,13 @@ Rectangle {
         const active = groups[workspace.activeGroup].active
         return active.split(":")[0]
     }
-    // Running tasks plus tag conflicts waiting for the user, like the badge of a
-    // source-control view.
+    // Running tasks plus what waits for the user (tag conflicts and the items plugins list
+    // under "Waiting for you"), like the badge of a source-control view.
     readonly property int runningTasks: {
-        const waiting = workspace.tagConflicts && workspace.tagConflicts.count !== undefined
+        const conflicts = workspace.tagConflicts && workspace.tagConflicts.count !== undefined
             ? workspace.tagConflicts.count : 0
-        return jobsModel.runningCount + waiting
+        const waiting = workspace.pluginUi ? workspace.pluginUi.waitingCount : 0
+        return jobsModel.runningCount + conflicts + waiting
     }
 
     width: Theme.activityBarWidth

@@ -221,8 +221,9 @@ def surface(ui: PluginUiModel, tab_kinds: list[str]) -> dict[str, Any]:
     """Return what the core would draw for the plugins registered in ``ui``.
 
     The keys are the places the interface reads: activity buttons, sections of the Explorer
-    and Playlists sidebars and of each plugin activity, Settings pages, column picker entries
-    and the plugin tab kinds among ``tab_kinds``. An empty value means nothing is shown.
+    and Playlists sidebars and of each plugin activity, Settings pages, column picker entries,
+    the groups of the Tasks page ("Waiting for you") and the plugin tab kinds among
+    ``tab_kinds``. An empty value means nothing is shown.
     """
     activities = ui.property("activities")
     sections = {
@@ -234,6 +235,7 @@ def surface(ui: PluginUiModel, tab_kinds: list[str]) -> dict[str, Any]:
         "sections": {key: value for key, value in sections.items() if value},
         "settings pages": ui.property("settingsPages"),
         "columns": ui.property("columnOptions"),
+        "waiting groups": ui.property("waitingGroups"),
         "tab kinds": [kind for kind in tab_kinds if ui.is_plugin_kind(kind)],
     }
 
@@ -437,6 +439,33 @@ def test_its_library_scan_hooks_take_the_scanned_folder_and_fail_nothing(
     assert harness.notices == []
 
 
+def test_its_waiting_items_are_complete_and_hidden_with_the_plugin(
+    harness: Harness, plugin: ContractPlugin
+) -> None:
+    folder = harness.stage(plugin)
+    running = _record_of(harness, folder, plugin.plugin_id, enabled=True)
+    assert running.status is PluginStatus.RUNNING, running.error
+    shown = PluginUiModel()
+    shown.register([running])
+
+    for group in shown.property("waitingGroups"):
+        assert group["title"].strip()
+        model = shown.waitingModel(group["key"])
+        assert model is not None
+        for row in range(model.rowCount()):
+            item = model.data(model.index(row, 0))
+            if isinstance(item, dict):  # a PluginRowsModel: the fields the Tasks page reads
+                assert item.get("id") and item.get("title"), item
+    assert shown.property("waitingCount") == sum(
+        shown.waitingModel(group["key"]).rowCount() for group in shown.property("waitingGroups")
+    )
+    harness.manager.unload_all()
+    disabled = _record_of(harness, folder, plugin.plugin_id, enabled=False)
+    hidden = PluginUiModel()
+    hidden.register([disabled])
+    assert hidden.property("waitingGroups") == [] and hidden.property("waitingCount") == 0
+
+
 _TRIPWIRE = """
 from pathlib import Path as _Path
 
@@ -580,3 +609,27 @@ def test_the_sample_imports_a_file_and_asks_for_a_playlist_name_through_the_cont
     assert target == library_folder / "Imported"
     harness.library.rescan.assert_called_once_with(library_folder / "Imported")
     assert events == ["imported imported.wav", "playlist Sample playlist True None False"]
+
+
+def test_the_sample_lists_what_waits_for_the_user_and_answers_it(harness: Harness) -> None:
+    folder = harness.stage(SAMPLE)
+    record = harness.start(folder, SAMPLE.plugin_id)[SAMPLE.plugin_id]
+    shown = PluginUiModel()
+    shown.register([record])
+    tabs: list[tuple[str, str]] = []
+    shown.tabRequested.connect(lambda kind, ref: tabs.append((kind, ref)))
+    events = _sample_events()
+    events.clear()
+
+    assert shown.property("waitingGroups") == [
+        {"key": "sample.waiting", "title": "Waiting for you", "plugin": "Sample plugin"}
+    ]
+    assert shown.property("waitingCount") == 2
+    shown.runWaiting("sample.waiting", "w1")
+    shown.dismissWaiting("sample.waiting", "w1")
+
+    assert tabs == [("sample.list", "missing")]
+    assert events == ["pick w1", "dismiss w1"]
+    assert shown.property("waitingCount") == 1
+    shown.dismissWaiting("sample.waiting", "w2")
+    assert shown.property("waitingCount") == 0  # an empty group is not drawn

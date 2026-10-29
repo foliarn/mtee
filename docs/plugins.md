@@ -30,7 +30,8 @@ An `<id>` is lowercase snake_case, equals the name of its folder, and never chan
 release. It is the stable key in the settings, in the database and in the QML identities. An id
 that MTEE itself uses (a module of `mtee.plugins` or an old plugin id) is refused.
 
-The sample plugin `tests/plugins/sample/` is a complete example with one of each contribution.
+The sample plugin `tests/plugins/sample/` is a complete example with one of each contribution,
+and it uses the optional capabilities of the context.
 `tests/plugins/sample_failing/` is a plugin whose factory raises, for the tests.
 
 ## 3. Discovery and registration
@@ -200,6 +201,17 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   after Plugins and before About. `content` is a QML file.
 - `StartupTask(task_id, run)`: submitted as a hidden job once the plugin is registered. `run`
   is a job task.
+- `WaitingItems(section_id, title, model, run, dismiss)`: a group of the Tasks pane and page for
+  work that waits for the user, for example a track to choose a match for. It is drawn like the
+  tag conflicts: a heading `title (count)`, then one entry per row of `model`: the item, what is
+  needed, a small ghost button with the label of the row and a dismiss cross. The page shows
+  each entry on a card, as it does for jobs. `model` is a `PluginRowsModel` the plugin keeps up
+  to date; a row has `id`, `title`, `subtitle` and `action` (the button label, `Open` when
+  missing). `run(row_id)` answers the button and returns a `TabRequest` or `None`;
+  `dismiss(row_id)` answers the cross, and the plugin removes the row. Both run on the graphical
+  thread. A group with no row is not drawn, nothing is drawn for a plugin that is off, and the
+  rows of all groups count in the badge of the Tasks activity, with the running jobs and the
+  tag conflicts.
 - `LibraryScanned(callback)`: `callback(root)` is called on the graphical thread after the scan
   of a library folder completed (a folder added, a rescan, or the scan at start). `root` is the
   `Path` of that library folder; the scanned tracks are already in the library. A scan that was

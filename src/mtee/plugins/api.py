@@ -61,6 +61,7 @@ __all__ = [
     "TrackAction",
     "TrackColumn",
     "TrackListRow",
+    "WaitingItems",
 ]
 
 # The version of the contract between the core and a plugin (see docs/plugins.md, section 9).
@@ -93,9 +94,9 @@ class Contribution:
 
     The core renders contributions; a plugin only describes them as data. The kinds are
     ``PluginActivity``, ``SidebarSection``, ``TabKind``, ``TabAction``, ``TrackColumn``,
-    ``TrackAction``, ``SettingsPage``, ``StartupTask`` and ``LibraryScanned``, defined below.
-    Plugin QML reaches the core components with ``import Mtee``; a contribution never names
-    a QML type.
+    ``TrackAction``, ``SettingsPage``, ``StartupTask``, ``LibraryScanned`` and
+    ``WaitingItems``, defined below. Plugin QML reaches the core components with
+    ``import Mtee``; a contribution never names a QML type.
     """
 
 
@@ -493,3 +494,24 @@ class LibraryScanned(Contribution):
     """
 
     callback: Callable[[Path], None]
+
+
+@dataclass(frozen=True, slots=True)
+class WaitingItems(Contribution):
+    """A group of the Tasks page and pane for work that waits for the user's answer.
+
+    The group is drawn with ``title`` (for example ``"Waiting for you"``) and a count, in the
+    style of the tag conflicts, and is hidden while ``model`` is empty. ``model`` is a
+    ``PluginRowsModel`` the plugin keeps up to date; a row has ``id``, ``title`` (the item),
+    ``subtitle`` (what is needed) and ``action`` (the label of its primary button, ``"Open"``
+    when missing). Waiting items count in the badge of the Tasks activity.
+    ``run(row_id)`` answers the primary button: it returns a ``TabRequest`` to open or ``None``.
+    ``dismiss(row_id)`` answers the cross; the plugin then removes the row from its model.
+    Both run on the graphical thread.
+    """
+
+    section_id: str
+    title: str
+    model: QAbstractItemModel
+    run: Callable[[str], TabRequest | None]
+    dismiss: Callable[[str], None]

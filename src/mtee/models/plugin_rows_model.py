@@ -28,6 +28,7 @@ class PluginRowsModel(QAbstractListModel):
     ``icon`` (an icon name of the core) with ``tone`` (``"secondary"`` for the pink accent),
     ``badge`` (a count in the accent colour) and ``count`` (a muted text on the right).
     A foot row has ``text`` and ``tone`` (``"secondary"``, ``"muted"`` or ``"warning"``).
+    A row of a waiting group (the Tasks page) has ``id``, ``title``, ``subtitle`` and ``action``.
     ``replace`` may be called from the graphical thread only.
     """
 

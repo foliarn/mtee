@@ -31,9 +31,11 @@ from mtee.plugins.api import (
     SidebarSection,
     TabAction,
     TabKind,
+    TabRequest,
     TrackAction,
     TrackColumn,
     TrackListRow,
+    WaitingItems,
 )
 from mtee.plugins.contributions import check_contributions
 from mtee.plugins.loader import DiscoveredPlugin, LoadedPlugin, PluginStatus
@@ -446,3 +448,134 @@ def test_only_a_running_plugin_is_told_about_a_scan(tmp_path: Path, qapp) -> Non
     ui.library_scanned(tmp_path)
 
     assert seen == []
+
+
+# ------------------------------------------------------------------ waiting items
+
+
+def _waiting(model: Any, **kwargs: Any) -> WaitingItems:
+    values: dict[str, Any] = {
+        "section_id": "waiting",
+        "title": "Waiting for you",
+        "model": model,
+        "run": lambda _id: None,
+        "dismiss": lambda _id: None,
+    }
+    values.update(kwargs)
+    return WaitingItems(**values)
+
+
+def test_valid_waiting_items_pass(qapp) -> None:
+    check_contributions(
+        "pl", [_waiting(PluginRowsModel()), _waiting(PluginRowsModel(), section_id="more")]
+    )
+
+
+@pytest.mark.parametrize(
+    ("build", "message"),
+    [
+        (lambda: [_waiting(PluginRowsModel(), section_id="Wait")], "lowercase snake_case"),
+        (lambda: [_waiting(PluginRowsModel(), title="")], "no title"),
+        (lambda: [_waiting(object())], "not a Qt model"),
+        (lambda: [_waiting(PluginRowsModel(), run=None)], "not callable"),
+        (lambda: [_waiting(PluginRowsModel(), dismiss=None)], "not callable"),
+        (lambda: [_waiting(PluginRowsModel()), _waiting(PluginRowsModel())], "declared twice"),
+    ],
+)
+def test_broken_waiting_items_are_refused_with_a_reason(
+    qapp, build: Callable[[], list[Contribution]], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        check_contributions("pl", build())
+
+
+def _item(row_id: str, title: str = "Item") -> dict[str, str]:
+    return {"id": row_id, "title": title, "subtitle": "Needs a pick", "action": "Pick"}
+
+
+def test_waiting_items_are_counted_listed_and_followed_as_the_plugin_changes_them(qapp) -> None:
+    first = PluginRowsModel([_item("a"), _item("b")])
+    second = PluginRowsModel()
+    ui, _notices = _ui(
+        [
+            _waiting(first),
+            _waiting(second, section_id="other", title="Also waiting"),
+            _kind("pl.list"),
+        ]
+    )
+    counts: list[int] = []
+    ui.waitingChanged.connect(lambda: counts.append(ui.property("waitingCount")))
+
+    assert ui.property("active") is True
+    assert ui.property("waitingCount") == 2
+    assert ui.property("waitingGroups") == [
+        {"key": "pl.waiting", "title": "Waiting for you", "plugin": "pl"},
+        {"key": "pl.other", "title": "Also waiting", "plugin": "pl"},
+    ]
+    assert ui.waitingModel("pl.waiting") is first
+    assert ui.waitingModel("pl.nothing") is None
+    assert first.parent() is ui  # owned by the model, not by the QML
+
+    second.replace([_item("c")])
+    first.replace([_item("a")])
+    first.replace([])
+    first.replace([])  # nothing changed: nothing is announced
+    second.replace([])
+
+    assert counts == [3, 2, 1, 0]
+    assert ui.property("waitingCount") == 0
+
+
+def test_a_waiting_item_runs_opens_the_tab_it_names_and_is_dismissed(qapp) -> None:
+    model = PluginRowsModel([_item("a"), _item("b")])
+    calls: list[str] = []
+
+    def run(item_id: str) -> TabRequest | None:
+        calls.append(f"run {item_id}")
+        return TabRequest("pl.list", item_id) if item_id == "a" else None
+
+    def dismiss(item_id: str) -> None:
+        calls.append(f"dismiss {item_id}")
+        model.replace([row for row in model.rows() if row["id"] != item_id])
+
+    ui, _notices = _ui([_waiting(model, run=run, dismiss=dismiss), _kind("pl.list")])
+    tabs: list[tuple[str, str]] = []
+    ui.tabRequested.connect(lambda kind, ref: tabs.append((kind, ref)))
+
+    ui.runWaiting("pl.waiting", "a")
+    ui.runWaiting("pl.waiting", "b")  # the plugin names no tab
+    ui.runWaiting("pl.unknown", "a")  # a group that does not exist is ignored
+    ui.dismissWaiting("pl.waiting", "a")
+    ui.dismissWaiting("pl.unknown", "b")
+
+    assert calls == ["run a", "run b", "dismiss a"]
+    assert tabs == [("pl.list", "a")]
+    assert ui.property("waitingCount") == 1
+
+
+def test_a_waiting_function_that_raises_is_announced_once(qapp) -> None:
+    def explodes(_item_id: str) -> None:
+        raise RuntimeError("no answer")
+
+    ui, notices = _ui([_waiting(PluginRowsModel([_item("a")]), run=explodes, dismiss=explodes)])
+
+    ui.runWaiting("pl.waiting", "a")
+    ui.runWaiting("pl.waiting", "a")
+    ui.dismissWaiting("pl.waiting", "a")
+
+    assert len(notices) == 2  # one for the answer, one for the dismissal
+    assert all("pl" in notice and "no answer" in notice for notice in notices)
+
+
+def test_only_a_running_plugin_has_waiting_items(qapp) -> None:
+    disabled = LoadedPlugin(
+        DiscoveredPlugin("q", Path("."), Path("."), None),
+        PluginStatus.DISABLED,
+        contributions=(_waiting(PluginRowsModel([_item("a")])),),
+    )
+    ui = PluginUiModel()
+    ui.register([disabled])
+
+    assert ui.property("active") is False
+    assert ui.property("waitingGroups") == []
+    assert ui.property("waitingCount") == 0

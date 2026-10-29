@@ -19,6 +19,7 @@ from tests.helpers.ui_plugin import (
     click,
     find_child,
     find_item,
+    find_items,
     need_item,
     plugin_module,
     plugin_ui_of,
@@ -342,5 +343,119 @@ def test_the_sample_uses_the_optional_capabilities_of_the_plugin_interface(
         click(window, need_item(window, "pluginPaneAction_playlist"))
         settle(runtime)
         assert "playlist Sample playlist True None False" in module.EVENTS
+    finally:
+        _shutdown(runtime)
+
+
+def _inside(item: QQuickItem, name: str) -> bool:
+    """Whether ``item`` is a descendant of the item named ``name``."""
+    parent = item.parentItem()
+    while parent is not None:
+        if parent.objectName() == name:
+            return True
+        parent = parent.parentItem()
+    return False
+
+
+def _texts_under(item: QQuickItem) -> list[str]:
+    found: list[str] = []
+    pending = [item]
+    while pending:
+        current = pending.pop()
+        text = current.property("text")
+        if isinstance(text, str) and current.isVisible():
+            found.append(text)
+        pending.extend(current.childItems())
+    return found
+
+
+def _rows_in(window: QQuickWindow, place: str) -> list[QQuickItem]:
+    return [item for item in find_items(window, "taskChoiceRow") if _inside(item, place)]
+
+
+def _button_of(row: QQuickItem, name: str) -> QQuickItem:
+    return cast(QQuickItem, find_child(row, name))
+
+
+def test_the_sample_waiting_items_are_drawn_in_the_tasks_pane_and_page(
+    qapp, tmp_path: Path
+) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        workspace = workspace_of(runtime)
+        window = window_of(runtime)
+        module = plugin_module(SAMPLE_ID)
+        assert module is not None
+        settle(runtime)
+
+        # The pane: a titled group with a count, a row per item, the label the plugin gave
+        # (or "Open"), and the count in the badge of the Tasks activity.
+        workspace.setActivity("tasks")
+        settle(runtime)
+        group = [item for item in find_items(window, "waitingGroup") if _inside(item, "tasksPane")]
+        assert len(group) == 1 and group[0].isVisible()
+        texts = visible_texts(window)
+        assert "Waiting for you (2)" in texts
+        assert "Two Step Theory" in texts and "Skank Rhythm" in texts
+        assert "Pick a match: 2 candidates." in texts
+        assert "No background tasks in this session." not in texts
+        rows = _rows_in(window, "tasksPane")
+        assert len(rows) == 2
+        labels = sorted(str(_button_of(row, "answerWaiting").property("text")) for row in rows)
+        assert labels == ["Open", "Pick…"]
+        assert "2" in _texts_under(need_item(window, "activity-tasks"))
+
+        # The primary button asks the plugin, which names the tab to open.
+        pick = next(
+            row for row in rows if _button_of(row, "answerWaiting").property("text") == "Pick…"
+        )
+        click(window, _button_of(pick, "answerWaiting"))
+        settle(runtime)
+        assert "pick w1" in module.EVENTS
+        active = cast(Any, workspace).groups[workspace.activeGroup]["active"]
+        assert active == f"{SAMPLE_KIND}:missing"
+
+        # The page lists the same items as cards; the cross dismisses through the plugin.
+        workspace.openTasks()
+        settle(runtime)
+        page_rows = _rows_in(window, "tasksView")
+        assert len(page_rows) == 2
+        cross = next(
+            _button_of(row, "dismissWaiting")
+            for row in page_rows
+            if "Skank Rhythm" in _texts_under(row)
+        )
+        click(window, cross)
+        settle(runtime)
+        assert "dismiss w2" in module.EVENTS
+        assert len(_rows_in(window, "tasksView")) == 1 and len(_rows_in(window, "tasksPane")) == 1
+        assert "Waiting for you (1)" in visible_texts(window)
+        assert "1" in _texts_under(need_item(window, "activity-tasks"))
+
+        # Nothing left: the group is hidden and the empty message comes back.
+        last = _rows_in(window, "tasksPane")[0]
+        click(window, _button_of(last, "dismissWaiting"))
+        settle(runtime)
+        assert "dismiss w1" in module.EVENTS
+        assert not any(item.isVisible() for item in find_items(window, "waitingGroup"))
+        texts = visible_texts(window)
+        assert "No background tasks in this session." in texts
+        assert not any(text.startswith("Waiting for you") for text in texts)
+        assert "1" not in _texts_under(need_item(window, "activity-tasks"))
+    finally:
+        _shutdown(runtime)
+
+
+def test_a_sample_that_is_off_shows_no_waiting_group(qapp, tmp_path: Path) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,))
+    try:
+        workspace = workspace_of(runtime)
+        window = window_of(runtime)
+        workspace.setActivity("tasks")
+        workspace.openTasks()
+        settle(runtime)
+        assert not any(item.isVisible() for item in find_items(window, "waitingGroup"))
+        assert find_items(window, "taskChoiceRow") == []
+        assert not any(text.startswith("Waiting for you") for text in visible_texts(window))
     finally:
         _shutdown(runtime)

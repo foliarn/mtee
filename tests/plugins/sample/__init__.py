@@ -35,6 +35,7 @@ from mtee.plugins.api import (
     TrackAction,
     TrackColumn,
     TrackListRow,
+    WaitingItems,
 )
 
 EVENTS: list[str] = []
@@ -108,6 +109,21 @@ class Service:
                 {"id": "missing", "name": "Missing only", "depth": 1},
             ]
         )
+        self._waiting = PluginRowsModel(
+            [
+                {
+                    "id": "w1",
+                    "title": "Two Step Theory",
+                    "subtitle": "Pick a match: 3 candidates. Nothing is imported until you pick.",
+                    "action": "Pick…",
+                },
+                {
+                    "id": "w2",
+                    "title": "Skank Rhythm",
+                    "subtitle": "Pick a match: 2 candidates.",
+                },
+            ]
+        )
         self._foot = PluginRowsModel([{"text": "Sample is connected", "tone": "secondary"}])
         self._backend = SettingsBackend(context.settings, self._count_items())
 
@@ -160,6 +176,16 @@ class Service:
     def _toggle_watch(self, ref: str) -> None:
         self._watching = not self._watching
         EVENTS.append("watch")
+
+    def _pick(self, item_id: str) -> TabRequest | None:
+        """The primary button of a waiting item: open the list that lets the user choose."""
+        EVENTS.append(f"pick {item_id}")
+        return TabRequest(LIST_KIND, "missing")
+
+    def _dismiss(self, item_id: str) -> None:
+        """The cross of a waiting item: forget it; the plugin removes the row itself."""
+        EVENTS.append(f"dismiss {item_id}")
+        self._waiting.replace([row for row in self._waiting.rows() if row["id"] != item_id])
 
     def _start(self, _job: JobContext) -> None:
         """Run as a hidden job on a worker thread; ``run_on_gui`` hands a step to the GUI."""
@@ -266,6 +292,7 @@ class Service:
                 enabled_fn=self._only_missing,
             ),
             SettingsPage("settings", "Sample", HERE / "settings.qml", backend=self._backend),
+            WaitingItems("waiting", "Waiting for you", self._waiting, self._pick, self._dismiss),
             StartupTask("hello", self._start),
             LibraryScanned(self._scanned),
         ]

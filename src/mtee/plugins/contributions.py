@@ -24,6 +24,7 @@ from mtee.plugins.api import (
     TabKind,
     TrackAction,
     TrackColumn,
+    WaitingItems,
 )
 
 __all__ = ["CORE_ACTIVITIES", "SECTION_ACTIVITIES", "check_contributions", "is_identifier"]
@@ -77,6 +78,10 @@ def check_contributions(plugin_id: str, contributions: Sequence[Contribution]) -
         _need_identifier("startup task", task.task_id)
         _need_callable("startup task", task.task_id, task.run)
     _unique("startup task", [item.task_id for item in tasks])
+    waiting = [item for item in contributions if isinstance(item, WaitingItems)]
+    for group in waiting:
+        _check_waiting(group)
+    _unique("waiting group", [item.section_id for item in waiting])
     for hook in (item for item in contributions if isinstance(item, LibraryScanned)):
         _need_callable("library scan hook", "callback", hook.callback)
 
@@ -109,6 +114,15 @@ def _check_section(section: SidebarSection, own_activities: set[str]) -> None:
         _need_callable("pane action", action.action_id, action.run)
     if section.activate is not None:
         _need_callable("sidebar section", section.section_id, section.activate)
+
+
+def _check_waiting(group: WaitingItems) -> None:
+    _need_identifier("waiting group", group.section_id)
+    _need_text("waiting group", group.section_id, group.title, "title")
+    if not isinstance(group.model, QAbstractItemModel):
+        raise ValueError(f"The model of waiting group {group.section_id} is not a Qt model.")
+    _need_callable("waiting group", group.section_id, group.run)
+    _need_callable("waiting group", group.section_id, group.dismiss)
 
 
 def _check_tab_kind(plugin_id: str, kind: TabKind) -> None:

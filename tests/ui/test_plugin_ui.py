@@ -73,6 +73,7 @@ def test_without_a_plugin_folder_nothing_is_added(qapp, tmp_path: Path) -> None:
         assert ui.property("active") is False
         assert ui.property("activities") == []
         assert ui.property("columnOptions") == []
+        assert ui.property("waitingGroups") == [] and ui.property("waitingCount") == 0
         assert workspace.pluginSettings is None
         workspace.openSettings()
         _settle(runtime)
@@ -95,6 +96,7 @@ def test_a_folder_without_the_switch_lists_the_plugin_but_adds_nothing(
         window = _window(runtime)
         assert module is None  # the plugin's code is not imported until it is enabled
         assert _plugin_ui(workspace).property("active") is False
+        assert _plugin_ui(workspace).property("waitingGroups") == []
         assert _find(window, "activity-ui_probe.main") is None
         workspace.openSettings()
         workspace.setSettingsPage("plugins")
@@ -194,6 +196,38 @@ def test_a_running_plugin_hears_a_finished_scan_and_queues_work_for_the_gui(
         assert workspace.addRoot(str(audio))
         assert "scanned audio" in _after_jobs(runtime, module)
         assert module.EVENTS.count("scanned audio") == 1
+    finally:
+        _shutdown(runtime)
+
+
+def test_a_waiting_item_of_the_plugin_shows_on_the_tasks_page_and_follows_its_answers(
+    qapp, tmp_path: Path
+) -> None:
+    runtime, module = _start(tmp_path)
+    try:
+        workspace = _workspace(runtime)
+        window = _window(runtime)
+        assert module is not None
+        workspace.openTasks()
+        _settle(runtime)
+        group = _find(window, "waitingGroup")
+        assert group is not None and group.isVisible()
+        texts = _texts(window)
+        assert "Waiting for you (1)" in texts and "Probe one" in texts and "Needs a pick" in texts
+        assert "Pick" in texts
+        # The primary button asks the plugin and opens the tab it names.
+        _click(window, cast(QQuickItem, _find(window, "answerWaiting")))
+        _settle(runtime)
+        assert "answer w1" in module.EVENTS
+        assert cast(Any, workspace).groups[workspace.activeGroup]["active"] == f"{LIST_KIND}:alpha"
+        # The cross dismisses it; the plugin empties its model and the group goes away.
+        workspace.openTasks()
+        _settle(runtime)
+        _click(window, cast(QQuickItem, _find(window, "dismissWaiting")))
+        _settle(runtime)
+        assert "forget w1" in module.EVENTS
+        assert _plugin_ui(workspace).property("waitingCount") == 0
+        assert not any(text.startswith("Waiting for you") for text in _texts(window))
     finally:
         _shutdown(runtime)
 

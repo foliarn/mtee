@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QAbstractItemModel, QObject, QUrl, Signal, Slot
 
 from mtee.models.plugin_columns import (
     PluginColumnStore,
@@ -38,6 +38,7 @@ from mtee.plugins.api import (
     TrackAction,
     TrackColumn,
     TrackListRow,
+    WaitingItems,
 )
 from mtee.plugins.loader import LoadedPlugin, PluginStatus
 
@@ -63,6 +64,7 @@ class PluginUiModel(QObject):
     tabRequested = Signal(str, str)
     refreshRequested = Signal()
     noticeRaised = Signal(str)
+    waitingChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -74,6 +76,8 @@ class PluginUiModel(QObject):
         self._track_actions: dict[str, _Owned[TrackAction]] = {}
         self._pages: dict[str, _Owned[SettingsPage]] = {}
         self._scan_hooks: list[_Owned[LibraryScanned]] = []
+        self._waiting: dict[str, _Owned[WaitingItems]] = {}
+        self._waiting_count = 0
         self._columns_store = PluginColumnStore(None)
         self._revision = 0
         self._reported: set[str] = set()
@@ -111,6 +115,8 @@ class PluginUiModel(QObject):
                     self._track_actions[f"{plugin_id}.{item.action_id}"] = _Owned(
                         plugin_id, title, item
                     )
+                elif isinstance(item, WaitingItems):
+                    self._waiting[f"{plugin_id}.{item.section_id}"] = _Owned(plugin_id, title, item)
                 elif isinstance(item, LibraryScanned):
                     self._scan_hooks.append(_Owned(plugin_id, title, item))
                 elif isinstance(item, SettingsPage):
@@ -122,6 +128,10 @@ class PluginUiModel(QObject):
             self._adopt(section.item.model)
         for activity in self._activities.values():
             self._adopt(activity.item.foot)
+        for group in self._waiting.values():
+            self._adopt(group.item.model)
+            self._watch_waiting(group.item.model)
+        self._update_waiting()
         self._revision += 1
         self.changed.emit()
 
@@ -145,6 +155,7 @@ class PluginUiModel(QObject):
             or self._columns
             or self._track_actions
             or self._pages
+            or self._waiting
         )
 
     @Slot()
@@ -469,6 +480,61 @@ class PluginUiModel(QObject):
     def settingsPageBackend(self, key: str) -> QObject | None:
         owned = self._pages.get(key)
         return owned.item.backend if owned is not None else None
+
+    # ------------------------------------------------------------------ waiting for the user
+
+    def _watch_waiting(self, model: QAbstractItemModel) -> None:
+        """Count again whenever the plugin changes the rows of a waiting group."""
+        for signal in (
+            model.modelReset,
+            model.rowsInserted,
+            model.rowsRemoved,
+            model.layoutChanged,
+        ):
+            signal.connect(self._update_waiting)
+
+    def _update_waiting(self) -> None:
+        count = sum(group.item.model.rowCount() for group in self._waiting.values())
+        if count != self._waiting_count:
+            self._waiting_count = count
+            self.waitingChanged.emit()
+
+    @Property(int, notify=waitingChanged)
+    def waitingCount(self) -> int:
+        """How many items wait for the user in all groups: they count in the Tasks badge."""
+        return self._waiting_count
+
+    @Property(list, notify=changed)
+    def waitingGroups(self) -> list[dict[str, str]]:
+        """The groups of the Tasks page and pane: ``key``, ``title`` and ``plugin``."""
+        return [
+            {"key": key, "title": owned.item.title, "plugin": owned.plugin_title}
+            for key, owned in self._waiting.items()
+        ]
+
+    @Slot(str, result=QObject)
+    def waitingModel(self, key: str) -> QObject | None:
+        """The rows of a group: ``id``, ``title``, ``subtitle`` and ``action``."""
+        owned = self._waiting.get(key)
+        return owned.item.model if owned is not None else None
+
+    @Slot(str, str)
+    def runWaiting(self, key: str, row_id: str) -> None:
+        """The primary button of an item was pressed: the plugin may name a tab to open."""
+        owned = self._waiting.get(key)
+        if owned is None:
+            return
+        request = self._guard(
+            owned.plugin_title, "answering a waiting item", owned.item.run, row_id
+        )
+        if request is not None and request.kind in self._kinds:
+            self.tabRequested.emit(request.kind, request.ref)
+
+    @Slot(str, str)
+    def dismissWaiting(self, key: str, row_id: str) -> None:
+        owned = self._waiting.get(key)
+        if owned is not None:
+            self._guard(owned.plugin_title, "dismissing a waiting item", owned.item.dismiss, row_id)
 
     # ------------------------------------------------------------------ library scans
 
