@@ -77,12 +77,12 @@ def test_a_failing_task_carries_a_structured_error_and_does_not_stay_running(
 def test_an_error_that_is_a_readable_sentence_is_shown_without_its_class_name(
     service: JobService,
 ) -> None:
-    class NotConnected(Exception):
+    class NotConnectedError(Exception):
         readable = True
         code = "not_connected"
 
     def task(context: JobContext) -> None:
-        raise NotConnected("TIDAL is not connected. Log in from Settings > Accounts.")
+        raise NotConnectedError("TIDAL is not connected. Log in from Settings > Accounts.")
 
     job_id = service.submit(task, label="Download")
 
