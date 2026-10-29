@@ -7,9 +7,13 @@ from typing import Any, cast
 
 from mutagen import File as MutagenFile
 
-from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
+from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo, normalize_isrc
 
 __all__ = ["MetadataReader"]
+
+_ID3_SUFFIXES = frozenset({".wav", ".mp3", ".aif", ".aiff"})
+_MP4_ISRC_ATOM = "----:com.apple.iTunes:ISRC"
+_MP4_INITIAL_KEY_ATOM = "----:com.apple.iTunes:initialkey"
 
 _TAG_ALIASES = {
     "title": ("title", "TIT2"),
@@ -41,13 +45,14 @@ class MetadataReader:
             if source.suffix.casefold() == ".m4a" and not fields["key"]:
                 raw_tags = _read_raw_tags(source)
                 fields["key"] = _read_mp4_initial_key(raw_tags)
-            elif source.suffix.casefold() in {".wav", ".mp3", ".aif", ".aiff"}:
+            elif source.suffix.casefold() in _ID3_SUFFIXES:
                 if not fields["comment"] or not fields["key"]:
                     raw_tags = _read_raw_tags(source)
                     if not fields["comment"]:
                         fields["comment"] = _read_id3_comments(raw_tags)
                     if not fields["key"]:
                         fields["key"] = _read_id3_frame_text(raw_tags, "TKEY")
+            isrc = _read_isrc(source, tags)
             info = audio.info
             duration = getattr(info, "length", None)
             technical = TechnicalInfo(
@@ -69,6 +74,7 @@ class MetadataReader:
                 key=fields["key"],
                 track_number=fields["track_number"],
                 comment=fields["comment"],
+                isrc=isrc,
                 technical=technical,
             )
         except Exception as error:
@@ -112,6 +118,19 @@ def _optional_int(value: object) -> int | None:
     return result if result > 0 else None
 
 
+def _read_isrc(source: Path, easy_tags: Any) -> str | None:
+    """Return the first well-formed ISRC of the file, read only; malformed values are ignored."""
+    suffix = source.suffix.casefold()
+    if suffix == ".m4a":
+        values = _read_mp4_freeform(_read_raw_tags(source), _MP4_ISRC_ATOM)
+    elif suffix in _ID3_SUFFIXES:
+        values = _read_id3_frame_text(_read_raw_tags(source), "TSRC")
+    else:
+        # Vorbis comments (FLAC, Ogg Vorbis, Opus) are case-insensitive in Mutagen.
+        values = _read_values(easy_tags, ("isrc",))
+    return next((isrc for value in values if (isrc := normalize_isrc(value))), None)
+
+
 def _read_raw_tags(path: Path) -> Any:
     audio = MutagenFile(path, easy=False)
     return getattr(audio, "tags", None)
@@ -119,9 +138,14 @@ def _read_raw_tags(path: Path) -> Any:
 
 def _read_mp4_initial_key(tags: Any) -> tuple[str, ...]:
     """Read iTunes' freeform initialkey atom, which Mutagen's EasyMP4 omits."""
+    return _read_mp4_freeform(tags, _MP4_INITIAL_KEY_ATOM)
+
+
+def _read_mp4_freeform(tags: Any, atom: str) -> tuple[str, ...]:
+    """Read a freeform iTunes atom, which Mutagen's EasyMP4 omits."""
     if tags is None:
         return ()
-    values = tags.get("----:com.apple.iTunes:initialkey", ())
+    values = tags.get(atom, ())
     return tuple(text for value in values if (text := _decode_tag_value(value)).strip())
 
 

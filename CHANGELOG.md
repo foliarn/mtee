@@ -3,6 +3,12 @@
 All notable changes to MTEE are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- MTEE reads the ISRC tag of MP3, FLAC/Ogg and M4A files (not shown yet).
+
 ## [0.1.0] - 2026-10-15
 
 First public release. Windows is the supported platform.
