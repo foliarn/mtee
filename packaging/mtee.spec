@@ -9,8 +9,12 @@ MTEE_BUILD_CONSOLE to 1 for a diagnostic build that keeps its console.
 import hashlib
 import json
 import os
+import sys
 from importlib.metadata import distribution
+from importlib.util import find_spec
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_submodules
 
 project_root = Path(SPECPATH).resolve().parent
 package_dir = project_root / "src" / "mtee"
@@ -87,6 +91,47 @@ winrt_hidden_imports = [
     "winrt.windows.storage.streams",
 ]
 
+# The standard library, for plugins (plan 123.7). A plugin imports standard modules that the core
+# may never import itself, so every standard module is listed, except the GUI toolkit, the
+# development tools and the test suites, which no plugin needs. Only packages are walked: they
+# are told apart with find_spec, which imports nothing (importing a module such as antigravity
+# would open a browser while the spec is read).
+STDLIB_EXCLUDED = frozenset(
+    {
+        "tkinter",
+        "turtle",
+        "turtledemo",
+        "idlelib",
+        "test",
+        "lib2to3",
+        "ensurepip",
+        "venv",
+        "pydoc_data",
+        "distutils",
+        "msilib",
+    }
+)
+_TEST_PARTS = frozenset({"test", "tests", "idle_test"})
+
+
+def _is_test_module(name: str) -> bool:
+    return any(part in _TEST_PARTS for part in name.split("."))
+
+
+def _stdlib_hidden_imports() -> list[str]:
+    names: list[str] = []
+    for top in sorted(sys.stdlib_module_names):
+        if top in STDLIB_EXCLUDED:
+            continue
+        spec = find_spec(top)
+        if spec is None:  # a Unix-only module, such as fcntl or termios
+            continue
+        names.append(top)
+        if spec.submodule_search_locations is not None:
+            names.extend(collect_submodules(top, filter=lambda name: not _is_test_module(name)))
+    return sorted({name for name in names if name.partition(".")[0] not in STDLIB_EXCLUDED})
+
+
 # Modules that MTEE does not use at this step. QtMultimedia is deliberately
 # absent: the playback of the next step uses libmpv, not the Qt player.
 excludes = [
@@ -117,7 +162,7 @@ analysis = Analysis(
     pathex=[str(project_root / "src")],
     binaries=[(str(mpv_library), "mtee/native/mpv"), *ffmpeg_binaries],
     datas=datas,
-    hiddenimports=["mtee.app", *winrt_hidden_imports],
+    hiddenimports=["mtee.app", *winrt_hidden_imports, *_stdlib_hidden_imports()],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
