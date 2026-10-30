@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Iterator
@@ -17,8 +18,10 @@ from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.playlists_repository import PlaylistsRepository
 from mtee.persistence.settings_repository import SettingsRepository
-from mtee.plugins.api import PluginContext, PluginManifest
+from mtee.plugin_helper import HELPER_ENVIRONMENT_VARIABLE
+from mtee.plugins.api import API_VERSION, PluginContext, PluginManifest
 from mtee.plugins.context import PluginHost
+from mtee.plugins.loader import PluginManager, PluginPreferences
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveError, FileMoveService
 from mtee.services.jobs import JobContext, JobService
@@ -469,3 +472,34 @@ def test_an_import_can_run_on_a_job_thread(setup: _Setup) -> None:
     assert done.wait(10)
     assert placed == [setup.music / "worker.wav"]
     assert placed[0].read_bytes() == b"from a worker"
+
+
+def test_a_helper_setup_names_the_plugin_folder_of_the_context(
+    setup: _Setup, tmp_path: Path
+) -> None:
+    """The manager's folder reaches the helper environment of a plugin's context (plan 123.3)."""
+    folder = tmp_path / "plugins"
+    package = folder / "probe"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "manifest.py").write_text(
+        "from mtee.plugins.api import API_VERSION, PluginManifest\n"
+        "MANIFEST = PluginManifest('probe', 'Probe', '', '1.0.0', API_VERSION,"
+        " 'mtee.plugins.probe:create')\n",
+        encoding="utf-8",
+    )
+    manager = PluginManager(PluginPreferences(setup.settings))
+    setup.host.attach_plugin_manager(manager)
+    manager.load_enabled(setup.host.context_for, [folder])
+    try:
+        probe = PluginManifest(
+            "probe", "Probe", "", "1.0.0", API_VERSION, "mtee.plugins.probe:create"
+        )
+        environment = setup.host.context_for(probe).python_environment()
+    finally:
+        manager.unload_all()
+
+    assert json.loads(environment[HELPER_ENVIRONMENT_VARIABLE]) == {
+        "plugin_folders": [str(folder)],
+        "libraries": {},
+    }

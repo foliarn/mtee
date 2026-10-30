@@ -163,6 +163,22 @@ be called from any thread. It raises `FileMoveError` when `folder` is outside th
 The factory returns a `PluginService` with two methods: `contributions()`, returning a list of
 contributions, and `unload()`, which releases threads and files and leaves the data.
 
+### Helper processes
+
+A plugin that must run Python code apart from MTEE starts a helper process with
+`context.python_command(module, *args)`, a list for `subprocess`. Merge
+`context.python_environment()` into the environment of that process; the helper needs it to find
+the plugin's package and the shared libraries of the running plugins.
+
+- From the sources the command is `sys.executable -I -m mtee.plugin_helper <plugin_id> <module>
+  ...`. In the packaged exe it is `MTEE.exe --plugin-helper <plugin_id> <module> ...`. There
+  `sys.executable` is the exe, so a plugin never starts `sys.executable` with a script or `-m`.
+- `<module>` is a module of the plugin (`mtee.plugins.<id>.<name>`) or a bundled library (its
+  top-level name). The helper runs it as `__main__` with `sys.argv` set to `[module, *args]` and
+  exits with the module's exit code. It never opens a window and imports no Qt module.
+- Do not set `PYINSTALLER_RESET_ENVIRONMENT` for a helper: it may reuse the files that MTEE
+  unpacked for the exe.
+
 ## 7. Contributions
 
 A contribution is data. The core draws it with its own components and colours; a plugin never

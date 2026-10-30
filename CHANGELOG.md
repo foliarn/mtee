@@ -30,6 +30,9 @@ All notable changes to MTEE are listed here. The format follows
   sends the old folder to the Recycle Bin and keeps the plugin's data (plan 123.2).
 - Plugins that bundle the same library share one copy: the highest version every one accepts.
   A plugin that cannot share one is shown Failed with the reason (plan 123.2).
+- A plugin runs Python code in a helper process with `context.python_command` and
+  `context.python_environment`, from the sources and from the packaged exe (`docs/plugins.md`,
+  section 6; plan 123.3).
 
 ### Changed
 

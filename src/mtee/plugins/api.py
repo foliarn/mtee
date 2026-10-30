@@ -10,6 +10,7 @@ enabled.
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,12 @@ from PySide6.QtCore import QAbstractItemModel, QObject
 from mtee.domain.jobs import JobId
 from mtee.models.plugin_rows_model import PluginRowsModel
 from mtee.persistence.database import Database
+from mtee.plugin_helper import (
+    HELPER_ENVIRONMENT_VARIABLE,
+    HELPER_FLAG,
+    HelperSetup,
+    encode_setup,
+)
 from mtee.services.file_move_service import FileMoveError, FileMoveResult
 from mtee.services.jobs import JobContext, JobTask
 
@@ -270,12 +277,37 @@ class PluginContext:
     run_on_gui: Callable[[Callable[[], None]], None] = field(default=lambda call: call())
     open_dialog: Callable[[str, str], None] = field(default=lambda dialog_id, ref="": None)
     open_tab: Callable[[str, str], None] = field(default=lambda kind, ref="": None)
+    # The plugin folder and the shared libraries that a helper process of this plugin needs.
+    helper_setup: Callable[[], HelperSetup] = field(default=lambda: HelperSetup())
 
     @property
     def data_dir(self) -> Path:
         """Return the folder for the plugin's own files (tokens, caches), creating it."""
         self.base_dir.mkdir(parents=True, exist_ok=True)
         return self.base_dir
+
+    def python_command(self, module: str, *args: str) -> list[str]:
+        """Return the command line that runs ``module`` in a helper process of this plugin.
+
+        The helper has the plugin's package and the shared libraries of the plugin on its
+        import path, and it never opens a window. ``args`` become its ``sys.argv[1:]``.
+        From the sources the command is ``sys.executable -I -m mtee.plugin_helper``; in the
+        packaged exe it is ``MTEE.exe --plugin-helper``, because ``sys.executable`` is the exe.
+
+        The caller must merge ``python_environment()`` into the environment of the process.
+        It must not set ``PYINSTALLER_RESET_ENVIRONMENT``: a helper may reuse the files that
+        MTEE unpacked for the exe.
+        """
+        if getattr(sys, "frozen", False):
+            return [sys.executable, HELPER_FLAG, self.plugin_id, module, *args]
+        return [sys.executable, "-I", "-m", "mtee.plugin_helper", self.plugin_id, module, *args]
+
+    def python_environment(self) -> dict[str, str]:
+        """Return the variables that a helper process of this plugin needs.
+
+        Merge them into the environment of every process started with ``python_command``.
+        """
+        return {HELPER_ENVIRONMENT_VARIABLE: encode_setup(self.helper_setup())}
 
 
 class PluginService(Protocol):

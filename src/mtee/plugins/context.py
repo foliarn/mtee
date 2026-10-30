@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from mtee.persistence.database import Database
 from mtee.persistence.library_repository import LibraryRepository, normalize_path
 from mtee.persistence.settings_repository import SettingsRepository
+from mtee.plugin_helper import HelperSetup
 from mtee.plugins.api import (
     FileMoveResult,
     JobId,
@@ -27,7 +28,7 @@ from mtee.plugins.api import (
     PluginManifest,
     StartupTask,
 )
-from mtee.plugins.loader import LoadedPlugin, PluginStatus
+from mtee.plugins.loader import LoadedPlugin, PluginManager, PluginStatus
 from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
 from mtee.services.playlist_service import PlaylistService
@@ -91,7 +92,16 @@ class PluginHost(QObject):
         self._recycle = recycle
         self._roots = roots
         self._refresh_playlists = refresh_playlists
+        self._manager: PluginManager | None = None
         self._callRequested.connect(self._run_call, Qt.ConnectionType.QueuedConnection)
+
+    def attach_plugin_manager(self, manager: PluginManager) -> None:
+        """Let the contexts read the helper setup of each plugin from ``manager``.
+
+        The setup is read when a plugin asks for it, so it always matches the libraries that the
+        manager chose. Call this before ``load_enabled``.
+        """
+        self._manager = manager
 
     def context_for(self, manifest: PluginManifest) -> PluginContext:
         """Return the context of one plugin."""
@@ -112,7 +122,14 @@ class PluginHost(QObject):
             run_on_gui=lambda call: self._run_on_gui(call, log),
             open_dialog=lambda dialog_id, ref="": self._open_dialog(plugin_id, dialog_id, ref),
             open_tab=lambda kind, ref="": self._open_tab(plugin_id, kind, ref, log),
+            helper_setup=lambda: self._helper_setup(plugin_id),
         )
+
+    def _helper_setup(self, plugin_id: str) -> HelperSetup:
+        """Return the helper setup of ``plugin_id``; empty before a manager is attached."""
+        if self._manager is None:
+            return HelperSetup()
+        return self._manager.helper_setup(plugin_id)
 
     def run_startup_tasks(self, plugins: Sequence[LoadedPlugin]) -> None:
         """Submit the ``StartupTask`` of every running plugin as a background job."""

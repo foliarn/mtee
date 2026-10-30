@@ -27,6 +27,7 @@ from pathlib import Path
 import mtee.plugins
 from mtee.persistence.database import DatabaseError, discover_migrations
 from mtee.persistence.settings_repository import SettingsRepository
+from mtee.plugin_helper import HelperSetup
 from mtee.plugins.api import (
     SUPPORTED_API_VERSIONS,
     Contribution,
@@ -216,6 +217,7 @@ class PluginManager:
         self._plugins: list[LoadedPlugin] = []
         self._path_entries: list[Path] = []
         self._library_locations: dict[str, Path] = {}
+        self._folders: dict[str, Path] = {}
 
     @property
     def plugins(self) -> list[LoadedPlugin]:
@@ -229,6 +231,15 @@ class PluginManager:
         A helper process reads this mapping to put the same copies on its own path.
         """
         return dict(self._library_locations)
+
+    def helper_setup(self, plugin_id: str) -> HelperSetup:
+        """Return what a helper process of ``plugin_id`` needs: its plugin folder and the libraries.
+
+        The libraries are read at call time, so the setup matches the libraries chosen by the
+        last ``load_enabled``.
+        """
+        folder = self._folders.get(plugin_id)
+        return HelperSetup(() if folder is None else (folder,), dict(self._library_locations))
 
     def load_enabled(
         self, context_factory: ContextFactory, folders: Sequence[Path]
@@ -249,6 +260,9 @@ class PluginManager:
         plan = plan_libraries(_library_users(wanted))
         install_finder(plan.locations)
         self._library_locations = dict(plan.locations)
+        self._folders = {
+            plugin.plugin_id: plugin.folder for plugin in discovered if plugin.is_valid
+        }
         self._plugins = []
         failed: list[LoadedPlugin] = []
         for plugin in discovered:
@@ -274,6 +288,7 @@ class PluginManager:
             remove_from_package_path(folder)
         self._path_entries = []
         self._library_locations = {}
+        self._folders = {}
         uninstall_finder()
 
     def _record(

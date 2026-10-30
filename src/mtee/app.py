@@ -368,6 +368,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             )
             workspace.attach_plugin_host(plugin_host)
             plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
+            plugin_host.attach_plugin_manager(plugin_manager)
             plugin_manager.load_enabled(plugin_host.context_for, plugin_folders_found)
             workspace.attach_plugin_settings(
                 PluginSettingsModel(plugin_manager, plugin_preferences)
