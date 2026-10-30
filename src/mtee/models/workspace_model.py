@@ -23,8 +23,8 @@ from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
-from mtee.models.plugin_settings_model import PluginSettingsModel
 from mtee.models.plugin_ui_model import PluginUiModel
+from mtee.models.plugins_view_model import PluginsViewModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
@@ -164,7 +164,8 @@ def _known_activity(activity: str) -> str:
     """
     if "." in activity:
         return activity  # a plugin activity: kept until the plugins are loaded and can be asked
-    if activity in {"convert", "plugins"} and not plugin_ui_enabled():
+    # The Plugins activity is always offered (plan 123, placement B); Convert is a plugin's.
+    if activity == "convert" and not plugin_ui_enabled():
         return "explorer"
     return activity if activity in _ACTIVITIES else "explorer"
 
@@ -217,7 +218,7 @@ class WorkspaceModel(QObject):
         self._conversion_model: Any | None = None
         # What the running plugins add to the interface: empty without a plugin.
         self._plugin_ui = PluginUiModel(self)
-        self._plugin_settings: PluginSettingsModel | None = None
+        self._plugins_view: PluginsViewModel | None = None
         self._trash_model: TrashModel | None = None
         self._file_move_model: FileMoveModel | None = None
         self._analysis_model: AnalysisModel | None = None
@@ -484,9 +485,7 @@ class WorkspaceModel(QObject):
         self.setSettingsPageForGroup(self._active_group, page)
 
     def _settings_page_known(self, page: str) -> bool:
-        """The core pages, Plugins when a plugin folder is set, and the pages of plugins."""
-        if page == "plugins":
-            return self._plugin_settings is not None and self._plugin_settings.is_available()
+        """The core pages and the pages of running plugins."""
         return page in SETTINGS_PAGES or self._plugin_ui.has_settings_page(page)
 
     @Slot(int, str)
@@ -1171,10 +1170,10 @@ class WorkspaceModel(QObject):
         """What the running plugins contribute; every list is empty without a plugin."""
         return self._plugin_ui
 
-    @Property(QObject, constant=True)
-    def pluginSettings(self) -> QObject | None:
-        """The Plugins page of Settings; ``None`` when no plugin folder is set."""
-        return self._plugin_settings
+    @Property(QObject, notify=layoutChanged)
+    def pluginsView(self) -> QObject | None:
+        """The Plugins activity: installed plugins, the Marketplace and installs; ``None``."""
+        return self._plugins_view
 
     @Property(QObject, constant=True)
     def tagConflicts(self) -> QObject:
@@ -1449,10 +1448,22 @@ class WorkspaceModel(QObject):
         host.dialogRequested.connect(self._plugin_ui.open_dialog)
         host.tabRequested.connect(self.openPluginTab)
 
-    def attach_plugin_settings(self, model: PluginSettingsModel) -> None:
-        """Attach the Plugins page of Settings, which exists only when a plugin folder is set."""
-        self._plugin_settings = model
+    def attach_plugins_view(self, model: PluginsViewModel) -> None:
+        """Attach the Plugins activity; its detail tabs and notices come back to this workspace."""
+        self._plugins_view = model
         model.setParent(self)
+        model.detailRequested.connect(self.openPluginDetail)
+        model.noticeRaised.connect(self._set_message)
+
+    @Slot(str, str)
+    def openPluginDetail(self, plugin_id: str, title: str) -> None:
+        """Open, or focus, the detail tab of a plugin (tab kind ``plugin``, ref = plugin id)."""
+        self._cancel_explorer_track_action()
+        self._capture_navigation()
+        self._open_special_tab(f"plugin:{plugin_id}", title)
+        self._record_navigation()
+        self.layoutChanged.emit()
+        self._persist()
 
     def register_plugins(
         self, plugins: Sequence[LoadedPlugin], settings: SettingsRepository | None

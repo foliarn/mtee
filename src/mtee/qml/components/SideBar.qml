@@ -14,6 +14,7 @@ Rectangle {
         anchors.fill: parent
         anchors.rightMargin: 1
         sourceComponent: sidebar.workspace.activity === "playlists" ? playlistsPane
+            : sidebar.workspace.activity === "plugins" ? pluginsViewPane
             : sidebar.workspace.activity === "convert" ? convertPane
             : sidebar.workspace.activity === "tasks" ? tasksPane
             : sidebar.workspace.activity === "artists" ? (sidebar.workspace.artistList ? artistsPane : artistsUnavailablePane)
@@ -23,6 +24,8 @@ Rectangle {
 
     Component { id: explorerPane; ExplorerPane { workspace: sidebar.workspace } }
     Component { id: playlistsPane; PlaylistsPane { workspace: sidebar.workspace } }
+    // The Plugins activity: placeholder until its QML is written (PluginsViewPane.qml).
+    Component { id: pluginsViewPane; PluginsViewPane { workspace: sidebar.workspace } }
     // The Convert pane belongs to the conversion plugin: it is loaded only when that
     // activity is chosen, which the workspace allows only when the plugin is enabled.
     Component {

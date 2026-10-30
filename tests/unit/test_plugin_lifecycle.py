@@ -265,7 +265,7 @@ def test_several_failures_are_announced_in_one_notice(harness: _Harness, tmp_pat
 
     assert records["fine"].status is PluginStatus.RUNNING
     assert harness.notices == [
-        "2 plugins could not start and are disabled: One, Two. See Settings > Plugins."
+        "2 plugins could not start and are disabled: One, Two. See the Plugins view."
     ]
 
 

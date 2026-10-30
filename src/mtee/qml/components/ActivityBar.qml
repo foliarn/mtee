@@ -48,7 +48,6 @@ Rectangle {
             }
         }
         ActivityButton {
-            visible: bar.workspace.pluginUiEnabled
             activity: "plugins"
             icon: "plugins"
             tip: "Plugins"

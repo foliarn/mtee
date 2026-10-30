@@ -38,10 +38,8 @@ def test_v01_offers_no_plugin_activity_but_the_core_artists_one(qapp, tmp_path: 
     workspace.setActivity("artists")
     assert workspace.activity == "artists"
     workspace.setActivity("plugins")
-    assert workspace.activity == "artists"
+    assert workspace.activity == "plugins"  # the Plugins activity is always offered (plan 123)
     workspace.setActivity("explorer")
-    workspace.setActivity("plugins")
-    assert workspace.activity == "explorer"
     workspace.setActivity("playlists")
     assert workspace.activity == "playlists"
 
@@ -69,7 +67,7 @@ def test_artist_and_genre_pages_are_inert_without_their_plugins(qapp, tmp_path: 
 
 def test_a_saved_plugins_activity_falls_back_to_explorer() -> None:
     assert _known_activity("artists") == "artists"
-    assert _known_activity("plugins") == "explorer"
+    assert _known_activity("plugins") == "plugins"
     assert _known_activity("convert") == "explorer"
     assert _known_activity("unknown") == "explorer"
     assert _known_activity("playlists") == "playlists"

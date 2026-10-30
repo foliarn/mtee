@@ -112,6 +112,7 @@ Rectangle {
                             : tab.modelData.kind === "artists" || tab.modelData.kind === "artist" ? "artists"
                             : tab.modelData.kind === "profile" ? "profile"
                             : tab.modelData.kind === "settings" ? "settings"
+                            : tab.modelData.kind === "plugin" ? "plugins"
                             : tab.modelData.icon || "settings"
                         size: 15
                         color: tab.isActive ? Theme.primary : Theme.textMuted
@@ -198,6 +199,7 @@ Rectangle {
             : group.activeTab.kind === "profile" ? profileComponent
             : group.activeTab.kind === "tasks" ? tasksComponent
             : group.activeTab.kind === "artists" ? artistCatalogComponent
+            : group.activeTab.kind === "plugin" ? pluginDetailComponent
             : group.workspace.pluginUi && group.workspace.pluginUi.tabQml(group.activeTab.kind).length > 0 ? pluginTabComponent
             : listComponent
     }
@@ -205,6 +207,18 @@ Rectangle {
     Component {
         id: listComponent
         TrackListView {
+            workspace: group.workspace
+            tab: group.activeTab
+            groupIndex: group.groupIndex
+            bottomInset: group.bottomInset
+        }
+    }
+
+    // The detail tab of a plugin in the Plugins view (tab kind "plugin", ref = plugin id).
+    // Placeholder until the Plugins view QML is written: PluginDetailPane.qml fills it.
+    Component {
+        id: pluginDetailComponent
+        PluginDetailPane {
             workspace: group.workspace
             tab: group.activeTab
             groupIndex: group.groupIndex

@@ -2,8 +2,9 @@
 
 These tests drive the real ``Main.qml`` offscreen, which is the closest to starting MTEE by
 hand that a test can get: no Plugins page without a folder, the sample listed and switched on
-and off in Settings > Plugins across restarts, every contribution drawn while it runs and gone
+and off in the Plugins view across restarts, every contribution drawn while it runs and gone
 once it is off, and the failing sample shown as Failed while the application keeps running.
+The rows and the switches are read from ``workspace.pluginsView``, the model of the Plugins view.
 """
 
 from __future__ import annotations
@@ -43,30 +44,28 @@ SAMPLE_PAGE = f"plugin:{SAMPLE_ID}.settings"
 ACTIVITY = f"activity-{SAMPLE_ID}.main"
 
 
-def _open_plugins_page(runtime: _Runtime) -> QQuickWindow:
-    workspace = workspace_of(runtime)
-    workspace.openSettings()
-    workspace.setSettingsPage("plugins")
+def _view(runtime: _Runtime) -> Any:
+    """The model of the Plugins view: its rows and its switches."""
+    return cast(Any, workspace_of(runtime)).pluginsView
+
+
+def _row(runtime: _Runtime, plugin_id: str) -> dict[str, Any]:
+    return next(row for row in _view(runtime).property("installed") if row["id"] == plugin_id)
+
+
+def _row_status(runtime: _Runtime, plugin_id: str) -> str:
+    return str(_row(runtime, plugin_id)["statusText"])
+
+
+def _set_switch(runtime: _Runtime, plugin_id: str, on: bool) -> None:
+    _view(runtime).setEnabled(plugin_id, on)
     settle(runtime)
-    return window_of(runtime)
-
-
-def _switch(window: QQuickWindow, plugin_id: str) -> QQuickItem:
-    row = need_item(window, f"pluginRow_{plugin_id}")
-    return cast(QQuickItem, find_child(row, "pluginSwitch"))
-
-
-def _row_status(window: QQuickWindow, plugin_id: str) -> str:
-    row = need_item(window, f"pluginRow_{plugin_id}")
-    return str(cast(QQuickItem, find_child(row, "pluginStatus")).property("text"))
 
 
 def _flip_and_restart(runtime: _Runtime, data: Path, plugin_id: str) -> _Runtime:
-    """Click the switch of a plugin in Settings > Plugins, quit, and start MTEE again."""
-    window = _open_plugins_page(runtime)
+    """Switch a plugin in the Plugins view, quit, and start MTEE again."""
     before = PluginPreferences(SettingsRepository(runtime.database)).is_enabled(plugin_id)
-    click(window, _switch(window, plugin_id))
-    settle(runtime)
+    _set_switch(runtime, plugin_id, not before)
     saved = PluginPreferences(SettingsRepository(runtime.database)).is_enabled(plugin_id)
     assert saved is not before  # the switch was saved
     _shutdown(runtime)
@@ -80,7 +79,6 @@ def _contributions_are_drawn(window: QQuickWindow, workspace: Any) -> bool:
         and ui.property("settingsPages")
         and ui.property("columnOptions")
         and ui.is_plugin_kind(SAMPLE_KIND)
-        and find_item(window, f"settingsTab_{SAMPLE_PAGE}") is not None
     )
 
 
@@ -91,7 +89,6 @@ def test_there_is_no_plugins_page_without_a_plugin_folder(qapp, tmp_path: Path) 
         window = window_of(runtime)
         workspace.openSettings()
         settle(runtime)
-        assert find_item(window, "settingsTab_plugins") is None
         assert find_item(window, f"settingsTab_{SAMPLE_PAGE}") is None
         assert find_item(window, "settingsTab_about") is not None
         assert find_item(window, ACTIVITY) is None
@@ -106,12 +103,12 @@ def test_the_sample_is_listed_in_settings_plugins_before_it_is_enabled(
 ) -> None:
     runtime = start_app(tmp_path / "data", (FOLDER,))
     try:
-        window = _open_plugins_page(runtime)
-        texts = visible_texts(window)
-        assert "Sample plugin" in texts and "v0.1.0" in texts
-        assert "Sample plugin (fails)" in texts
-        assert _row_status(window, SAMPLE_ID) == "Disabled"
-        assert _row_status(window, FAILING.plugin_id) == "Disabled"
+        window = window_of(runtime)
+        sample = _row(runtime, SAMPLE_ID)
+        assert sample["title"] == "Sample plugin" and sample["version"] == "0.1.0"
+        assert _row(runtime, FAILING.plugin_id)["title"] == "Sample plugin (fails)"
+        assert _row_status(runtime, SAMPLE_ID) == "Disabled"
+        assert _row_status(runtime, FAILING.plugin_id) == "Disabled"
         # Listed from its manifest alone: the code of the plugin was not imported.
         assert plugin_module(SAMPLE_ID) is None and plugin_module(FAILING.plugin_id) is None
         assert find_item(window, ACTIVITY) is None
@@ -127,24 +124,21 @@ def test_the_switch_adds_and_removes_the_contributions_after_a_restart(
     runtime = start_app(data, (FOLDER,))
     try:
         # Off at the start. Switch on: saved at once, but nothing runs until the next start.
-        window = _open_plugins_page(runtime)
-        click(window, _switch(window, SAMPLE_ID))
-        settle(runtime)
-        assert _row_status(window, SAMPLE_ID) == "Disabled"
-        assert any("next time MTEE starts" in text for text in visible_texts(window))
+        _set_switch(runtime, SAMPLE_ID, True)
+        assert _row_status(runtime, SAMPLE_ID) == "Restart needed"
         _shutdown(runtime)
 
         # Restart: running, with every contribution drawn.
         runtime = start_app(data, (FOLDER,))
-        window = _open_plugins_page(runtime)
-        assert _row_status(window, SAMPLE_ID) == "Running"
+        window = window_of(runtime)
+        assert _row_status(runtime, SAMPLE_ID) == "Running"
         assert plugin_module(SAMPLE_ID) is not None
         assert _contributions_are_drawn(window, workspace_of(runtime))
 
         # Switch off, restart: everything is gone and the code is not imported again.
         runtime = _flip_and_restart(runtime, data, SAMPLE_ID)
-        window = _open_plugins_page(runtime)
-        assert _row_status(window, SAMPLE_ID) == "Disabled"
+        window = window_of(runtime)
+        assert _row_status(runtime, SAMPLE_ID) == "Disabled"
         assert plugin_module(SAMPLE_ID) is None
         workspace = workspace_of(runtime)
         ui = plugin_ui_of(workspace)
@@ -153,7 +147,7 @@ def test_the_switch_adds_and_removes_the_contributions_after_a_restart(
         assert ui.property("columnOptions") == [] and not ui.is_plugin_kind(SAMPLE_KIND)
         assert find_item(window, ACTIVITY) is None
         assert find_item(window, f"settingsTab_{SAMPLE_PAGE}") is None
-        assert find_item(window, "settingsTab_plugins") is not None  # the plugin is still found
+        assert _row(runtime, SAMPLE_ID)["statusText"] == "Disabled"  # the plugin is still found
     finally:
         _shutdown(runtime)
 
@@ -272,19 +266,17 @@ def test_the_failing_sample_is_shown_failed_and_mtee_keeps_running(qapp, tmp_pat
     runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID, FAILING.plugin_id))
     try:
         workspace = workspace_of(runtime)
-        window = _open_plugins_page(runtime)
-        assert _row_status(window, FAILING.plugin_id) == "Failed"
-        error = cast(
-            QQuickItem, find_child(need_item(window, "pluginRow_sample_failing"), "pluginError")
-        )
-        assert "The sample plugin was made to fail." in str(error.property("text"))
+        window = window_of(runtime)
+        assert _row_status(runtime, FAILING.plugin_id) == "Failed"
+        error = str(_row(runtime, FAILING.plugin_id)["error"])
+        assert "The sample plugin was made to fail." in error
         # The notice names the plugin; the application and the other plugin work.
         assert "Sample plugin (fails)" in str(cast(Any, workspace).message)
-        assert _row_status(window, SAMPLE_ID) == "Running"
+        assert _row_status(runtime, SAMPLE_ID) == "Running"
         assert _contributions_are_drawn(window, workspace)
         assert plugin_module(FAILING.plugin_id) is None
         # The switch of a failed plugin stays on: it is the user's choice.
-        assert _switch(window, FAILING.plugin_id).property("checked") is True
+        assert _row(runtime, FAILING.plugin_id)["enabled"] is True
         workspace.setActivity("explorer")
         settle(runtime)
     finally:

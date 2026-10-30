@@ -44,10 +44,11 @@ MTEE loads plugins from two places, and from nowhere else:
 - `--plugin-dir PATH` on the command line, repeatable. These folders are used for that run only
   and are not saved. It is a development flag.
 
-`Settings > Plugins` lists the plugins found and switches them on and off (`plugins.enabled`, a
-list of ids). The page exists only when at least one plugin is found. Plugins are installed from
-a package file (section 11.1); the installer reads package files only and downloads nothing. The
-folder list of earlier versions (`plugins.folders`) is no longer read.
+The user manages plugins in the **Plugins** view, the activity of the left bar (see section 13).
+Its switches are saved as `plugins.enabled`, a list of ids. Plugins are installed from a package
+file (section 11.1) or from the Marketplace (section 12); the installer reads package files
+only, and nothing is fetched from PyPI. The folder list of earlier versions (`plugins.folders`)
+is no longer read.
 
 Discovery lists the direct children of each folder that hold a `manifest.py`. It executes the
 manifest file alone, never `__init__.py` or the factory module. The code of a plugin is imported
@@ -59,7 +60,7 @@ only once the plugin is enabled. A manifest is refused, with a readable reason, 
 - its `factory` is not written `module:function` or is outside `mtee.plugins.<id>`;
 - another plugin folder already provides the same id (the first one found is kept).
 
-A refused plugin is shown `Failed` in `Settings > Plugins` with the reason. A shared library that
+A refused plugin is shown `Failed` in the Plugins view with the reason. A shared library that
 two loaded plugins cannot share is handled as section 11.2 describes; the plugin that cannot share
 it is shown `Failed` with that sentence.
 
@@ -87,7 +88,7 @@ ported to the platform in its own plan; until then the legacy switch stays.
 
 1. **Declared**: the plugin is found in a plugin folder and its manifest is accepted.
 2. **Enabled**: the user switched it on. A change applies at the next start; a plugin switched
-   off stays running until then, and `Settings > Plugins` says so.
+   off stays running until then, and the Plugins view says `Restart needed`.
 3. **Loaded**: after the core services exist, the core applies the plugin's migrations, imports
    the factory module and calls the factory with a `PluginContext`.
 4. **Registered**: the core calls `contributions()` once and checks every contribution
@@ -480,3 +481,23 @@ The compatible version is the highest package whose `api_version` is supported, 
 is 3.12, and whose `platform` is `any` or this platform. An installed plugin offers an update
 only when a compatible package is higher. The maintainer's steps are in
 `docs/marketplace/README.md`.
+
+## 13. Where the user installs and manages plugins
+
+The Plugins view is the activity of the left bar with the plugin icon. It is always there.
+
+- **Installed** lists each plugin with its status: `Running`, `Disabled`, `Failed` (with the
+  reason) or `Restart needed`. The switch saves the choice; a change applies after a restart,
+  and the view offers **Restart now**. **Uninstall** sends the plugin folder to the Recycle Bin
+  without a prompt; the plugin's data stays in `<data-dir>/plugin-data/<id>/`.
+- **Marketplace** lists the plugins of the plugin list. It is read when the view shows it, and
+  again on **Check again**. Install and Update download the package, check its SHA-256 against the
+  list, and then show the same warning as a local file.
+- **Install from file** takes a `.mteeplugin` file. The warning names the plugin, its author,
+  version and size, and says that a plugin runs with full access to the computer. Install only
+  plugins you trust.
+- **Open plugins folder** opens `<data-dir>/plugins/` in Explorer.
+
+A plugin's own Settings page (for example Accounts) stays in Settings. Each plugin's detail page
+opens in an editor tab (tab kind `plugin`). Installs, downloads and uninstalls run as jobs in Tasks,
+with progress and Cancel.

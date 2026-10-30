@@ -56,6 +56,12 @@ def restore_plugin_path() -> Iterator[None]:
         del sys.modules[name]
 
 
+def _view_row(workspace: WorkspaceModel, plugin_id: str) -> dict[str, Any]:
+    """The row of a plugin in the Plugins view: the model the Plugins activity shows."""
+    view = cast(Any, workspace).pluginsView
+    return next(row for row in view.property("installed") if row["id"] == plugin_id)
+
+
 def _start(tmp_path: Path, *, folder: bool = True, enabled: bool = True) -> tuple[_Runtime, Any]:
     """Start the real application, optionally with the probe plugin folder and its switch."""
     plugins = tmp_path / "plugins"
@@ -76,7 +82,8 @@ def test_without_a_plugin_folder_nothing_is_added(qapp, tmp_path: Path) -> None:
         assert ui.property("activities") == []
         assert ui.property("columnOptions") == []
         assert ui.property("waitingGroups") == [] and ui.property("waitingCount") == 0
-        assert workspace.pluginSettings is None
+        assert workspace.pluginsView is not None
+        assert cast(Any, workspace).pluginsView.property("installed") == []
         workspace.openSettings()
         _settle(runtime)
         assert _find(window, "settingsTab_plugins") is None
@@ -100,17 +107,11 @@ def test_a_folder_without_the_switch_lists_the_plugin_but_adds_nothing(
         assert _plugin_ui(workspace).property("active") is False
         assert _plugin_ui(workspace).property("waitingGroups") == []
         assert _find(window, "activity-ui_probe.main") is None
-        workspace.openSettings()
-        workspace.setSettingsPage("plugins")
-        _settle(runtime)
-        assert _find(window, "settingsTab_plugins") is not None
-        row = cast(QQuickItem, _find(window, "pluginRow_ui_probe"))
-        assert row.isVisible()
-        texts = _texts(window)
-        assert "UI probe" in texts
-        assert "v1.2.3" in texts
-        assert "Uses network" in texts
-        assert "Disabled" in texts
+        row = _view_row(workspace, PLUGIN_ID)
+        assert row["title"] == "UI probe" and row["version"] == "1.2.3"
+        assert row["usesNetwork"] is True
+        assert row["statusText"] == "Disabled"
+        assert _find(window, "settingsTab_plugins") is None
     finally:
         _shutdown(runtime)
 
@@ -119,17 +120,12 @@ def test_the_switch_is_saved_and_applies_after_a_restart(qapp, tmp_path: Path) -
     runtime, _module = _start(tmp_path, enabled=False)
     try:
         workspace = _workspace(runtime)
-        window = _window(runtime)
-        workspace.openSettings()
-        workspace.setSettingsPage("plugins")
-        _settle(runtime)
-        _click(window, cast(QQuickItem, _find(window, "pluginSwitch")))
+        cast(Any, workspace).pluginsView.setEnabled(PLUGIN_ID, True)
         _settle(runtime)
         settings = SettingsRepository(runtime.database)
         assert PluginPreferences(settings).enabled() == [PLUGIN_ID]
         # Still not running: the change applies at the next start, and the row says so.
-        assert "Disabled" in _texts(window)
-        assert any("next time MTEE starts" in text for text in _texts(window))
+        assert _view_row(workspace, PLUGIN_ID)["statusText"] == "Restart needed"
     finally:
         _shutdown(runtime)
 
@@ -570,7 +566,7 @@ def test_a_plugin_settings_page_follows_the_plugins_tab_before_about(qapp, tmp_p
         window = _window(runtime)
         workspace.openSettings()
         _settle(runtime)
-        keys = ["plugins", "plugin:ui_probe.accounts", "about"]
+        keys = ["plugin:ui_probe.accounts", "about"]
         tabs = [_find(window, f"settingsTab_{key}") for key in keys]
         assert all(tab is not None for tab in tabs)
         xs = [
@@ -580,10 +576,8 @@ def test_a_plugin_settings_page_follows_the_plugins_tab_before_about(qapp, tmp_p
         workspace.setSettingsPage("plugin:ui_probe.accounts")
         _settle(runtime)
         assert "hello from the backend" in _texts(window)
-        # The running plugin shows as Running.
-        workspace.setSettingsPage("plugins")
-        _settle(runtime)
-        assert "Running" in _texts(window)
+        # The running plugin shows as Running in the Plugins view.
+        assert _view_row(workspace, PLUGIN_ID)["statusText"] == "Running"
     finally:
         _shutdown(runtime)
 
@@ -609,14 +603,11 @@ def test_a_failing_plugin_is_shown_failed_with_its_error(qapp, tmp_path: Path) -
     try:
         workspace = _workspace(runtime)
         window = _window(runtime)
-        workspace.openSettings()
-        workspace.setSettingsPage("plugins")
-        _settle(runtime)
-        texts = _texts(window)
-        assert "Failed" in texts
-        assert any("no network library" in text and "kept running" in text for text in texts)
+        row = _view_row(workspace, PLUGIN_ID)
+        assert row["statusText"] == "Failed"
+        assert "no network library" in row["error"]
         assert _find(window, "activity-ui_probe.main") is None
         # The switch of a failed plugin stays on: it is the user's choice.
-        assert cast(QQuickItem, _find(window, "pluginSwitch")).property("checked") is True
+        assert row["enabled"] is True
     finally:
         _shutdown(runtime)

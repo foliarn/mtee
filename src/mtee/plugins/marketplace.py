@@ -69,6 +69,9 @@ ProgressCallback = Callable[[int, int], None]
 class MarketplaceError(RuntimeError):
     """The Marketplace cannot be read or a download is refused; the message is one sentence."""
 
+    # Shown in Tasks as its message alone (see docs/plugins.md, the readable attribute).
+    readable = True
+
 
 class MarketplaceCancelledError(MarketplaceError):
     """A download was cancelled by the user; the partial file has been removed."""

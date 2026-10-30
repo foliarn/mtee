@@ -172,7 +172,7 @@ def remove_from_package_path(folder: Path) -> None:
 
 
 class PluginStatus(StrEnum):
-    """The state shown for a plugin in Settings > Plugins."""
+    """The state shown for a plugin in the Plugins view."""
 
     DISABLED = "Disabled"
     RUNNING = "Running"
@@ -365,7 +365,7 @@ class PluginManager:
         names = ", ".join(record.title for record in failed)
         self._notify(
             f"{len(failed)} plugins could not start and are disabled: {names}. "
-            "See Settings > Plugins."
+            "See the Plugins view."
         )
 
 

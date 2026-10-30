@@ -67,6 +67,9 @@ _CHUNK_BYTES = 1024 * 1024
 class InstallRefusedError(PackageError):
     """A package, or a plugin folder, is refused; the message is one readable sentence."""
 
+    # Shown in Tasks as its message alone (see docs/plugins.md, the readable attribute).
+    readable = True
+
 
 class Trash(Protocol):
     """What the installer needs from the trash service: a folder goes to the Recycle Bin."""

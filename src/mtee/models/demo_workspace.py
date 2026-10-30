@@ -24,13 +24,14 @@ from mtee.demo.scenarios import DEFAULT_SCENARIO, DemoScenario, load_scenario
 from mtee.domain.durations import format_playlist_meta
 from mtee.domain.waveform import WAVEFORM_POINTS, WaveformPoints
 from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
+from mtee.models.demo_plugins_view import DemoPluginsView
 from mtee.models.workspace_model import SETTINGS_PAGES
 from mtee.plugins.registry import plugin_ui_enabled
 
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
 ACTIVITIES = ("explorer", "playlists", "tasks", "artists", "plugins")
-TAB_KINDS = ("folder", "playlist", "settings", "profile", "tasks")
+TAB_KINDS = ("folder", "playlist", "settings", "profile", "tasks", "plugin")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")
 MAX_GROUPS = 2
@@ -145,6 +146,8 @@ class DemoWorkspace(QObject):
         }
         self._revision = 0
         self._activity = scenario.activity
+        self._plugins_view = DemoPluginsView(self)
+        self._plugins_view.detailRequested.connect(self.openPluginDetail)
         self._sidebar_visible = scenario.sidebar_visible
         self._tab_state: dict[str, dict[str, object]] = {}
         self._groups: list[dict[str, object]] = []
@@ -202,6 +205,8 @@ class DemoWorkspace(QObject):
         if kind == "playlist":
             playlist = self._playlists.get(ref)
             return str(playlist["name"]) if playlist else ref
+        if kind == "plugin":
+            return str(self._ensure_tab(tab_id).get("title", ref))
         return {"convert": "Convert", "tasks": "Tasks", "profile": "Profile"}.get(kind, "Settings")
 
     def _visible_order(self, source: str) -> list[str]:
@@ -712,6 +717,17 @@ class DemoWorkspace(QObject):
     @Property(bool, constant=True)
     def pluginUiEnabled(self) -> bool:
         return plugin_ui_enabled()
+
+    @Property(QObject, constant=True)
+    def pluginsView(self) -> QObject:
+        """The Plugins view with invented plugins; nothing is installed in the demo."""
+        return self._plugins_view
+
+    @Slot(str, str)
+    def openPluginDetail(self, plugin_id: str, title: str) -> None:
+        self._ensure_tab(f"plugin:{plugin_id}")["title"] = title
+        self._open_tab(f"plugin:{plugin_id}")
+        self.layoutChanged.emit()
 
     @Slot(str, str)
     def openArtistView(self, _view: str, _title: str) -> None:

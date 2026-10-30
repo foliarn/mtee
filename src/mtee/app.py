@@ -34,7 +34,7 @@ from mtee.models.metadata_editor_model import MetadataEditorModel
 from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
-from mtee.models.plugin_settings_model import PluginSettingsModel
+from mtee.models.plugins_view_model import PluginsViewModel
 from mtee.models.profile_model import PROFILE_PROVIDER_ID, ProfileAvatarProvider, ProfileModel
 from mtee.models.shell_controller import ShellController
 from mtee.models.statistics_model import StatisticsModel
@@ -342,41 +342,49 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace.attach_trash_model(trash_model)
         file_move_service = FileMoveService(database, library, file_access)
         workspace.attach_file_move_model(FileMoveModel(file_move_service, jobs))
-        # Plugins load last, once every core service they can use exists. Without an installed
-        # plugin or a --plugin-dir folder nothing below runs and MTEE behaves as without plugins.
+        # Plugins load last, once every core service they can use exists. The Plugins activity
+        # is always offered, so the host, the manager and its view exist in every run; without an
+        # installed plugin or a --plugin-dir folder no plugin code is loaded.
         plugin_preferences = PluginPreferences(settings)
+        plugin_trash = TrashService()
         try:
-            clean_staging(paths.data_dir, TrashService())
+            clean_staging(paths.data_dir, plugin_trash)
         except (OSError, TrashServiceError) as error:
             _report(f"A plugin install left files that could not be cleared: {error}")
         for folder in options.plugin_dirs:
             if not folder.is_dir():
                 _report(f"The plugin folder {folder} does not exist and was skipped.")
         plugin_folders_found = [*options.plugin_dirs, *plugin_folders(paths.data_dir)]
-        if plugin_folders_found:
-            plugin_host = PluginHost(
-                data_dir=paths.data_dir,
-                database=database,
+        plugin_host = PluginHost(
+            data_dir=paths.data_dir,
+            database=database,
+            settings=settings,
+            library=library,
+            playlists=playlist_service,
+            jobs=jobs,
+            file_moves=file_move_service,
+            recycle=trash_model,
+            roots=workspace,
+            refresh_playlists=playlists_model.refresh,
+        )
+        workspace.attach_plugin_host(plugin_host)
+        plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
+        plugin_host.attach_plugin_manager(plugin_manager)
+        plugin_manager.load_enabled(plugin_host.context_for, plugin_folders_found)
+        workspace.register_plugins(plugin_manager.plugins, settings)
+        plugin_host.run_startup_tasks(plugin_manager.plugins)
+        # The snapshot of the start is taken here, after the plugins are loaded.
+        workspace.attach_plugins_view(
+            PluginsViewModel(
+                manager=plugin_manager,
+                preferences=plugin_preferences,
                 settings=settings,
-                library=library,
-                playlists=playlist_service,
+                data_dir=paths.data_dir,
                 jobs=jobs,
-                file_moves=file_move_service,
-                recycle=trash_model,
-                roots=workspace,
-                refresh_playlists=playlists_model.refresh,
+                trash=plugin_trash,
+                quit_app=application.quit,
             )
-            workspace.attach_plugin_host(plugin_host)
-            plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
-            plugin_host.attach_plugin_manager(plugin_manager)
-            plugin_manager.load_enabled(plugin_host.context_for, plugin_folders_found)
-            workspace.attach_plugin_settings(
-                PluginSettingsModel(plugin_manager, plugin_preferences)
-            )
-            workspace.register_plugins(plugin_manager.plugins, settings)
-            plugin_host.run_startup_tasks(plugin_manager.plugins)
-        else:
-            workspace.register_plugins([], settings)
+        )
         artwork_provider = ArtworkProvider(library)
         # Never fatal: without the system controls the application keeps working.
         media_controls = MediaControls(
