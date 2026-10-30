@@ -100,7 +100,7 @@ ported to the platform in its own plan; until then the legacy switch stays.
 
 A failure in step 3 or 4 (a migration, the factory, a broken contribution) disables that plugin
 only. The core stores the message, logs it, shows one notice that names the plugin, and keeps
-running. `Settings > Plugins` shows `Failed` with the message; the switch stays on, since it is
+running. The Plugins view shows `Failed` with the message; the switch stays on, since it is
 the user's choice. A plugin never stops the application from starting. A function of a
 contribution that raises later is caught at the call, logged, and announced once.
 
@@ -141,7 +141,7 @@ core is reachable from it.
 | `jobs` | `submit(task, label=..., visible=...)` and `cancel(job_id)` on the core job service. |
 | `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)` and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. See below. |
 | `settings` | A key-value store scoped to the plugin: `get`, `set`, `get_json`, `set_json`, `delete`. Keys live under `plugins.<id>.` in the settings. |
-| `base_dir`, `data_dir` | `<data-dir>/plugins/<id>/`. `data_dir` creates the folder when first read; use it for tokens and caches. |
+| `base_dir`, `data_dir` | `<data-dir>/plugin-data/<id>/`. `data_dir` creates the folder when first read; use it for tokens and caches. It is outside the plugins folder, so an update or an uninstall keeps it. |
 | `notify(text)` | Shows a message on the workspace message line. Any thread. |
 | `log` | A logger named `mtee.plugins.<id>`. |
 | `refresh_ui()` | Asks the core to read the rows, header buttons and cells of the plugin again after its data changed. Any thread. |
@@ -358,9 +358,10 @@ failing sample. Run each test file on its own (`QT_QPA_PLATFORM=offscreen uv run
 
 ## 10. Decision needed
 
-Plugins live in the private repository for now. This contract is public so that the rules are
-the same wherever a plugin lives. Before any plugin is shipped publicly, the maintainer decides
-whether it follows this contract without exception.
+The Marketplace (section 12) is public, and so is this contract, so that the rules are the same
+wherever a plugin lives. The Spotify plugin lives in a private repository and is installed from
+its package file only. Before the first plugin is listed in the Marketplace, the maintainer decides
+whether every listed plugin follows this contract without exception. This is not decided yet.
 
 ## 11. Package files
 
@@ -368,11 +369,14 @@ A plugin ships as a package file, `<id>-<version>.mteeplugin`, which is a zip ar
 is in `src/mtee/plugins/package.py`; the packing script writes it:
 
     uv run python scripts/pack_plugin.py <plugin folder> --out <dir> [--requirements <file>]
-        [--wheel <file.whl>] [--licence <name>] [--author <name>] [--homepage <url>]
+        [--wheel <file.whl>] [--allow-source <name>] [--platform win_amd64]
+        [--licence <name>] [--author <name>] [--homepage <url>]
 
 The plugin folder is the package itself (`manifest.py` inside, named after the id). The script
 refuses to overwrite a package that exists. The installer that reads these files is
-`src/mtee/plugins/installer.py` (section 11.1).
+`src/mtee/plugins/installer.py` (section 11.1). Bundled libraries are installed for `win_amd64`,
+which is the default with `--requirements` or `--wheel`; `--platform any` with libraries is
+refused.
 
 Layout, at the root of the archive:
 
@@ -408,6 +412,12 @@ install takes the whole requirements file (hash checking needs every dependency 
 distributions MTEE ships are removed from `libs/`; their wheels are downloaded and checked, then
 dropped. The packing uses `uv pip install` for `win_amd64` and Python 3.12, from binary wheels
 only, since `pip` is not installed in the project environment.
+
+A library that is published only as a source archive is named with `--allow-source <name>`
+(repeatable). uv builds it on the packing machine, and the packing refuses it when the build left
+compiled modules (`.pyd`, `.so`): such a library needs its Windows wheel. Without the option a
+source archive is refused, as before. A pure-Python library built this way is bundled like any
+other.
 
 A folder that holds a `plugin.json` (an unpacked package) refuses a plugin whose manifest
 disagrees with it on `id`, `version` or `api_version`. A folder without one loads as before.
