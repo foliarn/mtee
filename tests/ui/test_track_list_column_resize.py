@@ -146,3 +146,74 @@ def test_a_plain_click_on_the_handle_writes_no_width(
     finally:
         _shutdown(runtime)
         application.quit()
+
+
+def _cell_span(window: QQuickWindow, key: str) -> tuple[float, float]:
+    cell = _find(window, f"columnHeader_{key}")
+    assert cell is not None
+    left = cell.mapToScene(QPointF(0, 0)).x()
+    return left, left + cell.width()
+
+
+def test_the_border_follows_the_pointer_and_the_title_keeps_its_width(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    application, runtime, window, workspace = _started(qtbot, tmp_path, monkeypatch, 3)
+    try:
+        qtbot.waitUntil(
+            lambda: _find(window, "columnResizeHandle_artist") is not None, timeout=10_000
+        )
+        handle = _find(window, "columnResizeHandle_artist")
+        assert handle is not None
+        assert _stored_width(workspace, "title") == 0
+        artist_left, artist_right = _cell_span(window, "artist")
+        title_left, title_right = _cell_span(window, "title")
+
+        start = _center(handle)
+        QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=start)
+        for step in range(1, 7):
+            QTest.mouseMove(window, QPoint(start.x() + 10 * step, start.y()), 10)
+            QTest.qWait(20)
+        QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=QPoint(start.x() + 60, start.y()))
+
+        # The left edge of the dragged column stays, its right edge moves with the pointer.
+        qtbot.waitUntil(
+            lambda: abs(_cell_span(window, "artist")[1] - (artist_right + 60)) <= 3, timeout=5_000
+        )
+        assert abs(_cell_span(window, "artist")[0] - artist_left) <= 1
+        assert abs(_cell_span(window, "title")[1] - title_right) <= 1
+        # The title now owns the width it had, so the layout does not jump back.
+        qtbot.waitUntil(lambda: _stored_width(workspace, "title") > 0, timeout=5_000)
+        assert abs(_stored_width(workspace, "title") - (title_right - title_left)) <= 1
+    finally:
+        _shutdown(runtime)
+        application.quit()
+
+
+def test_the_border_can_be_taken_in_the_gap_before_the_next_column(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    application, runtime, window, workspace = _started(qtbot, tmp_path, monkeypatch, 3)
+    try:
+        qtbot.waitUntil(
+            lambda: _find(window, "columnResizeHandle_artist") is not None, timeout=10_000
+        )
+        handle = _find(window, "columnResizeHandle_artist")
+        next_left, _right = _cell_span(window, "fileCreatedAt")
+        assert handle is not None
+        before = _stored_width(workspace, "artist")
+
+        # One pixel before the next column starts: the far side of the border.
+        grab = QPoint(round(next_left) - 1, _center(handle).y())
+        QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=grab)
+        for step in range(1, 5):
+            QTest.mouseMove(window, QPoint(grab.x() + 10 * step, grab.y()), 10)
+            QTest.qWait(20)
+        QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=QPoint(grab.x() + 40, grab.y()))
+
+        qtbot.waitUntil(
+            lambda: abs(_stored_width(workspace, "artist") - (before + 40)) <= 3, timeout=5_000
+        )
+    finally:
+        _shutdown(runtime)
+        application.quit()

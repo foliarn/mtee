@@ -1016,6 +1016,24 @@ def test_an_interrupted_operation_from_a_previous_run_is_surfaced_at_start(env: 
     assert source.path.is_file()
 
 
+def test_an_interrupted_operation_is_surfaced_only_once(env: _Env) -> None:
+    track = env.add_track("a.wav")
+    source = env.library.source_record(track)
+    assert source is not None
+    env.journal.prepare("op-1", track, str(source.path), source.revision)
+
+    first = env.make_model()
+    assert first.state == "result"
+    env.settle()
+
+    second = env.make_model()
+    assert second.state == "idle"
+    assert _results(second) == []
+    assert env.journal.interrupted() == []
+    # The audit row is kept: acknowledging never turns it into a recorded outcome.
+    assert [row[1] for row in env.journal_rows()] == ["prepared"]
+
+
 def test_no_interrupted_operation_leaves_the_model_idle(env: _Env) -> None:
     model = env.make_model()
     assert model.state == "idle"

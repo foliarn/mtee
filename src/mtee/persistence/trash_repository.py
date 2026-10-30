@@ -59,15 +59,27 @@ class TrashRepository:
             )
 
     def interrupted(self) -> list[dict[str, Any]]:
-        """Return prepared rows for inspection; missing paths are never treated as success."""
+        """Return unacknowledged prepared rows; missing paths are never treated as success."""
         with self._database.connection() as connection:
             return [
                 dict(row)
                 for row in connection.execute(
                     "SELECT * FROM trash_operations WHERE status='prepared' "
-                    "ORDER BY created_at_utc,operation_id"
+                    "AND acknowledged_at_utc='' ORDER BY created_at_utc,operation_id"
                 )
             ]
+
+    def acknowledge(self, operation_ids: list[str]) -> None:
+        """Mark interrupted rows as shown to the user; the rows stay in the audit trail."""
+        if not operation_ids:
+            return
+        now = _now()
+        with self._database.transaction() as connection:
+            connection.executemany(
+                "UPDATE trash_operations SET acknowledged_at_utc=? "
+                "WHERE operation_id=? AND status='prepared'",
+                [(now, operation_id) for operation_id in operation_ids],
+            )
 
 
 def _now() -> str:

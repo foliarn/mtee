@@ -343,6 +343,16 @@ class TrashModel(QObject):
         self._message = f"{len(self._results)} interrupted recycle operation(s) need inspection."
         self.changed.emit()
         self.dialogRequested.emit()
+        self._acknowledge_interrupted([str(result["operationId"]) for result in self._results])
+
+    def _acknowledge_interrupted(self, operation_ids: list[str]) -> None:
+        """Record that the notice was shown so it does not return at every start."""
+
+        def acknowledge(_context: JobContext) -> None:
+            self._journal.acknowledge(operation_ids)
+
+        with suppress(RuntimeError):
+            self._jobs.submit(acknowledge, label="Acknowledge recycle history", visible=False)
 
     def _recycle_one(
         self, candidate: _Candidate, operation_id: str, context: JobContext

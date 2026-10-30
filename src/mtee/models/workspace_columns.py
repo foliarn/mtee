@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from typing import Any
 
+from mtee.domain.column_widths import clamp_column_width
 from mtee.models.workspace_rows import copy_column_preferences
 from mtee.models.workspace_session import COLUMN_KEYS, set_default_sort
 from mtee.models.workspace_track_loader import PLAY_COLUMN_KEYS
@@ -57,8 +58,6 @@ def resize_column(
     key: str,
     width: int,
     all_keys: Collection[str] = COLUMN_KEYS,
-    min_width: int = 44,
-    max_width: int = 640,
 ) -> tuple[dict[str, Any], bool]:
     """Resize a column within bounded minimum and maximum width.
 
@@ -68,7 +67,7 @@ def resize_column(
     if key not in all_keys:
         return prefs, False
 
-    clamped_width = min(max(int(width), min_width), max_width)
+    clamped_width = clamp_column_width(key, int(width))
     widths = dict(prefs.get("widths", {}))
     if widths.get(key) == clamped_width:
         return prefs, False

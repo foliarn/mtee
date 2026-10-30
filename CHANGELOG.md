@@ -79,5 +79,5 @@ First public release. Windows is the supported platform.
 
 ### Notes
 
-- The application runs from source with `uv sync --locked`. A packaged Windows build is
-  not part of this release description.
+- The application runs from source with `uv sync --locked`. A Windows executable,
+  `MTEE.exe`, is attached to the release.

@@ -46,6 +46,14 @@ packaging or distribution task.
 - Do not rewrite the history of a shared branch, and never force-push over another person's
   work.
 
+## Versions
+
+- Versions follow [Semantic Versioning](https://semver.org/) while the major version is 0:
+  - patch (`0.1.1`): bug fixes only, no new feature, no database change;
+  - minor (`0.2.0`): new features, behaviour changes or database migrations;
+  - major (`1.0.0`): reserved for a stable public promise.
+- Only the maintainer decides a version number and creates a release.
+
 ## Dependencies and licences
 
 - Pin dependencies in `uv.lock`, and run `uv sync --locked` after a change of dependency.

@@ -3,6 +3,9 @@
 Thank you for considering a contribution. MTEE is a personal desktop project, so changes are
 reviewed carefully and some proposals may be declined to keep the scope small.
 
+The rules for code, data and commits are in [AGENTS.md](AGENTS.md). They apply to human and
+agent contributors alike. The plugin contract is in [docs/plugins.md](docs/plugins.md).
+
 ## Before you start
 
 - Open an issue to discuss a feature or a large refactoring before writing code.

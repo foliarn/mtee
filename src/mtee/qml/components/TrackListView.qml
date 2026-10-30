@@ -162,6 +162,10 @@ FocusScope {
         return {
             "padding": padding, "gap": gap, "playSlot": playSlot, "actions": actions,
             "items": items, "keys": keys, "totalWidth": totalWidth,
+            // A title without a width of its own absorbs the free space; once it has one, the
+            // free space sits after the last column instead.
+            "titleAuto": keys.indexOf("title") >= 0 && titleStored === 0,
+            "slack": titleStored === 0 ? 0 : Math.max(0, width - totalWidth),
             "showArtwork": preferences.showArtwork !== false
         }
     }
@@ -1267,27 +1271,30 @@ FocusScope {
             color: Theme.primary
         }
 
-        // Guide line on the cell's right edge: shown while the handle is hovered or dragged.
+        // Guide line in the middle of the border between this column and the next: shown while
+        // the handle is hovered or dragged.
         Rectangle {
             id: resizeGuide
             visible: resizeHandle.visible && (resizeHandle.containsMouse || resizeHandle.pressed)
             z: 3
             width: 2
-            anchors.right: parent.right
+            x: cell.width + view.columns.gap / 2 - width / 2
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             color: resizeHandle.pressed ? Theme.primary : Theme.separator
         }
 
-        // Grab zone: the cell's right 10 px, above the sort area (which stops 8 px short of the
-        // edge). It stays inside the cell so it never takes clicks from the next column's sort area.
+        // Grab zone: the cell's right 8 px (above the sort area, which stops 8 px short of the
+        // edge) and the whole gap up to the next cell, so the border can be taken from either
+        // side. It ends where the next cell begins and never takes clicks from its sort area.
         MouseArea {
             id: resizeHandle
             objectName: "columnResizeHandle_" + cell.columnKey
             visible: view.modelBacked && cell.columnKey.length > 0
             z: 3
-            width: 10
+            width: 8 + view.columns.gap
             anchors.right: parent.right
+            anchors.rightMargin: -view.columns.gap
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             hoverEnabled: true
@@ -1297,6 +1304,9 @@ FocusScope {
             preventStealing: true
             property real startX: 0
             property real startWidth: 0
+            // Width of an automatic title at the press, frozen so that the border follows the
+            // pointer instead of the title absorbing the change.
+            property real frozenTitle: 0
             property bool moved: false
 
             // Pointer x in the list, not in this handle: the handle moves as the column grows.
@@ -1308,6 +1318,11 @@ FocusScope {
                 startX = viewX(mouse)
                 startWidth = cell.width
                 moved = false
+                frozenTitle = 0
+                if (cell.columnKey !== "title" && view.columns.titleAuto) {
+                    const title = view.columns.items.find(item => item.key === "title")
+                    frozenTitle = title ? Math.round(title.width) : 0
+                }
             }
             onPositionChanged: (mouse) => {
                 if (!pressed)
@@ -1315,8 +1330,11 @@ FocusScope {
                 const currentX = viewX(mouse)
                 if (currentX !== startX)
                     moved = true
-                const resized = Math.min(640, Math.max(44, Math.round(startWidth + currentX - startX)))
+                const ceiling = cell.columnKey === "title" ? 2400 : 640
+                const resized = Math.min(ceiling, Math.max(44, Math.round(startWidth + currentX - startX)))
                 const next = Object.assign({}, view.localColumnWidths)
+                if (frozenTitle > 0)
+                    next.title = frozenTitle
                 next[cell.columnKey] = resized
                 view.localColumnWidths = next
             }
@@ -1325,8 +1343,11 @@ FocusScope {
                 if (moved) {
                     const resized = Number(view.localColumnWidths[cell.columnKey] || cell.width)
                     view.workspace.resizeColumn(view.tab.id, cell.columnKey, Math.round(resized))
+                    if (frozenTitle > 0)
+                        view.workspace.resizeColumn(view.tab.id, "title", frozenTitle)
                 }
                 moved = false
+                frozenTitle = 0
                 view.localColumnWidths = ({})
             }
             onCanceled: {

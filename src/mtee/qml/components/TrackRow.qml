@@ -79,7 +79,7 @@ Rectangle {
     property real viewportRight: width
     readonly property real frameRight: Math.min(row.width - row.columns.padding, row.viewportRight - row.columns.padding)
     // Where the trailing actions sit when the table fits: right after the last column.
-    readonly property real actionsNaturalX: rowCells.x + rowCells.width + row.columns.gap
+    readonly property real actionsNaturalX: rowCells.x + rowCells.width + row.columns.gap + row.columns.slack
     readonly property bool hovered: mouse.containsMouse || rowHover.hovered
         || playButton.hovered || infoButton.hovered || addButton.hovered
     signal pressed(var event)

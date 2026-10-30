@@ -18,6 +18,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from mtee.domain.column_widths import clamp_column_width
 from mtee.domain.durations import format_playlist_meta
 from mtee.domain.jobs import JobCancelledError, JobId, JobStatus
 from mtee.domain.playlists import LIKED_PLAYLIST_ID, PLAYLIST_COLUMNS, is_plugin_column_key
@@ -465,7 +466,7 @@ class PlaylistsModel(QObject):
     def resizeColumn(self, key: str, width: int) -> None:
         if key in PLAYLIST_COLUMNS or is_plugin_column_key(key):
             value = dict(self._columns)
-            value["widths"] = dict(value["widths"]) | {key: min(max(width, 44), 640)}
+            value["widths"] = dict(value["widths"]) | {key: clamp_column_width(key, width)}
             self.setColumns(value)
 
     @Slot(str, int)

@@ -64,14 +64,23 @@ def test_resize_column() -> None:
     assert changed is True
     assert updated_clamped["widths"]["title"] == 44
 
-    # Clamping above max (640)
-    updated_max, changed = resize_column(prefs, "title", 1000)
+    # Clamping above max (640) for an ordinary column
+    updated_max, changed = resize_column(prefs, "artist", 1000)
     assert changed is True
-    assert updated_max["widths"]["title"] == 640
+    assert updated_max["widths"]["artist"] == 640
 
     # Same width -> no change
     _, no_change = resize_column(prefs, "title", 100)
     assert no_change is False
+
+
+def test_the_title_keeps_the_width_it_had_in_a_wide_window() -> None:
+    prefs = {"widths": {"title": 0}, "hidden": [], "order": ["title"]}
+
+    updated, changed = resize_column(prefs, "title", 1100)
+
+    assert changed is True
+    assert updated["widths"]["title"] == 1100
 
 
 def test_move_column() -> None:

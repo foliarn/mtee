@@ -5,6 +5,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
+from mtee.domain.column_widths import clamp_column_width
 from mtee.models.workspace_rows import copy_column_preferences, parse_folder_ref
 from mtee.persistence.workspace_repository import (
     COLUMN_OPTIONS,
@@ -107,7 +108,7 @@ def ensure_tab_state(
                 value = int(saved_widths.get(key, widths[key]))
             except (TypeError, ValueError, OverflowError):
                 continue
-            widths[key] = 0 if key == "title" and value <= 0 else min(max(value, 44), 640)
+            widths[key] = 0 if key == "title" and value <= 0 else clamp_column_width(key, value)
     state["columnWidths"] = widths
     if state.get("sortMode") not in {"default", "manual"}:
         state["sortMode"] = "manual"

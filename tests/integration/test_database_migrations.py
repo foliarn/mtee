@@ -64,6 +64,7 @@ def test_a_new_database_receives_the_initial_schema(tmp_path: Path) -> None:
         24,
         25,
         26,
+        27,
         28,
     ]
     assert database.schema_version() == 28
@@ -120,6 +121,7 @@ def test_metadata_migration_backs_up_an_existing_database(tmp_path: Path) -> Non
         24,
         25,
         26,
+        27,
         28,
     ]
     assert SettingsRepository(upgraded).get("workspace/name") == "preserved"
@@ -257,6 +259,7 @@ def test_a_database_with_the_retired_analysis_migration_is_upgraded_and_preserve
         24,
         25,
         26,
+        27,
         28,
     ]
     assert upgraded.schema_version() == 28
@@ -327,7 +330,7 @@ def test_playlist_upgrade_keeps_v15_data_and_an_exact_backup(tmp_path: Path) -> 
     original.close()
     upgraded = Database(path)
     try:
-        assert [m.version for m in upgraded.migrate()] == [16, 17, 18, 24, 25, 26, 28]
+        assert [m.version for m in upgraded.migrate()] == [16, 17, 18, 24, 25, 26, 27, 28]
         assert upgraded.migrate() == []
         assert SettingsRepository(upgraded).get("existing") == "unchanged"
         assert (
@@ -390,7 +393,7 @@ def test_schema_16_import_journal_upgrade_preserves_playlists_and_backup(
 
     upgraded = Database(path)
     try:
-        assert [m.version for m in upgraded.migrate()] == [17, 18, 24, 25, 26, 28]
+        assert [m.version for m in upgraded.migrate()] == [17, 18, 24, 25, 26, 27, 28]
         assert upgraded.schema_version() == 28
         assert upgraded.migrate() == []
         repository = PlaylistsRepository(upgraded)

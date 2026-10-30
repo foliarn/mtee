@@ -8,6 +8,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
+from mtee.domain.column_widths import clamp_column_width
 from mtee.persistence.database import Database
 
 __all__ = [
@@ -276,7 +277,7 @@ def _validated_column_preferences(value: Any) -> dict[str, Any]:
                 width = int(raw_width)
             except (TypeError, ValueError, OverflowError):
                 continue
-            widths[key] = 0 if key == "title" and width <= 0 else min(max(width, 44), 640)
+            widths[key] = 0 if key == "title" and width <= 0 else clamp_column_width(key, width)
 
     show_artwork = value.get("showArtwork", True)
     if not isinstance(show_artwork, bool):
