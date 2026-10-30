@@ -459,3 +459,24 @@ folder is never added to `sys.path` as a whole, so the order of the plugins does
 copy is imported. Submodules resolve through their package. `PluginManager.library_locations`
 gives the chosen mapping (module to `libs/` folder); a helper process reads it to use the same
 copies. The finder is removed when the plugins are unloaded.
+
+## 12. Marketplace
+
+MTEE reads its plugin list from `index.json` in the `foliarn/mtee-plugins` repository
+(`INDEX_URL` in `src/mtee/plugins/marketplace.py`). The list is read only when the Marketplace
+opens or on "Check again", never in the background. Its format is `schema: 1` with
+`plugins: [{id, title, description, author, homepage, licence, uses_network, versions:
+[{version, api_version, python, platform, url, sha256, size, released}]}]`. A malformed entry is
+skipped and logged; a malformed list is one readable error.
+
+A package is downloaded only when the user asks. Its address must be
+`https://github.com/<owner>/<repo>/releases/download/...`. The file is streamed to
+`<data-dir>/plugins/.downloads/<id>-<version>.mteeplugin.part`. Its size and SHA-256 must match
+the list, and its `plugin.json` must name the same id and version; only then is it renamed. It
+then goes through the same check, warning and install as a local file. A failed or cancelled
+download removes its partial file.
+
+The compatible version is the highest package whose `api_version` is supported, whose `python`
+is 3.12, and whose `platform` is `any` or this platform. An installed plugin offers an update
+only when a compatible package is higher. The maintainer's steps are in
+`docs/marketplace/README.md`.

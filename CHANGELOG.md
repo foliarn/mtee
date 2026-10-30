@@ -33,6 +33,9 @@ All notable changes to MTEE are listed here. The format follows
 - A plugin runs Python code in a helper process with `context.python_command` and
   `context.python_environment`, from the sources and from the packaged exe (`docs/plugins.md`,
   section 6; plan 123.3).
+- Plugins can be listed in a Marketplace: MTEE reads the list from GitHub when asked and
+  downloads a package only on request, checked against the list (`docs/plugins.md`, section 12;
+  plan 123.4).
 
 ### Changed
 
