@@ -19,10 +19,7 @@ Rectangle {
     property string page: workspace.settingsPageForGroup(groupIndex)
     readonly property var analysis: workspace.analysisSettings
     readonly property var playback: workspace.playbackSettings
-    // The Plugins page exists only when a plugin is found; the Settings pages of the running
-    // plugins follow it, before About.
-    readonly property var pluginSettings: workspace.pluginSettings || null
-    readonly property bool pluginsAvailable: pluginSettings !== null && pluginSettings.available
+    // The Settings pages of the running plugins follow the core pages, before About.
     readonly property var pluginPages: workspace.pluginUi ? workspace.pluginUi.settingsPages : []
     readonly property var categories: {
         const pages = [
@@ -33,8 +30,6 @@ Rectangle {
             { "key": "shortcuts", "label": "Keyboard shortcuts" },
             { "key": "privacy", "label": "Data & privacy" }
         ]
-        if (pluginsAvailable)
-            pages.push({ "key": "plugins", "label": "Plugins" })
         for (const page of pluginPages)
             pages.push(page)
         pages.push({ "key": "about", "label": "About" })
@@ -62,12 +57,6 @@ Rectangle {
         sequence: "Esc"
         enabled: settings.dialog.length > 0
         onActivated: settings.dialog = ""
-    }
-
-    // No plugin is found any more: the Plugins page is gone, so show General.
-    onPluginsAvailableChanged: {
-        if (!pluginsAvailable && page === "plugins")
-            workspace.setSettingsPageForGroup(groupIndex, "general")
     }
 
     Connections {
@@ -113,7 +102,7 @@ Rectangle {
                 id: tabFlick
                 objectName: "settingsTabs"
                 // With plugin pages the tabs may not fit the 720 px column: the strip takes the page width.
-                width: settings.pluginsAvailable || settings.pluginPages.length > 0 ? settings.width - 48 : content.width
+                width: settings.pluginPages.length > 0 ? settings.width - 48 : content.width
                 height: Theme.tabHeight
                 contentWidth: tabRow.width
                 contentHeight: Theme.tabHeight
@@ -583,33 +572,6 @@ Rectangle {
                 }
             }
 
-            // Plugins: the plugins found at start. A switch only saves the choice; it applies the
-            // next time MTEE starts.
-            Column {
-                objectName: "pluginsSettings"
-                width: content.width
-                visible: settings.page === "plugins" && settings.pluginsAvailable
-                spacing: 0
-
-                Group { title: "Plugins" }
-
-                Text {
-                    width: parent.width
-                    topPadding: 8
-                    bottomPadding: 8
-                    wrapMode: Text.WordWrap
-                    text: "Plugins add features to MTEE. A plugin's code runs only while it is switched on, and a plugin that cannot start is switched off alone. Changes apply the next time MTEE starts."
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Repeater {
-                    model: settings.pluginsAvailable ? settings.pluginSettings.plugins : []
-                    delegate: PluginRow { required property var modelData; plugin: modelData }
-                }
-            }
-
             // The Settings pages of the running plugins: a QML file of the plugin, loaded by URL.
             Repeater {
                 model: settings.pluginPages
@@ -800,146 +762,6 @@ Rectangle {
         const parts = text.split("/")
         return parts.length > 0 ? parts[parts.length - 1] : ""
     }
-
-    // A plugin of Settings > Plugins: name, version, network badge, description, state and switch.
-    component PluginRow: Item {
-        id: pluginRow
-
-        property var plugin: ({})
-        readonly property string status: plugin.status
-        readonly property bool failed: status === "failed"
-
-        objectName: "pluginRow_" + plugin.id
-        width: content.width
-        height: Math.max(64, rowBody.implicitHeight + 24)
-
-        Column {
-            id: rowBody
-            anchors.left: parent.left
-            anchors.right: rowControls.left
-            anchors.rightMargin: 24
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 3
-
-            Row {
-                spacing: 8
-
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: pluginRow.plugin.title
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeBody
-                }
-
-                Text {
-                    visible: pluginRow.plugin.version.length > 0
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "v" + pluginRow.plugin.version
-                    color: Theme.textMuted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Rectangle {
-                    visible: pluginRow.plugin.network
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: networkText.implicitWidth + 12
-                    height: 18
-                    color: "transparent"
-                    border.width: 1
-                    border.color: Theme.separator
-                    radius: Theme.badgeRadius
-
-                    Text {
-                        id: networkText
-                        anchors.centerIn: parent
-                        text: "Uses network"
-                        color: Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeCaption
-                    }
-                }
-            }
-
-            Text {
-                width: parent.width
-                text: pluginRow.plugin.description
-                wrapMode: Text.WordWrap
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-            }
-
-            Row {
-                visible: pluginRow.plugin.error.length > 0
-                width: parent.width
-                spacing: 6
-                topPadding: 2
-
-                Icon {
-                    name: "alert"
-                    size: 14
-                    color: Theme.danger
-                }
-
-                Text {
-                    objectName: "pluginError"
-                    width: parent.width - 20
-                    text: pluginRow.plugin.error
-                    wrapMode: Text.WordWrap
-                    color: Theme.danger
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-            }
-
-            Text {
-                visible: pluginRow.plugin.pending.length > 0
-                width: parent.width
-                topPadding: 2
-                text: pluginRow.plugin.pending
-                wrapMode: Text.WordWrap
-                color: Theme.warning
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-            }
-        }
-
-        Row {
-            id: rowControls
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 12
-
-            Text {
-                objectName: "pluginStatus"
-                width: 64
-                anchors.verticalCenter: parent.verticalCenter
-                horizontalAlignment: Text.AlignRight
-                text: pluginRow.status === "running" ? "Running" : pluginRow.failed ? "Failed" : "Disabled"
-                color: pluginRow.status === "running" ? Theme.primary : pluginRow.failed ? Theme.danger : Theme.textMuted
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-            }
-
-            ToggleSwitch {
-                objectName: "pluginSwitch"
-                anchors.verticalCenter: parent.verticalCenter
-                enabled: pluginRow.plugin.switchable
-                checked: pluginRow.plugin.enabled
-                onToggled: (checked) => settings.pluginSettings.setEnabled(pluginRow.plugin.id, checked)
-            }
-        }
-
-        Rectangle {
-            anchors.bottom: parent.bottom
-            width: parent.width
-            height: 1
-            color: Theme.separator
-        }
-    }
-
 
     component ChoiceRow: Item {
         id: choiceRow
