@@ -1,6 +1,3 @@
-# Icônes de MTEE
+# MTEE icons
 
-Icônes dessinées pour MTEE (grille 24 × 24, trait de 1,8 px, extrémités et
-angles droits, cohérents avec la fenêtre à angles droits). Elles n'ont pas de
-source tierce. Le trait et le remplissage utilisent `currentColor`, remplacé
-à l'affichage par le fournisseur d'images `image://icon/<nom>/<couleur>`.
+Icons drawn for MTEE (24 × 24 grid, 1.8 px stroke, straight ends and right-angled corners, matching the square-cornered window). They have no third-party source. The stroke and fill use `currentColor`, which the image provider replaces at display time with `image://icon/<name>/<colour>`.

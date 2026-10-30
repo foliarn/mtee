@@ -18,8 +18,11 @@ agent contributors alike. The plugin contract is in [docs/plugins.md](docs/plugi
     uv sync --locked
     uv run python -m mtee --data-dir .local/dev
 
-Use `--data-dir` so that your test sessions never touch a real library. Keep `.local/` out of
-commits.
+Use `--data-dir` so that your test sessions never touch a real library. `.local/` is git-ignored;
+keep it that way.
+
+Some tests need the pinned libmpv runtime. Run `pwsh -File scripts/fetch_mpv.ps1` once to
+install it.
 
 ## Checks
 
@@ -30,19 +33,12 @@ Run these before opening a pull request:
     uv run pyright
     uv run pytest
 
-Tests that need the pinned libmpv runtime fail when it is missing. Run
-`pwsh -File scripts/fetch_mpv.ps1` once to install it.
+## Pull requests
 
-## Guidelines
-
-- The interface is in English. Code comments and documentation are in English.
-- Keep the layers separate: QML talks to Python through Qt models and services only, never to the
-  file system or to system commands directly. Long operations run off the graphical thread.
-- Writes to audio files are tested on copies. Unknown tags and cover art must be preserved, and
-  files must never be overwritten silently.
-- Add or update a test for each behaviour change. Prefer small, focused tests.
-- Write commit messages in the conventional style (`feat:`, `fix:`, `refactor:`, `docs:`,
-  `test:`), with a body that explains the reason of the change.
+- One topic per pull request.
+- Add or update a test for each behaviour change.
+- Add a line under `## [Unreleased]` in `CHANGELOG.md` for a user-visible change.
+- Describe what you ran and what you did not check.
 
 ## Licence
 

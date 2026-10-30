@@ -1,5 +1,5 @@
-# Polices embarquées
+# Embedded fonts
 
-Placer ici les fichiers `.ttf` ou `.otf` de Geist Sans. `src/mtee/fonts.py` les enregistre automatiquement au démarrage et l'application utilise la première police de repli du système tant qu'ils sont absents.
+Place the `.ttf` or `.otf` files of Geist Sans here. `src/mtee/fonts.py` registers them automatically at start-up. While they are absent, the application uses the first fallback font of the system.
 
-La licence correspondante est copiée dans `LICENSES/`, et `THIRD_PARTY_NOTICES.md` est complété avec la version et la source constatées.
+The matching licence is copied to `LICENSES/`, and `THIRD_PARTY_NOTICES.md` is completed with the observed version and source.
