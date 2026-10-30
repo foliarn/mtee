@@ -11,11 +11,18 @@ installer. It does not import Qt. The fields are described in ``docs/plugins.md`
 
 from __future__ import annotations
 
+import csv
 import dataclasses
+import importlib.metadata
 import json
-from collections.abc import Mapping
+import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
+
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
 
 if TYPE_CHECKING:
     from mtee.plugins.api import PluginManifest
@@ -23,13 +30,21 @@ if TYPE_CHECKING:
 __all__ = [
     "LIBS_DIRECTORY",
     "LICENSES_DIRECTORY",
+    "MODULE_SUFFIXES",
     "PACKAGE_SUFFIX",
     "PLUGIN_JSON",
     "PLUGIN_JSON_SCHEMA",
+    "PYTHON_VERSION",
     "BundledLibrary",
     "PackageError",
     "PluginDescription",
+    "bundled_distributions",
     "description_matches_manifest",
+    "distribution_name",
+    "mtee_runtime_libraries",
+    "normalize_name",
+    "record_paths",
+    "top_level_modules",
 ]
 
 PACKAGE_SUFFIX = ".mteeplugin"
@@ -37,6 +52,9 @@ PLUGIN_JSON = "plugin.json"
 LIBS_DIRECTORY = "libs"
 LICENSES_DIRECTORY = "LICENSES"
 PLUGIN_JSON_SCHEMA = 1
+# The interpreter a package is built for; MTEE runs on this one version.
+PYTHON_VERSION = "3.12"
+MODULE_SUFFIXES = (".py", ".pyd", ".so")
 
 
 class PackageError(ValueError):
@@ -189,3 +207,116 @@ def _modules(data: Mapping[str, Any]) -> dict[str, str]:
             "top_level_modules of plugin.json must map module names to library names."
         )
     return {str(module): str(library) for module, library in data.items()}
+
+
+def normalize_name(name: str) -> str:
+    """Return the PEP 503 form of a distribution name: lowercase, runs of ``-_.`` as ``-``."""
+    return canonicalize_name(name)
+
+
+def mtee_runtime_libraries(
+    *,
+    requires: Callable[[str], Sequence[str] | None] = lambda name: _installed_requires(name),
+    version: Callable[[str], str | None] = lambda name: _installed_version(name),
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return the libraries MTEE ships at run time, with the versions installed.
+
+    The closure starts from the requirements of ``mtee`` and follows the requirements of each
+    library in turn. A requirement counts when its environment marker is true (for
+    ``environment``, or else for the running interpreter) and it is not an extra. A requirement
+    that is not installed here is left out, since MTEE cannot ship it. The keys are PEP 503 names.
+    ``requires`` and ``version`` read the installed metadata; a test passes its own.
+    """
+    shipped: dict[str, str] = {}
+    pending = _runtime_names(requires("mtee") or (), environment)
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop(0)
+        if name in seen:
+            continue
+        seen.add(name)
+        installed = version(name)
+        if installed is None:
+            continue
+        shipped[name] = installed
+        pending.extend(_runtime_names(requires(name) or (), environment))
+    return dict(sorted(shipped.items()))
+
+
+def _installed_requires(name: str) -> list[str] | None:
+    """Return the requirements of an installed distribution, or ``None`` if it is not installed."""
+    try:
+        return importlib.metadata.requires(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _installed_version(name: str) -> str | None:
+    """Return the version of an installed distribution, or ``None`` when it is not installed."""
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _runtime_names(texts: Sequence[str], environment: Mapping[str, str] | None) -> list[str]:
+    """Return the normalized names of the requirements that count at run time."""
+    names: list[str] = []
+    for text in texts:
+        try:
+            requirement = Requirement(text)
+        except InvalidRequirement:
+            continue
+        marker = requirement.marker
+        if marker is not None:
+            if re.search(r"\bextra\b", str(marker)):
+                continue
+            if not marker.evaluate(dict(environment) if environment is not None else None):
+                continue
+        names.append(normalize_name(requirement.name))
+    return names
+
+
+def bundled_distributions(libs: Path) -> list[tuple[Path, importlib.metadata.PathDistribution]]:
+    """Return the ``.dist-info`` folders of ``libs`` with their metadata, sorted by name."""
+    return [
+        (path, importlib.metadata.PathDistribution(path))
+        for path in sorted(libs.glob("*.dist-info"))
+    ]
+
+
+def distribution_name(distribution: importlib.metadata.Distribution, dist_info: Path) -> str:
+    """Return the name a distribution declares, or the one its folder name gives."""
+    name = distribution.metadata.get("Name")
+    return name.strip() if name else dist_info.name.removesuffix(".dist-info").split("-")[0]
+
+
+def record_paths(dist_info: Path) -> list[str]:
+    """Return the file paths listed in the ``RECORD`` of a distribution."""
+    record = dist_info / "RECORD"
+    if not record.is_file():
+        return []
+    rows = csv.reader(record.read_text(encoding="utf-8").splitlines())
+    return [row[0] for row in rows if row and row[0]]
+
+
+def top_level_modules(dist_info: Path) -> list[str]:
+    """Return the importable top-level names of a distribution.
+
+    ``top_level.txt`` is used when the distribution has one; otherwise the names come from the
+    ``.py``, ``.pyd`` and ``.so`` files listed in its ``RECORD``.
+    """
+    listed = dist_info / "top_level.txt"
+    if listed.is_file():
+        names = {line.strip() for line in listed.read_text(encoding="utf-8").splitlines()}
+        return sorted(name for name in names if name)
+    modules: set[str] = set()
+    for relative in record_paths(dist_info):
+        parts = PurePosixPath(relative).parts
+        if not parts or relative.startswith("..") or PurePosixPath(relative).is_absolute():
+            continue
+        if parts[0].endswith((".dist-info", ".data")) or not parts[-1].endswith(MODULE_SUFFIXES):
+            continue
+        modules.add(parts[0].split(".")[0] if len(parts) == 1 else parts[0])
+    return sorted(modules)

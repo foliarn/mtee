@@ -13,6 +13,8 @@ from mtee.plugins.package import (
     PackageError,
     PluginDescription,
     description_matches_manifest,
+    mtee_runtime_libraries,
+    normalize_name,
 )
 
 
@@ -176,3 +178,83 @@ def test_a_different_interface_version_is_named_in_one_sentence() -> None:
     problem = description_matches_manifest(_description(), _manifest(api_version=2))
 
     assert problem == "plugin.json says plugin interface 1, but manifest.py says 2."
+
+
+_TREE: dict[str, list[str]] = {
+    "mtee": ["Alpha_Lib>=1", "beta; extra == 'dev'", "gamma; sys_platform == 'linux'"],
+    "alpha-lib": ["delta>=2", "absent"],
+    "delta": ["alpha-lib", "epsilon; sys_platform == 'win32'"],
+    "epsilon": [],
+    "absent": ["hidden"],
+    "hidden": [],
+}
+_VERSIONS = {"alpha-lib": "1.5", "delta": "2.0", "epsilon": "0.3", "gamma": "3.0", "beta": "9.0"}
+
+
+def _lookup_requires(name: str) -> list[str] | None:
+    return _TREE.get(name)
+
+
+def _lookup_version(name: str) -> str | None:
+    return _VERSIONS.get(name)
+
+
+def test_the_runtime_closure_follows_requirements_and_keeps_names_normalized() -> None:
+    shipped = mtee_runtime_libraries(
+        requires=_lookup_requires,
+        version=_lookup_version,
+        environment={"sys_platform": "win32"},
+    )
+
+    assert shipped == {"alpha-lib": "1.5", "delta": "2.0", "epsilon": "0.3"}
+
+
+def test_extras_and_markers_that_are_false_here_are_left_out() -> None:
+    shipped = mtee_runtime_libraries(
+        requires=_lookup_requires,
+        version=_lookup_version,
+        environment={"sys_platform": "linux"},
+    )
+
+    assert "beta" not in shipped
+    assert "epsilon" not in shipped
+    assert "gamma" in shipped
+
+
+def test_a_requirement_that_is_not_installed_is_left_out_with_its_own_requirements() -> None:
+    shipped = mtee_runtime_libraries(
+        requires=_lookup_requires,
+        version=_lookup_version,
+        environment={"sys_platform": "win32"},
+    )
+
+    assert "absent" not in shipped
+    assert "hidden" not in shipped
+
+
+def test_a_distribution_that_is_not_installed_gives_an_empty_closure() -> None:
+    assert mtee_runtime_libraries(requires=lambda name: None, version=lambda name: None) == {}
+
+
+def test_the_closure_terminates_on_a_cycle() -> None:
+    cycle = {"mtee": ["alpha"], "alpha": ["beta"], "beta": ["alpha"]}
+
+    shipped = mtee_runtime_libraries(
+        requires=lambda name: cycle.get(name),
+        version=lambda name: "1.0",
+        environment={},
+    )
+
+    assert shipped == {"alpha": "1.0", "beta": "1.0"}
+
+
+def test_the_default_lookup_reads_the_installed_metadata() -> None:
+    shipped = mtee_runtime_libraries()
+
+    assert "pytest" not in shipped
+    assert all(name == normalize_name(name) for name in shipped)
+
+
+def test_normalize_name_follows_pep_503() -> None:
+    assert normalize_name("PySide6_Essentials") == "pyside6-essentials"
+    assert normalize_name("zope.interface") == "zope-interface"

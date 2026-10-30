@@ -164,12 +164,12 @@ def test_a_requirement_mtee_ships_is_not_bundled(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     requirements = tmp_path / "requirements.txt"
-    requirements.write_text("mtee>=0.1\n", encoding="utf-8")
+    requirements.write_text("mutagen>=0.1\n", encoding="utf-8")
 
     status = packer.main([str(SAMPLE), "--requirements", str(requirements), "--out", str(tmp_path)])
 
     assert status == 0
-    assert "Uses MTEE's mtee " in capsys.readouterr().out
+    assert "Uses MTEE's mutagen " in capsys.readouterr().out
     (package,) = tmp_path.glob("*.mteeplugin")
     with zipfile.ZipFile(package) as archive:
         description = json.loads(archive.read("plugin.json"))
@@ -184,13 +184,13 @@ def test_a_requirement_mtee_ships_at_another_version_stops_the_packing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     requirements = tmp_path / "requirements.txt"
-    requirements.write_text("mtee<0\n", encoding="utf-8")
+    requirements.write_text("mutagen<0\n", encoding="utf-8")
 
     status = packer.main([str(SAMPLE), "--requirements", str(requirements), "--out", str(tmp_path)])
 
     assert status == 2
     error = capsys.readouterr().err
-    assert "MTEE ships mtee" in error
+    assert "MTEE ships mutagen" in error
     assert "cannot use MTEE's copy" in error
     assert not list(tmp_path.glob("*.mteeplugin"))
 
@@ -199,7 +199,7 @@ def test_libraries_need_a_windows_target(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     requirements = tmp_path / "requirements.txt"
-    requirements.write_text("mtee>=0.1\n", encoding="utf-8")
+    requirements.write_text("mutagen>=0.1\n", encoding="utf-8")
 
     status = packer.main(
         [
@@ -350,8 +350,11 @@ def test_licence_texts_are_copied_and_a_missing_one_is_reported(
     assert "no licence text found for Beta" in capsys.readouterr().out
 
 
-def test_installed_distributions_are_read_by_their_pep_503_name() -> None:
-    installed = packer.installed_distributions()
+def test_mtee_runtime_libraries_are_the_closure_not_the_dev_environment() -> None:
+    shipped = packer.mtee_runtime_libraries()
 
-    assert installed["mtee"] == importlib.metadata.version("mtee")
-    assert all(name == canonicalize_name(name) for name in installed)
+    assert "mtee" not in shipped  # the closure holds the libraries MTEE needs, not MTEE itself
+    assert "pytest" not in shipped
+    assert "pyinstaller" not in shipped
+    assert all(name == canonicalize_name(name) for name in shipped)
+    assert shipped["pyside6-essentials"] == importlib.metadata.version("PySide6-Essentials")

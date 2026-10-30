@@ -11,8 +11,9 @@ id. Libraries from ``--requirements`` and ``--wheel`` are installed for ``win_am
 3.12 into a temporary ``libs/`` folder. ``pip`` is not installed in the project environment
 (``uv run python -m pip`` fails), so the installs use ``uv pip install``; ``--python-platform``
 makes uv resolve for the target platform rather than for this machine. Libraries that MTEE ships
-(the distributions installed in the environment that runs this script) are never bundled: they
-are removed from ``libs/`` after the install, and the plugin uses MTEE's copy. The packing stops
+(its runtime closure, ``mtee.plugins.package.mtee_runtime_libraries``: not the development tools
+of the environment) are never bundled: they are removed from ``libs/`` after the install, and the
+plugin uses MTEE's copy. The packing stops
 when the plugin's range does not accept MTEE's version. The install takes the whole requirements
 file, because ``--require-hashes`` needs every dependency pinned in it; so the wheels of the
 libraries MTEE ships are downloaded, hash-checked, then dropped.
@@ -21,7 +22,6 @@ libraries MTEE ships are downloaded, hash-checked, then dropped.
 from __future__ import annotations
 
 import argparse
-import csv
 import importlib.metadata
 import importlib.util
 import re
@@ -36,7 +36,6 @@ from pathlib import Path, PurePosixPath
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
-from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 from mtee.plugins.api import PluginManifest
@@ -45,11 +44,17 @@ from mtee.plugins.package import (
     LICENSES_DIRECTORY,
     PACKAGE_SUFFIX,
     PLUGIN_JSON,
+    PYTHON_VERSION,
     BundledLibrary,
     PluginDescription,
+    bundled_distributions,
+    distribution_name,
+    mtee_runtime_libraries,
+    normalize_name,
+    record_paths,
+    top_level_modules,
 )
 
-PYTHON_VERSION = "3.12"
 # The platforms a package can name, with the target triple uv resolves for.
 PLATFORMS = {"win_amd64": "x86_64-pc-windows-msvc", "any": ""}
 # The environment a requirement's marker is evaluated in: the platform the libraries are for.
@@ -65,7 +70,6 @@ TARGET_ENVIRONMENT = {
 }
 MANIFEST_FILE = "manifest.py"
 README_FILE = "README.md"
-MODULE_SUFFIXES = (".py", ".pyd", ".so")
 LICENCE_FILE = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE)", re.IGNORECASE)
 
 
@@ -94,19 +98,6 @@ class RequirementPlan:
     provided: tuple[str, ...]
 
 
-def installed_distributions() -> dict[str, str]:
-    """Return the distributions installed in the environment running this script.
-
-    The keys are PEP 503 names (lowercase, runs of ``-_.`` as ``-``), the values the versions.
-    """
-    installed: dict[str, str] = {}
-    for distribution in importlib.metadata.distributions():
-        name = distribution.metadata.get("Name")
-        if name and distribution.version:
-            installed.setdefault(canonicalize_name(name), distribution.version)
-    return installed
-
-
 def read_requirements(text: str) -> list[RequirementLine]:
     """Read the requirements of a requirements file; ``--hash`` options stay on their line."""
     lines: list[RequirementLine] = []
@@ -127,7 +118,7 @@ def read_requirements(text: str) -> list[RequirementLine]:
             )
         lines.append(
             RequirementLine(
-                name=canonicalize_name(requirement.name),
+                name=normalize_name(requirement.name),
                 display=requirement.name,
                 specifier=requirement.specifier,
                 written=_written_range(requirement_text),
@@ -179,12 +170,12 @@ def prune_provided(
     names one), so a plugin never gets a copy of MTEE's library that it does not accept. A
     distribution whose name is in ``reported`` was already noted and gets no second note.
     """
-    bundled = _bundled_distributions(libs)
+    bundled = bundled_distributions(libs)
     pulled = _pulled_requirements(bundled)
     notes: list[str] = []
     for dist_info, distribution in bundled:
-        name = _distribution_name(distribution, dist_info)
-        canonical = canonicalize_name(name)
+        name = distribution_name(distribution, dist_info)
+        canonical = normalize_name(name)
         version = installed.get(canonical)
         if version is None:
             continue
@@ -206,13 +197,13 @@ def describe_libraries(
     """
     libraries: list[BundledLibrary] = []
     modules: dict[str, str] = {}
-    for dist_info, distribution in _bundled_distributions(libs):
-        name = _distribution_name(distribution, dist_info)
+    for dist_info, distribution in bundled_distributions(libs):
+        name = distribution_name(distribution, dist_info)
         version = distribution.version
-        line = lines.get(canonicalize_name(name))
+        line = lines.get(normalize_name(name))
         accepts = line.written if line is not None and line.written else f"=={version}"
         libraries.append(BundledLibrary(name, version, accepts, _licence_name(distribution)))
-        for module in _top_level_modules(dist_info):
+        for module in top_level_modules(dist_info):
             modules.setdefault(module, name)
         if not _copy_licences(dist_info, name, licences):
             print(f"Warning: no licence text found for {name}; it is packed without one.")
@@ -255,7 +246,7 @@ def pack(
         raise PackError(f"{output} already exists; choose another --out folder or move it away.")
     text = _read_requirements_file(requirements)
     lines = read_requirements(text)
-    installed = installed_distributions()
+    installed = mtee_runtime_libraries()
     plan = plan_requirements(lines, installed)
     for note in plan.notes:
         print(note)
@@ -459,26 +450,13 @@ def _merge(source: Path, libs: Path, wheel: Path) -> None:
         shutil.move(str(entry), str(target))
 
 
-def _bundled_distributions(libs: Path) -> list[tuple[Path, importlib.metadata.PathDistribution]]:
-    """Return the ``.dist-info`` folders of ``libs`` with their metadata, sorted by name."""
-    return [
-        (path, importlib.metadata.PathDistribution(path))
-        for path in sorted(libs.glob("*.dist-info"))
-    ]
-
-
-def _distribution_name(distribution: importlib.metadata.Distribution, dist_info: Path) -> str:
-    name = distribution.metadata.get("Name")
-    return name.strip() if name else dist_info.name.removesuffix(".dist-info").split("-")[0]
-
-
 def _pulled_requirements(
     bundled: Sequence[tuple[Path, importlib.metadata.PathDistribution]],
 ) -> dict[str, list[tuple[str, SpecifierSet]]]:
     """Map each library name to the requirements of the bundled distributions that name it."""
     pulled: dict[str, list[tuple[str, SpecifierSet]]] = {}
     for dist_info, distribution in bundled:
-        pulling = _distribution_name(distribution, dist_info)
+        pulling = distribution_name(distribution, dist_info)
         for text in distribution.requires or []:
             try:
                 requirement = Requirement(text)
@@ -486,47 +464,17 @@ def _pulled_requirements(
                 continue
             if requirement.marker and not requirement.marker.evaluate(TARGET_ENVIRONMENT):
                 continue
-            pulled.setdefault(canonicalize_name(requirement.name), []).append(
+            pulled.setdefault(normalize_name(requirement.name), []).append(
                 (pulling, requirement.specifier)
             )
     return pulled
-
-
-def _record_paths(dist_info: Path) -> list[str]:
-    """Return the file paths listed in the ``RECORD`` of a distribution."""
-    record = dist_info / "RECORD"
-    if not record.is_file():
-        return []
-    rows = csv.reader(record.read_text(encoding="utf-8").splitlines())
-    return [row[0] for row in rows if row and row[0]]
-
-
-def _top_level_modules(dist_info: Path) -> list[str]:
-    """Return the importable top-level names of a distribution.
-
-    ``top_level.txt`` is used when the distribution has one; otherwise the names come from the
-    ``.py``, ``.pyd`` and ``.so`` files listed in its ``RECORD``.
-    """
-    listed = dist_info / "top_level.txt"
-    if listed.is_file():
-        names = {line.strip() for line in listed.read_text(encoding="utf-8").splitlines()}
-        return sorted(name for name in names if name)
-    modules: set[str] = set()
-    for relative in _record_paths(dist_info):
-        parts = PurePosixPath(relative).parts
-        if not parts or relative.startswith("..") or PurePosixPath(relative).is_absolute():
-            continue
-        if parts[0].endswith((".dist-info", ".data")) or not parts[-1].endswith(MODULE_SUFFIXES):
-            continue
-        modules.add(parts[0].split(".")[0] if len(parts) == 1 else parts[0])
-    return sorted(modules)
 
 
 def _remove_distribution(libs: Path, dist_info: Path) -> None:
     """Delete the files a distribution lists in ``libs``, its ``.dist-info`` and empty folders."""
     root = libs.resolve()
     info = dist_info.resolve()
-    for relative in _record_paths(dist_info):
+    for relative in record_paths(dist_info):
         target = (libs / relative).resolve()
         if not target.is_relative_to(root) or not target.is_file():
             continue
