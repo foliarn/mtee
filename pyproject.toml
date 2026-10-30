@@ -12,6 +12,8 @@ dependencies = [
     "PySide6-Essentials>=6.8,<6.10",
     "mutagen>=1.47",
     "numpy>=2.5.3",
+    # Version comparisons of plugin packages and the Marketplace (plan 123).
+    "packaging>=24",
     "winrt-runtime>=3.2.1,<4 ; sys_platform == 'win32'",
     "winrt-windows-foundation>=3.2.1,<4 ; sys_platform == 'win32'",
     "winrt-windows-media>=3.2.1,<4 ; sys_platform == 'win32'",
