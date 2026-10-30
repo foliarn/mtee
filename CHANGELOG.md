@@ -21,6 +21,9 @@ All notable changes to MTEE are listed here. The format follows
   explain why a header button is disabled (`TabAction.disabled_reason`) and add a phrase to the
   meta line of local playlists (`PlaylistMeta`).
 - A job error whose exception says `readable = True` is shown in Tasks as its sentence alone.
+- A plugin is packed into a `.mteeplugin` file by `scripts/pack_plugin.py`: `plugin.json` lists
+  the bundled libraries and licences, MTEE's own libraries are never bundled (`docs/plugins.md`,
+  section 11).
 
 ### Fixed
 

@@ -336,3 +336,49 @@ failing sample. Run each test file on its own (`QT_QPA_PLATFORM=offscreen uv run
 Plugins live in the private repository for now. This contract is public so that the rules are
 the same wherever a plugin lives. Before any plugin is shipped publicly, the maintainer decides
 whether it follows this contract without exception.
+
+## 11. Package files
+
+A plugin ships as a package file, `<id>-<version>.mteeplugin`, which is a zip archive. The format
+is in `src/mtee/plugins/package.py`; the packing script writes it:
+
+    uv run python scripts/pack_plugin.py <plugin folder> --out <dir> [--requirements <file>]
+        [--wheel <file.whl>] [--licence <name>] [--author <name>] [--homepage <url>]
+
+The plugin folder is the package itself (`manifest.py` inside, named after the id). The script
+refuses to overwrite a package that exists. The installer that reads these files is plan 123.2.
+
+Layout, at the root of the archive:
+
+    plugin.json     # static description, read before any code of the package runs
+    <id>/           # the plugin package: manifest.py, code, migrations/, QML
+    libs/           # the libraries the plugin bundles, unpacked (may be empty)
+    README.md       # the plugin's description, when the folder has one
+    LICENSES/       # licence texts: the plugin's in <id>/, each library's in <library>/
+
+`plugin.json` is one JSON object with sorted keys:
+
+- `schema` (1), `id`, `title`, `description`, `version`, `api_version`, `author`, `homepage`,
+  `licence`, `uses_network`: as `manifest.py` declares them, with the author, homepage and
+  licence given to the packing script.
+- `python` (`"3.12"`) and `platform` (`"win_amd64"` when the libraries are for Windows, else
+  `"any"`).
+- `mtee`: the MTEE versions the package was built for, the same minor version, for example
+  `">=0.1,<0.2"`.
+- `libraries`: each bundled library with `name`, `version` (the one bundled), `accepts` (the
+  version range the plugin works with) and `licence`.
+- `top_level_modules`: each importable module of `libs/` mapped to the library that provides it.
+
+`accepts` is the range the requirements file writes (`>=2.28,<3`). A pinned line, as a hashed
+file has, gives `==x.y.z`. A library that is only a dependency gets `==<bundled version>`.
+
+**Libraries MTEE ships are never bundled.** The packing script reads the distributions installed
+in its own environment. A requirement MTEE ships is not bundled: the plugin uses MTEE's copy. When
+the plugin's range does not accept MTEE's version, the packing stops with one sentence. The
+install takes the whole requirements file (hash checking needs every dependency pinned), then the
+distributions MTEE ships are removed from `libs/`; their wheels are downloaded and checked, then
+dropped. The packing uses `uv pip install` for `win_amd64` and Python 3.12, from binary wheels
+only, since `pip` is not installed in the project environment.
+
+A folder that holds a `plugin.json` (an unpacked package) refuses a plugin whose manifest
+disagrees with it on `id`, `version` or `api_version`. A folder without one loads as before.

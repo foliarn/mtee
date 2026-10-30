@@ -34,6 +34,12 @@ from mtee.plugins.api import (
     PluginService,
 )
 from mtee.plugins.contributions import check_contributions
+from mtee.plugins.package import (
+    PLUGIN_JSON,
+    PackageError,
+    PluginDescription,
+    description_matches_manifest,
+)
 from mtee.plugins.registry import bundled_plugins
 
 __all__ = [
@@ -153,6 +159,8 @@ def discover(folders: Sequence[Path]) -> list[DiscoveredPlugin]:
     Only the direct children that hold a ``manifest.py`` are listed. A folder that does
     not exist is skipped (``split_existing_folders`` reports it). A refused manifest is
     returned with its reason; the first plugin found keeps an identifier that appears twice.
+    A folder that holds a ``plugin.json`` (an unpacked package) refuses every plugin whose
+    manifest disagrees with it on id, version or interface version.
     """
     reserved = _reserved_names()
     found: list[DiscoveredPlugin] = []
@@ -165,10 +173,13 @@ def discover(folders: Sequence[Path]) -> list[DiscoveredPlugin]:
         except OSError as error:
             _LOGGER.warning("Plugin folder %s cannot be read: %s", folder, error)
             continue
+        declared, declared_error = _read_declared(folder)
         for package_dir in children:
             if not (package_dir / MANIFEST_FILE).is_file():
                 continue
-            plugin = _inspect(folder, package_dir, reserved)
+            plugin = _against_declared(
+                _inspect(folder, package_dir, reserved), declared, declared_error
+            )
             if plugin.is_valid and plugin.plugin_id in seen:
                 plugin = _refused(
                     folder,
@@ -410,6 +421,38 @@ def _inspect(folder: Path, package_dir: Path, reserved: frozenset[str]) -> Disco
 
 def _refused(folder: Path, package_dir: Path, error: str) -> DiscoveredPlugin:
     return DiscoveredPlugin(package_dir.name, folder, package_dir, None, error)
+
+
+def _read_declared(folder: Path) -> tuple[PluginDescription | None, str]:
+    """Read the ``plugin.json`` of a plugin folder, if it has one, and return it with a problem.
+
+    A folder without ``plugin.json`` (sources, ``--plugin-dir``) returns ``(None, "")``.
+    """
+    path = folder / PLUGIN_JSON
+    if not path.is_file():
+        return None, ""
+    try:
+        return PluginDescription.from_json(path.read_text(encoding="utf-8")), ""
+    except PackageError as error:
+        return None, str(error)
+    except (OSError, UnicodeDecodeError) as error:
+        return None, f"The plugin.json of this folder cannot be read: {error}"
+
+
+def _against_declared(
+    plugin: DiscoveredPlugin, declared: PluginDescription | None, declared_error: str
+) -> DiscoveredPlugin:
+    """Refuse a valid plugin whose folder ``plugin.json`` is unreadable or disagrees with it."""
+    if not plugin.is_valid or plugin.manifest is None:
+        return plugin
+    problem = declared_error
+    if not problem and declared is not None:
+        problem = description_matches_manifest(declared, plugin.manifest)
+    if not problem:
+        return plugin
+    return DiscoveredPlugin(
+        plugin.plugin_id, plugin.folder, plugin.package_dir, plugin.manifest, problem
+    )
 
 
 def _read_manifest(package_dir: Path) -> tuple[PluginManifest | None, str]:

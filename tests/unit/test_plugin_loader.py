@@ -20,6 +20,7 @@ from mtee.plugins.loader import (
     remove_from_package_path,
     split_existing_folders,
 )
+from mtee.plugins.package import PluginDescription
 
 
 def _write_plugin(
@@ -286,3 +287,51 @@ def test_reading_the_preferences_writes_nothing(tmp_path: Path) -> None:
 
     assert not any(key.startswith("plugins.") for key in settings.all())
     database.close()
+
+
+def _declared(*, plugin_id: str = "alpha", version: str = "1.0.0") -> PluginDescription:
+    return PluginDescription(
+        id=plugin_id,
+        title="Sample alpha",
+        description="A sample plugin.",
+        version=version,
+        api_version=API_VERSION,
+        author="",
+        homepage="",
+        licence="",
+        uses_network=True,
+        python="3.12",
+        platform="any",
+        mtee=">=0.1,<0.2",
+        libraries=(),
+        top_level_modules={},
+    )
+
+
+def test_a_plugin_json_that_agrees_with_the_manifest_lets_the_plugin_load(tmp_path: Path) -> None:
+    _write_plugin(tmp_path, "alpha")
+    (tmp_path / "plugin.json").write_text(_declared().to_json(), encoding="utf-8")
+
+    (plugin,) = discover([tmp_path])
+
+    assert plugin.is_valid
+
+
+def test_a_plugin_json_that_disagrees_with_the_manifest_refuses_the_plugin(tmp_path: Path) -> None:
+    _write_plugin(tmp_path, "alpha")
+    (tmp_path / "plugin.json").write_text(_declared(version="2.0.0").to_json(), encoding="utf-8")
+
+    (plugin,) = discover([tmp_path])
+
+    assert not plugin.is_valid
+    assert plugin.error == "plugin.json says version 2.0.0, but manifest.py says version 1.0.0."
+
+
+def test_an_unreadable_plugin_json_refuses_every_plugin_of_its_folder(tmp_path: Path) -> None:
+    _write_plugin(tmp_path, "alpha")
+    (tmp_path / "plugin.json").write_text("{", encoding="utf-8")
+
+    (plugin,) = discover([tmp_path])
+
+    assert not plugin.is_valid
+    assert "is not valid JSON" in plugin.error
