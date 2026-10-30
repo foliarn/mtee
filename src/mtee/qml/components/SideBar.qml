@@ -24,7 +24,7 @@ Rectangle {
 
     Component { id: explorerPane; ExplorerPane { workspace: sidebar.workspace } }
     Component { id: playlistsPane; PlaylistsPane { workspace: sidebar.workspace } }
-    // The Plugins activity: placeholder until its QML is written (PluginsViewPane.qml).
+    // The Plugins activity: its installed plugins and the Marketplace.
     Component { id: pluginsViewPane; PluginsViewPane { workspace: sidebar.workspace } }
     // The Convert pane belongs to the conversion plugin: it is loaded only when that
     // activity is chosen, which the workspace allows only when the plugin is enabled.

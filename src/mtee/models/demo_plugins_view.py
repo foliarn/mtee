@@ -201,9 +201,9 @@ class DemoPluginsView(QObject):
     def pendingInstall(self) -> dict[str, Any]:
         return {}
 
-    @Property(object, notify=changed)
-    def refusal(self) -> Any:
-        return ""
+    @Property(dict, notify=changed)
+    def refusal(self) -> dict[str, Any]:
+        return {}
 
     @Slot(str)
     def openDetail(self, plugin_id: str) -> None:

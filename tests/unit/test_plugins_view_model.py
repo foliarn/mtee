@@ -359,7 +359,7 @@ def test_a_bad_package_is_refused_with_one_sentence(harness: Harness) -> None:
     }
     assert view.property("pendingInstall") == {}
     view.dismissRefusal()
-    assert view.property("refusal") == ""
+    assert view.property("refusal") == {}
 
 
 def test_uninstall_sends_the_folder_to_the_bin_and_keeps_the_data(harness: Harness) -> None:

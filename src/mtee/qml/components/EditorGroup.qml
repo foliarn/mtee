@@ -215,7 +215,6 @@ Rectangle {
     }
 
     // The detail tab of a plugin in the Plugins view (tab kind "plugin", ref = plugin id).
-    // Placeholder until the Plugins view QML is written: PluginDetailPane.qml fills it.
     Component {
         id: pluginDetailComponent
         PluginDetailPane {

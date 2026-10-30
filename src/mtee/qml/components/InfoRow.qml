@@ -1,7 +1,8 @@
 import QtQuick
 import Mtee
 
-// A settings row: a label, a description and a read-only value on the right.
+// A settings row: a label, a description and a read-only value on the right. The value sits on
+// the baseline of the label, not in the middle of the label and the description.
 Item {
     id: infoRow
 
@@ -21,6 +22,7 @@ Item {
         spacing: 2
 
         Text {
+            id: infoLabel
             text: infoRow.label
             color: Theme.textPrimary
             font.family: Theme.fontFamily
@@ -28,6 +30,7 @@ Item {
         }
 
         Text {
+            visible: infoRow.description.length > 0
             width: parent.width
             text: infoRow.description
             wrapMode: Text.WordWrap
@@ -40,7 +43,7 @@ Item {
     Text {
         id: infoValue
         anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
+        y: infoTexts.y + infoLabel.y + infoLabel.baselineOffset - infoValue.baselineOffset
         text: infoRow.value
         color: Theme.textPrimary
         font.family: Theme.fontFamily

@@ -69,6 +69,9 @@ Window {
         sourceComponent: Component { PluginDialogHost { workspace: root.ws } }
     }
 
+    // The install warning and the refusal of the Plugins view: they open from any view, the demo too.
+    PluginInstallDialogs { workspace: root.ws }
+
     TitleBar {
         id: titleBar
         anchors.top: parent.top

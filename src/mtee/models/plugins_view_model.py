@@ -214,10 +214,13 @@ class PluginsViewModel(QObject):
             "sourceText": source_text,
         }
 
-    @Property(object, notify=changed)
-    def refusal(self) -> Any:
-        """The refused install as ``{title, text}``, or an empty string when there is none."""
-        return dict(self._refusal) if self._refusal is not None else ""
+    @Property(dict, notify=changed)
+    def refusal(self) -> dict[str, str]:
+        """The refused install as ``{title, text}``, or an empty dict when there is none.
+
+        A ``dict`` property, not ``object``: QML reads the fields of a JavaScript object only.
+        """
+        return dict(self._refusal) if self._refusal is not None else {}
 
     # ------------------------------------------------------------------ slots
 
