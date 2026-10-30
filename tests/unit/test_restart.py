@@ -27,14 +27,76 @@ def from_sources(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["/usr/bin/mtee", "--data-dir", "C:/data"])
 
 
+@pytest.fixture
+def frozen_with_wait_pair(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "argv", ["MTEE.exe", "--wait-for-exit", "42", "--data-dir", "C:/data"])
+
+
+@pytest.fixture
+def from_sources_with_wait_pair(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setattr(
+        sys, "argv", ["/usr/bin/mtee", "--wait-for-exit", "42", "--data-dir", "C:/data"]
+    )
+
+
 def test_a_frozen_restart_runs_the_executable_with_the_same_arguments(frozen: None) -> None:
-    assert restart_command() == [sys.executable, "--data-dir", "C:/data", "--plugin-dir", "x"]
+    assert restart_command() == [
+        sys.executable,
+        "--wait-for-exit",
+        str(os.getpid()),
+        "--data-dir",
+        "C:/data",
+        "--plugin-dir",
+        "x",
+    ]
 
 
 def test_a_restart_from_the_sources_runs_the_module_with_the_same_arguments(
     from_sources: None,
 ) -> None:
-    assert restart_command() == [sys.executable, "-m", "mtee", "--data-dir", "C:/data"]
+    assert restart_command() == [
+        sys.executable,
+        "-m",
+        "mtee",
+        "--wait-for-exit",
+        str(os.getpid()),
+        "--data-dir",
+        "C:/data",
+    ]
+
+
+def test_a_frozen_restart_names_the_pid_once_when_the_arguments_already_wait(
+    frozen_with_wait_pair: None,
+) -> None:
+    command = restart_command()
+
+    assert command == [
+        sys.executable,
+        "--wait-for-exit",
+        str(os.getpid()),
+        "--data-dir",
+        "C:/data",
+    ]
+    assert command.count("--wait-for-exit") == 1
+
+
+def test_a_restart_from_the_sources_names_the_pid_once_when_the_arguments_already_wait(
+    from_sources_with_wait_pair: None,
+) -> None:
+    command = restart_command()
+
+    assert command == [
+        sys.executable,
+        "-m",
+        "mtee",
+        "--wait-for-exit",
+        str(os.getpid()),
+        "--data-dir",
+        "C:/data",
+    ]
+    assert command.count("--wait-for-exit") == 1
 
 
 def test_a_frozen_child_gets_the_reset_flag_and_no_other_change(
