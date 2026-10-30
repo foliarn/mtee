@@ -36,15 +36,18 @@ and it uses the optional capabilities of the context.
 
 ## 3. Discovery and registration
 
-MTEE loads plugins only from folders the user gives:
+MTEE loads plugins from two places, and from nowhere else:
 
-- `--plugin-dir PATH` on the command line, repeatable. The folders given are saved in the
-  setting `plugins.folders` and used again at the next start. A saved folder that no longer
-  exists is reported and skipped.
-- `Settings > Plugins` adds and removes folders, and switches plugins on and off
-  (`plugins.enabled`, a list of ids).
+- The plugins folder `<data-dir>/plugins/`. Each installed plugin lives in
+  `<data-dir>/plugins/<id>/`, laid out as its package (section 11). It is loaded at every start.
+  A folder unpacked there by hand is loaded the same way.
+- `--plugin-dir PATH` on the command line, repeatable. These folders are used for that run only
+  and are not saved. It is a development flag.
 
-There is no scan of any other place, no download and no install from the internet.
+`Settings > Plugins` lists the plugins found and switches them on and off (`plugins.enabled`, a
+list of ids). The page exists only when at least one plugin is found. Plugins are installed from
+a package file (section 11.1); the installer reads package files only and downloads nothing. The
+folder list of earlier versions (`plugins.folders`) is no longer read.
 
 Discovery lists the direct children of each folder that hold a `manifest.py`. It executes the
 manifest file alone, never `__init__.py` or the factory module. The code of a plugin is imported
@@ -56,7 +59,9 @@ only once the plugin is enabled. A manifest is refused, with a readable reason, 
 - its `factory` is not written `module:function` or is outside `mtee.plugins.<id>`;
 - another plugin folder already provides the same id (the first one found is kept).
 
-A refused plugin is shown `Failed` in `Settings > Plugins` with the reason.
+A refused plugin is shown `Failed` in `Settings > Plugins` with the reason. A shared library that
+two loaded plugins cannot share is handled as section 11.2 describes; the plugin that cannot share
+it is shown `Failed` with that sentence.
 
 `manifest.py` defines `MANIFEST`:
 
@@ -113,6 +118,9 @@ contribution that raises later is caught at the call, logged, and announced once
 - The core never validates the rows of a plugin that is absent. Removing a plugin leaves its
   tables and rows in place and does not touch the core's data.
 - A plugin never reads or writes another plugin's tables.
+- A plugin's own files (`PluginContext.base_dir` and `data_dir`) are in
+  `<data-dir>/plugin-data/<id>/`, outside the plugins folder. An update or an uninstall never
+  removes them.
 - The migrations 019 to 023 of the old plugins stay in `PLUGIN_OWNED_MIGRATIONS` of
   `src/mtee/persistence/database.py` for the legacy plugins.
 - The plugin keeps the layers separate, as the core does: a plugin's analysis is stored apart
@@ -289,8 +297,8 @@ The sample plugin's `settings.qml` shows the rows in use.
 - The plugin's UI uses the existing layouts and components. It does not add a new screen layout
   without a review, as the Architecture rules of `AGENTS.md` require.
 - Dependencies a plugin needs are pinned and recorded like any other dependency
-  (`AGENTS.md`, Dependencies and licences). Plugins run from the sources; the frozen Windows
-  build carries none.
+  (`AGENTS.md`, Dependencies and licences). A package carries the libraries its plugin needs
+  (section 11); nothing is fetched at install time.
 - Each plugin has tests in `tests/plugins/<id>/` and passes the **contract tests**.
 - Each plugin folder has a `README.md` with these headings, in this order:
   1. What it does, for the user.
@@ -346,7 +354,8 @@ is in `src/mtee/plugins/package.py`; the packing script writes it:
         [--wheel <file.whl>] [--licence <name>] [--author <name>] [--homepage <url>]
 
 The plugin folder is the package itself (`manifest.py` inside, named after the id). The script
-refuses to overwrite a package that exists. The installer that reads these files is plan 123.2.
+refuses to overwrite a package that exists. The installer that reads these files is
+`src/mtee/plugins/installer.py` (section 11.1).
 
 Layout, at the root of the archive:
 
@@ -372,8 +381,11 @@ Layout, at the root of the archive:
 `accepts` is the range the requirements file writes (`>=2.28,<3`). A pinned line, as a hashed
 file has, gives `==x.y.z`. A library that is only a dependency gets `==<bundled version>`.
 
-**Libraries MTEE ships are never bundled.** The packing script reads the distributions installed
-in its own environment. A requirement MTEE ships is not bundled: the plugin uses MTEE's copy. When
+**Libraries MTEE ships are never bundled.** The packing script reads MTEE's runtime closure, as
+`mtee.plugins.package.mtee_runtime_libraries` computes it: the libraries `mtee` requires, and their
+requirements in turn, with the markers true for this interpreter and without extras. The
+development tools of the environment (pytest, PyInstaller) are not MTEE's libraries. A requirement
+MTEE ships is not bundled: the plugin uses MTEE's copy. When
 the plugin's range does not accept MTEE's version, the packing stops with one sentence. The
 install takes the whole requirements file (hash checking needs every dependency pinned), then the
 distributions MTEE ships are removed from `libs/`; their wheels are downloaded and checked, then
@@ -382,3 +394,52 @@ only, since `pip` is not installed in the project environment.
 
 A folder that holds a `plugin.json` (an unpacked package) refuses a plugin whose manifest
 disagrees with it on `id`, `version` or `api_version`. A folder without one loads as before.
+
+### 11.1 Installer
+
+The plugins folder is `<data-dir>/plugins/`. It holds one folder per installed plugin,
+`<data-dir>/plugins/<id>/`. A package is read without running any of its code. Its check
+(`inspect`) refuses it with one readable sentence when:
+
+- an entry is absolute, has a drive letter, or contains `..`: `The package has an entry outside
+  its folder: <name>.`
+- an entry is a link, or the entries unpack to more than 500 MB;
+- `plugin.json` is missing or invalid (its own sentence names the field or the line);
+- `api_version` is not one this MTEE supports;
+- `python` is not `3.12`, or `platform` is neither `any` nor `win_amd64` (on Windows);
+- the `mtee` range does not contain the running MTEE version;
+- the id is not lowercase snake_case, or is a name MTEE uses itself;
+- `<id>/manifest.py` is missing;
+- it bundles a library MTEE ships: `<Plugin> bundles requests, which MTEE already provides.
+  Rebuild the package.`
+- it bundles a library that an installed plugin also bundles, with no version both accept:
+  `Spotify and Loudness report need different versions of requests (==2.31.0 and >=2.32).
+  Spotify was not installed.` The plugin it replaces (same id) is not compared.
+
+`install` runs the check, extracts the whole package into `<data-dir>/plugins/.staging/<id>/`,
+discovers the extracted plugin (its manifest must agree with its `plugin.json`), sends an existing
+`plugins/<id>/` to the Recycle Bin, and renames the staging folder into place. A new plugin is
+switched on. A plugin that was installed and switched off stays off after an update. A failed
+install leaves nothing behind; a leftover `.staging` folder is sent to the Recycle Bin at the next
+start, before any plugin is found.
+
+`uninstall` sends `plugins/<id>/` to the Recycle Bin and switches the plugin off. Its
+`plugin-data/<id>/` folder and its database tables stay.
+
+Nothing is deleted permanently: folders go through `TrashService.recycle_folder`. A folder unpacked
+by hand into `plugins/<id>/` is listed and loaded like an installed plugin.
+
+### 11.2 Shared libraries and the import finder
+
+Python loads a module once per process, so the plugins that load share one copy of each library
+they bundle. For each library, `plan_libraries` (`src/mtee/plugins/libraries.py`) chooses the
+highest bundled version that every plugin using it accepts. When no bundled version suits every
+plugin, the later plugin, by identifier, is shown `Failed` with the same sentence and is not
+loaded; the choice is made again without it.
+
+Before any plugin factory is imported, one meta path finder is put first on `sys.meta_path`. It
+serves each top-level module of a chosen library from the `libs/` folder of its copy. A `libs/`
+folder is never added to `sys.path` as a whole, so the order of the plugins does not decide which
+copy is imported. Submodules resolve through their package. `PluginManager.library_locations`
+gives the chosen mapping (module to `libs/` folder); a helper process reads it to use the same
+copies. The finder is removed when the plugins are unloaded.

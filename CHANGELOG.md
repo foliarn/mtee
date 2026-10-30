@@ -8,8 +8,8 @@ All notable changes to MTEE are listed here. The format follows
 ### Added
 
 - MTEE reads the ISRC tag of MP3, FLAC/Ogg and M4A files (not shown yet).
-- Plugins load from the folders the user gives (`--plugin-dir`, or Settings > Plugins). A plugin
-  is imported only once it is switched on, applies its own database migrations, and adds a
+- Plugins load from the plugins folder `<data-dir>/plugins/` and from `--plugin-dir` (one run,
+  not saved). A plugin is imported only once it is switched on, applies its own database migrations, and adds a
   sidebar section or activity, editor tabs, track list columns, track menu actions, a Settings
   page and startup tasks. A plugin that fails to start is disabled alone and shown as Failed.
   The contract is in `docs/plugins.md`; `tests/plugins/` holds a sample plugin and the contract
@@ -24,6 +24,18 @@ All notable changes to MTEE are listed here. The format follows
 - A plugin is packed into a `.mteeplugin` file by `scripts/pack_plugin.py`: `plugin.json` lists
   the bundled libraries and licences, MTEE's own libraries are never bundled (`docs/plugins.md`,
   section 11).
+- A plugin package is installed from its file into the plugins folder: MTEE checks it before
+  anything is extracted (a path outside the package, a link, a Python, platform or MTEE version
+  that does not fit, a library MTEE ships, a library version conflict). An update or uninstall
+  sends the old folder to the Recycle Bin and keeps the plugin's data (plan 123.2).
+- Plugins that bundle the same library share one copy: the highest version every one accepts.
+  A plugin that cannot share one is shown Failed with the reason (plan 123.2).
+
+### Changed
+
+- A plugin's own data folder is `<data-dir>/plugin-data/<id>/`, outside the plugins folder.
+- `--plugin-dir` folders are used for the run only; the saved plugin folder list and its rows
+  in Settings > Plugins are removed.
 
 ### Fixed
 

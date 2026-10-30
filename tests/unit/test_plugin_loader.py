@@ -17,8 +17,8 @@ from mtee.plugins.loader import (
     PluginPreferences,
     add_to_package_path,
     discover,
+    plugin_id_problem,
     remove_from_package_path,
-    split_existing_folders,
 )
 from mtee.plugins.package import PluginDescription
 
@@ -94,16 +94,27 @@ def test_discovery_imports_only_the_manifest(tmp_path: Path) -> None:
     assert not [name for name in sys.modules if name.startswith("_mtee_plugin_manifest")]
 
 
-def test_a_folder_that_is_missing_is_reported_and_skipped(tmp_path: Path) -> None:
+def test_a_folder_that_is_missing_is_skipped(tmp_path: Path) -> None:
     present = tmp_path / "present"
     _write_plugin(present, "alpha")
     gone = tmp_path / "gone"
 
-    existing, missing = split_existing_folders([gone, present])
-
-    assert existing == [present]
-    assert missing == [gone]
     assert [plugin.plugin_id for plugin in discover([gone, present])] == ["alpha"]
+
+
+@pytest.mark.parametrize(
+    ("name", "problem"),
+    [
+        ("Bad-Name", "not lowercase snake_case"),
+        ("api", "used by MTEE itself"),
+    ],
+)
+def test_plugin_id_problem_names_what_is_refused(name: str, problem: str) -> None:
+    assert problem in plugin_id_problem(name)
+
+
+def test_a_valid_plugin_id_has_no_problem() -> None:
+    assert plugin_id_problem("spotify") == ""
 
 
 @pytest.mark.parametrize(
@@ -235,29 +246,21 @@ def test_a_plugin_is_imported_from_a_folder_added_to_the_package_path(
         sys.modules.pop("mtee.plugins.importable", None)
 
 
-def test_preferences_save_folders_and_the_enabled_list(tmp_path: Path) -> None:
+def test_preferences_save_the_enabled_list(tmp_path: Path) -> None:
     database = Database(tmp_path / "mtee.sqlite3")
     database.migrate()
     preferences = PluginPreferences(SettingsRepository(database))
-    first = tmp_path / "one"
-    second = tmp_path / "two"
 
-    assert preferences.folders() == []
     assert preferences.enabled() == []
-    assert preferences.add_folders([first]) == [first.resolve()]
-    assert preferences.add_folders([first, second]) == [first.resolve(), second.resolve()]
     preferences.set_enabled("alpha", True)
     preferences.set_enabled("alpha", True)
     preferences.set_enabled("beta", True)
     preferences.set_enabled("alpha", False)
 
     again = PluginPreferences(SettingsRepository(database))
-    assert again.folders() == [first.resolve(), second.resolve()]
     assert again.enabled() == ["beta"]
     assert again.is_enabled("beta")
     assert not again.is_enabled("alpha")
-    again.remove_folder(first)
-    assert again.folders() == [second.resolve()]
     database.close()
 
 
@@ -265,12 +268,10 @@ def test_preferences_ignore_a_stored_value_of_the_wrong_shape(tmp_path: Path) ->
     database = Database(tmp_path / "mtee.sqlite3")
     database.migrate()
     settings = SettingsRepository(database)
-    settings.set("plugins.folders", "not json")
     settings.set_json("plugins.enabled", {"alpha": True})
 
     preferences = PluginPreferences(settings)
 
-    assert preferences.folders() == []
     assert preferences.enabled() == []
     database.close()
 
@@ -281,9 +282,8 @@ def test_reading_the_preferences_writes_nothing(tmp_path: Path) -> None:
     settings = SettingsRepository(database)
     preferences = PluginPreferences(settings)
 
-    preferences.folders()
     preferences.enabled()
-    preferences.add_folders([])
+    preferences.is_enabled("alpha")
 
     assert not any(key.startswith("plugins.") for key in settings.all())
     database.close()

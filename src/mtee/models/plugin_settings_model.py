@@ -1,16 +1,15 @@
-"""The Plugins page of Settings: the plugins found in the plugin folders and the folders.
+"""The Plugins page of Settings: the plugins found at start, with the state each had.
 
-The page lists what the user's folders hold, with the state each plugin had at startup. A
-switch only changes the saved choice: it applies at the next start, so a plugin switched off
-stays ``Running`` until then and a plugin switched on stays ``Disabled``.
+The page lists the plugins of the plugins folder and of the folders given with ``--plugin-dir``
+for this run. A switch only changes the saved choice: it applies at the next start, so a plugin
+switched off stays ``Running`` until then and a plugin switched on stays ``Disabled``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.plugins.loader import (
     DiscoveredPlugin,
@@ -18,8 +17,6 @@ from mtee.plugins.loader import (
     PluginManager,
     PluginPreferences,
     PluginStatus,
-    discover,
-    split_existing_folders,
 )
 
 __all__ = ["PluginSettingsModel"]
@@ -39,65 +36,32 @@ class PluginSettingsModel(QObject):
         super().__init__(parent)
         self._manager = manager
         self._preferences = preferences
-        self._found: list[DiscoveredPlugin] = []
-        self._read_folders()
 
     def is_available(self) -> bool:
-        """Whether a plugin folder is set: without one the Plugins page does not exist."""
-        return bool(self._preferences.folders())
+        """Whether a plugin was found: without one the Plugins page does not exist."""
+        return bool(self._discovered())
 
     available = Property(bool, is_available, notify=changed)
 
     @Property(list, notify=changed)
     def plugins(self) -> list[dict[str, Any]]:
-        """One entry per plugin of the folders: its manifest, state, error and switch."""
+        """One entry per plugin found: its manifest, state, error and switch."""
         started = {record.plugin_id: record for record in self._manager.plugins}
         enabled = set(self._preferences.enabled())
         return [
             _entry(found, started.get(found.plugin_id), found.plugin_id in enabled)
-            for found in self._found
-        ]
-
-    @Property(list, notify=changed)
-    def folders(self) -> list[dict[str, Any]]:
-        """The saved plugin folders: ``path``, whether it ``found`` on disk and ``count``."""
-        saved = self._preferences.folders()
-        existing, _missing = split_existing_folders(saved)
-        counts = {str(folder): 0 for folder in existing}
-        for found in self._found:
-            counts[str(found.folder)] = counts.get(str(found.folder), 0) + 1
-        return [
-            {"path": str(folder), "found": folder in existing, "count": counts.get(str(folder), 0)}
-            for folder in saved
+            for found in self._discovered()
         ]
 
     @Slot(str, bool)
     def setEnabled(self, plugin_id: str, enabled: bool) -> None:
         """Save the choice of the user; the plugin starts or stops at the next start."""
-        if any(found.plugin_id == plugin_id and found.is_valid for found in self._found):
+        if any(found.plugin_id == plugin_id and found.is_valid for found in self._discovered()):
             self._preferences.set_enabled(plugin_id, enabled)
             self.changed.emit()
 
-    @Slot(str)
-    def addFolder(self, selected: str) -> None:
-        """Save a folder chosen in the folder dialog (a ``file:`` URL or a path)."""
-        url = QUrl(selected)
-        path = url.toLocalFile() if url.isLocalFile() else selected
-        if path and Path(path).is_dir():
-            self._preferences.add_folders([Path(path)])
-            self._read_folders()
-            self.changed.emit()
-
-    @Slot(str)
-    def removeFolder(self, path: str) -> None:
-        """Forget a folder. Plugins that run from it keep running until the next start."""
-        self._preferences.remove_folder(Path(path))
-        self._read_folders()
-        self.changed.emit()
-
-    def _read_folders(self) -> None:
-        existing, _missing = split_existing_folders(self._preferences.folders())
-        self._found = discover(existing)
+    def _discovered(self) -> list[DiscoveredPlugin]:
+        return [record.discovered for record in self._manager.plugins]
 
 
 def _entry(found: DiscoveredPlugin, record: LoadedPlugin | None, enabled: bool) -> dict[str, Any]:

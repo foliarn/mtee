@@ -64,8 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help=(
-            "Load plugins from the plugin packages in PATH. Repeat for several folders. "
-            "The folders given are saved and used again at the next start."
+            "Load the plugin packages in PATH for this run only. Repeat for several folders. "
+            "The folders are not saved; installed plugins are always loaded."
         ),
     )
     parser.add_argument(

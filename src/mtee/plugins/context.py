@@ -34,7 +34,7 @@ from mtee.services.playlist_service import PlaylistService
 
 __all__ = ["PluginHost", "RecycleRequests", "RootActions"]
 
-PLUGIN_DATA_DIRECTORY = "plugins"
+PLUGIN_DATA_DIRECTORY = "plugin-data"
 SETTINGS_PREFIX = "plugins"
 
 

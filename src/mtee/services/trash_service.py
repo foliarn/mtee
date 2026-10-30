@@ -235,11 +235,24 @@ class TrashService:
     """Use IFileOperation on an STA worker and return its recycle-bin item identity."""
 
     def recycle(self, path: Path | str) -> str:
+        """Send one regular file to the Recycle Bin and return its item identity."""
+        return self._recycle(path, folder=False)
+
+    def recycle_folder(self, path: Path | str) -> str:
+        """Send one folder, with its content, to the Recycle Bin and return its item identity."""
+        return self._recycle(path, folder=True)
+
+    def _recycle(self, path: Path | str, *, folder: bool) -> str:
         if os.name != "nt":
             raise TrashServiceError("Windows recycle-bin support is unavailable on this system.")
         source = Path(path)
-        if source.is_symlink() or not source.is_file():
-            raise TrashServiceError("The selected audio file is no longer a regular file.")
+        is_expected = source.is_dir() if folder else source.is_file()
+        if source.is_symlink() or not is_expected:
+            raise TrashServiceError(
+                "The selected folder is no longer a folder."
+                if folder
+                else "The selected audio file is no longer a regular file."
+            )
 
         ole32 = ctypes.WinDLL("ole32", use_last_error=True)
         shell32 = ctypes.WinDLL("shell32", use_last_error=True)

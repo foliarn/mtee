@@ -243,7 +243,7 @@ class PluginContext:
 
     Only existing core services are exposed. ``database`` is shared: a plugin uses only
     its own tables, whose names start with its identifier. ``base_dir`` is
-    ``<data-dir>/plugins/<id>/``; it is created when ``data_dir`` is first read.
+    ``<data-dir>/plugin-data/<id>/``; it is created when ``data_dir`` is first read.
     ``refresh_ui`` asks the core to read the rows, the header buttons and the cells of the
     plugin again after its data changed; any thread may call it. ``run_on_gui(fn)`` runs
     ``fn`` on the graphical thread, after the current event (a queued call, also when it is

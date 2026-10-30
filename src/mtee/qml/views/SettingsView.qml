@@ -19,7 +19,7 @@ Rectangle {
     property string page: workspace.settingsPageForGroup(groupIndex)
     readonly property var analysis: workspace.analysisSettings
     readonly property var playback: workspace.playbackSettings
-    // The Plugins page exists only when a plugin folder is set; the Settings pages of the running
+    // The Plugins page exists only when a plugin is found; the Settings pages of the running
     // plugins follow it, before About.
     readonly property var pluginSettings: workspace.pluginSettings || null
     readonly property bool pluginsAvailable: pluginSettings !== null && pluginSettings.available
@@ -64,16 +64,10 @@ Rectangle {
         onActivated: settings.dialog = ""
     }
 
-    // The last plugin folder was removed: the Plugins page is gone, so show General.
+    // No plugin is found any more: the Plugins page is gone, so show General.
     onPluginsAvailableChanged: {
         if (!pluginsAvailable && page === "plugins")
             workspace.setSettingsPageForGroup(groupIndex, "general")
-    }
-
-    FolderDialog {
-        id: pluginFolderPicker
-        title: "Add a plugin folder"
-        onAccepted: settings.pluginSettings.addFolder(selectedFolder.toString())
     }
 
     Connections {
@@ -589,8 +583,8 @@ Rectangle {
                 }
             }
 
-            // Plugins: the plugins found in the folders the user gave, and those folders. A switch
-            // only saves the choice; it applies the next time MTEE starts.
+            // Plugins: the plugins found at start. A switch only saves the choice; it applies the
+            // next time MTEE starts.
             Column {
                 objectName: "pluginsSettings"
                 width: content.width
@@ -613,87 +607,6 @@ Rectangle {
                 Repeater {
                     model: settings.pluginsAvailable ? settings.pluginSettings.plugins : []
                     delegate: PluginRow { required property var modelData; plugin: modelData }
-                }
-
-                Group { title: "Plugin folders" }
-
-                Text {
-                    width: parent.width
-                    topPadding: 8
-                    bottomPadding: 8
-                    wrapMode: Text.WordWrap
-                    text: "MTEE looks for plugins only in these folders, and reads their manifests first. A folder given with --plugin-dir is added here."
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Repeater {
-                    model: settings.pluginsAvailable ? settings.pluginSettings.folders : []
-                    delegate: Item {
-                        id: folderRow
-                        required property var modelData
-                        width: content.width
-                        height: 52
-
-                        Column {
-                            anchors.left: parent.left
-                            anchors.right: removeFolder.left
-                            anchors.rightMargin: 24
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 2
-
-                            Text {
-                                width: parent.width
-                                text: folderRow.modelData.path
-                                elide: Text.ElideMiddle
-                                color: Theme.textPrimary
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeBody
-                            }
-
-                            Text {
-                                text: folderRow.modelData.found
-                                    ? folderRow.modelData.count + (folderRow.modelData.count === 1 ? " plugin found" : " plugins found")
-                                    : "This folder no longer exists. It is skipped."
-                                color: folderRow.modelData.found ? Theme.textSecondary : Theme.warning
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeSmall
-                            }
-                        }
-
-                        TextButton {
-                            id: removeFolder
-                            objectName: "removePluginFolder"
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            implicitHeight: 28
-                            kind: "ghost"
-                            text: "Remove"
-                            onClicked: settings.pluginSettings.removeFolder(folderRow.modelData.path)
-                        }
-
-                        Rectangle {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            height: 1
-                            color: Theme.separator
-                        }
-                    }
-                }
-
-                Item {
-                    width: parent.width
-                    height: 52
-
-                    TextButton {
-                        objectName: "addPluginFolder"
-                        anchors.verticalCenter: parent.verticalCenter
-                        implicitHeight: 28
-                        kind: "ghost"
-                        text: "Add folder…"
-                        onClicked: pluginFolderPicker.open()
-                    }
                 }
             }
 

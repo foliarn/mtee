@@ -1,13 +1,14 @@
-"""Discovery and lifecycle of the plugins in the folders the user gave.
+"""Discovery and lifecycle of the plugins in the plugin folders.
 
-Nothing is loaded from a folder the user did not give (``--plugin-dir`` or a saved folder).
-A plugin folder holds plugin packages: ``<folder>/<id>/manifest.py`` and ``__init__.py``.
-Discovery imports only the ``manifest.py`` of each package, never the package itself, so
-the code of a plugin runs only once it is enabled.
+Plugins are loaded from the plugins folder ``<data-dir>/plugins/<id>/`` of each installed plugin,
+and from the folders given with ``--plugin-dir`` for one run. A plugin folder holds plugin
+packages: ``<folder>/<id>/manifest.py`` and ``__init__.py``. Discovery imports only the
+``manifest.py`` of each package, never the package itself, so the code of a plugin runs only once
+it is enabled.
 
-``PluginManager`` then loads the enabled plugins after the core services: it applies the
-plugin's migrations, runs its factory and reads its contributions. A plugin that fails in
-any of these steps is marked ``Failed`` alone; the application keeps starting.
+``PluginManager`` then loads the enabled plugins after the core services: it chooses the shared
+libraries, applies the plugin's migrations, runs its factory and reads its contributions. A plugin
+that fails in any of these steps is marked ``Failed`` alone; the application keeps starting.
 """
 
 from __future__ import annotations
@@ -18,8 +19,8 @@ import importlib.util
 import logging
 import re
 import sys
-from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -34,7 +35,9 @@ from mtee.plugins.api import (
     PluginService,
 )
 from mtee.plugins.contributions import check_contributions
+from mtee.plugins.libraries import LibraryUser, install_finder, plan_libraries, uninstall_finder
 from mtee.plugins.package import (
+    LIBS_DIRECTORY,
     PLUGIN_JSON,
     PackageError,
     PluginDescription,
@@ -47,7 +50,6 @@ __all__ = [
     "MANIFEST_FILE",
     "MIGRATIONS_DIRECTORY",
     "SETTING_ENABLED",
-    "SETTING_FOLDERS",
     "DiscoveredPlugin",
     "LoadedPlugin",
     "PluginManager",
@@ -55,8 +57,8 @@ __all__ = [
     "PluginStatus",
     "add_to_package_path",
     "discover",
+    "plugin_id_problem",
     "remove_from_package_path",
-    "split_existing_folders",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,7 +66,6 @@ MIGRATIONS_DIRECTORY = "migrations"
 
 MANIFEST_FILE = "manifest.py"
 MANIFEST_ATTRIBUTE = "MANIFEST"
-SETTING_FOLDERS = "plugins.folders"
 SETTING_ENABLED = "plugins.enabled"
 _PLUGIN_ID = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _FACTORY = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
@@ -79,6 +80,8 @@ class DiscoveredPlugin:
     package_dir: Path
     manifest: PluginManifest | None
     error: str = ""
+    # The plugin.json of the folder, when it describes this package (an installed plugin).
+    declared: PluginDescription | None = None
 
     @property
     def is_valid(self) -> bool:
@@ -87,38 +90,10 @@ class DiscoveredPlugin:
 
 
 class PluginPreferences:
-    """The plugin folders and the enabled plugins, kept in the application settings."""
+    """The enabled plugins, kept in the application settings."""
 
     def __init__(self, settings: SettingsRepository) -> None:
         self._settings = settings
-
-    def folders(self) -> list[Path]:
-        """Return the saved plugin folders, in the order they were given."""
-        return [Path(value) for value in self._stored_list(SETTING_FOLDERS)]
-
-    def add_folders(self, folders: Iterable[Path]) -> list[Path]:
-        """Save ``folders`` besides the saved ones and return the whole list.
-
-        A folder already saved is not repeated; relative paths are resolved first. Nothing
-        is written when the list does not change.
-        """
-        saved = self._stored_list(SETTING_FOLDERS)
-        known = {_path_key(value) for value in saved}
-        for folder in folders:
-            resolved = str(Path(folder).resolve())
-            if _path_key(resolved) not in known:
-                known.add(_path_key(resolved))
-                saved.append(resolved)
-        if saved != self._stored_list(SETTING_FOLDERS):
-            self._settings.set_json(SETTING_FOLDERS, saved)
-        return [Path(value) for value in saved]
-
-    def remove_folder(self, folder: Path) -> None:
-        """Forget a saved folder; the plugins found in it are no longer discovered."""
-        saved = self._stored_list(SETTING_FOLDERS)
-        kept = [value for value in saved if _path_key(value) != _path_key(folder)]
-        if kept != saved:
-            self._settings.set_json(SETTING_FOLDERS, kept)
 
     def enabled(self) -> list[str]:
         """Return the identifiers of the plugins the user switched on."""
@@ -144,25 +119,15 @@ class PluginPreferences:
         return [value for value in stored if isinstance(value, str) and value]
 
 
-def split_existing_folders(folders: Sequence[Path]) -> tuple[list[Path], list[Path]]:
-    """Return the folders that exist and the folders that are missing, in order."""
-    existing: list[Path] = []
-    missing: list[Path] = []
-    for folder in folders:
-        (existing if folder.is_dir() else missing).append(folder)
-    return existing, missing
-
-
 def discover(folders: Sequence[Path]) -> list[DiscoveredPlugin]:
     """List the plugin packages found in ``folders`` and read their manifests.
 
     Only the direct children that hold a ``manifest.py`` are listed. A folder that does
-    not exist is skipped (``split_existing_folders`` reports it). A refused manifest is
+    not exist is skipped. A refused manifest is
     returned with its reason; the first plugin found keeps an identifier that appears twice.
     A folder that holds a ``plugin.json`` (an unpacked package) refuses every plugin whose
     manifest disagrees with it on id, version or interface version.
     """
-    reserved = _reserved_names()
     found: list[DiscoveredPlugin] = []
     seen: dict[str, Path] = {}
     for folder in folders:
@@ -177,9 +142,7 @@ def discover(folders: Sequence[Path]) -> list[DiscoveredPlugin]:
         for package_dir in children:
             if not (package_dir / MANIFEST_FILE).is_file():
                 continue
-            plugin = _against_declared(
-                _inspect(folder, package_dir, reserved), declared, declared_error
-            )
+            plugin = _against_declared(_inspect(folder, package_dir), declared, declared_error)
             if plugin.is_valid and plugin.plugin_id in seen:
                 plugin = _refused(
                     folder,
@@ -239,10 +202,10 @@ ContextFactory = Callable[[PluginManifest], PluginContext]
 
 
 class PluginManager:
-    """Loads the enabled plugins of the saved folders and unloads them on exit.
+    """Loads the enabled plugins of the plugin folders and unloads them on exit.
 
-    The plugin folders and the enabled list come from ``PluginPreferences``. A plugin is
-    switched on or off in the preferences and the change applies at the next start.
+    The enabled list comes from ``PluginPreferences``. A plugin is switched on or off in the
+    preferences and the change applies at the next start.
     """
 
     def __init__(
@@ -251,8 +214,8 @@ class PluginManager:
         self._preferences = preferences
         self._notify = notify
         self._plugins: list[LoadedPlugin] = []
-        self._missing: list[Path] = []
         self._path_entries: list[Path] = []
+        self._library_locations: dict[str, Path] = {}
 
     @property
     def plugins(self) -> list[LoadedPlugin]:
@@ -260,30 +223,37 @@ class PluginManager:
         return list(self._plugins)
 
     @property
-    def missing_folders(self) -> list[Path]:
-        """The saved folders that no longer exist; they are skipped."""
-        return list(self._missing)
+    def library_locations(self) -> dict[str, Path]:
+        """The chosen copy of each shared top-level module: its ``libs/`` folder.
 
-    def load_enabled(self, context_factory: ContextFactory) -> list[LoadedPlugin]:
-        """Discover the plugins, then load those the user enabled; return all of them.
+        A helper process reads this mapping to put the same copies on its own path.
+        """
+        return dict(self._library_locations)
 
-        The failure of one plugin is stored on it, logged, and announced in one notice
-        that names it; the others load as usual.
+    def load_enabled(
+        self, context_factory: ContextFactory, folders: Sequence[Path]
+    ) -> list[LoadedPlugin]:
+        """Discover the plugins in ``folders``, load those the user enabled, and return all of them.
+
+        The shared libraries of the plugins that will load are chosen, and their import finder
+        is installed, before any factory is imported. A plugin that cannot share a library is
+        marked ``Failed`` and not loaded. The failure of one plugin is stored on it, logged, and
+        announced in one notice that names it; the others load as usual.
         """
         self.unload_all()
-        existing, self._missing = split_existing_folders(self._preferences.folders())
+        discovered = discover(folders)
         enabled = set(self._preferences.enabled())
+        wanted = [
+            plugin for plugin in discovered if plugin.is_valid and plugin.plugin_id in enabled
+        ]
+        plan = plan_libraries(_library_users(wanted))
+        install_finder(plan.locations)
+        self._library_locations = dict(plan.locations)
         self._plugins = []
         failed: list[LoadedPlugin] = []
-        for discovered in discover(existing):
-            if not discovered.is_valid:
-                record = LoadedPlugin(discovered, PluginStatus.FAILED, discovered.error)
-                _LOGGER.warning("Plugin %s refused: %s", discovered.plugin_id, discovered.error)
-            elif discovered.plugin_id in enabled:
-                record = self._load(discovered, context_factory)
-            else:
-                record = LoadedPlugin(discovered, PluginStatus.DISABLED)
-            if record.status is PluginStatus.FAILED and discovered.plugin_id in enabled:
+        for plugin in discovered:
+            record = self._record(plugin, enabled, plan.refused, context_factory)
+            if record.status is PluginStatus.FAILED and plugin.plugin_id in enabled:
                 failed.append(record)
             self._plugins.append(record)
         self._announce(failed)
@@ -303,6 +273,26 @@ class PluginManager:
         for folder in self._path_entries:
             remove_from_package_path(folder)
         self._path_entries = []
+        self._library_locations = {}
+        uninstall_finder()
+
+    def _record(
+        self,
+        plugin: DiscoveredPlugin,
+        enabled: set[str],
+        refused: Mapping[str, str],
+        context_factory: ContextFactory,
+    ) -> LoadedPlugin:
+        """Return the state of one discovered plugin, loading it when it is enabled."""
+        if not plugin.is_valid:
+            _LOGGER.warning("Plugin %s refused: %s", plugin.plugin_id, plugin.error)
+            return LoadedPlugin(plugin, PluginStatus.FAILED, plugin.error)
+        if plugin.plugin_id not in enabled:
+            return LoadedPlugin(plugin, PluginStatus.DISABLED)
+        if plugin.plugin_id in refused:
+            _LOGGER.error("Plugin %s not loaded: %s", plugin.plugin_id, refused[plugin.plugin_id])
+            return LoadedPlugin(plugin, PluginStatus.FAILED, refused[plugin.plugin_id])
+        return self._load(plugin, context_factory)
 
     def _load(self, discovered: DiscoveredPlugin, context_factory: ContextFactory) -> LoadedPlugin:
         """Run the migrations, the factory and ``contributions()`` of one plugin."""
@@ -364,6 +354,15 @@ class PluginManager:
         )
 
 
+def _library_users(plugins: Sequence[DiscoveredPlugin]) -> list[LibraryUser]:
+    """Return the plugins that bundle libraries, with the ``libs/`` folder of each package."""
+    return [
+        LibraryUser(plugin.plugin_id, plugin.declared, plugin.folder / LIBS_DIRECTORY)
+        for plugin in plugins
+        if plugin.declared is not None and plugin.declared.libraries
+    ]
+
+
 def _read_contributions(plugin_id: str, service: object) -> tuple[Contribution, ...]:
     """Return what ``service`` contributes, refusing a service or a contribution that is broken."""
     contributions = getattr(service, "contributions", None)
@@ -401,13 +400,21 @@ def _forget_modules(plugin_id: str) -> None:
         delattr(mtee.plugins, plugin_id)
 
 
-def _inspect(folder: Path, package_dir: Path, reserved: frozenset[str]) -> DiscoveredPlugin:
+def plugin_id_problem(name: str) -> str:
+    """Return why ``name`` cannot be a plugin identifier, or an empty string when it can."""
+    if not _PLUGIN_ID.match(name):
+        return f"The plugin id {name!r} is not lowercase snake_case."
+    if name in _reserved_names():
+        return f"The name {name} is used by MTEE itself."
+    return ""
+
+
+def _inspect(folder: Path, package_dir: Path) -> DiscoveredPlugin:
     """Check the name of a package, read its manifest and validate it."""
     name = package_dir.name
-    if not _PLUGIN_ID.match(name):
-        return _refused(folder, package_dir, "The plugin folder name is not lowercase snake_case.")
-    if name in reserved:
-        return _refused(folder, package_dir, f"The name {name} is used by MTEE itself.")
+    problem = plugin_id_problem(name)
+    if problem:
+        return _refused(folder, package_dir, problem)
     if not (package_dir / "__init__.py").is_file():
         return _refused(folder, package_dir, "The plugin folder has no __init__.py.")
     manifest, error = _read_manifest(package_dir)
@@ -449,7 +456,7 @@ def _against_declared(
     if not problem and declared is not None:
         problem = description_matches_manifest(declared, plugin.manifest)
     if not problem:
-        return plugin
+        return replace(plugin, declared=declared)
     return DiscoveredPlugin(
         plugin.plugin_id, plugin.folder, plugin.package_dir, plugin.manifest, problem
     )
@@ -522,8 +529,3 @@ def _reserved_names() -> frozenset[str]:
             elif (entry / "__init__.py").is_file():
                 names.add(entry.name)
     return frozenset(names)
-
-
-def _path_key(path: Path | str) -> str:
-    """Compare folders as Windows does: case and separators do not matter."""
-    return str(path).replace("/", "\\").rstrip("\\").casefold()

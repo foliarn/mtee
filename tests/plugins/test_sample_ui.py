@@ -112,7 +112,6 @@ def test_the_sample_is_listed_in_settings_plugins_before_it_is_enabled(
         assert "Sample plugin (fails)" in texts
         assert _row_status(window, SAMPLE_ID) == "Disabled"
         assert _row_status(window, FAILING.plugin_id) == "Disabled"
-        assert "2 plugins found" in texts
         # Listed from its manifest alone: the code of the plugin was not imported.
         assert plugin_module(SAMPLE_ID) is None and plugin_module(FAILING.plugin_id) is None
         assert find_item(window, ACTIVITY) is None
@@ -154,7 +153,7 @@ def test_the_switch_adds_and_removes_the_contributions_after_a_restart(
         assert ui.property("columnOptions") == [] and not ui.is_plugin_kind(SAMPLE_KIND)
         assert find_item(window, ACTIVITY) is None
         assert find_item(window, f"settingsTab_{SAMPLE_PAGE}") is None
-        assert find_item(window, "settingsTab_plugins") is not None  # the folder is still set
+        assert find_item(window, "settingsTab_plugins") is not None  # the plugin is still found
     finally:
         _shutdown(runtime)
 

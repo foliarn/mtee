@@ -99,19 +99,19 @@ class _Harness:
             jobs=unused,
             files=unused,
             settings=unused,
-            base_dir=self.base / "plugins" / manifest.plugin_id,
+            base_dir=self.base / "plugin-data" / manifest.plugin_id,
             notify=self.notices.append,
             log=logging.getLogger(f"mtee.plugins.{manifest.plugin_id}"),
         )
 
     def start(self, folder: Path, *enabled: str) -> dict[str, Any]:
-        self.preferences.add_folders([folder])
         for plugin_id in enabled:
             self.preferences.set_enabled(plugin_id, True)
-        return {record.plugin_id: record for record in self.manager.load_enabled(self.context)}
+        records = self.manager.load_enabled(self.context, [folder])
+        return {record.plugin_id: record for record in records}
 
     def events(self, plugin_id: str) -> list[str]:
-        path = self.base / "plugins" / plugin_id / "events.txt"
+        path = self.base / "plugin-data" / plugin_id / "events.txt"
         return path.read_text(encoding="utf-8").split() if path.is_file() else []
 
 
@@ -161,7 +161,10 @@ def test_a_plugin_can_be_loaded_again_after_it_was_unloaded(
     harness.start(tmp_path / "plugins_dir", "alpha")
     harness.manager.unload_all()
 
-    records = {r.plugin_id: r for r in harness.manager.load_enabled(harness.context)}
+    records = {
+        r.plugin_id: r
+        for r in harness.manager.load_enabled(harness.context, [tmp_path / "plugins_dir"])
+    }
 
     assert records["alpha"].status is PluginStatus.RUNNING
     assert harness.events("alpha") == ["create", "unload", "create"]
@@ -282,7 +285,7 @@ def test_a_refused_manifest_is_failed_and_its_package_is_not_imported(
     assert harness.notices == []  # not enabled: listed with its reason, no notice
 
     harness.preferences.set_enabled("future", True)
-    harness.manager.load_enabled(harness.context)
+    harness.manager.load_enabled(harness.context, [folder])
     assert len(harness.notices) == 1
     assert "future" in harness.notices[0].lower()
     assert harness.built == []
@@ -336,13 +339,12 @@ def test_a_failing_migration_disables_the_plugin_and_never_runs_its_factory(
 
 def test_a_context_that_cannot_be_built_fails_the_plugin(harness: _Harness, tmp_path: Path) -> None:
     _plugin(tmp_path / "plugins_dir", "alpha")
-    harness.preferences.add_folders([tmp_path / "plugins_dir"])
     harness.preferences.set_enabled("alpha", True)
 
     def broken(_manifest: PluginManifest) -> PluginContext:
         raise OSError("no data directory")
 
-    records = harness.manager.load_enabled(broken)
+    records = harness.manager.load_enabled(broken, [tmp_path / "plugins_dir"])
 
     assert records[0].status is PluginStatus.FAILED
     assert records[0].error == "OSError: no data directory"
@@ -381,19 +383,18 @@ def test_an_enabled_plugin_that_is_no_longer_in_a_folder_is_ignored(
     assert harness.preferences.is_enabled("ghost")
 
 
-def test_a_saved_folder_that_is_gone_is_reported_and_skipped(
+def test_a_plugin_folder_that_is_gone_is_skipped_without_a_notice(
     harness: _Harness, tmp_path: Path
 ) -> None:
     present = tmp_path / "present"
     _plugin(present, "alpha")
     gone = tmp_path / "gone"
-    harness.preferences.add_folders([gone, present])
     harness.preferences.set_enabled("alpha", True)
 
-    records = harness.manager.load_enabled(harness.context)
+    records = harness.manager.load_enabled(harness.context, [gone, present])
 
     assert [record.plugin_id for record in records] == ["alpha"]
-    assert harness.manager.missing_folders == [gone.resolve()]
+    assert harness.notices == []
 
 
 def test_the_data_directory_is_created_on_demand(harness: _Harness, tmp_path: Path) -> None:
@@ -401,5 +402,5 @@ def test_the_data_directory_is_created_on_demand(harness: _Harness, tmp_path: Pa
     context = harness.context(manifest)
 
     assert not context.base_dir.exists()
-    assert context.data_dir == tmp_path / "plugins" / "alpha"
+    assert context.data_dir == tmp_path / "plugin-data" / "alpha"
     assert context.base_dir.is_dir()

@@ -111,7 +111,6 @@ def test_a_folder_without_the_switch_lists_the_plugin_but_adds_nothing(
         assert "v1.2.3" in texts
         assert "Uses network" in texts
         assert "Disabled" in texts
-        assert "1 plugin found" in texts
     finally:
         _shutdown(runtime)
 
@@ -131,24 +130,6 @@ def test_the_switch_is_saved_and_applies_after_a_restart(qapp, tmp_path: Path) -
         # Still not running: the change applies at the next start, and the row says so.
         assert "Disabled" in _texts(window)
         assert any("next time MTEE starts" in text for text in _texts(window))
-    finally:
-        _shutdown(runtime)
-
-
-def test_a_plugin_folder_can_be_removed_and_the_page_goes_with_the_last_one(
-    qapp, tmp_path: Path
-) -> None:
-    runtime, _module = _start(tmp_path, enabled=False)
-    try:
-        workspace = _workspace(runtime)
-        window = _window(runtime)
-        workspace.openSettings()
-        workspace.setSettingsPage("plugins")
-        _settle(runtime)
-        _click(window, cast(QQuickItem, _find(window, "removePluginFolder")))
-        _settle(runtime)
-        assert _find(window, "settingsTab_plugins") is None
-        assert workspace.settingsPage == "general"
     finally:
         _shutdown(runtime)
 

@@ -138,7 +138,7 @@ def test_the_context_names_the_plugin_and_its_folders(setup: _Setup) -> None:
     assert context.plugin_id == "sample"
     assert context.log.name == "mtee.plugins.sample"
     assert context.database is setup.database
-    assert context.base_dir == setup.base / "data" / "plugins" / "sample"
+    assert context.base_dir == setup.base / "data" / "plugin-data" / "sample"
     assert not context.base_dir.exists()
     assert context.data_dir.is_dir()
 

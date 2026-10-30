@@ -154,7 +154,7 @@ class Harness:
             jobs=MagicMock(),
             files=self.files,
             settings=_DictSettings(),
-            base_dir=self.base / "plugins" / manifest.plugin_id,
+            base_dir=self.base / "plugin-data" / manifest.plugin_id,
             notify=self.notices.append,
             log=logging.getLogger(f"mtee.plugins.{manifest.plugin_id}"),
             run_on_gui=self.gui_calls.append,
@@ -173,11 +173,11 @@ class Harness:
         return folder
 
     def start(self, folder: Path, *enabled: str) -> dict[str, LoadedPlugin]:
-        """Give ``folder`` to the manager, switch ``enabled`` on and load; return the records."""
-        self.preferences.add_folders([folder])
+        """Load the plugins of ``folder`` with ``enabled`` switched on; return the records."""
         for plugin_id in enabled:
             self.preferences.set_enabled(plugin_id, True)
-        return {record.plugin_id: record for record in self.manager.load_enabled(self.context)}
+        records = self.manager.load_enabled(self.context, [folder])
+        return {record.plugin_id: record for record in records}
 
     def close(self) -> None:
         self.manager.unload_all()
@@ -265,7 +265,7 @@ def test_it_loads_and_unloads_cleanly(harness: Harness, plugin: ContractPlugin) 
     assert str(folder) not in mtee.plugins.__path__
     harness.manager.unload_all()  # unloading twice is harmless
 
-    again = harness.manager.load_enabled(harness.context)
+    again = harness.manager.load_enabled(harness.context, [folder])
     assert {item.plugin_id: item.status for item in again}[plugin.plugin_id] is (
         PluginStatus.RUNNING
     )
@@ -501,7 +501,6 @@ def test_a_refused_manifest_never_imports_the_factory_module(
     assert record.status is PluginStatus.RUNNING, record.error
     assert (harness.base / "imported_1.txt").is_file()
     harness.manager.unload_all()
-    harness.preferences.remove_folder(accepted)
 
     # An api_version this MTEE does not support: refused before any import.
     refused = _stage_with_tripwire(harness, plugin, 99)
@@ -606,7 +605,7 @@ def test_the_sample_imports_a_file_and_asks_for_a_playlist_name_through_the_cont
     _pane_action(record, "playlist").run()
 
     source, target = harness.files.import_file.call_args.args
-    assert source == harness.base / "plugins" / SAMPLE.plugin_id / "incoming" / "imported.wav"
+    assert source == harness.base / "plugin-data" / SAMPLE.plugin_id / "incoming" / "imported.wav"
     assert target == library_folder / "Imported"
     harness.library.rescan.assert_called_once_with(library_folder / "Imported")
     assert events == ["imported imported.wav", "playlist Sample playlist True None False"]

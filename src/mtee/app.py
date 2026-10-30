@@ -59,6 +59,7 @@ from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.media_transport import create_media_transport
 from mtee.platform.windows_frame import WindowFrame
 from mtee.plugins.context import PluginHost
+from mtee.plugins.installer import clean_staging, plugin_folders
 from mtee.plugins.loader import PluginManager, PluginPreferences
 from mtee.plugins.registry import load_plugin, plugin_ui_enabled
 from mtee.services.analysis_service import AnalysisService
@@ -79,7 +80,7 @@ from mtee.services.player_service import PlayerService
 from mtee.services.playlist_exchange import PlaylistExchange
 from mtee.services.playlist_service import PlaylistService
 from mtee.services.profile_service import PROFILE_DIRECTORY_NAME, ProfileService
-from mtee.services.trash_service import TrashService
+from mtee.services.trash_service import TrashService, TrashServiceError
 
 __all__ = ["EXIT_OK", "create_application", "main", "run"]
 
@@ -341,11 +342,18 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace.attach_trash_model(trash_model)
         file_move_service = FileMoveService(database, library, file_access)
         workspace.attach_file_move_model(FileMoveModel(file_move_service, jobs))
-        # Plugins load last, once every core service they can use exists. Without a plugin
-        # folder (--plugin-dir or saved) nothing below runs and MTEE behaves as without plugins.
+        # Plugins load last, once every core service they can use exists. Without an installed
+        # plugin or a --plugin-dir folder nothing below runs and MTEE behaves as without plugins.
         plugin_preferences = PluginPreferences(settings)
-        plugin_preferences.add_folders(options.plugin_dirs)
-        if plugin_preferences.folders():
+        try:
+            clean_staging(paths.data_dir, TrashService())
+        except (OSError, TrashServiceError) as error:
+            _report(f"A plugin install left files that could not be cleared: {error}")
+        for folder in options.plugin_dirs:
+            if not folder.is_dir():
+                _report(f"The plugin folder {folder} does not exist and was skipped.")
+        plugin_folders_found = [*options.plugin_dirs, *plugin_folders(paths.data_dir)]
+        if plugin_folders_found:
             plugin_host = PluginHost(
                 data_dir=paths.data_dir,
                 database=database,
@@ -360,9 +368,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             )
             workspace.attach_plugin_host(plugin_host)
             plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
-            plugin_manager.load_enabled(plugin_host.context_for)
-            for missing in plugin_manager.missing_folders:
-                _report(f"The plugin folder {missing} does not exist and was skipped.")
+            plugin_manager.load_enabled(plugin_host.context_for, plugin_folders_found)
             workspace.attach_plugin_settings(
                 PluginSettingsModel(plugin_manager, plugin_preferences)
             )
