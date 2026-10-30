@@ -28,3 +28,16 @@ class WindowsShellReveal:
             close_fds=True,
             creationflags=subprocess.DETACHED_PROCESS,
         )
+
+    def open_folder(self, path: Path | str) -> None:
+        """Open an existing folder in Explorer, with its content shown."""
+        target = Path(path).expanduser().resolve(strict=True)
+        if not target.is_dir():
+            raise FileNotFoundError(target)
+        if not self._is_windows:
+            raise OSError("Windows Explorer is available only on Windows.")
+        self._runner(
+            ["explorer.exe", str(target)],
+            close_fds=True,
+            creationflags=subprocess.DETACHED_PROCESS,
+        )
