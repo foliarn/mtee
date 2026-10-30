@@ -17,6 +17,10 @@ plugin uses MTEE's copy. The packing stops
 when the plugin's range does not accept MTEE's version. The install takes the whole requirements
 file, because ``--require-hashes`` needs every dependency pinned in it; so the wheels of the
 libraries MTEE ships are downloaded, hash-checked, then dropped.
+
+A library that is published only as a source archive (``--allow-source NAME``, repeatable) is
+built on this machine by uv; every other library must come as a wheel. The packing refuses such a
+library when its build left compiled modules (``.pyd``, ``.so``): a Windows wheel is needed then.
 """
 
 from __future__ import annotations
@@ -68,6 +72,7 @@ TARGET_ENVIRONMENT = {
     "platform_machine": "AMD64",
     "extra": "",
 }
+COMPILED_SUFFIXES = (".pyd", ".so")
 MANIFEST_FILE = "manifest.py"
 README_FILE = "README.md"
 LICENCE_FILE = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE)", re.IGNORECASE)
@@ -221,8 +226,12 @@ def pack(
     homepage: str = "",
     licence: str = "",
     platform: str | None = None,
+    source_only: Sequence[str] = (),
 ) -> Path:
     """Build the package of ``plugin_dir`` in ``out_dir`` and return its path.
+
+    ``source_only`` names the libraries that are published only as a source archive; uv builds
+    them, and the packing refuses one whose build has compiled modules.
 
     Raise ``PackError`` with one sentence when the package cannot be built. Nothing is
     overwritten: an existing package of the same id and version stops the packing.
@@ -264,7 +273,8 @@ def pack(
             wanted.write_text("".join(f"{line.text}\n" for line in lines), encoding="utf-8")
             hashes = ["--require-hashes"] if "--hash=" in text else []
             print(f"Installing {len(lines)} requirement(s) for {chosen}.")
-            _install(libs, chosen, ["-r", str(wanted), *hashes])
+            _install(libs, chosen, ["-r", str(wanted), *hashes], source_only)
+            _check_source_builds(libs, source_only)
         for index, wheel in enumerate(wheels):
             part = staging / "wheels" / str(index)
             _install(part, chosen, ["--no-deps", str(wheel)])
@@ -308,6 +318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             homepage=args.homepage,
             licence=args.licence,
             platform=args.platform,
+            source_only=args.allow_source or [],
         )
     except PackError as error:
         print(f"Error: {error}", file=sys.stderr)
@@ -331,6 +342,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--author", default="", help="the plugin's author")
     parser.add_argument("--homepage", default="", help="the plugin's homepage")
     parser.add_argument("--licence", default="", help="the plugin's licence, as an SPDX name")
+    parser.add_argument(
+        "--allow-source",
+        action="append",
+        metavar="NAME",
+        help="a library published only as a source archive, built here (repeatable)",
+    )
     parser.add_argument(
         "--platform",
         choices=sorted(PLATFORMS),
@@ -406,11 +423,17 @@ def _mtee_range() -> str:
     return f">={major}.{minor},<{major}.{minor + 1}"
 
 
-def _install(target: Path, platform: str, options: Sequence[str]) -> None:
-    """Install into ``target`` with uv, for the target platform, from binary wheels only."""
+def _install(
+    target: Path, platform: str, options: Sequence[str], source_only: Sequence[str] = ()
+) -> None:
+    """Install into ``target`` with uv, for the target platform, from binary wheels only.
+
+    The libraries named in ``source_only`` may be built from their source archive instead.
+    """
     uv = shutil.which("uv")
     if uv is None:
         raise PackError("uv is needed to install the libraries and is not on the PATH.")
+    allowed = [part for name in source_only for part in ("--no-binary", name)]
     command = [
         uv,
         "pip",
@@ -423,6 +446,7 @@ def _install(target: Path, platform: str, options: Sequence[str]) -> None:
         PYTHON_VERSION,
         "--only-binary",
         ":all:",
+        *allowed,
         *options,
     ]
     result = subprocess.run(
@@ -436,6 +460,24 @@ def _install(target: Path, platform: str, options: Sequence[str]) -> None:
     # plugin imports modules and never runs them, so neither is part of the package.
     (target / ".lock").unlink(missing_ok=True)
     shutil.rmtree(target / "bin", ignore_errors=True)
+
+
+def _check_source_builds(libs: Path, source_only: Sequence[str]) -> None:
+    """Refuse a library built from its source archive that has compiled modules.
+
+    A pure-Python library built here is fine; a compiled one would be a build for this machine,
+    not for the target, so its Windows wheel is needed instead.
+    """
+    wanted = {normalize_name(name) for name in source_only}
+    for dist_info, distribution in bundled_distributions(libs):
+        name = distribution_name(distribution, dist_info)
+        if normalize_name(name) not in wanted:
+            continue
+        if any(path.endswith(COMPILED_SUFFIXES) for path in record_paths(dist_info)):
+            raise PackError(
+                f"{name} was built from its source archive and has compiled modules; "
+                "the plugin needs a Windows wheel of it."
+            )
 
 
 def _merge(source: Path, libs: Path, wheel: Path) -> None:

@@ -11,6 +11,7 @@ import importlib.util
 import json
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -358,3 +359,91 @@ def test_mtee_runtime_libraries_are_the_closure_not_the_dev_environment() -> Non
     assert "pyinstaller" not in shipped
     assert all(name == canonicalize_name(name) for name in shipped)
     assert shipped["pyside6-essentials"] == importlib.metadata.version("PySide6-Essentials")
+
+
+def _fake_uv(
+    monkeypatch: pytest.MonkeyPatch, commands: list[list[str]], *, compiled: bool = False
+) -> None:
+    """Replace uv: each install writes one pure-Python distribution, compiled or not."""
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        target = Path(command[command.index("--target") + 1])
+        modules = ("pure_src/__init__.py",) + (("pure_src/_speed.pyd",) if compiled else ())
+        _fake_distribution(target, "pure-src", "1.0", top_level="pure_src", modules=modules)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(packer.subprocess, "run", run)
+    monkeypatch.setattr(packer.shutil, "which", lambda name: "uv")
+
+
+def test_a_library_given_with_allow_source_is_built_from_its_source_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+    _fake_uv(monkeypatch, commands)
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("pure-src==1.0 \\\n    --hash=sha256:00\n", encoding="utf-8")
+
+    status = packer.main(
+        [
+            str(SAMPLE),
+            "--requirements",
+            str(requirements),
+            "--allow-source",
+            "pure-src",
+            "--out",
+            str(tmp_path),
+        ]
+    )
+
+    assert status == 0
+    (command,) = commands
+    assert command[command.index("--no-binary") + 1] == "pure-src"
+    assert "--only-binary" in command
+    (package,) = tmp_path.glob("*.mteeplugin")
+    with zipfile.ZipFile(package) as archive:
+        description = json.loads(archive.read("plugin.json"))
+        assert "libs/pure_src/__init__.py" in archive.namelist()
+    assert description["libraries"] == [
+        {"name": "pure-src", "version": "1.0", "accepts": "==1.0", "licence": ""}
+    ]
+
+
+def test_a_library_without_allow_source_is_only_taken_as_a_wheel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+    _fake_uv(monkeypatch, commands)
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("pure-src==1.0\n", encoding="utf-8")
+
+    status = packer.main([str(SAMPLE), "--requirements", str(requirements), "--out", str(tmp_path)])
+
+    assert status == 0
+    (command,) = commands
+    assert "--no-binary" not in command
+
+
+def test_a_source_build_with_compiled_modules_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_uv(monkeypatch, [], compiled=True)
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("pure-src==1.0\n", encoding="utf-8")
+
+    status = packer.main(
+        [
+            str(SAMPLE),
+            "--requirements",
+            str(requirements),
+            "--allow-source",
+            "pure-src",
+            "--out",
+            str(tmp_path),
+        ]
+    )
+
+    assert status == 2
+    assert "built from its source archive and has compiled modules" in capsys.readouterr().err
+    assert not list(tmp_path.glob("*.mteeplugin"))
