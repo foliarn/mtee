@@ -267,6 +267,7 @@ class PluginManager:
         failed: list[LoadedPlugin] = []
         for plugin in discovered:
             record = self._record(plugin, enabled, plan.refused, context_factory)
+            _log_state(record)
             if record.status is PluginStatus.FAILED and plugin.plugin_id in enabled:
                 failed.append(record)
             self._plugins.append(record)
@@ -396,6 +397,18 @@ def _read_contributions(plugin_id: str, service: object) -> tuple[Contribution, 
             )
     check_contributions(plugin_id, declared)
     return tuple(declared)
+
+
+def _log_state(record: LoadedPlugin) -> None:
+    """Log the final state of one plugin after the start (one INFO line per plugin)."""
+    manifest = record.discovered.manifest
+    version = manifest.version if manifest is not None else "(no version)"
+    if record.status is PluginStatus.FAILED:
+        _LOGGER.info(
+            "Plugin %s %s: %s: %s", record.plugin_id, version, record.status.value, record.error
+        )
+    else:
+        _LOGGER.info("Plugin %s %s: %s", record.plugin_id, version, record.status.value)
 
 
 def _describe(error: Exception) -> str:
