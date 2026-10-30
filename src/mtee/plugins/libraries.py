@@ -15,6 +15,8 @@ This module does not import Qt.
 
 from __future__ import annotations
 
+import importlib.util
+import logging
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -39,6 +41,8 @@ __all__ = [
     "plan_libraries",
     "uninstall_finder",
 ]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,15 +151,40 @@ class LibraryFinder(MetaPathFinder):
 
 
 def install_finder(locations: Mapping[str, Path]) -> None:
-    """Replace any earlier library finder by one that serves ``locations``, first on the path."""
+    """Replace any earlier library finder by one that serves ``locations``, first on the path.
+
+    A name that MTEE can already import without the finder is dropped from ``locations``: the
+    finder must never shadow the stdlib or one of MTEE's own modules (plan 123.7).
+    """
     uninstall_finder()
-    if locations:
-        sys.meta_path.insert(0, LibraryFinder(locations))
+    served: dict[str, Path] = {}
+    for name, folder in locations.items():
+        if _provided_without_finder(name):
+            _LOGGER.info("Plugin library module %s is not used: MTEE already provides it.", name)
+            continue
+        served[name] = folder
+    if served:
+        sys.meta_path.insert(0, LibraryFinder(served))
 
 
 def uninstall_finder() -> None:
     """Remove every library finder from ``sys.meta_path``; modules already imported stay."""
     sys.meta_path[:] = [finder for finder in sys.meta_path if not isinstance(finder, LibraryFinder)]
+
+
+def _provided_without_finder(name: str) -> bool:
+    """Return whether ``name`` is already importable (or imported) without a library finder.
+
+    Called while no library finder is on ``sys.meta_path``: stdlib modules, MTEE's own
+    dependencies and modules already in ``sys.modules`` count. On Windows, ``readline`` is not in
+    CPython, so the readline of a bundled pyreadline3 stays served.
+    """
+    if name in sys.modules:
+        return True
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def _suits_every_user(name: str, users: Sequence[PluginDescription], version: str) -> bool:

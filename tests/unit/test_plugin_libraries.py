@@ -248,3 +248,34 @@ def test_a_plugin_is_imported_from_its_own_copy_when_it_is_the_only_one(
 
     assert _loaded(manager)["alpha"].status is PluginStatus.RUNNING
     assert sys.modules["fakelib"].VERSION == "1.0"
+
+
+def test_a_bundled_module_never_shadows_one_mtee_already_has(
+    tmp_path: Path, clean_imports: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A plugin bundling ``json`` (stdlib) keeps the stdlib; its unique module is served (123.7)."""
+    libs = tmp_path / "libs"
+    (libs / "json").mkdir(parents=True)
+    (libs / "json" / "__init__.py").write_text("SHADOW = True\n", encoding="utf-8")
+    (libs / "fakelib_unique").mkdir(parents=True)
+    (libs / "fakelib_unique" / "__init__.py").write_text("VALUE = 'served'\n", encoding="utf-8")
+    caplog.set_level(logging.INFO, logger="mtee.plugins.libraries")
+
+    install_finder({"json": libs, "fakelib_unique": libs})
+    try:
+        finders = [finder for finder in sys.meta_path if isinstance(finder, LibraryFinder)]
+        assert len(finders) == 1
+        assert "json" not in finders[0].locations
+        assert "fakelib_unique" in finders[0].locations
+        json_module = importlib.import_module("json")
+        unique = importlib.import_module("fakelib_unique")
+    finally:
+        uninstall_finder()
+        sys.modules.pop("fakelib_unique", None)
+
+    assert not hasattr(json_module, "SHADOW")
+    assert json_module.__file__ is not None and str(libs) not in json_module.__file__
+    assert unique.VALUE == "served"
+    assert unique.__file__ is not None and str(libs / "fakelib_unique") in unique.__file__
+    assert "Plugin library module json is not used: MTEE already provides it." in caplog.text
+    assert "fakelib_unique is not used" not in caplog.text
