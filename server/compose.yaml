@@ -1,0 +1,43 @@
+# Example Compose file for MTEE Remote (plan 124.8).
+#
+# Keep this file in server/, next to a filled-in `.env` (see `.env.example`), and run:
+#
+#   docker compose build
+#   docker compose up -d
+#
+# The build context is the repository root, one level up from this file, so the file
+# must stay in server/.
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      args:
+        UID: "${UID:-1000}"
+        GID: "${GID:-1000}"
+    image: mtee-remote:local
+    container_name: mtee-remote
+    restart: unless-stopped
+    environment:
+      MTEE_REMOTE_PUBLIC_URL: ${PUBLIC_URL:-}
+      MTEE_REMOTE_TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1}
+    volumes:
+      # Database, backups and upload parts. The folder must be owned by UID:GID.
+      - ${DATA_DIR:-./data}:/data
+      # The admin's music folder, mounted as that user's library folder (decision 7).
+      # To add another user's folder, add a line like this one (then create that account):
+      #   - /home/guest/music:/music/guest
+      - ${MUSIC_DIR:?set MUSIC_DIR}:/music/${ADMIN_USER:?set ADMIN_USER}
+    # Bound to this host only. Never use a bare "8080:8080" here.
+    ports:
+      - "127.0.0.1:${PORT:-8080}:8080"
+    # To join an existing reverse-proxy network instead of publishing the port,
+    # remove the `ports:` block above and uncomment the lines below.
+    # networks:
+    #   - proxy
+#
+# networks:
+#   proxy:
+#     external: true
+#     name: ${PROXY_NETWORK}

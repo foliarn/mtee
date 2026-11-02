@@ -1,0 +1,19 @@
+# Used by server/Dockerfile (BuildKit reads <Dockerfile>.dockerignore next to it).
+# The build context is the repository root: ignore everything, then add back what the image needs.
+# Later lines win, so the exclusions come last.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!src/mtee/
+!server/
+
+server/.venv
+**/__pycache__
+**/*.pyc
+server/.pytest_cache
+server/.ruff_cache
+# Local settings and data of a deployment made from this folder.
+server/.env
+server/data
+server/music

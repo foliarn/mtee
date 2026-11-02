@@ -1,0 +1,64 @@
+[project]
+name = "mtee-remote"
+version = "0.1.0"
+description = "MTEE Remote: optional self-hosted server for MTEE libraries"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+dependencies = [
+    "starlette",
+    # Plain uvicorn, not uvicorn[standard]: resident memory matters on the server.
+    "uvicorn",
+    "argon2-cffi",
+    "mutagen>=1.47",
+    "mtee",
+]
+
+[project.scripts]
+mtee-remote = "mtee_remote.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mtee_remote"]
+# The migrations are plain .sql files inside the package; list them so the wheel keeps them.
+include = ["src/mtee_remote/**/*.py", "src/mtee_remote/**/*.sql", "src/mtee_remote/py.typed"]
+
+[tool.uv]
+# The server reuses MTEE's Qt-free modules only. Dropping PySide6 from the environment
+# makes any accidental Qt import fail loudly instead of working by luck.
+override-dependencies = ["pyside6-essentials ; sys_platform == 'never'"]
+
+[tool.uv.sources]
+mtee = { path = "..", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+venvPath = "."
+venv = ".venv"

@@ -63,3 +63,36 @@ FFmpeg).
 The licence texts of the components that are actually shipped are collected in `LICENSES/`. This
 file must be updated with each change of a distributed dependency, and it records the version
 observed, not an assumed one.
+
+## MTEE Remote server (server/)
+
+The server in `server/` is licensed AGPL-3.0-or-later (`server/LICENSE`). It is distributed as
+source only for now, so the licence texts of the packages below are not copied into `LICENSES/`
+yet; this must be done before any binary or image is published. Versions are those locked in
+`server/uv.lock` (development tools excluded); licences are the ones announced in the package
+metadata installed in `server/.venv` on 2026-10-31. Nothing was checked against the licence
+texts themselves.
+
+| Package | Locked version | Announced licence | Role |
+|---|---|---|---|
+| mtee (this repository, `src/mtee`) | 0.1.0 | GPL-3.0-or-later | Qt-free modules `mtee.domain.metadata` and `mtee.services.metadata_reader`; installed without PySide6 |
+| starlette | 1.10.0 | BSD-3-Clause | HTTP framework |
+| uvicorn | 0.54.0 | BSD-3-Clause | HTTP server |
+| anyio | 4.15.1 | MIT | Async runtime layer of Starlette |
+| idna | 3.20 | BSD-3-Clause | Dependency of anyio |
+| click | 8.5.0 | BSD-3-Clause | Dependency of uvicorn |
+| h11 | 0.16.0 | MIT | Dependency of uvicorn |
+| typing-extensions | 4.16.0 | PSF-2.0 | Dependency of anyio and Starlette |
+| argon2-cffi | 25.1.0 | MIT | Argon2id password hashes |
+| argon2-cffi-bindings | 26.1.0 | MIT | Dependency of argon2-cffi |
+| cffi | 2.1.1 | MIT-0 | Dependency of argon2-cffi-bindings |
+| pycparser | 3.12 | BSD-3-Clause | Dependency of cffi |
+| mutagen | 1.48.1 | GPL-2.0-or-later | Audio tag reading, through `mtee` |
+| numpy | 2.5.4 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 (wheel metadata) | Dependency of `mtee` |
+| packaging | 26.3 | Apache-2.0 OR BSD-2-Clause | Dependency of `mtee` |
+| winrt-runtime and five winrt-Windows.* packages | 3.2.1 | MIT | Dependencies of `mtee`; installed on Windows only, absent from a Linux image |
+
+`uv.lock` also lists `pyside6-essentials` and `shiboken6` under the marker
+`sys_platform == 'never'`. A uv override in `server/pyproject.toml` removes PySide6 from the
+server environment, so neither package is installed or distributed with the server. The test
+`server/tests/test_no_qt.py` fails if a server module imports PySide6.

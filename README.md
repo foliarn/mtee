@@ -75,6 +75,11 @@ MTEE is free software, distributed under the GNU General Public License version 
 listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and their licence texts are in
 [LICENSES/](LICENSES/).
 
+The `server/` folder holds MTEE Remote, an optional self-hosted server. It is a separate project
+licensed under the GNU Affero General Public License version 3 or later (`AGPL-3.0-or-later`,
+see [server/LICENSE](server/LICENSE)), while the desktop application stays under
+`GPL-3.0-or-later`.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the rules for developers and coding agents in
