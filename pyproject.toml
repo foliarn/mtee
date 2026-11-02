@@ -32,6 +32,8 @@ dev = [
     "ruff>=0.6",
     "pyright>=1.1.380",
     "pyinstaller>=6.10",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -43,7 +45,12 @@ packages = ["src/mtee"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# Tests run in parallel, one test file per worker so module fixtures stay shared;
+# `-n 0` runs them in one process for debugging. A test still running after 5
+# minutes is stopped with the stack of every thread, instead of hanging the run.
+addopts = "-q -n auto --dist loadfile"
+timeout = 300
+timeout_method = "thread"
 qt_api = "pyside6"
 markers = [
     "native_audio: requires the pinned Windows libmpv runtime; missing runtime is a failure, not a skip",
