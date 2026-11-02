@@ -69,6 +69,7 @@ Rectangle {
         ignoreUnknownSignals: true
         function onFinished(message) { settings.notice = message }
         function onNoticeRaised(message) { settings.notice = message }
+        function onRestoreProposed() { settings.showProposedRestore() }
     }
 
     Flickable {
@@ -756,6 +757,18 @@ Rectangle {
             }
         }
     }
+
+    // A plugin offered a backup (plan 125.6): the usual confirmation opens for it, and nothing
+    // changes until the person confirms.
+    function showProposedRestore() {
+        if (!privacyAvailable) return
+        const url = dataPrivacy.takeProposedRestore()
+        if (url.length === 0) return
+        backupSource = url
+        dialog = "restore"
+    }
+
+    Component.onCompleted: Qt.callLater(showProposedRestore)
 
     function backupFileName() {
         const text = decodeURIComponent(String(settings.backupSource))

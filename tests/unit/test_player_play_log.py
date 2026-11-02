@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from mtee.domain.play_log import ClockReading
@@ -47,7 +48,7 @@ class FakeBackend:
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, path: Any, session_id: int) -> None:
         if self.fail_load:
             raise OSError("fake decoder error")
         self.active_session_id = session_id

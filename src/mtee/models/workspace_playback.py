@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from mtee.domain.playlists import reorder_entries
+from mtee.domain.source_tracks import is_non_file_row
 from mtee.models.workspace_rows import folder_from_track, parse_folder_id, sort_rows
 
 __all__ = [
@@ -69,12 +70,16 @@ def filter_enqueue_targets(
 
         track_id = str(row.get("trackId") or row.get("id") or "")
         path = str(row.get("path", ""))
-        available = bool(
-            track_id
-            and row.get("available", row.get("status") == "readable")
-            and path
-            and Path(path).is_file()
-        )
+        if is_non_file_row(row):
+            # No file to look for: the plugin that provides the track says whether it plays.
+            available = bool(track_id and row.get("available", row.get("status") == "readable"))
+        else:
+            available = bool(
+                track_id
+                and row.get("available", row.get("status") == "readable")
+                and path
+                and Path(path).is_file()
+            )
         if not available:
             rejected += 1
             continue

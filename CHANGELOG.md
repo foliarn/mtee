@@ -7,7 +7,16 @@ All notable changes to MTEE are listed here. The format follows
 
 ### Added
 
+- Gapless playback: consecutive tracks play with no silence between them, and each track keeps
+  its own loudness normalization from its first sample. A manual skip behaves as before.
 - MTEE reads the ISRC tag of MP3, FLAC/Ogg and M4A files (not shown yet).
+- A plugin can provide tracks that have no file on this computer (`context.track_sources` and the
+  `TrackSource` contribution). They get a normal track identity, appear in the Artists view,
+  playlists, the queue and the history, and play from a local file or an `http(s)` URL with
+  request headers, gapless like a file. A failing source shows an error that names the plugin
+  and playback goes on with the next track. File operations refuse such a track with a clear
+  message. The database gains the table `plugin_source_tracks` (migration 030, backed up
+  first). See `docs/plugins.md`, Track sources.
 - Plugins load from the plugins folder `<data-dir>/plugins/` and from `--plugin-dir` (one run,
   not saved). A plugin is imported only once it is switched on, applies its own database migrations, and adds a
   sidebar section or activity, editor tabs, track list columns, track menu actions, a Settings
@@ -21,6 +30,8 @@ All notable changes to MTEE are listed here. The format follows
   explain why a header button is disabled (`TabAction.disabled_reason`) and add a phrase to the
   meta line of local playlists (`PlaylistMeta`).
 - A job error whose exception says `readable = True` is shown in Tasks as its sentence alone.
+- A plugin can add choices to the Recycle Bin confirmation (`DeleteChoices`, plan 125.4). Without
+  one the dialog is unchanged, and MTEE itself still only uses the Recycle Bin.
 - A plugin is packed into a `.mteeplugin` file by `scripts/pack_plugin.py`: `plugin.json` lists
   the bundled libraries and licences, MTEE's own libraries are never bundled (`docs/plugins.md`,
   section 11).

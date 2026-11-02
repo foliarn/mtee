@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,7 @@ class SessionBackend:
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, path: Any, session_id: int) -> None:
         self.session_id = session_id
         self.loads.append((path, session_id, self.paused))
         self.emit("duration", session_id, 12_000_000)

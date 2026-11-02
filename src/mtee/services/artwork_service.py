@@ -45,28 +45,46 @@ class ArtworkService:
     def thumbnail(self, path: Path | str, size: int) -> QImage:
         if size < 1 or size > 1024:
             raise ValueError("thumbnail size must be between 1 and 1024 pixels")
-        data = self.image_bytes(path)
+        return self.thumbnail_from_bytes(self.image_bytes(path), size, str(path))
+
+    def thumbnail_from_bytes(self, data: bytes | None, size: int, seed: str) -> QImage:
+        """Decode image ``data`` (read from a file, or given by a plugin) to a thumbnail.
+
+        ``seed`` picks the placeholder when there is no usable image.
+        """
+        if size < 1 or size > 1024:
+            raise ValueError("thumbnail size must be between 1 and 1024 pixels")
         if not data or len(data) > MAX_ARTWORK_BYTES:
-            return placeholder_image(str(path), size)
+            return placeholder_image(seed, size)
+        # The byte array and the buffer stay referenced until the reader is gone: a reader keeps
+        # a raw pointer to its device, and the buffer must outlive the reader's last call.
+        payload = QByteArray(data)
         buffer = QBuffer()
-        buffer.setData(QByteArray(data))
+        buffer.setData(payload)
         if not buffer.open(QIODevice.OpenModeFlag.ReadOnly):
-            return placeholder_image(str(path), size)
-        reader = QImageReader(buffer)
-        dimensions = reader.size()
-        if (
-            not dimensions.isValid()
-            or dimensions.width() <= 0
-            or dimensions.height() <= 0
-            or dimensions.width() * dimensions.height() > MAX_ARTWORK_PIXELS
-        ):
-            return placeholder_image(str(path), size)
-        scale = min(size / dimensions.width(), size / dimensions.height(), 1.0)
-        reader.setScaledSize(
-            QSize(round(dimensions.width() * scale), round(dimensions.height() * scale))
-        )
-        image = reader.read()
-        return image if not image.isNull() else placeholder_image(str(path), size)
+            return placeholder_image(seed, size)
+        try:
+            image = _decode_scaled(QImageReader(buffer), size)
+        finally:
+            buffer.close()
+        return image if image is not None and not image.isNull() else placeholder_image(seed, size)
+
+
+def _decode_scaled(reader: QImageReader, size: int) -> QImage | None:
+    """Read the image of ``reader`` scaled to fit ``size``; ``None`` when its size is unusable."""
+    dimensions = reader.size()
+    if (
+        not dimensions.isValid()
+        or dimensions.width() <= 0
+        or dimensions.height() <= 0
+        or dimensions.width() * dimensions.height() > MAX_ARTWORK_PIXELS
+    ):
+        return None
+    scale = min(size / dimensions.width(), size / dimensions.height(), 1.0)
+    reader.setScaledSize(
+        QSize(round(dimensions.width() * scale), round(dimensions.height() * scale))
+    )
+    return reader.read()
 
 
 def _image_data(value: object) -> bytes | None:

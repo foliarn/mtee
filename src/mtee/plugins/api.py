@@ -19,8 +19,16 @@ from typing import Any, Literal, Protocol
 from PySide6.QtCore import QAbstractItemModel, QObject
 
 from mtee.domain.jobs import JobId
+from mtee.domain.source_tracks import (
+    NonFileTrackError,
+    PlayableSource,
+    SourceTrack,
+    SourceTrackEntry,
+)
 from mtee.models.plugin_rows_model import PluginRowsModel
 from mtee.persistence.database import Database
+from mtee.persistence.play_log_repository import PlayLogEvent
+from mtee.persistence.playlists_repository import StaleRevisionError
 from mtee.plugin_helper import (
     HELPER_ENVIRONMENT_VARIABLE,
     HELPER_FLAG,
@@ -34,9 +42,15 @@ __all__ = [
     "API_VERSION",
     "SUPPORTED_API_VERSIONS",
     "ActionKind",
+    "CapabilityUnavailableError",
     "CellValue",
     "Contribution",
+    "CreditCorrection",
     "Database",
+    "DatabaseSnapshot",
+    "DeleteChoice",
+    "DeleteChoices",
+    "DeleteTone",
     "FileMoveError",
     "FileMoveResult",
     "FileOperations",
@@ -46,10 +60,15 @@ __all__ = [
     "LibraryAccess",
     "LibraryScanned",
     "LibraryTrack",
+    "NonFileTrackError",
     "PaneAction",
+    "PlayLogAccess",
+    "PlayLogEvent",
+    "PlayableSource",
     "PlaylistAccess",
     "PlaylistEntry",
     "PlaylistMeta",
+    "PlaylistSnapshot",
     "PluginActivity",
     "PluginContext",
     "PluginDialog",
@@ -59,17 +78,28 @@ __all__ = [
     "PluginRowsModel",
     "PluginService",
     "PluginSettings",
+    "SettingNotSyncedError",
     "SettingsPage",
     "SidebarSection",
+    "SourceTrack",
+    "SourceTrackEntry",
+    "StaleRevisionError",
     "StartupTask",
+    "SyncedSettings",
     "TabAction",
     "TabHeader",
     "TabKind",
     "TabRequest",
     "Tone",
     "TrackAction",
+    "TrackAnalysisData",
     "TrackColumn",
+    "TrackData",
+    "TrackDataAccess",
     "TrackListRow",
+    "TrackLoudnessData",
+    "TrackSource",
+    "TrackSourceAccess",
     "WaitingItems",
 ]
 
@@ -104,7 +134,8 @@ class Contribution:
     The core renders contributions; a plugin only describes them as data. The kinds are
     ``PluginActivity``, ``SidebarSection``, ``TabKind``, ``TabAction``, ``TrackColumn``,
     ``TrackAction``, ``SettingsPage``, ``StartupTask``, ``LibraryScanned``,
-    ``WaitingItems``, ``PluginDialog`` and ``PlaylistMeta``, defined below. Plugin QML reaches
+    ``WaitingItems``, ``PluginDialog``, ``PlaylistMeta``, ``DeleteChoices`` and ``TrackSource``,
+    defined below. Plugin QML reaches
     the core components with ``import Mtee``; a contribution never names a QML type.
     """
 
@@ -132,6 +163,16 @@ class PlaylistEntry:
     title: str
     artist: str
     available: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistSnapshot:
+    """A local playlist as read at one revision."""
+
+    playlist_id: str
+    name: str
+    revision: int
+    entries: tuple[PlaylistEntry, ...]
 
 
 class LibraryAccess(Protocol):
@@ -178,12 +219,43 @@ class PlaylistAccess(Protocol):
         """Return whether a local playlist with this identifier still exists."""
         ...
 
-    def replace_entries(self, playlist_id: str, track_ids: Sequence[str]) -> None:
-        """Replace all the entries of a playlist with ``track_ids``, in one transaction."""
+    def replace_entries(
+        self,
+        playlist_id: str,
+        track_ids: Sequence[str],
+        expected_revision: int | None = None,
+    ) -> int:
+        """Replace all the entries of a playlist with ``track_ids``, in one transaction.
+
+        With ``expected_revision`` (the revision a prior ``read`` or ``revision`` returned)
+        the replacement is refused with ``StaleRevisionError`` when the playlist changed
+        since, and nothing is written: the check and the write are one transaction. Without
+        it the replacement is unconditional, as before. Returns the revision after the
+        change. Any thread; raises ``LookupError`` for a track or a playlist that does not
+        exist.
+        """
         ...
 
     def entries(self, playlist_id: str) -> list[PlaylistEntry]:
         """Return the entries of a playlist in order."""
+        ...
+
+    def revision(self, playlist_id: str) -> int | None:
+        """Return the revision of a local playlist, or ``None`` when it no longer exists.
+
+        A playlist starts at revision 1 and the number rises on every change made through any
+        path, the interface or a plugin: entries, name, description, cover, pin, folder.
+        Any thread.
+        """
+        ...
+
+    def read(self, playlist_id: str) -> PlaylistSnapshot | None:
+        """Return the name, the revision and the entries of a playlist, or ``None`` if gone.
+
+        The revision is read before the entries: if the playlist changes in between, the
+        revision is the older one, and a later ``replace_entries`` with it is refused rather
+        than overwriting the change. Any thread.
+        """
         ...
 
 
@@ -244,6 +316,309 @@ class PluginSettings(Protocol):
     def delete(self, key: str) -> None: ...
 
 
+# ------------------------------------------------------- store access for sync (plan 125.6)
+# Optional capabilities of the context. None of them names a server: a plugin that keeps
+# devices in step uses them, and any other plugin may too. Each goes through the repository
+# or service of the core, never a SQL handle. The threading rule is written on each call.
+
+
+class CapabilityUnavailableError(RuntimeError):
+    """The capability is not provided by this build or this context (for example in a test)."""
+
+    readable = True
+
+
+class PlayLogAccess(Protocol):
+    """The permanent listening log, to copy it to other devices and back."""
+
+    @property
+    def device_id(self) -> str:
+        """The identifier of this installation; the ``device_id`` of its own events."""
+        ...
+
+    def events_since(self, cursor: str | None, limit: int) -> tuple[list[PlayLogEvent], str | None]:
+        """Return up to ``limit`` events stored after ``cursor``, oldest stored first.
+
+        The order is the order of insertion (the ``rowid`` of ``play_events``, which has no
+        sequence column): an event appended later by ``append_remote`` comes after the events
+        already stored, whatever its start time. ``cursor`` is ``None`` for the first call or
+        the second value of the previous call; that value is the cursor to keep, and it equals
+        ``cursor`` when nothing is newer. The batch holds the events of every device, each with
+        its ``device_id``: a plugin that pushes this device's events filters on ``device_id``.
+        A cursor is valid for one log: if the log is reset (Settings > Data & privacy) the
+        numbers start again, so a caller that finds no event where it expected some starts
+        from ``None``. A path never leaves the computer: ``PlayLogEvent`` has none.
+        Raises ``ValueError`` for a cursor the core did not give. Any thread.
+        """
+        ...
+
+    def append_remote(self, events: Sequence[PlayLogEvent]) -> int:
+        """Store events listened to on other devices; return how many were new.
+
+        Idempotent by ``event_id``: an event already stored is skipped, so sending the same
+        batch twice stores it once. Each event keeps its own ``device_id``. The batch is
+        all-or-nothing: an invalid event (empty id, negative duration, naive time) raises
+        ``ValueError`` and nothing is stored. The log stays append-only. The statistics and
+        the Profile read these events like the others. Any thread.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class TrackAnalysisData:
+    """Tempo and key as MTEE's analysis stored them for a track (the analysis layer).
+
+    ``key_tonic`` is 0 to 11 from C, with ``key_minor``; both are ``None`` for no key. The
+    ``*_user_edited`` flags say that the person set the value by hand: Analyze never replaces it.
+    ``algorithm_version`` and ``analyzed_at_utc`` say how and when it was computed.
+    """
+
+    bpm: float | None = None
+    key_tonic: int | None = None
+    key_minor: bool | None = None
+    bpm_user_edited: bool = False
+    key_user_edited: bool = False
+    source_duration_us: int | None = None
+    algorithm_version: int | None = None
+    analyzed_at_utc: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TrackLoudnessData:
+    """The loudness measured by Analyze (EBU R128 integrated loudness and sample peak).
+
+    A silent track has a ``loudness_version`` and no values.
+    """
+
+    integrated_lufs: float | None = None
+    sample_peak_dbfs: float | None = None
+    loudness_version: int | None = None
+    source_duration_us: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CreditCorrection:
+    """The person's choice for one artist credit of the track (the corrections layer).
+
+    ``mode`` is ``"one_artist"`` (keep the credit whole) or ``"split"`` (cut every ``&`` or
+    ``x`` junction). The choice is stored by credit text and applies to every track that
+    holds the credit.
+    """
+
+    credit_text: str
+    mode: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrackData:
+    """What MTEE stores about one track apart from its tags and its file, by layer."""
+
+    track_id: str
+    analysis: TrackAnalysisData | None = None
+    loudness: TrackLoudnessData | None = None
+    corrections: tuple[CreditCorrection, ...] = ()
+
+
+class TrackDataAccess(Protocol):
+    """Analysis, loudness and manual corrections of a track, each in its own store.
+
+    Nothing here reads or writes an audio file or its tags. Any thread.
+    """
+
+    def read(self, track_id: str) -> TrackData:
+        """Return the stored data of a track; a layer with no data is ``None`` or empty.
+
+        ``corrections`` holds the choices stored for the artist credits of this track.
+        """
+        ...
+
+    def write_analysis(self, track_id: str, analysis: TrackAnalysisData) -> None:
+        """Store tempo and key computed elsewhere, as the analysis layer, with its version.
+
+        A value the person edited on this computer keeps its value and its flag; an incoming
+        ``*_user_edited`` flag is kept. The loudness is not touched. Raises ``LookupError``
+        when the track is not in the library and ``ValueError`` for an invalid value.
+        """
+        ...
+
+    def write_loudness(self, track_id: str, loudness: TrackLoudnessData) -> None:
+        """Store a loudness measured elsewhere, with its version; tempo and key are not touched.
+
+        Raises ``LookupError`` when the track is not in the library and ``ValueError`` for
+        an invalid value.
+        """
+        ...
+
+    def write_corrections(self, track_id: str, corrections: Sequence[CreditCorrection]) -> None:
+        """Store the person's choices for credits of this track, in the corrections layer.
+
+        A choice replaces the earlier choice for the same credit; no choice is removed.
+        Raises ``LookupError`` when the track is not in the library and ``ValueError`` for
+        a mode that does not exist or a credit the track does not hold.
+        """
+        ...
+
+
+class SettingNotSyncedError(ValueError):
+    """A setting key that the core does not allow to travel between devices."""
+
+    readable = True
+
+
+class SyncedSettings(Protocol):
+    """The settings that may be copied between devices, and only those.
+
+    The allow-list is ``mtee.plugins.synced_settings.SYNCED_SETTINGS``; ``keys`` lists it.
+    Values are the stored text: a plain string for the profile name, JSON text for the others.
+    """
+
+    @property
+    def keys(self) -> frozenset[str]:
+        """The keys that may travel."""
+        ...
+
+    def read(self) -> dict[str, str]:
+        """Return the stored text of every allowed key that is set. Any thread."""
+        ...
+
+    def write(self, values: Mapping[str, str]) -> None:
+        """Store ``values`` and apply them to the running application.
+
+        A key outside ``keys`` raises ``SettingNotSyncedError``, and a value the setting
+        cannot hold raises ``ValueError``; the whole call is checked first, so nothing is
+        stored when one entry is refused. Any thread; the running application reads the new
+        values on the graphical thread. The plugin's own ``subscribe`` callback is not called
+        for this write.
+        """
+        ...
+
+    def subscribe(self, callback: Callable[[Sequence[str]], None]) -> Callable[[], None]:
+        """Call ``callback(keys)`` on the graphical thread after an allowed key changed.
+
+        Changes made by the person, by the core or by another plugin are announced; the
+        plugin's own ``write`` is not. Returns the function that cancels the subscription;
+        call it in ``unload``.
+        """
+        ...
+
+
+class DatabaseSnapshot(Protocol):
+    """A consistent copy of the library database, and the way back."""
+
+    def snapshot(self, target_path: Path) -> Path:
+        """Write a consistent copy of the database to ``target_path`` and return it.
+
+        The copy is made with the SQLite backup API, so it holds the data still in the
+        write-ahead log, and it is checked after it is written. ``target_path`` must be
+        inside the plugin's own folder (``context.base_dir``) and must not exist: nothing is
+        overwritten (``FileExistsError``, ``ValueError`` outside the folder). The copy holds
+        the person's whole library data: treat it as private. Not the graphical thread
+        (``RuntimeError``): submit it with ``context.jobs``.
+        """
+        ...
+
+    def request_restore(self, path: Path) -> None:
+        """Offer the database at ``path`` to the restore of Settings > Data & privacy.
+
+        The file is checked (a database of this MTEE, intact, not the one in use) and
+        ``BackupValidationError`` is raised when it is refused. Otherwise Settings opens on
+        Data & privacy with the usual confirmation, "Schedule restore". Nothing changes until
+        the person confirms; the restore is then applied at the next start, after a safety copy
+        of the current database, as for a file the person chose. The plugin never replaces the
+        database. Not the graphical thread (``RuntimeError``): submit it with ``context.jobs``.
+        """
+        ...
+
+
+class TrackSourceAccess(Protocol):
+    """The tracks this plugin provides without a file (plan 125.2), and nothing else.
+
+    Each track gets a normal ``track_id`` (a per-machine UUID) the first time its key is stored;
+    the id never changes for a key, also after ``remove`` and after a restart. Views, playlists,
+    the queue and the play log then treat the track like any other. The audio comes from the
+    plugin's ``TrackSource.open`` when the track is played. A plugin only sees and changes its
+    own keys. Any thread.
+    """
+
+    def upsert(self, tracks: Sequence[SourceTrack]) -> dict[str, str]:
+        """Store ``tracks`` under their keys and return ``{source_key: track_id}``.
+
+        Idempotent: the same call twice changes nothing. A key stored before keeps its
+        ``track_id`` and becomes available again if it was removed; its metadata is replaced.
+        All tracks of one call are stored together or not at all.
+        """
+        ...
+
+    def remove(self, source_keys: Sequence[str]) -> int:
+        """Make the tracks unavailable and return how many were available.
+
+        The row, the ``track_id``, the playlist entries and the play log rows are kept; the
+        track is greyed out, never played, and skipped by the queue. An unknown key and a track
+        already removed are ignored, so the call is idempotent. ``upsert`` brings it back.
+        """
+        ...
+
+    def list(self, *, available_only: bool = False) -> list[SourceTrackEntry]:
+        """Return the tracks stored for this plugin, removed ones included, sorted by key."""
+        ...
+
+
+class _UnavailablePlayLog:
+    device_id = ""
+
+    def events_since(self, cursor: str | None, limit: int) -> tuple[list[PlayLogEvent], str | None]:
+        raise CapabilityUnavailableError("The play log is not available in this context.")
+
+    def append_remote(self, events: Sequence[PlayLogEvent]) -> int:
+        raise CapabilityUnavailableError("The play log is not available in this context.")
+
+
+class _UnavailableTrackData:
+    def read(self, track_id: str) -> TrackData:
+        raise CapabilityUnavailableError("Track data is not available in this context.")
+
+    def write_analysis(self, track_id: str, analysis: TrackAnalysisData) -> None:
+        raise CapabilityUnavailableError("Track data is not available in this context.")
+
+    def write_loudness(self, track_id: str, loudness: TrackLoudnessData) -> None:
+        raise CapabilityUnavailableError("Track data is not available in this context.")
+
+    def write_corrections(self, track_id: str, corrections: Sequence[CreditCorrection]) -> None:
+        raise CapabilityUnavailableError("Track data is not available in this context.")
+
+
+class _UnavailableSyncedSettings:
+    keys: frozenset[str] = frozenset()
+
+    def read(self) -> dict[str, str]:
+        raise CapabilityUnavailableError("Synced settings are not available in this context.")
+
+    def write(self, values: Mapping[str, str]) -> None:
+        raise CapabilityUnavailableError("Synced settings are not available in this context.")
+
+    def subscribe(self, callback: Callable[[Sequence[str]], None]) -> Callable[[], None]:
+        raise CapabilityUnavailableError("Synced settings are not available in this context.")
+
+
+class _UnavailableTrackSources:
+    def upsert(self, tracks: Sequence[SourceTrack]) -> dict[str, str]:
+        raise CapabilityUnavailableError("Track sources are not available in this context.")
+
+    def remove(self, source_keys: Sequence[str]) -> int:
+        raise CapabilityUnavailableError("Track sources are not available in this context.")
+
+    def list(self, *, available_only: bool = False) -> list[SourceTrackEntry]:
+        raise CapabilityUnavailableError("Track sources are not available in this context.")
+
+
+class _UnavailableDatabaseSnapshot:
+    def snapshot(self, target_path: Path) -> Path:
+        raise CapabilityUnavailableError("Database snapshots are not available in this context.")
+
+    def request_restore(self, path: Path) -> None:
+        raise CapabilityUnavailableError("Database snapshots are not available in this context.")
+
+
 @dataclass(frozen=True, slots=True)
 class PluginContext:
     """What the core gives to the factory of a plugin.
@@ -261,6 +636,10 @@ class PluginContext:
     ``open_tab(kind, ref)`` opens, or focuses when it is already open, a tab of one of the
     plugin's own ``TabKind`` (``kind`` must start with ``<plugin_id>.``); any thread may call
     it, the tab opens on the graphical thread.
+    ``play_log``, ``track_data``, ``synced_settings`` and ``database_snapshot`` are the
+    optional store capabilities for sync; ``playlists`` also reads and checks playlist
+    revisions. ``track_sources`` stores the tracks the plugin provides without a file; its
+    ``TrackSource`` contribution opens them.
     """
 
     plugin_id: str
@@ -279,6 +658,14 @@ class PluginContext:
     open_tab: Callable[[str, str], None] = field(default=lambda kind, ref="": None)
     # The plugin folder and the shared libraries that a helper process of this plugin needs.
     helper_setup: Callable[[], HelperSetup] = field(default=lambda: HelperSetup())
+    # Optional capabilities for sync (plan 125.6); a context built without them raises
+    # CapabilityUnavailableError at the first call.
+    play_log: PlayLogAccess = field(default_factory=_UnavailablePlayLog)
+    track_data: TrackDataAccess = field(default_factory=_UnavailableTrackData)
+    synced_settings: SyncedSettings = field(default_factory=_UnavailableSyncedSettings)
+    database_snapshot: DatabaseSnapshot = field(default_factory=_UnavailableDatabaseSnapshot)
+    # Tracks without a file (plan 125.2).
+    track_sources: TrackSourceAccess = field(default_factory=_UnavailableTrackSources)
 
     @property
     def data_dir(self) -> Path:
@@ -592,3 +979,74 @@ class PlaylistMeta(Contribution):
     """
 
     text: Callable[[str], str]
+
+
+# ------------------------------------------------------------ delete choices (plan 125.4)
+
+DeleteTone = Literal["normal", "danger"]
+"""Look of a delete choice: a normal button, or the red button of the core's destructive actions."""
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteChoice:
+    """One extra action a plugin offers in the confirmation that precedes the Recycle Bin.
+
+    ``choice_id`` is unique among the choices of the plugin for one selection. ``label`` is the
+    text of the button; ``description`` is one or two sentences under the plugin's heading that
+    say what the choice does, including what it does not undo. ``tone`` is ``"danger"`` for a
+    choice that cannot be undone from MTEE. ``replaces_recycle`` says that, for these tracks,
+    the plugin's choices stand in for the core's "Move to Recycle Bin" button, which is then
+    not drawn. Pressing any plugin choice runs ``DeleteChoices.run`` and nothing else: the core
+    moves no file to the Recycle Bin on its own for a plugin choice.
+    """
+
+    choice_id: str
+    label: str
+    description: str = ""
+    tone: DeleteTone = "normal"
+    replaces_recycle: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteChoices(Contribution):
+    """Extra choices in the confirmation shown before tracks go to the Recycle Bin.
+
+    ``offer(track_ids)`` receives the identifiers of the selected tracks and returns the
+    ``DeleteChoice`` that apply to them, or nothing. It runs on the graphical thread each time
+    the confirmation opens: keep it cheap and read only the plugin's own data.
+
+    ``run(choice_id, track_ids, job)`` runs when the user presses a choice, on a job thread
+    (the core submits it with the job service, so it shows in Tasks and ``job`` can be
+    cancelled). It receives the same identifiers that ``offer`` received. It returns a short
+    sentence that tells what was done, or ``None`` for the default "Done."; it raises when it
+    fails. An exception with the class attribute ``readable = True`` is shown as its message
+    alone, any other as ``ClassName: message``, as in Tasks. The core's own action is not
+    touched: it still only uses the Windows Recycle Bin, never a permanent delete, and a plugin
+    that wants files recycled calls ``context.files.recycle`` itself. A plugin has at most one
+    ``DeleteChoices``. If ``offer`` raises, the failure is logged and announced once, the
+    plugin's choices are left out and the core action works as usual.
+    """
+
+    offer: Callable[[Sequence[str]], Sequence[DeleteChoice]]
+    run: Callable[[str, Sequence[str], JobContext], str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class TrackSource(Contribution):
+    """How the core plays, and shows the cover of, the tracks this plugin stores without a file.
+
+    ``open(source_key)`` resolves a track into a ``PlayableSource``: a local ``Path`` (a file
+    the plugin downloaded) or an ``http(s)`` ``url`` with ``headers`` sent for that track only.
+    It runs on a **job thread**, never on the graphical thread, because it may take a network
+    round trip: it may block, but it must return or raise in a reasonable time. When it raises,
+    or returns something that is not a ``PlayableSource``, the player shows an error that names
+    the plugin and goes on with the next track. The core calls it again for every play and for
+    the early preparation of the next track; it never keeps the result.
+
+    ``cover(source_key)`` returns the bytes of the cover image (PNG or JPEG), or ``None``. It
+    runs on an image worker thread, on demand, and may be slow; the core caches what it gets.
+    A plugin has at most one ``TrackSource``.
+    """
+
+    open: Callable[[str], PlayableSource]
+    cover: Callable[[str], bytes | None] | None = None

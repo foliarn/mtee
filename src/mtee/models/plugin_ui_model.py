@@ -17,6 +17,7 @@ from typing import Any
 
 from PySide6.QtCore import Property, QAbstractItemModel, QObject, QUrl, Signal, Slot
 
+from mtee.domain.source_tracks import is_non_file_row, row_is_available
 from mtee.models.plugin_columns import (
     PluginColumnStore,
     RegisteredColumn,
@@ -27,6 +28,9 @@ from mtee.models.plugin_columns import (
 )
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins.api import (
+    DeleteChoice,
+    DeleteChoices,
+    JobContext,
     LibraryScanned,
     PaneAction,
     PlaylistMeta,
@@ -82,6 +86,7 @@ class PluginUiModel(QObject):
         self._playlist_meta: list[_Owned[PlaylistMeta]] = []
         self._waiting: dict[str, _Owned[WaitingItems]] = {}
         self._dialogs: dict[str, _Owned[PluginDialog]] = {}
+        self._delete_choices: dict[str, _Owned[DeleteChoices]] = {}
         self._waiting_count = 0
         self._columns_store = PluginColumnStore(None)
         self._revision = 0
@@ -126,6 +131,8 @@ class PluginUiModel(QObject):
                     self._scan_hooks.append(_Owned(plugin_id, title, item))
                 elif isinstance(item, PlaylistMeta):
                     self._playlist_meta.append(_Owned(plugin_id, title, item))
+                elif isinstance(item, DeleteChoices):
+                    self._delete_choices[plugin_id] = _Owned(plugin_id, title, item)
                 elif isinstance(item, PluginDialog):
                     self._dialogs[f"{plugin_id}.{item.dialog_id}"] = _Owned(plugin_id, title, item)
                     self._adopt(item.backend)
@@ -588,6 +595,65 @@ class PluginUiModel(QObject):
         owned = self._dialogs.get(key)
         return owned.item.backend if owned is not None else None
 
+    # ------------------------------------------------------------------ delete choices
+
+    def delete_choices(self, track_ids: Sequence[str]) -> list[dict[str, Any]]:
+        """The choices the running plugins add to the delete confirmation for ``track_ids``.
+
+        One group per plugin that offers something, in the order the plugins were registered:
+        ``plugin`` (its title), ``pluginId`` and ``choices``, each ``key``, ``label``,
+        ``description``, ``tone`` (``normal`` or ``danger``) and ``replaces``. A plugin whose
+        ``offer`` fails, or that returns nothing usable, is left out: the confirmation of the
+        core is never held back by a plugin. Graphical thread.
+        """
+        groups: list[dict[str, Any]] = []
+        for owned in self._delete_choices.values():
+            offered = self._guard(
+                owned.plugin_title, "offering delete choices", owned.item.offer, tuple(track_ids)
+            )
+            choices: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for choice in offered or ():
+                if (
+                    not isinstance(choice, DeleteChoice)
+                    or not choice.choice_id
+                    or not choice.label.strip()
+                    or choice.choice_id in seen
+                ):
+                    continue
+                seen.add(choice.choice_id)
+                choices.append(
+                    {
+                        "key": f"{owned.plugin_id}.{choice.choice_id}",
+                        "label": choice.label,
+                        "description": choice.description,
+                        "tone": "danger" if choice.tone == "danger" else "normal",
+                        "replaces": bool(choice.replaces_recycle),
+                    }
+                )
+            if choices:
+                groups.append(
+                    {
+                        "plugin": owned.plugin_title,
+                        "pluginId": owned.plugin_id,
+                        "choices": choices,
+                    }
+                )
+        return groups
+
+    def run_delete_choice(self, key: str, track_ids: Sequence[str], job: JobContext) -> str:
+        """Run the choice ``key`` of a plugin and return the sentence to show; job thread.
+
+        The plugin's exception is not caught here: the caller shows it. Raises ``LookupError``
+        when the plugin or its choices are gone.
+        """
+        plugin_id, _, choice_id = key.partition(".")
+        owned = self._delete_choices.get(plugin_id)
+        if owned is None or not choice_id:
+            raise LookupError("The plugin that offered this choice is no longer running.")
+        done = owned.item.run(choice_id, tuple(track_ids), job)
+        return done if isinstance(done, str) and done.strip() else "Done."
+
     # ------------------------------------------------------------------ library scans
 
     def library_scanned(self, root: Path) -> None:
@@ -616,13 +682,16 @@ def _pane_actions(actions: Sequence[PaneAction]) -> list[dict[str, str]]:
 
 def _list_row(item: TrackListRow, library: dict[str, Any]) -> dict[str, Any]:
     """Build the row dictionary of the track list for one ``TrackListRow``."""
-    available = bool(
-        library
-        and library.get("rootId")
-        and library.get("status") == "readable"
-        and library.get("path")
-        and Path(str(library["path"])).is_file()
-    )
+    if library and is_non_file_row(library):
+        available = row_is_available(library)  # a track a plugin provides has no file to find
+    else:
+        available = bool(
+            library
+            and library.get("rootId")
+            and library.get("status") == "readable"
+            and library.get("path")
+            and Path(str(library["path"])).is_file()
+        )
     seconds = round(item.duration_seconds)
     row: dict[str, Any] = dict(library) if available else {}
     row.update(

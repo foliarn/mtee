@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import wave
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
@@ -46,7 +46,7 @@ class _UiPlayerBackend:
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, path: Any, session_id: int) -> None:
         assert path.is_file()
         self.session_id = session_id
         self._emit("duration", 3_000_000)

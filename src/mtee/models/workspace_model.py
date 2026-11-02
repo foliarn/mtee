@@ -1220,7 +1220,10 @@ class WorkspaceModel(QObject):
         """Ask Windows Explorer to select the track's current source file."""
         source = self._library.source_record(track_id)
         if source is None:
-            self._set_message("This file is no longer in the library.")
+            self._set_message(
+                self._library.non_file_refusal(track_id, "shown in Windows Explorer")
+                or "This file is no longer in the library."
+            )
             return
         try:
             self._shell_reveal.reveal(source.path)
@@ -1430,6 +1433,7 @@ class WorkspaceModel(QObject):
         self._trash_model = model
         model.setParent(self)
         model.tracksRecycled.connect(self._on_tracks_recycled)
+        model.attach_delete_choices(self._plugin_ui)  # what plugins add to the confirmation
 
     def attach_file_move_model(self, model: FileMoveModel) -> None:
         """Attach the model that moves dragged files between library folders."""

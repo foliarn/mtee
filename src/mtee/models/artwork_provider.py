@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
 
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QImage
@@ -32,12 +33,15 @@ class ArtworkProvider(QQuickImageProvider):
         artwork: ArtworkService | None = None,
         *,
         cache_limit: int = ARTWORK_CACHE_LIMIT,
+        source_cover: Callable[[str, str], bytes | None] | None = None,
     ) -> None:
         super().__init__(
             QQmlImageProviderBase.ImageType.Image,
             QQmlImageProviderBase.Flag.ForceAsynchronousImageLoading,
         )
         self._library = library
+        # The cover of a track a plugin provides without a file: (plugin id, key) -> image bytes.
+        self._source_cover = source_cover
         self._artwork = artwork or ArtworkService()
         self._cache_limit = max(0, cache_limit)
         self._cache: OrderedDict[tuple[str, int, int], QImage] = OrderedDict()
@@ -63,6 +67,10 @@ class ArtworkProvider(QQuickImageProvider):
         key = (track_id, generation, target_size)
         self._invalidate_old_revisions(track_id, generation)
         source = self._library.artwork_source(track_id)
+        if source is None and self._source_cover is not None:
+            origin = self._library.source_origin(track_id)
+            if origin is not None:
+                return self._plugin_cover(track_id, origin, key, target_size, size)
         try:
             observed = SourceRevision.observe(source[0]) if source is not None else None
         except OSError:
@@ -102,6 +110,35 @@ class ArtworkProvider(QQuickImageProvider):
         size.setWidth(image.width())
         size.setHeight(image.height())
         if source is not None and cacheable:
+            self._store(key, image)
+        return image
+
+    def _plugin_cover(
+        self,
+        track_id: str,
+        origin: tuple[str, str],
+        key: tuple[str, int, int],
+        target_size: int,
+        size: QSize,
+    ) -> QImage:
+        """Return the cover a plugin gives for its track, or a placeholder (not cached)."""
+        with self._lock:
+            cached = self._cache.get(key)
+            if cached is not None:
+                self._cache.move_to_end(key)
+                size.setWidth(cached.width())
+                size.setHeight(cached.height())
+                return cached
+        data = None
+        if self._source_cover is not None:
+            try:
+                data = self._source_cover(*origin)
+            except Exception:
+                _LOGGER.debug("The plugin could not give the cover of %s", track_id, exc_info=True)
+        image = self._artwork.thumbnail_from_bytes(data, target_size, track_id)
+        size.setWidth(image.width())
+        size.setHeight(image.height())
+        if data:
             self._store(key, image)
         return image
 

@@ -10,6 +10,27 @@ from uuid import uuid4
 from mtee.domain.playlists import playlist_name
 from mtee.persistence.database import Database
 
+__all__ = ["PlaylistsRepository", "StaleRevisionError"]
+
+
+class StaleRevisionError(ValueError):
+    """A playlist changed since the revision the caller read; nothing was written.
+
+    `expected` is the revision the caller held and `actual` the current one. The message is
+    a sentence for the user (`readable`), so a job that fails with it shows it as it is.
+    """
+
+    readable = True
+    code = "stale_revision"
+
+    def __init__(self, expected: int, actual: int) -> None:
+        super().__init__(
+            f"This playlist changed (revision {actual}, expected {expected}). "
+            "Read it again and retry."
+        )
+        self.expected = expected
+        self.actual = actual
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds")
@@ -111,6 +132,7 @@ class PlaylistsRepository:
         with self.database.transaction() as connection:
             result = connection.execute(
                 "UPDATE playlists SET name=?,description=?,cover_ref=?,version=version+1,"
+                "revision=revision+1,"
                 "updated_at_utc=? WHERE playlist_id=? AND version=?",
                 (playlist_name(name), description, cover, _now(), identity, version),
             )
@@ -134,14 +156,15 @@ class PlaylistsRepository:
     def pin(self, identity: str, pinned: bool) -> None:
         with self.database.transaction() as connection:
             connection.execute(
-                "UPDATE playlists SET pinned=?,version=version+1 WHERE playlist_id=?",
+                "UPDATE playlists SET pinned=?,version=version+1,revision=revision+1 "
+                "WHERE playlist_id=?",
                 (int(pinned), identity),
             )
 
     def add_entries(self, identity: str, entries: list[dict[str, Any]], version: int) -> None:
         with self.database.transaction() as connection:
             result = connection.execute(
-                "UPDATE playlists SET version=version+1,updated_at_utc=? "
+                "UPDATE playlists SET version=version+1,revision=revision+1,updated_at_utc=? "
                 "WHERE playlist_id=? AND version=?",
                 (_now(), identity, version),
             )
@@ -167,7 +190,7 @@ class PlaylistsRepository:
         """Replace every entry of a playlist in one transaction, keeping the given order."""
         with self.database.transaction() as connection:
             result = connection.execute(
-                "UPDATE playlists SET version=version+1,updated_at_utc=? "
+                "UPDATE playlists SET version=version+1,revision=revision+1,updated_at_utc=? "
                 "WHERE playlist_id=? AND version=?",
                 (_now(), identity, version),
             )
@@ -186,6 +209,43 @@ class PlaylistsRepository:
                     ),
                 )
 
+    def replace_entries_at_revision(
+        self, identity: str, entries: list[dict[str, Any]], expected_revision: int
+    ) -> int:
+        """Replace every entry only if the playlist is still at ``expected_revision``.
+
+        The revision is checked and the entries are written in one transaction, so no change
+        can slip in between. Returns the new revision. Raises ``StaleRevisionError`` when the
+        playlist changed since the caller read it (nothing is written) and ``LookupError``
+        when it no longer exists.
+        """
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT revision FROM playlists WHERE playlist_id=?", (identity,)
+            ).fetchone()
+            if row is None:
+                raise LookupError("This playlist no longer exists.")
+            if int(row[0]) != expected_revision:
+                raise StaleRevisionError(expected_revision, int(row[0]))
+            connection.execute(
+                "UPDATE playlists SET version=version+1,revision=revision+1,updated_at_utc=? "
+                "WHERE playlist_id=?",
+                (_now(), identity),
+            )
+            connection.execute("DELETE FROM playlist_entries WHERE playlist_id=?", (identity,))
+            for index, entry in enumerate(entries):
+                connection.execute(
+                    "INSERT INTO playlist_entries VALUES(?,?,?,?,?)",
+                    (
+                        str(uuid4()),
+                        identity,
+                        entry.get("track_id"),
+                        index,
+                        json.dumps(entry["snapshot"], ensure_ascii=False),
+                    ),
+                )
+            return expected_revision + 1
+
     def remove(self, identity: str, entry_ids: list[str]) -> None:
         with self.database.transaction() as connection:
             connection.executemany(
@@ -193,7 +253,8 @@ class PlaylistsRepository:
                 [(identity, entry_id) for entry_id in entry_ids],
             )
             connection.execute(
-                "UPDATE playlists SET version=version+1,updated_at_utc=? WHERE playlist_id=?",
+                "UPDATE playlists SET version=version+1,revision=revision+1,"
+                "updated_at_utc=? WHERE playlist_id=?",
                 (_now(), identity),
             )
 
@@ -205,7 +266,7 @@ class PlaylistsRepository:
             if len(entry_ids) != len(current) or set(entry_ids) != {r[0] for r in current}:
                 raise ValueError("The playlist entries changed. Refresh before reordering.")
             result = connection.execute(
-                "UPDATE playlists SET version=version+1,updated_at_utc=? "
+                "UPDATE playlists SET version=version+1,revision=revision+1,updated_at_utc=? "
                 "WHERE playlist_id=? AND version=?",
                 (_now(), identity, version),
             )
@@ -224,7 +285,7 @@ class PlaylistsRepository:
     ) -> None:
         with self.database.transaction() as connection:
             result = connection.execute(
-                "UPDATE playlists SET version=version+1,updated_at_utc=? "
+                "UPDATE playlists SET version=version+1,revision=revision+1,updated_at_utc=? "
                 "WHERE playlist_id=? AND version=?",
                 (_now(), identity, version),
             )
@@ -310,8 +371,10 @@ class PlaylistsRepository:
             ]
             index = siblings.index(before) if before in siblings else len(siblings)
             siblings.insert(index, identity)
+            # Only a playlist has a revision; a folder keeps its version alone.
+            bump = "" if is_folder else ",revision=revision+1"
             connection.execute(
-                f"UPDATE {table} SET {parent_key}=?,version=version+1 WHERE {key}=?",
+                f"UPDATE {table} SET {parent_key}=?,version=version+1{bump} WHERE {key}=?",
                 (folder or None, identity),
             )
             connection.executemany(

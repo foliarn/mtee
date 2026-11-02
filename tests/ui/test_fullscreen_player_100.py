@@ -6,7 +6,7 @@ import wave
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QWheelEvent
@@ -270,7 +270,7 @@ class _Backend:
 
     fail = False
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, path: Any, session_id: int) -> None:
         if type(self).fail:
             raise OSError("The file could not be opened.")
         self.session_id = session_id
