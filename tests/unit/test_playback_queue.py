@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from mtee.domain.playback import PlaybackStatus
 from mtee.domain.tracks import TrackId
@@ -22,7 +23,7 @@ class QueueBackend:
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, path: Any, session_id: int) -> None:
         del path
         self.active_session_id = session_id
         self.loads.append(session_id)

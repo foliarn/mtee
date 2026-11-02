@@ -38,6 +38,7 @@ class DataPrivacyModel(QObject):
     changed = Signal()
     noticeRaised = Signal(str)
     finished = Signal(str)
+    restoreProposed = Signal()
     _taskDone = Signal(str, str)
 
     def __init__(
@@ -57,6 +58,7 @@ class DataPrivacyModel(QObject):
         self._jobs = jobs
         self._clock = clock
         self._busy = False
+        self._proposed_restore: Path | None = None
         self._taskDone.connect(self._on_task_done)
 
     @Property(bool, notify=changed)
@@ -102,6 +104,21 @@ class DataPrivacyModel(QObject):
             return f"Backup saved as {destination.name}."
 
         self._start("Back up database", back_up)
+
+    def propose_restore(self, path: Path) -> None:
+        """Offer the backup at ``path`` (a plugin found it valid) for the usual confirmation.
+
+        Graphical thread. The page opens the "Schedule restore" dialog for it; nothing is
+        scheduled until the person confirms there.
+        """
+        self._proposed_restore = path
+        self.restoreProposed.emit()
+
+    @Slot(result=str)
+    def takeProposedRestore(self) -> str:
+        """Return the offered backup as a file URL, once, or an empty string when none."""
+        path, self._proposed_restore = self._proposed_restore, None
+        return QUrl.fromLocalFile(str(path)).toString() if path is not None else ""
 
     @Slot(str)
     def restoreFrom(self, url: str) -> None:

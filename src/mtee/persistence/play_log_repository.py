@@ -21,6 +21,7 @@ __all__ = [
     "ArtistTextPlays",
     "DailyListening",
     "ListeningTotals",
+    "PlayLogEvent",
     "PlayLogRepository",
     "TrackPlayStats",
     "TrackRank",
@@ -31,6 +32,27 @@ DEVICE_ID_KEY = "play_log.device_id"
 ALL_TIME = ListeningPeriod()
 _IN_CLAUSE_CHUNK = 400
 _DEFAULT_LIMIT = 50
+
+
+@dataclass(frozen=True, slots=True)
+class PlayLogEvent:
+    """One row of the log as it travels between devices.
+
+    It carries no file path: a path belongs to one computer. ``track_id`` is the identifier
+    the writing device knew the track by. Times are timezone-aware.
+    """
+
+    event_id: str
+    device_id: str
+    track_id: str
+    started_at: datetime
+    ended_at: datetime
+    heard_ms: int
+    counted: bool
+    artist: str = ""
+    title: str = ""
+    album: str = ""
+    duration_us: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +159,74 @@ class PlayLogRepository:
                 rows,
             )
         return len(rows)
+
+    def events_since(self, cursor: str | None, limit: int) -> tuple[list[PlayLogEvent], str | None]:
+        """Return up to ``limit`` events stored after ``cursor``, in insertion order.
+
+        ``play_events`` has no sequence column, so the order is the SQLite ``rowid``: it
+        grows with every insert, whatever the start time of the event. The cursor is the
+        ``rowid`` of the last event returned, written as text; ``None`` starts from the
+        first event. The second value is the cursor to pass next time: that of the last
+        event returned, or ``cursor`` itself when nothing is newer. The ``rowid`` of a table
+        without an integer key may be renumbered by ``VACUUM`` (MTEE never runs it) and
+        starts again after the log is reset, so a cursor is valid for one log only: a
+        caller that sees the log shrink starts from ``None``. Events written by other
+        devices are included; each carries its ``device_id``.
+        """
+        _check_limit(limit)
+        after = _parse_cursor(cursor)
+        rows = (
+            self._database.connection()
+            .execute(
+                "SELECT rowid AS position, event_id, device_id, track_id, artist, title, album, "
+                "duration_us, started_at_utc, ended_at_utc, heard_ms, counted "
+                "FROM play_events WHERE rowid > ? ORDER BY rowid LIMIT ?",
+                (after, limit),
+            )
+            .fetchall()
+        )
+        events = [
+            PlayLogEvent(
+                event_id=str(row["event_id"]),
+                device_id=str(row["device_id"]),
+                track_id=str(row["track_id"]),
+                started_at=_parse_utc(row["started_at_utc"]),
+                ended_at=_parse_utc(row["ended_at_utc"]),
+                heard_ms=int(row["heard_ms"]),
+                counted=bool(row["counted"]),
+                artist=str(row["artist"]),
+                title=str(row["title"]),
+                album=str(row["album"]),
+                duration_us=int(row["duration_us"]),
+            )
+            for row in rows
+        ]
+        return events, str(rows[-1]["position"]) if rows else cursor
+
+    def insert_remote_events(self, events: Sequence[PlayLogEvent]) -> int:
+        """Append events written by other devices; return how many were new.
+
+        An event whose ``event_id`` is already stored is skipped, not an error, so the same
+        batch can be sent twice. Each event keeps its own ``device_id``. The batch is checked
+        first and written in one transaction: an invalid event refuses the whole batch with
+        ``ValueError`` and nothing is stored. The path of a remote listening is unknown here
+        and stored empty. The append-only trigger is not involved: rows are only inserted.
+        """
+        rows = [_remote_row(event) for event in events]
+        if not rows:
+            return 0
+        inserted = 0
+        with self._database.transaction() as connection:
+            for row in rows:
+                cursor = connection.execute(
+                    "INSERT INTO play_events (event_id, track_id, path_at_play, artist, title, "
+                    "album, duration_us, started_at_utc, ended_at_utc, heard_ms, counted, "
+                    "device_id) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(event_id) DO NOTHING",
+                    row,
+                )
+                inserted += int(cursor.rowcount)
+        return inserted
 
     def totals(self, period: ListeningPeriod = ALL_TIME) -> ListeningTotals:
         """Total heard time, counted plays and every listening session of the period."""
@@ -325,6 +415,35 @@ def _period_clause(
     if not conditions:
         return "", ()
     return " WHERE " + " AND ".join(conditions), tuple(params)
+
+
+def _parse_cursor(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    if not cursor.isascii() or not cursor.isdigit():
+        raise ValueError("a play log cursor comes from a previous events_since call")
+    return int(cursor)
+
+
+def _remote_row(event: PlayLogEvent) -> tuple[object, ...]:
+    """Check one event of another device and return its values in column order."""
+    if not event.event_id or not event.device_id or not event.track_id:
+        raise ValueError("a play event needs an event_id, a device_id and a track_id")
+    if event.heard_ms < 0 or event.duration_us < 0:
+        raise ValueError("heard_ms and duration_us cannot be negative")
+    return (
+        event.event_id,
+        event.track_id,
+        event.artist,
+        event.title,
+        event.album,
+        event.duration_us,
+        _utc_text(event.started_at),
+        _utc_text(event.ended_at),
+        event.heard_ms,
+        1 if event.counted else 0,
+        event.device_id,
+    )
 
 
 def _check_limit(limit: int) -> None:

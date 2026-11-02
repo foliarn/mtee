@@ -7,7 +7,7 @@ import math
 import os
 import sqlite3
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +17,7 @@ from mtee.domain.analysis import LOUDNESS_ALGORITHM_VERSION, durations_agree, fo
 from mtee.domain.file_dates import FileDates, format_file_timestamp
 from mtee.domain.metadata import MetadataSnapshot, format_bitrate
 from mtee.domain.musical_key import MusicalKey, format_key, parse_key
+from mtee.domain.source_tracks import non_file_message
 from mtee.domain.tracks import SourceRevision, TrackId, sha256_of_file
 from mtee.persistence.database import Database
 
@@ -51,16 +52,93 @@ _ANALYSIS_COLUMNS = (
 )
 
 
+# A track a plugin provides has no file. It is read into the same row shape as a file track, with
+# no path, no size and no folder, and the keys ``sourcePluginId`` and ``sourceKey`` added.
+_SOURCE_COLUMNS = (
+    "SELECT s.track_id AS track_id,s.plugin_id AS plugin_id,s.source_key AS source_key,"
+    "s.album_artist AS album_artist,s.available AS source_available,"
+    "'' AS path,0 AS size_bytes,0 AS mtime_ns,NULL AS file_id,s.revision AS generation,"
+    "NULL AS file_created_at_ns,NULL AS file_modified_at_ns,"
+    f"{_ANALYSIS_COLUMNS}s.metadata_json AS metadata_json,'' AS relative_path "
+    "FROM plugin_source_tracks s LEFT JOIN track_analysis a ON a.track_id=s.track_id "
+)
+
+
 class LibraryRepository:
     """Store file references and read-only metadata without touching audio bytes."""
 
     def __init__(self, database: Database) -> None:
         self._database = database
         self._display = AnalysisDisplay()
+        # The plugins that provide tracks without a file and are running; ``None`` until known.
+        self._running_source_plugins: frozenset[str] | None = None
+        self._source_plugin_titles: dict[str, str] = {}
 
     def set_analysis_display(self, notation: str, decimals: int) -> None:
         """Choose the key notation and BPM decimals of the rows built from now on."""
         self._display = AnalysisDisplay(notation, decimals)
+
+    def set_running_source_plugins(
+        self, plugin_ids: Collection[str] | None, titles: Mapping[str, str] | None = None
+    ) -> None:
+        """Tell which plugins that provide tracks without a file are running.
+
+        The tracks of any other plugin read as unavailable (``status`` ``unreadable``), because
+        nothing can open them. ``None`` means every plugin counts as running. ``titles`` gives
+        the names the messages use instead of the plugin identifiers.
+        """
+        self._running_source_plugins = None if plugin_ids is None else frozenset(plugin_ids)
+        self._source_plugin_titles = dict(titles or {})
+
+    def non_file_refusal(self, track_id: str, what: str) -> str:
+        """Return the sentence that refuses a file operation on a track without a file.
+
+        ``what`` is the past participle of the operation ("edited", "moved"). An empty string
+        means the track has a file, or is unknown.
+        """
+        origin = self.source_origin(track_id)
+        if origin is None:
+            return ""
+        return non_file_message(self._source_plugin_titles.get(origin[0], origin[0]), what)
+
+    def source_origin(self, track_id: str) -> tuple[str, str] | None:
+        """Return ``(plugin_id, source_key)`` when the track has no file, else ``None``."""
+        row = (
+            self._database.connection()
+            .execute(
+                "SELECT plugin_id,source_key FROM plugin_source_tracks WHERE track_id=?",
+                (track_id,),
+            )
+            .fetchone()
+        )
+        return (str(row["plugin_id"]), str(row["source_key"])) if row is not None else None
+
+    def snapshot_of(self, track_id: str) -> MetadataSnapshot | None:
+        """Return the stored tags of a track: of its file, or of the plugin that provides it."""
+        record = self.source_record(track_id)
+        if record is not None:
+            return record.snapshot
+        row = (
+            self._database.connection()
+            .execute("SELECT metadata_json FROM plugin_source_tracks WHERE track_id=?", (track_id,))
+            .fetchone()
+        )
+        return MetadataSnapshot.from_dict(json.loads(str(row[0]))) if row is not None else None
+
+    def source_tracks_by_ids(self, track_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+        """Return the rows of the tracks without a file among ``track_ids``, by track id."""
+        found: dict[str, dict[str, Any]] = {}
+        connection = self._database.connection()
+        wanted = list(dict.fromkeys(str(value) for value in track_ids))
+        for start in range(0, len(wanted), 500):
+            chunk = wanted[start : start + 500]
+            marks = ",".join("?" * len(chunk))
+            rows = connection.execute(
+                f"{_SOURCE_COLUMNS}WHERE s.track_id IN ({marks})", chunk
+            ).fetchall()
+            for row in rows:
+                found[str(row["track_id"])] = self._source_dict(row)
+        return found
 
     def add_root(self, path: Path | str) -> dict[str, Any]:
         source = Path(path).expanduser().resolve(strict=False)
@@ -613,6 +691,9 @@ class LibraryRepository:
                     found[identity] = _track_dict(
                         row, str(row["root_id"] or ""), track_id=identity, display=self._display
                     )
+        missing = [identity for identity in wanted if identity not in found]
+        if missing:
+            found.update(self.source_tracks_by_ids(missing))
         return [found[identity] for identity in wanted if identity in found]
 
     def track_ids_in_tree(self, root_id: str, relative_folder: str) -> list[str]:
@@ -680,13 +761,31 @@ class LibraryRepository:
             )
             .fetchall()
         )
-        return [
+        credits = [
             (
                 str(row["track_id"]),
                 tuple(MetadataSnapshot.from_dict(json.loads(str(row["metadata_json"]))).artist),
             )
             for row in rows
         ]
+        # The tracks a running plugin provides credit their artists like any other track.
+        sources = (
+            self._database.connection()
+            .execute(
+                "SELECT track_id,plugin_id,metadata_json FROM plugin_source_tracks "
+                "WHERE available=1"
+            )
+            .fetchall()
+        )
+        credits.extend(
+            (
+                str(row["track_id"]),
+                tuple(MetadataSnapshot.from_dict(json.loads(str(row["metadata_json"]))).artist),
+            )
+            for row in sources
+            if self._source_runs(str(row["plugin_id"]))
+        )
+        return credits
 
     def track_folder(self, track_id: str) -> tuple[str, str] | None:
         """Return the ``(root_id, relative_folder)`` that lists the track, if it is present."""
@@ -720,7 +819,7 @@ class LibraryRepository:
             .fetchone()
         )
         if row is None:
-            return {}
+            return self.source_tracks_by_ids([track_id]).get(track_id, {})
         return _track_dict(row, str(row["root_id"] or ""), track_id=track_id, display=self._display)
 
     def source_record(self, track_id: str) -> TrackSource | None:
@@ -868,6 +967,31 @@ class LibraryRepository:
         )
         return Path(str(row["path"])), revision
 
+    def _source_runs(self, plugin_id: str) -> bool:
+        running = self._running_source_plugins
+        return running is None or plugin_id in running
+
+    def _source_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        """Build the interface row of a track without a file."""
+        plugin_id = str(row["plugin_id"])
+        values = dict(row)
+        playable = bool(row["source_available"]) and self._source_runs(plugin_id)
+        values["status"] = "readable" if playable else "unreadable"
+        track = _track_dict(values, "", display=self._display)
+        track.update(
+            {
+                "folder": "",
+                "path": "",
+                "filename": "",
+                "size": "",
+                "sizeMb": 0.0,
+                "albumArtist": str(row["album_artist"]),
+                "sourcePluginId": plugin_id,
+                "sourceKey": str(row["source_key"]),
+            }
+        )
+        return track
+
 
 def normalize_path(path: Path | str) -> str:
     """Canonical comparison key; keep the user's spelling in the stored path."""
@@ -896,7 +1020,7 @@ def _root_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _track_dict(
-    row: sqlite3.Row,
+    row: Mapping[str, Any],
     root_id: str,
     *,
     track_id: str | None = None,
@@ -964,7 +1088,7 @@ def _track_dict(
     }
 
 
-def _stored_loudness(row: sqlite3.Row, duration_us: int) -> tuple[float | None, float | None]:
+def _stored_loudness(row: Mapping[str, Any], duration_us: int) -> tuple[float | None, float | None]:
     """Return the integrated loudness and sample peak of a current measurement, else nothing.
 
     A measurement of an older version, or one made for audio of another length, is not
@@ -986,7 +1110,7 @@ def _stored_loudness(row: sqlite3.Row, duration_us: int) -> tuple[float | None, 
 
 
 def _effective_tempo_and_key(
-    row: sqlite3.Row, values: MetadataSnapshot, display: AnalysisDisplay
+    row: Mapping[str, Any], values: MetadataSnapshot, display: AnalysisDisplay
 ) -> tuple[int | float | str, str, str, str]:
     """Return tempo, tempo text, key text and Camelot code as the interface shows them.
 

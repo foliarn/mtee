@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from mtee.domain.playlists import LIKED_PLAYLIST_ID, musical_identity, portable_snapshot
+from mtee.domain.source_tracks import is_non_file_row, row_is_available
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.playlists_repository import PlaylistsRepository
 
@@ -39,12 +40,16 @@ class PlaylistService:
         for entry in entries:
             track_id = entry["track_id"] or ""
             current = self.library.track(track_id) if track_id else {}
-            available = bool(
-                current
-                and current.get("rootId")
-                and current.get("status") == "readable"
-                and Path(current["path"]).is_file()
-            )
+            if current and is_non_file_row(current):
+                # A track a plugin provides has no file: the plugin says whether it plays.
+                available = row_is_available(current)
+            else:
+                available = bool(
+                    current
+                    and current.get("rootId")
+                    and current.get("status") == "readable"
+                    and Path(current["path"]).is_file()
+                )
             row = dict(current or entry["snapshot"])
             row.update(
                 {
@@ -109,13 +114,34 @@ class PlaylistService:
         except LookupError:
             return None
 
-    def replace_entries(self, identity: str, track_ids: list[str] | tuple[str, ...]) -> None:
-        """Replace all the entries of a playlist with ``track_ids``, in the order given."""
+    def replace_entries(
+        self,
+        identity: str,
+        track_ids: list[str] | tuple[str, ...],
+        expected_revision: int | None = None,
+    ) -> int:
+        """Replace all the entries of a playlist with ``track_ids``, in the order given.
+
+        With ``expected_revision`` the replacement is refused with ``StaleRevisionError`` when the
+        playlist is no longer at that revision; without it the replacement is unconditional.
+        Returns the revision of the playlist after the change.
+        """
         with self.lock:
             entries = self._entries_for(track_ids)
-            self.repository.replace_entries(
-                identity, entries, self.repository.playlist(identity)["version"]
-            )
+            if expected_revision is not None:
+                return self.repository.replace_entries_at_revision(
+                    identity, entries, expected_revision
+                )
+            playlist = self.repository.playlist(identity)
+            self.repository.replace_entries(identity, entries, playlist["version"])
+            return int(playlist["revision"]) + 1
+
+    def revision(self, identity: str) -> int | None:
+        """Return the revision of a local playlist, or ``None`` when it does not exist."""
+        try:
+            return int(self.repository.playlist(identity)["revision"])
+        except LookupError:
+            return None
 
     def _entries_for(self, track_ids: list[str] | tuple[str, ...]) -> list[dict[str, Any]]:
         entries = []

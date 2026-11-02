@@ -8,7 +8,9 @@ functions in ``EVENTS`` so that a test can see what the core ran.
 from __future__ import annotations
 
 import shutil
+import threading
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +19,13 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 from mtee.plugins.api import (
     CellValue,
     Contribution,
+    DeleteChoice,
+    DeleteChoices,
     JobContext,
     LibraryScanned,
     PaneAction,
+    PlayableSource,
+    PlayLogEvent,
     PluginActivity,
     PluginContext,
     PluginDialog,
@@ -28,18 +34,32 @@ from mtee.plugins.api import (
     PluginSettings,
     SettingsPage,
     SidebarSection,
+    SourceTrack,
     StartupTask,
     TabAction,
     TabHeader,
     TabKind,
     TabRequest,
     TrackAction,
+    TrackAnalysisData,
     TrackColumn,
     TrackListRow,
+    TrackLoudnessData,
+    TrackSource,
     WaitingItems,
 )
 
+from .track_source import (
+    BROKEN_KEY,
+    SOURCE_KEY,
+    TOKEN,
+    AudioServer,
+    tiny_png,
+)
+
 EVENTS: list[str] = []
+# Each run of a delete choice: (choice id, track ids, thread identifier), see ``_run_delete``.
+DELETE_RUNS: list[tuple[str, tuple[str, ...], int]] = []
 HERE = Path(__file__).parent
 LIST_KIND = "sample.list"
 
@@ -127,6 +147,7 @@ class Service:
         )
         self._foot = PluginRowsModel([{"text": "Sample is connected", "tone": "secondary"}])
         self._backend = SettingsBackend(context.settings, self._count_items())
+        self._audio: AudioServer | None = None
 
     def _count_items(self) -> int:
         cursor = self._context.database.connection().execute("SELECT COUNT(*) FROM sample_items")
@@ -194,6 +215,25 @@ class Service:
         self._context.run_on_gui(lambda: EVENTS.append("gui"))
 
     @staticmethod
+    def _offer_delete(track_ids: Sequence[str]) -> list[DeleteChoice]:
+        """Add one choice to the delete confirmation. Runs on the graphical thread."""
+        EVENTS.append("delete offered " + ",".join(track_ids))
+        return [
+            DeleteChoice(
+                "log_only",
+                "Sample: log only",
+                "Records the selection in the sample log. No file is moved or changed.",
+            )
+        ]
+
+    @staticmethod
+    def _run_delete(choice_id: str, track_ids: Sequence[str], _job: JobContext) -> str:
+        """Run the pressed choice on a job thread, never the graphical one."""
+        DELETE_RUNS.append((choice_id, tuple(track_ids), threading.get_ident()))
+        EVENTS.append(f"delete {choice_id} {','.join(track_ids)}")
+        return f"Logged {len(track_ids)} track(s)."
+
+    @staticmethod
     def _scanned(root: Path) -> None:
         """Called on the graphical thread after a library scan finished."""
         EVENTS.append(f"scanned {root.name}")
@@ -230,6 +270,123 @@ class Service:
             f"playlist {playlists.name(identity)} {playlists.exists(identity)} "
             f"{playlists.name('missing')} {playlists.exists('missing')}"
         )
+
+    def sync_probe(self) -> list[str]:
+        """Use each store capability once (plan 125.6); the tests call it from a job thread.
+
+        Every call goes through the context. The summary lines are also kept in ``EVENTS``.
+        """
+        context = self._context
+        lines: list[str] = []
+
+        # Play log: read this device's events, then store one listening of another device.
+        log = context.play_log
+        events, cursor = log.events_since(None, 100)
+        own = [event for event in events if event.device_id == log.device_id]
+        started = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+        remote = PlayLogEvent(
+            event_id="sample-remote-event",
+            device_id="sample-other-device",
+            track_id="sample-remote-track",
+            started_at=started,
+            ended_at=started + timedelta(seconds=60),
+            heard_ms=60_000,
+            counted=True,
+            title="Heard elsewhere",
+        )
+        first, second = log.append_remote([remote]), log.append_remote([remote])
+        lines.append(f"play log {len(own)} own, cursor {cursor}, appended {first} then {second}")
+
+        # Playlists: read at a revision, replace only if nobody changed it, report the new one.
+        track_ids = context.library.track_ids()[:2]
+        playlist_id = context.playlists.create("Sample sync", track_ids)
+        snapshot = context.playlists.read(playlist_id)
+        if snapshot is not None:
+            revised = context.playlists.replace_entries(
+                playlist_id, track_ids[:1], expected_revision=snapshot.revision
+            )
+            lines.append(f"playlist revision {snapshot.revision} to {revised}")
+
+        # Track data: analysis, loudness and credit choices are separate layers.
+        if track_ids:
+            data = context.track_data.read(track_ids[0])
+            context.track_data.write_analysis(
+                track_ids[0],
+                TrackAnalysisData(bpm=128.0, key_tonic=7, key_minor=True, algorithm_version=2),
+            )
+            context.track_data.write_loudness(
+                track_ids[0], TrackLoudnessData(-9.5, -0.4, loudness_version=1)
+            )
+            lines.append(f"track data had analysis {data.analysis is not None}")
+
+        # Synced settings: only the keys the core allows; the plugin subscribes to changes.
+        synced = context.synced_settings
+        cancel = synced.subscribe(lambda keys: EVENTS.append("synced " + ",".join(keys)))
+        synced.write({"profile/display_name": "Sample listener"})
+        cancel()
+        lines.append(f"synced settings {len(synced.keys)} keys, {len(synced.read())} set")
+
+        # Snapshot: a consistent copy of the database inside the plugin's own folder.
+        target = (
+            context.data_dir / "snapshots" / f"sample-{len(list(context.data_dir.glob('*')))}.db"
+        )
+        copy = context.database_snapshot.snapshot(target)
+        lines.append(f"snapshot {copy.name}")
+
+        EVENTS.extend(lines)
+        return lines
+
+    def provide_tracks(self, audio: bytes, duration_us: int) -> dict[str, str]:
+        """Store two tracks without a file (plan 125.2) and serve the first one.
+
+        ``audio`` is served on 127.0.0.1 and needs the token; the second track cannot be
+        opened, to show the error. Returns ``{source_key: track_id}``; any thread.
+        """
+        if self._audio is None:
+            server = AudioServer(audio)
+            server.start()
+            self._audio = server
+        identities = self._context.track_sources.upsert(
+            [
+                SourceTrack(
+                    SOURCE_KEY,
+                    "Served over HTTP",
+                    artists=("Sample artist",),
+                    album="Sample album",
+                    album_artist="Sample artist",
+                    track_number=1,
+                    duration_us=duration_us,
+                    genre=("Sample genre",),
+                    year=2026,
+                ),
+                SourceTrack(
+                    BROKEN_KEY,
+                    "Cannot be opened",
+                    artists=("Sample artist",),
+                    album="Sample album",
+                    duration_us=duration_us,
+                ),
+            ]
+        )
+        EVENTS.append(f"provided {len(identities)}")
+        return identities
+
+    @property
+    def audio_server(self) -> AudioServer | None:
+        """The HTTP server of the sample track, once ``provide_tracks`` started it."""
+        return self._audio
+
+    def _open_track(self, source_key: str) -> PlayableSource:
+        """Resolve a track into a URL and the token header. Runs on a job thread."""
+        EVENTS.append(f"open {source_key}")
+        if source_key == BROKEN_KEY or self._audio is None:
+            raise RuntimeError("the sample server cannot be reached")
+        return PlayableSource(url=self._audio.url, headers={"Authorization": f"Bearer {TOKEN}"})
+
+    @staticmethod
+    def _cover(source_key: str) -> bytes | None:
+        """Give the cover image of the first track. Runs on an image thread."""
+        return tiny_png() if source_key == SOURCE_KEY else None
 
     # -- the contributions
     def contributions(self) -> Sequence[Contribution]:
@@ -302,10 +459,15 @@ class Service:
             WaitingItems("waiting", "Waiting for you", self._waiting, self._pick, self._dismiss),
             StartupTask("hello", self._start),
             LibraryScanned(self._scanned),
+            DeleteChoices(self._offer_delete, self._run_delete),
+            TrackSource(self._open_track, self._cover),
         ]
 
     def unload(self) -> None:
         EVENTS.append("unload")
+        if self._audio is not None:
+            self._audio.stop()
+            self._audio = None
 
 
 def create(context: PluginContext) -> PluginService:

@@ -92,7 +92,8 @@ class PlaylistExchange:
             for index, row in enumerate(rows):
                 context.raise_if_cancelled()
                 entry: dict[str, Any] = {"snapshot": portable_snapshot(row), "sha256": ""}
-                if row["available"]:
+                if row["available"] and not row.get("sourcePluginId"):
+                    # A track a plugin provides has no file to export: it stays a name only.
                     if archive is not None:
                         suffix = Path(row["filename"]).suffix.lower()
                         internal = safe_archive_path(

@@ -137,7 +137,7 @@ core is reachable from it.
 | `plugin_id` | The plugin's id. |
 | `database` | The shared `Database`. Use only your own tables. Each thread has its own connection. |
 | `library` | `track_ids()`, `tracks(ids)` (`LibraryTrack`: id, path, title, artists, album, `duration_us`, `readable`, `isrc`), `add_watched_folder(path)` and `rescan(path)`. The last two on the graphical thread only. |
-| `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids)`, `entries(playlist_id)`, `name(playlist_id)` (`None` when it is gone) and `exists(playlist_id)`, through the core playlist service. |
+| `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids, expected_revision=None)` (returns the new revision), `entries(playlist_id)`, `read(playlist_id)`, `revision(playlist_id)`, `name(playlist_id)` (`None` when it is gone) and `exists(playlist_id)`, through the core playlist service. See "Store access for sync". |
 | `jobs` | `submit(task, label=..., visible=...)` and `cancel(job_id)` on the core job service. |
 | `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)` and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. See below. |
 | `settings` | A key-value store scoped to the plugin: `get`, `set`, `get_json`, `set_json`, `delete`. Keys live under `plugins.<id>.` in the settings. |
@@ -148,6 +148,8 @@ core is reachable from it.
 | `run_on_gui(fn)` | Runs `fn()` on the graphical thread, after the current event: a queued call, also when called from the graphical thread. Any thread. A `fn` that raises is logged under the plugin's logger. |
 | `open_dialog(dialog_id, ref)` | Opens one of the plugin's `PluginDialog` as a modal popup over the window. Any thread. `ref` is handed to the dialog's QML. |
 | `open_tab(kind, ref)` | Opens, or focuses when it is already open, a tab of one of the plugin's own `TabKind` (`kind` starts with `<plugin_id>.`, another is refused and logged). Any thread; the tab opens on the graphical thread. |
+| `play_log`, `track_data`, `synced_settings`, `database_snapshot` | The optional store capabilities for sync, see "Store access for sync". A context built without them raises `CapabilityUnavailableError` at the first call. |
+| `track_sources` | Stores the tracks the plugin provides without a file (`upsert`, `remove`, `list`), see "Track sources". Same error when absent. |
 
 `files.import_file(source, folder) -> Path` moves a file that is **not in the library yet**
 (for example a download) into a folder of the library and returns its final path. It never
@@ -179,6 +181,147 @@ the plugin's package and the shared libraries of the running plugins.
   exits with the module's exit code. It never opens a window and imports no Qt module.
 - Do not set `PYINSTALLER_RESET_ENVIRONMENT` for a helper: it may reuse the files that MTEE
   unpacked for the exe.
+
+### Store access for sync
+
+Optional capabilities (`API_VERSION` stays 1). They serve any plugin that keeps devices in step; none
+of them names a server. Each goes through the repository or service of the core and never hands out
+a SQL handle. The manifest has no permission list yet (only `uses_network`), so a running plugin
+gets all of them; the Plugins view shows nothing more for them.
+
+- **`play_log`** (`PlayLogAccess`). `device_id` is this installation. `events_since(cursor, limit)
+  -> (events, next_cursor)` returns `PlayLogEvent` in insertion order (the SQLite `rowid` of
+  `play_events`, which has no sequence column; a start time would miss events appended later). The
+  cursor is text, `None` for the first call; `next_cursor` equals the cursor passed when nothing is
+  newer. Events of every device come back, each with its `device_id`; a pusher filters on its own.
+  A cursor is valid for one log: a reset of the statistics numbers the rows again. A `PlayLogEvent`
+  has no file path. `append_remote(events) -> int` stores the events of other devices and returns
+  how many were new: an `event_id` already stored is skipped, each event keeps its `device_id`, an
+  invalid event refuses the whole batch with `ValueError`. The log stays append-only. Any thread.
+- **`playlists` revisions.** A playlist has a `revision`: 1 for a new playlist and for the playlists
+  that existed when migration 029 ran, and +1 on every change through any path (interface, plugin,
+  or the library removing a track an entry pointed to). It is a different counter from the
+  interface's own `version`. `read(id)` returns `PlaylistSnapshot(name, revision, entries)`;
+  the revision is read first so a concurrent change makes a later write stale, not lost.
+  `replace_entries(id, track_ids, expected_revision)` raises `StaleRevisionError` (`expected`,
+  `actual`) when the playlist moved on, in the same transaction as the write; without
+  `expected_revision` it replaces unconditionally. Any thread.
+- **`track_data`** (`TrackDataAccess`). `read(track_id)` returns `TrackData`: `analysis` (tempo,
+  key, edit flags, algorithm version, date), `loudness` (LUFS, sample peak, version) and
+  `corrections` (the choices on the artist credits of the track, `one_artist` or `split`). The
+  `write_*` calls store each layer in its own store: analysis and loudness in `track_analysis`
+  (each leaving the other's columns alone, and keeping the version and date they come with, so
+  an older result still reads as outdated), corrections in `credit_overrides`. A tempo or key the
+  person edited here keeps its value. A correction is accepted only for a credit the track holds;
+  corrections are added or changed, never removed. Audio files and tags are never touched.
+  `LookupError` for an unknown track, `ValueError` for an invalid value. Any thread.
+- **`synced_settings`** (`SyncedSettings`). The core decides which settings may travel:
+  `mtee.plugins.synced_settings.SYNCED_SETTINGS` (rule and exclusions are written there). Today:
+  `playback/normalization`, `profile/display_name`, `playlists/columns`, `plugins.enabled`. `keys`
+  lists them, `read()` returns the stored text of those that are set, `write(values)` checks every
+  key and value first (`SettingNotSyncedError` for a key outside the list, `ValueError` for a value
+  the setting cannot hold) and stores them together; the running application then reads them again
+  on the graphical thread. `subscribe(callback)` calls `callback(keys)` on the graphical thread when
+  another writer changes an allowed key; the plugin's own `write` is not announced. It returns the
+  function to call in `unload()`. `write` and `read` run on any thread.
+- **`database_snapshot`** (`DatabaseSnapshot`). `snapshot(target_path)` writes a consistent copy
+  with the SQLite backup API, checks it, and returns its path. `target_path` must be inside
+  `base_dir` and must not exist. `request_restore(path)` checks that the file is a usable backup
+  and offers it to the restore of Settings > Data & privacy: Settings opens on that page with its
+  "Schedule restore" confirmation, and nothing changes until the person confirms; the restore is
+  applied at the next start after a safety copy, as for any backup. Keep the file until the person
+  has answered. The plugin never replaces the database. Both calls refuse the graphical thread
+  (`RuntimeError`): submit them with `context.jobs`. The copy holds the whole library data; treat it
+  as private.
+
+### Track sources
+
+An optional capability (`API_VERSION` stays 1) for a plugin that provides tracks which have **no
+file on this computer**, for example the tracks of a server. It has two halves: `context.track_sources`
+stores the tracks, and the `TrackSource` contribution opens them when they are played. Both are
+generic; neither names a server.
+
+**Storing the tracks.** `context.track_sources` (`TrackSourceAccess`) works on the plugin's own keys
+and on nothing else, from any thread:
+
+- `upsert(tracks) -> {source_key: track_id}` stores `SourceTrack` values (`source_key`, `title`,
+  `artists`, `album`, `album_artist`, `track_number`, `duration_us`, `genre`, `year`; `artists` and
+  `genre` take one string or several). The first time a key is stored, the core gives it a normal
+  `track_id`, a per-machine UUID like any other. The id never changes for that key, not after
+  `remove`, not after a restart. Calling `upsert` again with the same values changes nothing (it is
+  idempotent and announces nothing); with other values it replaces the metadata under the same id.
+  The call is one transaction: all tracks or none. Metadata is checked: an empty key, a negative
+  duration or an over-long text raises `ValueError`.
+- `remove(source_keys) -> int` makes the tracks unavailable and returns how many were available. The
+  row, the `track_id`, the playlist entries that point to it and the play log rows stay. An unknown
+  key and a track already removed are ignored. `upsert` brings a removed track back under its id.
+- `list(available_only=False) -> [SourceTrackEntry]` returns the plugin's tracks, removed ones
+  included, with `track_id`, `track` and `available`.
+
+**What the core does with them.** The tracks are stored in the core table `plugin_source_tracks`
+(migration 030), keyed by `(plugin_id, source_key)`. They are not in `track_locations` or
+`root_tracks`: the scanner never sees them and they are in no library folder, so they are not in the
+Explorer. Everything that works on a `track_id` treats them as tracks: the Artists view, local
+playlists, the queue, the history, the play log and the tracks of a plugin tab (`TrackListRow.track_id`).
+The row the interface reads has `sourcePluginId` and `sourceKey` and an empty `path`. A track is
+**unavailable** (greyed out, never played, skipped by Play, Shuffle and the queue, no "Add to
+playlist") when the plugin removed it, or when the plugin that provides it is not running; the
+playlist entry stays and returns to normal when the track is available again. The analysis of a
+track (`track_data`) and its normalization loudness are stored by `track_id` like those of a file, so
+loudness normalization applies. `context.library.tracks()` lists files only: use `track_sources.list()`.
+
+**Never a file.** A track without a file is refused, with a sentence that names the plugin ("This
+track is provided by X and has no file on this computer, so it cannot be moved"), by every file
+operation: tag edit and undo, move, Recycle Bin, analysis, "Show in Explorer", playlist export (it
+exports the entry as a name only), `files.move_track` and `files.recycle`. A plugin that wants the
+audio on disk downloads it itself and imports it with `files.import_file`; the new file is then a
+normal library track with another `track_id`.
+
+**Playing them.** The `TrackSource` contribution has two functions:
+
+- `open(source_key) -> PlayableSource`. `PlayableSource` is either `path` (a local file the plugin
+  made, for example a download; the player holds a read lease on it like on a library file) or `url`
+  (`http` or `https`) with `headers`, a mapping sent with the requests for that track only (for
+  example `Authorization`). A URL source is never locked by the file access coordinator. Header names
+  must be HTTP tokens, values must have no control character and no trailing backslash;
+  `PlayableSource` refuses anything else, and its `repr` never shows a header value or the query of the
+  URL. **`open` runs on a job thread, never on the graphical thread.** It may take a network round
+  trip, but it must return or raise in a reasonable time: the player waits for it while the track is
+  `Loading`, and the user can choose another track meanwhile (the answer is then dropped). Do not
+  call Qt widgets or models from it, and keep nothing it returns: the core calls it again for every
+  play, and 15 seconds before the end of the current track for the gapless preparation of the next.
+- `cover(source_key) -> bytes | None` (optional) returns the bytes of a PNG or JPEG cover, or
+  `None`. It runs on an image worker thread when the interface asks for the picture and may be slow;
+  the core caches a cover it got. A function that raises gives the usual placeholder.
+
+**Errors.** When `open` raises, returns something else than a `PlayableSource`, or the player cannot
+open what it returned (for example the server answers 401), the player shows an error that names the
+plugin ("Remote could not open this track: ...") on the message line and goes on with the next track
+of the queue; with no next track it stays in the error state with the same sentence. The failure is
+logged; nothing is added to the play log for a track that could not be opened. A plugin that is not
+running gives "X is not running, so its tracks cannot be played."
+
+**Gapless.** `PlayerBackend.load()` and the gapless `queue_next()` take a `Path` or a
+`PlayableSource`. A URL entry is prepared 15 seconds before the end of the playing one, exactly like
+a file, and the switch is without a gap (measured on the pinned libmpv: a local file followed by a
+URL track gives the same samples as the two decodes, with no run of zeros longer than one sample).
+libmpv opens the queued entry ahead of time with the options that are live at that moment, and ignores
+a per-file `http-header-fields` there (its manual warns about it; measured: it also leaks the headers of
+the playing entry into the queued one). So the backend keeps the headers of the entry about to be
+opened in the live option: those of the loaded entry, then those of the queued entry from the moment
+it is queued, and the playing entry's own again if the queued one is cancelled. In the option, a comma
+inside a header value is written `\,`; a backslash is literal; colons and semicolons need no care.
+The headers of a playing entry's open connection are unaffected by the change. A far seek that makes
+libmpv open a new connection for the playing entry while another entry is queued uses the headers
+the connection was opened with (not verified for every container).
+
+**What a plugin must not do.** Return a URL that redirects to another host unless that host may see
+the headers (libmpv/FFmpeg send them to the redirect target too; not verified). Put a secret in
+the URL when a header can carry it. Block the graphical thread. Keep a stale `PlayableSource`.
+Assume that `open` is called once per track, or that two calls give the same URL. Write to a
+`plugin_source_tracks` row directly: use `track_sources`. Use `source_key` values that contain
+personal paths. Store a secret in `SourceTrack` (the metadata is stored, shown and copied to
+playlist snapshots).
 
 ## 7. Contributions
 
@@ -259,12 +402,64 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   `Path` of that library folder; the scanned tracks are already in the library. A scan that was
   cancelled, replaced by a newer one or interrupted is not announced. Nothing is called for a
   plugin that is off or unloaded. A `callback` that raises is caught, logged and announced once.
+- `DeleteChoices(offer, run)`: extra choices in the Recycle Bin confirmation, see "Delete choices".
+- `TrackSource(open, cover=None)`: how the player opens, and the interface draws the cover of, the
+  tracks stored with `context.track_sources`; at most one per plugin, see "Track sources". `open`
+  runs on a job thread and `cover` on an image thread.
 
 `TrackListRow` rows, `TabKind` track list functions and `TrackColumn.value_fn` run on a **job
 thread** while a list loads. Keep them cheap, read only the plugin's own data (the database
 gives each thread its own connection) and call no Qt widget or model. The other functions
 (`activate`, `run`, `checked`, `enabled`, `enabled_fn`, `title_fn`, `header`, `run_action`)
 run on the graphical thread, so they must return quickly and hand slow work to `jobs`.
+
+### Delete choices
+
+An optional capability (`API_VERSION` stays 1) for a plugin that keeps tracks somewhere else and
+must say what a delete means for them. When the user deletes tracks (the track menu, or the
+Delete key), the core shows its usual confirmation, "Move to Recycle Bin". A plugin adds choices
+to it with `DeleteChoices(offer, run)`:
+
+- `offer(track_ids) -> [DeleteChoice]` receives the identifiers of the selected tracks, on the
+  graphical thread, each time the confirmation opens. It returns the choices that apply to that
+  selection, or an empty sequence. Keep it cheap and read only the plugin's own data.
+- `DeleteChoice(choice_id, label, description="", tone="normal", replaces_recycle=False)`.
+  `label` is the button text; `description` is a sentence or two on a card above the buttons, and
+  should say what the choice does and what it leaves alone. `tone` is `normal` or `danger`;
+  `danger` draws the button with the core's red style, for a choice MTEE cannot undo. A choice
+  with an empty id or label, or a second one with the same id, is ignored.
+- `run(choice_id, track_ids, job) -> str | None` runs when the user presses a choice, on a job
+  thread submitted with the job service: it shows in Tasks, and `job` can be checked for
+  cancellation (the dialog shows the Cancel button while it runs). It receives the identifiers that
+  `offer` received. It returns a short sentence that tells what was done (`None` shows "Done."), or
+  raises: an exception with `readable = True` is shown as its message alone, any other as
+  `ClassName: message`, and the job ends Failed. The dialog then shows the result and a Close
+  button; nothing is retried.
+
+What the dialog does:
+
+- Without a plugin choice for the selection, the dialog is exactly the one of the core.
+- Each plugin that offers choices has a group: its name as a small heading, then one card per
+  choice, and one button per choice next to the core's. Two plugins give two groups, in the order
+  the plugins loaded.
+- If no choice has `replaces_recycle`, "Move to Recycle Bin" stays and is the default button; the
+  plugin buttons are added next to it. If any choice has `replaces_recycle=True`, the core button
+  is not drawn for that selection: the first `normal` choice is the default (primary) button, and
+  a `danger` choice is drawn red, after the others (farthest from the default). A `danger` choice
+  is never the default.
+- The core's own action does not change: it moves files to the Windows Recycle Bin only, and never
+  deletes permanently. A plugin choice is only what its `run` does: pressing it moves no file to
+  the Recycle Bin by itself. A plugin that wants the files recycled calls
+  `context.files.recycle(track_ids)` itself, which asks for the usual confirmation.
+- A plugin whose `offer` raises is logged, announced once, and left out: the confirmation and the
+  core action work as without it. A plugin has at most one `DeleteChoices`; declaring two makes
+  the plugin Failed.
+- The confirmation opens when at least one selected track has a readable file, as before; the
+  plugin receives all the selected identifiers.
+
+The sample plugin offers one non-replacing choice, "Sample: log only", whose `run` records the
+identifiers (`tests/plugins/sample/__init__.py`, tests in `tests/plugins/test_delete_choices.py`
+and `tests/ui/test_trash_dialog_choices_ui.py`).
 
 ### QML of a plugin
 

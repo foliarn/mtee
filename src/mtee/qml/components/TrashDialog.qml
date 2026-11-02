@@ -4,13 +4,18 @@ import Mtee
 
 Dialog {
     id: dialog
+    objectName: "trashDialog"
 
     required property var trashModel
 
     modal: true
     focus: true
     width: 620
-    height: 510
+    // Plugin choices (plan 125.4) make the dialog taller; the file list gives some room back.
+    // Without a plugin choice the height is the 510 px it always was.
+    readonly property real windowHeight: parent && parent.Window.window ? parent.Window.window.height : 900
+    height: Math.max(510, Math.min(510 + (choiceBlock.visible ? Math.max(0, choiceBlock.height + 12 - 110) : 0),
+                                   windowHeight - 40))
     anchors.centerIn: parent
     title: trashModel.state === "confirm" ? "Move to Recycle Bin" : "Recycle operation"
     standardButtons: Dialog.NoButton
@@ -59,7 +64,7 @@ Dialog {
 
         Rectangle {
             width: parent.width
-            height: 250
+            height: choiceBlock.visible ? 140 : 250
             color: Theme.sidebar
             border.width: 1
             border.color: Theme.separator
@@ -112,12 +117,91 @@ Dialog {
             }
         }
 
-        Row {
+        // What plugins offer for this selection, one group per plugin under its name. Pending
+        // the user's answer to question 3 of the 125/126 UX review (see TrashModel).
+        Column {
+            id: choiceBlock
+            objectName: "trashChoices"
+            width: parent.width
+            spacing: 8
+            visible: dialog.trashModel.state === "confirm"
+                && (dialog.trashModel.choiceGroups || []).length > 0
+
+            Repeater {
+                model: dialog.trashModel.choiceGroups
+
+                delegate: Column {
+                    id: choiceGroup
+                    required property var modelData
+                    width: choiceBlock.width
+                    spacing: 6
+
+                    SectionLabel {
+                        objectName: "trashChoiceHeading"
+                        text: choiceGroup.modelData.plugin
+                    }
+
+                    Repeater {
+                        model: choiceGroup.modelData.choices
+
+                        delegate: Rectangle {
+                            id: choiceCard
+                            required property var modelData
+                            objectName: "trashChoiceCard"
+                            width: choiceGroup.width
+                            height: cardText.implicitHeight + 16
+                            color: Theme.surface
+
+                            Rectangle {
+                                width: 3
+                                height: parent.height
+                                color: choiceCard.modelData.tone === "danger" ? Theme.danger : Theme.primary
+                            }
+
+                            Column {
+                                id: cardText
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 2
+
+                                Text {
+                                    width: parent.width
+                                    text: choiceCard.modelData.label
+                                    wrapMode: Text.Wrap
+                                    color: Theme.textPrimary
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSecondary
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    visible: text.length > 0
+                                    text: choiceCard.modelData.description
+                                    wrapMode: Text.Wrap
+                                    color: Theme.textSecondary
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeCaption
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // A Flow, not a Row: with several plugin choices the buttons wrap instead of overflowing.
+        Flow {
             width: parent.width
             spacing: 8
             layoutDirection: Qt.RightToLeft
 
             TextButton {
+                // A plugin choice that replaces the core action takes this button's place.
+                visible: !dialog.trashModel.replacesRecycle
                 text: dialog.trashModel.state === "confirm" ? "Move to Recycle Bin" : "Close"
                 kind: dialog.trashModel.state === "confirm" ? "primary" : "neutral"
                 enabledAction: dialog.trashModel.state === "confirm" || dialog.trashModel.state === "result"
@@ -126,6 +210,33 @@ Dialog {
                         dialog.trashModel.confirm()
                     else
                         dialog.close()
+                }
+            }
+
+            // The plugin choices, the default first (rightmost). Danger buttons come after the
+            // others, so the destructive choice is farthest from the default one.
+            Repeater {
+                model: dialog.trashModel.choiceButtons
+
+                delegate: TextButton {
+                    required property var modelData
+                    objectName: "trashChoice_" + modelData.key
+                    visible: modelData.kind !== "danger"
+                    text: modelData.label
+                    kind: modelData.kind
+                    onClicked: dialog.trashModel.run_choice(modelData.key)
+                }
+            }
+
+            Repeater {
+                model: dialog.trashModel.choiceButtons
+
+                delegate: DangerButton {
+                    required property var modelData
+                    objectName: "trashChoice_" + modelData.key
+                    visible: modelData.kind === "danger"
+                    text: modelData.label
+                    onClicked: dialog.trashModel.run_choice(modelData.key)
                 }
             }
 

@@ -11,6 +11,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, QUrl
 from PySide6.QtGui import QFont, QGuiApplication, QIcon, QWindow
@@ -54,6 +55,7 @@ from mtee.persistence.playback_repository import (
 )
 from mtee.persistence.playlists_repository import PlaylistsRepository
 from mtee.persistence.settings_repository import SettingsRepository
+from mtee.persistence.source_track_repository import SourceTrackRepository
 from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.media_transport import create_media_transport
@@ -62,6 +64,7 @@ from mtee.plugins.context import PluginHost
 from mtee.plugins.installer import clean_staging, plugin_folders
 from mtee.plugins.loader import PluginManager, PluginPreferences
 from mtee.plugins.registry import load_plugin, plugin_ui_enabled
+from mtee.plugins.source_registry import TrackSourceRegistry
 from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.artist_index_service import ArtistIndexService
@@ -366,11 +369,39 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             recycle=trash_model,
             roots=workspace,
             refresh_playlists=playlists_model.refresh,
+            play_log=play_log,
+            device_id=load_or_create_device_id(settings),
+            analysis=analysis_repository,
+            credit_overrides=CreditOverrideRepository(database),
+            play_log_changed=lambda: _refresh_after_remote_plays(statistics_model, jobs, workspace),
+            settings_applied=lambda _keys: _apply_synced_settings(
+                playback_settings, profile_model, playlists_model
+            ),
+            restore_proposed=lambda path: _show_proposed_restore(
+                workspace, data_privacy_model, path
+            ),
+            source_tracks=SourceTrackRepository(database),
+            source_tracks_changed=lambda track_ids: _refresh_after_source_tracks(
+                player_service, artist_index, playlists_model, track_ids
+            ),
         )
         workspace.attach_plugin_host(plugin_host)
         plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
         plugin_host.attach_plugin_manager(plugin_manager)
         plugin_manager.load_enabled(plugin_host.context_for, plugin_folders_found)
+        # The tracks that plugins provide without a file: the player opens them through
+        # the running plugins, and the tracks of a plugin that is not running read as
+        # unavailable.
+        source_registry = TrackSourceRegistry()
+        source_registry.register(plugin_manager.plugins)
+        library.set_running_source_plugins(
+            source_registry.running_plugin_ids,
+            {record.plugin_id: record.title for record in plugin_manager.plugins},
+        )
+        player_service.attach_track_sources(source_registry)
+        player_service.sourceFailed.connect(plugin_host.notify)
+        artist_index.refresh()
+        playlists_model.refresh()
         workspace.register_plugins(plugin_manager.plugins, settings)
         plugin_host.run_startup_tasks(plugin_manager.plugins)
         # The snapshot of the start is taken here, after the plugins are loaded.
@@ -385,7 +416,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
                 quit_app=application.quit,
             )
         )
-        artwork_provider = ArtworkProvider(library)
+        artwork_provider = ArtworkProvider(library, source_cover=source_registry.cover)
         # Never fatal: without the system controls the application keeps working.
         media_controls = MediaControls(
             player_service, library, create_media_transport(), application
@@ -467,6 +498,47 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     if isinstance(workspace, WorkspaceModel):
         workspace.resumeRoots()
     return runtime
+
+
+def _refresh_after_remote_plays(
+    statistics: StatisticsModel, jobs: JobService, workspace: WorkspaceModel
+) -> None:
+    """Read the listening figures again after a plugin added the plays of other devices."""
+    _refresh_after_listening(statistics, jobs)
+    workspace.refreshPlayStats()
+
+
+def _refresh_after_source_tracks(
+    player: PlayerService,
+    artist_index: ArtistIndexService,
+    playlists_model: PlaylistsModel,
+    track_ids: Sequence[str],
+) -> None:
+    """Read the views again after a plugin added, changed or removed its tracks."""
+    for track_id in track_ids:
+        player.refresh_track(track_id)
+    artist_index.refresh()
+    playlists_model.refresh()
+
+
+def _apply_synced_settings(
+    playback_settings: PlaybackSettingsModel,
+    profile_model: ProfileModel,
+    playlists_model: PlaylistsModel,
+) -> None:
+    """Read again what a plugin wrote with the synced settings (graphical thread)."""
+    playback_settings.reload()
+    profile_model.changed.emit()
+    playlists_model.refresh()
+
+
+def _show_proposed_restore(
+    workspace: WorkspaceModel, data_privacy: DataPrivacyModel, path: Path
+) -> None:
+    """Open Settings on Data & privacy with the confirmation for a backup a plugin offered."""
+    workspace.openSettings()
+    workspace.setSettingsPage("privacy")
+    data_privacy.propose_restore(path)
 
 
 def _refresh_after_listening(statistics: StatisticsModel, jobs: JobService) -> None:

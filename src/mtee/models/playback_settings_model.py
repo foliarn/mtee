@@ -36,6 +36,13 @@ class PlaybackSettingsModel(QObject):
     def normalizationLevel(self) -> str:
         return self._settings.level
 
+    def reload(self) -> None:
+        """Read the stored choices again, after another writer (a plugin) changed them."""
+        loaded = self._load()
+        if loaded != self._settings:
+            self._settings = loaded
+            self.changed.emit()
+
     @Slot(bool)
     def setNormalizationEnabled(self, value: bool) -> None:
         self._update(enabled=bool(value))

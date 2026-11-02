@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QByteArray
 from PySide6.QtGui import QColor, QImage
@@ -44,7 +45,7 @@ class FakeBackend:
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, path: Any, session_id: int) -> None:
         self.active_session_id = session_id
         self.position = 0
         self.emit("duration", session_id, 4_000_000)

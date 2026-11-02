@@ -246,7 +246,12 @@ class AnalysisService:
         """
         record = self._library.source_record(track_id)
         if record is None:
-            return TrackReport(track_id, False, "The track is no longer in the library.")
+            return TrackReport(
+                track_id,
+                False,
+                self._library.non_file_refusal(track_id, "analyzed")
+                or "The track is no longer in the library.",
+            )
         if record.status != "readable":
             return TrackReport(track_id, False, "This audio file could not be read.")
         duration = _duration_us(record)

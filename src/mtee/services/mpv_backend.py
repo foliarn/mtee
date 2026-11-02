@@ -7,10 +7,13 @@ import os
 import struct
 import sys
 import threading
+from collections import deque
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from mtee.domain.loudness import GAIN_LIMITS_DB
+from mtee.domain.source_tracks import PlayableSource
 from mtee.services.player_backend import BackendEvent, BackendEventHandler, PlayerBackendError
 
 __all__ = ["MpvBackend", "mpv_library_path"]
@@ -65,6 +68,32 @@ _PROPERTY_FORMATS = {
 }
 
 
+def _target_of(source: Path | PlayableSource) -> str:
+    """Return what ``loadfile`` opens: a file path or a URL."""
+    if isinstance(source, Path):
+        return str(source)
+    if source.path is not None:
+        return str(source.path)
+    assert source.url is not None  # a PlayableSource has a path or a url
+    return source.url
+
+
+def _header_list(source: Path | PlayableSource) -> str:
+    r"""Return the value of libmpv's ``http-header-fields`` for a source ("" for none).
+
+    The option is a list of strings separated by commas. Measured on the pinned libmpv:
+    a comma inside a header value is written ``\,``; a backslash that is not followed by
+    a comma is literal and must not be doubled, so a value ending in a backslash is refused
+    by ``PlayableSource``; quotes around an item are not removed and ``%N%`` is not
+    understood inside the list. Colons and semicolons need no care.
+    """
+    if isinstance(source, Path) or not source.headers:
+        return ""
+    return ",".join(
+        f"{name}: {value}".replace(",", "\\,") for name, value in source.headers.items()
+    )
+
+
 def mpv_library_path() -> Path:
     """Return the controlled bundled path, or the developer vendor path."""
     if getattr(sys, "frozen", False):
@@ -83,6 +112,7 @@ class MpvBackend:
         *,
         audio_output: str = "wasapi",
         wait_timeout_seconds: float = 0.1,
+        extra_options: dict[str, str] | None = None,
     ) -> None:
         if struct.calcsize("P") != 8:
             raise PlayerBackendError("The bundled libmpv runtime requires 64-bit Python.")
@@ -112,7 +142,19 @@ class MpvBackend:
         self._handler_lock = threading.Lock()
         self._session_lock = threading.Lock()
         self._active_session_id = 0
-        self._pending_session_id = 0
+        # Sessions of the entries that mpv has not started yet, in playlist order, each with
+        # whether it was appended behind a playing entry (gapless) or loaded with ``load``.
+        self._pending_sessions: deque[tuple[int, bool]] = deque()
+        self._active_gapless = False
+        # The headers of URL entries. libmpv opens the next entry ahead of time with the
+        # options live at that moment, not with the per-file options of that entry (its
+        # manual warns about it, and a per-file ``http-header-fields`` was measured to be
+        # ignored by the prefetch and to leak from the playing entry into it). So the live
+        # option always holds the headers of the entry about to be opened: those of the
+        # loaded entry, then those of the queued entry from the moment it is queued.
+        self._live_headers = ""
+        self._current_headers = ""
+        self._queued_headers: dict[int, str] = {}
         self._wait_timeout_seconds = wait_timeout_seconds
         self._closing = threading.Event()
         self._initialized = False
@@ -130,6 +172,11 @@ class MpvBackend:
             "ao": audio_output,
             "audio-client-name": "MTEE",
             "sub-auto": "no",
+            # Consecutive entries of the mpv playlist play with no gap: the audio output stays
+            # open and a different sample rate is resampled instead of reopening it. The next
+            # entry is appended by ``queue_next`` and opened ahead of time by the prefetch.
+            "gapless-audio": "yes",
+            "prefetch-playlist": "yes",
             # Built-in Lua scripts serve the OSD, the console and URL playback, none of which
             # MTEE uses. LuaJIT raises SEH exceptions for its own control flow; Python's
             # faulthandler (enabled by pytest) dumps every thread on each one while other
@@ -144,6 +191,7 @@ class MpvBackend:
             "load-commands": "no",
             "load-positioning": "no",
         }
+        options.update(extra_options or {})
         try:
             for name, value in options.items():
                 self._check(
@@ -182,12 +230,60 @@ class MpvBackend:
         with self._handler_lock:
             self._handler = handler
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, source: Path | PlayableSource, session_id: int) -> None:
         if self._closing.is_set() or not self._ctx:
             raise PlayerBackendError("The libmpv backend is closed.")
+        headers = _header_list(source)
         with self._session_lock:
-            self._pending_session_id = session_id
-        self._command("loadfile", str(path), "replace")
+            self._pending_sessions.clear()
+            self._pending_sessions.append((session_id, False))
+            self._queued_headers.clear()
+            self._current_headers = headers
+        self._set_headers(headers)
+        self._command("loadfile", _target_of(source), "replace")
+
+    def queue_next(self, source: Path | PlayableSource, session_id: int, gain_db: float) -> None:
+        """Append the entry that follows the playing one, with its own gain.
+
+        mpv opens it ahead of time and switches to it on the next sample of the current
+        entry. The gain is a per-entry option, applied inside the audio stream exactly at
+        the boundary, so it never reopens the audio output. A previous queued entry is
+        replaced.
+        """
+        if self._closing.is_set() or not self._ctx:
+            raise PlayerBackendError("The libmpv backend is closed.")
+        low, high = GAIN_LIMITS_DB
+        gain = min(max(float(gain_db), low), high)
+        self.clear_next()
+        with self._session_lock:
+            self._pending_sessions.append((session_id, True))
+        headers = _header_list(source)
+        with self._session_lock:
+            self._queued_headers[session_id] = headers
+        try:
+            # Before the append: libmpv may open the entry as soon as it is in the list.
+            self._set_headers(headers)
+            self._command("loadfile", _target_of(source), "append", "-1", f"volume-gain={gain:.4f}")
+        except PlayerBackendError:
+            with self._session_lock:
+                if self._pending_sessions and self._pending_sessions[-1][0] == session_id:
+                    self._pending_sessions.pop()
+                self._queued_headers.pop(session_id, None)
+            self._set_headers(self._current_headers)
+            raise
+
+    def clear_next(self) -> None:
+        """Forget the queued entry; the playing one is untouched."""
+        if self._closing.is_set() or not self._ctx:
+            return
+        with self._session_lock:
+            self._pending_sessions = deque(item for item in self._pending_sessions if not item[1])
+            self._queued_headers.clear()
+            current = self._current_headers
+        self._command("playlist-clear", required=False)
+        # The playing entry reopens its stream (a far seek) with its own headers again.
+        with suppress(PlayerBackendError):
+            self._set_headers(current)
 
     def set_paused(self, paused: bool) -> None:
         self._set_property("pause", _MPV_FORMAT_FLAG, ctypes.c_int(bool(paused)))
@@ -228,6 +324,8 @@ class MpvBackend:
 
     def stop(self) -> None:
         if self._ctx and not self._closing.is_set():
+            with self._session_lock:
+                self._pending_sessions.clear()
             self._command("stop")
 
     def close(self) -> None:
@@ -286,6 +384,8 @@ class MpvBackend:
         lib.mpv_wakeup.argtypes = [ctypes.c_void_p]
         lib.mpv_terminate_destroy.restype = None
         lib.mpv_terminate_destroy.argtypes = [ctypes.c_void_p]
+        lib.mpv_free.restype = None
+        lib.mpv_free.argtypes = [ctypes.c_void_p]
         lib.mpv_error_string.restype = ctypes.c_char_p
         lib.mpv_error_string.argtypes = [ctypes.c_int]
 
@@ -299,9 +399,20 @@ class MpvBackend:
                 break
             if event.event_id == _MPV_EVENT_START_FILE:
                 with self._session_lock:
-                    self._active_session_id = self._pending_session_id
+                    if self._pending_sessions:
+                        self._active_session_id, self._active_gapless = (
+                            self._pending_sessions.popleft()
+                        )
+                        if self._active_gapless:
+                            self._current_headers = self._queued_headers.pop(
+                                self._active_session_id, ""
+                            )
                 self._emit("start-file", self._active_session_id)
             elif event.event_id == _MPV_EVENT_FILE_LOADED:
+                if self._active_gapless:
+                    # An observed property whose value did not change between two entries
+                    # sends no event, so the new entry's values are sent explicitly.
+                    self._emit_stream_snapshot()
                 self._emit("loaded", self._active_session_id)
             elif event.event_id == _MPV_EVENT_END_FILE:
                 self._handle_end_file(event.data)
@@ -320,6 +431,44 @@ class MpvBackend:
             self._emit("error", self._current_session(), message)
         else:
             self._emit("stopped", self._current_session())
+
+    def _emit_stream_snapshot(self) -> None:
+        session_id = self._current_session()
+        duration = self._read_double("duration")
+        if duration is not None:
+            self._emit("duration", session_id, self._seconds_to_us(duration))
+        seekable = self._read_flag("seekable")
+        if seekable is not None:
+            self._emit("seekable", session_id, seekable)
+        codec = self._read_string("audio-codec-name")
+        if codec is not None:
+            self._emit("codec", session_id, codec)
+
+    def _read_double(self, name: str) -> float | None:
+        value = ctypes.c_double()
+        result = self._lib.mpv_get_property(
+            self._ctx, name.encode("ascii"), _MPV_FORMAT_DOUBLE, ctypes.byref(value)
+        )
+        return value.value if result >= 0 else None
+
+    def _read_flag(self, name: str) -> bool | None:
+        value = ctypes.c_int()
+        result = self._lib.mpv_get_property(
+            self._ctx, name.encode("ascii"), _MPV_FORMAT_FLAG, ctypes.byref(value)
+        )
+        return bool(value.value) if result >= 0 else None
+
+    def _read_string(self, name: str) -> str | None:
+        pointer = ctypes.c_void_p()
+        result = self._lib.mpv_get_property(
+            self._ctx, name.encode("ascii"), _MPV_FORMAT_STRING, ctypes.byref(pointer)
+        )
+        if result < 0 or not pointer.value:
+            return None
+        try:
+            return ctypes.string_at(pointer.value).decode("utf-8", errors="replace")
+        finally:
+            self._lib.mpv_free(pointer)
 
     def _handle_property(self, data: int | None) -> None:
         if not data:
@@ -354,6 +503,15 @@ class MpvBackend:
             self._emit("sample-rate", session_id, value)
         elif name == "audio-channels":
             self._emit("channels", session_id, value)
+
+    def _set_headers(self, value: str) -> None:
+        """Make ``value`` the live ``http-header-fields`` (a list text, see ``_header_list``)."""
+        if value == self._live_headers:
+            return
+        self._set_property(
+            "http-header-fields", _MPV_FORMAT_STRING, ctypes.c_char_p(value.encode("utf-8"))
+        )
+        self._live_headers = value
 
     def _set_property(self, name: str, value_format: int, value: Any) -> None:
         self._check(

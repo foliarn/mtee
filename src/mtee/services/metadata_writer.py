@@ -11,6 +11,7 @@ from typing import Any
 
 from mtee.domain.metadata import MetadataSnapshot
 from mtee.domain.metadata_edit import EDITABLE_METADATA_FIELDS, MetadataEditResult, MetadataPatch
+from mtee.domain.source_tracks import NonFileTrackError
 from mtee.domain.tracks import SourceRevision, sha256_of_file
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.metadata_history_repository import (
@@ -67,7 +68,10 @@ class MetadataEditService:
     def capabilities(self, track_id: str) -> dict[str, tuple[bool, str]]:
         source = self._library.source_record(track_id)
         if source is None:
-            return self._unsupported("This track is no longer in the library.")
+            return self._unsupported(
+                self._library.non_file_refusal(track_id, "edited")
+                or "This track is no longer in the library."
+            )
         if self._history.has_incomplete_for_track(track_id):
             return self._unsupported(
                 "A previous save needs recovery. Inspect its recovery files before editing."
@@ -98,6 +102,9 @@ class MetadataEditService:
         """Read tags and edit capabilities for the current catalog revision."""
         source = self._library.source_record(track_id)
         if source is None:
+            refusal = self._library.non_file_refusal(track_id, "edited")
+            if refusal:
+                raise NonFileTrackError(refusal)
             raise FileNotFoundError("This track is no longer in the library.")
         before = SourceRevision.observe(source.path, generation=source.revision.generation)
         if not source.revision.matches(before):
@@ -140,7 +147,10 @@ class MetadataEditService:
         source = self._library.source_record(track_id)
         if source is None:
             return MetadataEditResult(
-                track_id, "conflict", "The track is no longer in the library."
+                track_id,
+                "conflict",
+                self._library.non_file_refusal(track_id, "edited")
+                or "The track is no longer in the library.",
             )
         patch_values = {key: value for key, value in operation["before"].items()}
         patch = MetadataPatch.from_mapping(patch_values)
@@ -201,7 +211,12 @@ class MetadataEditService:
     ) -> MetadataEditResult:
         source = self._library.source_record(track_id)
         if source is None:
-            return MetadataEditResult(track_id, "failed", "The track is no longer in the library.")
+            return MetadataEditResult(
+                track_id,
+                "failed",
+                self._library.non_file_refusal(track_id, "edited")
+                or "The track is no longer in the library.",
+            )
         if source.status != "readable":
             return MetadataEditResult(
                 track_id, "unsupported", "Unreadable sources cannot be edited."

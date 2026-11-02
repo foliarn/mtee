@@ -7,25 +7,27 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
 
 from mtee.domain.loudness import NormalizationSettings, playback_gain_db
 from mtee.domain.play_log import ClockReading, PlayedTrack, PlayEvent, PlayTracker
 from mtee.domain.playback import PlaybackState, PlaybackStatus
 from mtee.domain.playback_history import HistoryEntry, PlaybackHistory
 from mtee.domain.playback_queue import QueueEntry, QueueState
+from mtee.domain.source_tracks import PlayableSource, is_non_file_row
 from mtee.domain.tracks import TrackId
 from mtee.persistence.play_log_repository import PlayLogRepository
 from mtee.persistence.playback_repository import PlaybackRepository, PlaybackSession
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.services.file_access import FileAccessCoordinator
-from mtee.services.player_backend import BackendEvent, PlayerBackend
+from mtee.services.player_backend import BackendEvent, GaplessPlayerBackend, PlayerBackend
+from mtee.services.track_sources import TrackSourceOpener
 
 __all__ = ["PlayerService"]
 
@@ -35,10 +37,57 @@ _VOLUME_KEY = "player.volume"
 _MUTED_KEY = "player.muted"
 # Slider drags write once, after the last move.
 _SETTINGS_SAVE_DELAY_MS = 500
+# The next track is handed to the backend when this much of the current one is left. The
+# backend opens the file at once and the track stays read-locked until it is played, so a
+# short window keeps the next track free for editing and moving for most of the current one.
+_PREFETCH_LEAD_US = 15_000_000
+# A refused prefetch (the next track is busy or missing) is not retried before this delay.
+_PREFETCH_RETRY_SECONDS = 2.0
+
+
+@dataclass(frozen=True, slots=True)
+class _Prefetch:
+    """The entry the backend will play right after the current one, with no gap."""
+
+    session_id: int
+    base_queue: QueueState
+    next_queue: QueueState
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceRequest:
+    """A track without a file whose audio source a plugin is resolving, off the graphical thread.
+
+    ``prefetch`` tells the early preparation of the next track (``base_queue`` and ``next_queue``
+    then say which queue change it belongs to) from the load of the track the user asked for
+    (``restore`` is true while the saved session is reopened in pause).
+    """
+
+    session_id: int
+    track_id: str
+    plugin_id: str
+    source_key: str
+    row: dict[str, Any]
+    prefetch: bool = False
+    restore: bool = False
+    base_queue: QueueState | None = None
+    next_queue: QueueState | None = None
+
+
+class _SourceTask(QRunnable):
+    """Runs the plugin's ``open`` on a thread of Qt's pool, so its signal is a Qt-thread signal."""
+
+    def __init__(self, work: Callable[[], None]) -> None:
+        super().__init__()
+        self._work = work
+
+    def run(self) -> None:
+        self._work()
 
 
 class _BackendEventBridge(QObject):
     eventReceived = Signal(object)
+    sourceResolved = Signal(object)
 
 
 class PlayerService(QObject):
@@ -52,6 +101,9 @@ class PlayerService(QObject):
     # Emitted on the graphical thread after a listening was stored in the play log.
     playLogWritten = Signal()
     _playLogStored = Signal()
+    # A track from a plugin could not be opened; the text names the plugin. The interface shows
+    # it as a notice, because playback has already gone on to the next track when it arrives.
+    sourceFailed = Signal(str)
 
     def __init__(
         self,
@@ -88,6 +140,16 @@ class PlayerService(QObject):
         self._pause_requested_session_id: int | None = None
         self._expected_pause_state: bool | None = None
         self._closed = False
+        self._session_counter = 0
+        self._prefetch: _Prefetch | None = None
+        self._prefetch_refused: tuple[QueueState, float] | None = None
+        # Tracks without a file (plan 125.2): the opener of the plugins, the requests being
+        # resolved by session, and the load postponed until the plugins are loaded.
+        self._sources: TrackSourceOpener | None = None
+        self._source_requests: dict[int, _SourceRequest] = {}
+        self._deferred_open: dict[str, Any] | None = None
+        self._source_pool = QThreadPool(self)
+        self._source_pool.setMaxThreadCount(4)
         self._session_repository: PlaybackRepository | None = None
         self._save_executor: ThreadPoolExecutor | None = None
         self._save_futures: list[Future[bool]] = []
@@ -104,6 +166,9 @@ class PlayerService(QObject):
         self._bridge = _BackendEventBridge(self)
         self._bridge.eventReceived.connect(
             self._handle_backend_event, Qt.ConnectionType.QueuedConnection
+        )
+        self._bridge.sourceResolved.connect(
+            self._on_source_resolved, Qt.ConnectionType.QueuedConnection
         )
         if backend is not None:
             backend.set_event_handler(self._bridge.eventReceived.emit)
@@ -145,6 +210,17 @@ class PlayerService(QObject):
         self._sync_queue_projection()
         if self._queue.current is not None:
             self._open_queue_current(initially_paused=True, restore_position_us=session.position_us)
+
+    def attach_track_sources(self, opener: TrackSourceOpener) -> None:
+        """Let the player play the tracks that plugins provide without a file.
+
+        The opener runs off the graphical thread. A restored session whose track comes from a
+        plugin waits here, in pause, until the plugins are loaded.
+        """
+        self._sources = opener
+        deferred, self._deferred_open = self._deferred_open, None
+        if deferred is not None and not self._closed:
+            self._open_index(**deferred)
 
     def attach_play_log(self, repository: PlayLogRepository, device_id: str) -> None:
         """Append every closed listening to the permanent log, in the playback saver thread."""
@@ -197,6 +273,9 @@ class PlayerService(QObject):
             self._backend.set_gain_db(self._gain_db(self._resolver(self._state.current_id)))
         except Exception as error:
             _LOGGER.warning("Could not apply the loudness normalization: %s", error)
+        # The queued entry carries the gain it was prepared with.
+        self._cancel_prefetch()
+        self._sync_prefetch()
 
     def _gain_db(self, track: dict[str, Any]) -> float:
         """Return the gain of a track row under the current normalization choices."""
@@ -574,6 +653,7 @@ class PlayerService(QObject):
             repeat=self._queue.repeat,
         )
         self.queueChanged.emit()
+        self._sync_prefetch()
 
     def _open_queue_current(
         self, *, initially_paused: bool = False, restore_position_us: int = 0
@@ -822,7 +902,10 @@ class PlayerService(QObject):
         if not self._state.current_id or (track_id and track_id != self._state.current_id):
             return False
         self._end_play_event(completed=False)
-        next_session = self._state.session_id + 1
+        self._cancel_prefetch()
+        self._source_requests.clear()
+        self._deferred_open = None
+        next_session = self._next_session_id()
         self._pause_requested_session_id = None
         self._expected_pause_state = None
         self._publish(
@@ -858,6 +941,10 @@ class PlayerService(QObject):
         except Exception as error:
             flush_error = error
         self._closed = True
+        self._source_requests.clear()
+        self._source_pool.clear()
+        # A plugin's open() that is still running is given a moment; its answer is dropped.
+        self._source_pool.waitForDone(2000)
         self._transient_silence = False
         if self._save_executor is not None:
             self._save_executor.shutdown(wait=True)
@@ -887,6 +974,9 @@ class PlayerService(QObject):
             return
         # Any change of track, including repeat one and replay, ends the open listening.
         self._end_play_event(completed=False)
+        self._cancel_prefetch()
+        self._source_requests.clear()
+        self._deferred_open = None
         self._pause_requested_session_id = None
         self._expected_pause_state = initially_paused
         self._restore_seek = None
@@ -895,34 +985,23 @@ class PlayerService(QObject):
         next_entry_id = self._queue.current.entry_id if self._queue.current else ""
         if previous_id and self._state.current_entry_id != next_entry_id:
             self._record_history()
-        session_id = self._state.session_id + 1
+        session_id = self._next_session_id()
         if initially_paused:
             self._pause_requested_session_id = session_id
             self._restore_seek = (session_id, max(0, restore_position_us))
         _LOGGER.debug("Playback request session=%s track=%s", session_id, track_id)
         current_source = self._state.source if source is None else source
         current_title = self._state.source_title if source_title is None else source_title
-        self._publish(
+        self._publish_new_track(
             status=PlaybackStatus.LOADING,
             track_ids=tuple(ids),
-            current_id=track_id,
-            current_entry_id=next_entry_id,
-            current_index=index,
-            position_us=0,
-            duration_us=_duration_us(self._track_rows.get(track_id, {})),
-            seekable=False,
-            error_message="",
+            index=index,
+            track_id=track_id,
+            entry_id=next_entry_id,
             session_id=session_id,
             source=current_source,
             source_title=current_title,
-            codec="",
-            sample_rate=None,
-            channels="",
-            seeking=False,
-            history=tuple(entry.track_id for entry in self._history.entries),
         )
-        self.queueChanged.emit()
-        self._pending_seek_us = None
         if not initially_paused:
             self._schedule_session_save()
         if self._backend is not None and previous_id:
@@ -940,6 +1019,23 @@ class PlayerService(QObject):
             # on a path captured when the queue was created.
             track = self._resolver(track_id)
             self._track_rows[track_id] = dict(track)
+            if is_non_file_row(track):
+                # A plugin provides this track: its audio source is resolved off this thread,
+                # and the load goes on in ``_finish_source_load``.
+                self._begin_source_load(
+                    session_id,
+                    track,
+                    restore=initially_paused,
+                    postponed={
+                        "index": index,
+                        "track_ids": tuple(ids),
+                        "source": source,
+                        "source_title": source_title,
+                        "initially_paused": initially_paused,
+                        "restore_position_us": restore_position_us,
+                    },
+                )
+                return
             path = Path(str(track.get("path", "")))
             if not path.is_file():
                 raise FileNotFoundError(f"The audio file is unavailable: {path}")
@@ -949,21 +1045,370 @@ class PlayerService(QObject):
             context.__enter__()
             self._read_contexts[session_id] = context
             self._read_track_ids[session_id] = track_id
-            self._transient_silence = False
-            self._backend.set_volume(0 if self._state.muted else self._state.volume)
-            # The gain of this track is set before the load, so its first sample is heard
-            # at the normalized level. Nothing is preloaded: each track is loaded here.
-            self._backend.set_gain_db(self._gain_db(track))
-            # An explicit activation means "play this track". Reset the native
-            # pause property here, once, before load so a previous track's pause
-            # cannot leak into the new session.
-            self._backend.set_paused(initially_paused)
-            self._open_play_event(track_id, track, playing=False)
-            self._backend.load(path, session_id)
-            _LOGGER.debug("Playback load command sent session=%s track=%s", session_id, track_id)
+            self._start_backend_load(path, session_id, track_id, track, initially_paused)
         except Exception as error:
             self._release_read_lease(session_id)
             self._fail(str(error))
+
+    def _start_backend_load(
+        self,
+        target: Path | PlayableSource,
+        session_id: int,
+        track_id: str,
+        track: dict[str, Any],
+        paused: bool,
+    ) -> None:
+        """Set the volume, the gain and the pause of a new session, then load ``target``."""
+        backend = self._backend
+        if backend is None:
+            raise RuntimeError(self._backend_error or "The audio runtime is unavailable.")
+        self._transient_silence = False
+        backend.set_volume(0 if self._state.muted else self._state.volume)
+        # The gain of this track is set before the load, so its first sample is heard
+        # at the normalized level. Nothing is preloaded: each track is loaded here.
+        backend.set_gain_db(self._gain_db(track))
+        # An explicit activation means "play this track". Reset the native
+        # pause property here, once, before load so a previous track's pause
+        # cannot leak into the new session.
+        backend.set_paused(paused)
+        self._open_play_event(track_id, track, playing=False)
+        backend.load(target, session_id)
+        _LOGGER.debug("Playback load command sent session=%s track=%s", session_id, track_id)
+
+    # ------------------------------------------------------------ tracks without a file
+
+    def _begin_source_load(
+        self,
+        session_id: int,
+        track: dict[str, Any],
+        *,
+        restore: bool,
+        postponed: dict[str, Any],
+    ) -> None:
+        """Start resolving the audio source of a plugin track for the session just published."""
+        plugin_id = str(track["sourcePluginId"])
+        track_id = str(track.get("id", ""))
+        opener = self._sources
+        if opener is None:
+            if restore:
+                self._deferred_open = postponed  # reopened by attach_track_sources, in pause
+                return
+            raise RuntimeError("No plugin provides the audio of this track.")
+        if str(track.get("status", "")) != "readable":
+            self._source_failed(
+                f"{opener.plugin_title(plugin_id)} no longer provides this track.",
+                skip=not restore,
+            )
+            return
+        self._start_source_resolve(
+            _SourceRequest(
+                session_id=session_id,
+                track_id=track_id,
+                plugin_id=plugin_id,
+                source_key=str(track["sourceKey"]),
+                row=dict(track),
+                restore=restore,
+            )
+        )
+
+    def _start_source_resolve(self, request: _SourceRequest) -> None:
+        """Call the plugin's ``open`` on a worker thread; the answer comes back by signal."""
+        opener = self._sources
+        if opener is None:
+            return
+        self._source_requests[request.session_id] = request
+        bridge = self._bridge
+
+        def work() -> None:
+            outcome: tuple[_SourceRequest, PlayableSource | None, str]
+            try:
+                outcome = (request, opener.open(request.plugin_id, request.source_key), "")
+            except Exception as error:
+                # The opener is the plugin boundary: whatever it raises is reported, not raised.
+                outcome = (request, None, str(error) or type(error).__name__)
+            try:
+                bridge.sourceResolved.emit(outcome)
+            except RuntimeError:
+                _LOGGER.debug("The player closed before a track source was resolved")
+
+        self._source_pool.start(_SourceTask(work))
+
+    @Slot(object)
+    def _on_source_resolved(self, outcome: object) -> None:
+        if self._closed or not isinstance(outcome, tuple):
+            return
+        request, source, error = outcome
+        if self._source_requests.get(request.session_id) is not request:
+            return  # cancelled: another track was chosen, or the queue changed
+        del self._source_requests[request.session_id]
+        if request.prefetch:
+            self._finish_source_prefetch(request, source, error)
+        else:
+            self._finish_source_load(request, source, error)
+
+    def _acquire_source_lease(self, request: _SourceRequest, source: PlayableSource) -> None:
+        """Hold a read lease on a local file source; a URL source is never locked."""
+        if source.path is None:
+            return
+        if not source.path.is_file():
+            raise FileNotFoundError(f"The audio file is unavailable: {source.path.name}")
+        context = self._file_access.acquire_read(
+            TrackId.parse(request.track_id), "playback", timeout_seconds=0
+        )
+        context.__enter__()
+        self._read_contexts[request.session_id] = context
+        self._read_track_ids[request.session_id] = request.track_id
+
+    def _finish_source_load(
+        self, request: _SourceRequest, source: PlayableSource | None, error: str
+    ) -> None:
+        if request.session_id != self._state.session_id or self._backend is None:
+            return
+        if source is None:
+            self._source_failed(error, skip=not request.restore)
+            return
+        try:
+            self._acquire_source_lease(request, source)
+            self._track_rows[request.track_id] = dict(request.row)
+            self._start_backend_load(
+                source, request.session_id, request.track_id, request.row, self.pause_pending
+            )
+        except Exception as problem:
+            self._release_read_lease(request.session_id)
+            title = self._sources.plugin_title(request.plugin_id) if self._sources else ""
+            self._source_failed(
+                f"{title} could not play this track: {problem}", skip=not request.restore
+            )
+
+    def _finish_source_prefetch(
+        self, request: _SourceRequest, source: PlayableSource | None, error: str
+    ) -> None:
+        backend = self._backend
+        if (
+            not isinstance(backend, GaplessPlayerBackend)
+            or request.base_queue is None
+            or request.base_queue is not self._queue
+            or request.next_queue is None
+        ):
+            return
+        if source is None:
+            # Not fatal: the track is opened again when the current one ends, and a failure is
+            # then reported with the usual error.
+            _LOGGER.debug("Could not prepare the next plugin track %s: %s", request.track_id, error)
+            self._prefetch_refused = (self._queue, time.monotonic() + _PREFETCH_RETRY_SECONDS)
+            return
+        try:
+            self._acquire_source_lease(request, source)
+            backend.queue_next(source, request.session_id, self._gain_db(request.row))
+        except Exception as problem:
+            _LOGGER.debug("Could not prepare the next track %s: %s", request.track_id, problem)
+            self._release_read_lease(request.session_id)
+            self._prefetch_refused = (self._queue, time.monotonic() + _PREFETCH_RETRY_SECONDS)
+            return
+        self._track_rows[request.track_id] = dict(request.row)
+        self._prefetch = _Prefetch(request.session_id, request.base_queue, request.next_queue)
+        _LOGGER.debug(
+            "Playback next prepared session=%s track=%s", request.session_id, request.track_id
+        )
+
+    def _source_failed(self, message: str, *, skip: bool, source_closed: bool = False) -> None:
+        """Report a plugin track that cannot be played, then go on with the next one.
+
+        The message names the plugin. It is announced as a notice, because the next track
+        replaces the error state at once; with no next track the player stays in the error
+        state and shows it.
+        """
+        _LOGGER.warning("Playback of a plugin track failed: %s", message)
+        self.sourceFailed.emit(message)
+        self._fail(message, source_closed=source_closed)
+        if skip and self._queue.upcoming:
+            self._queue = self._queue.next()
+            self._open_queue_current()
+
+    def _next_session_id(self) -> int:
+        """A session number never used before, so a cancelled entry cannot be mistaken."""
+        self._session_counter = max(self._session_counter, self._state.session_id) + 1
+        return self._session_counter
+
+    def _plan_next(self) -> tuple[QueueState, QueueState] | None:
+        """The queue after the natural end of the current track, without applying it."""
+        queue = self._queue
+        if queue.current is None:
+            return None
+        if queue.repeat == "one":
+            return queue, queue
+        if queue.upcoming:
+            return queue, queue.next()
+        if queue.repeat == "all":
+            return queue, queue.repeat_all()
+        return None
+
+    def _sync_prefetch(self) -> None:
+        """Keep the backend's queued entry equal to the track that naturally follows."""
+        backend = self._backend
+        if self._closed or not isinstance(backend, GaplessPlayerBackend):
+            return
+        if self._prefetch is not None:
+            if self._prefetch.base_queue is self._queue:
+                return
+            # The queue, shuffle or repeat changed: the queued entry is not the next one.
+            self._cancel_prefetch()
+        resolving = self._prefetch_request()
+        if resolving is not None:
+            if resolving.base_queue is self._queue:
+                return  # the plugin is still resolving the next track
+            self._cancel_prefetch()
+        state = self._state
+        if (
+            not state.current_id
+            or state.status not in (PlaybackStatus.PLAYING, PlaybackStatus.PAUSED)
+            or state.duration_us is None
+            or state.seeking
+            or state.duration_us - state.position_us > _PREFETCH_LEAD_US
+        ):
+            return
+        refused = self._prefetch_refused
+        if refused is not None and refused[0] is self._queue and time.monotonic() < refused[1]:
+            return
+        plan = self._plan_next()
+        if plan is None or plan[1].current is None:
+            return
+        base_queue, next_queue = plan
+        track_id = plan[1].current.track_id
+        session_id = self._next_session_id()
+        context: AbstractContextManager | None = None
+        try:
+            track = self._resolver(track_id)
+            if is_non_file_row(track):
+                self._prefetch_source(session_id, track, base_queue, next_queue)
+                return
+            path = Path(str(track.get("path", "")))
+            if not path.is_file():
+                raise FileNotFoundError(f"The audio file is unavailable: {path}")
+            context = self._file_access.acquire_read(
+                TrackId.parse(track_id), "playback", timeout_seconds=0
+            )
+            context.__enter__()
+            backend.queue_next(path, session_id, self._gain_db(track))
+        except Exception as error:
+            # Not fatal: the track is then loaded when the current one ends, as before.
+            _LOGGER.debug("Could not prepare the next track %s: %s", track_id, error)
+            if context is not None:
+                with suppress(Exception):
+                    context.__exit__(None, None, None)
+            self._prefetch_refused = (self._queue, time.monotonic() + _PREFETCH_RETRY_SECONDS)
+            return
+        self._track_rows[track_id] = dict(track)
+        self._read_contexts[session_id] = context
+        self._read_track_ids[session_id] = track_id
+        self._prefetch = _Prefetch(session_id, base_queue, next_queue)
+        _LOGGER.debug("Playback next prepared session=%s track=%s", session_id, track_id)
+
+    def _prefetch_request(self) -> _SourceRequest | None:
+        """The plugin track whose source is being resolved for the early preparation, if any."""
+        return next((item for item in self._source_requests.values() if item.prefetch), None)
+
+    def _prefetch_source(
+        self,
+        session_id: int,
+        track: dict[str, Any],
+        base_queue: QueueState,
+        next_queue: QueueState,
+    ) -> None:
+        """Resolve the next plugin track off this thread; ``_finish_source_prefetch`` queues it."""
+        if self._sources is None or str(track.get("status", "")) != "readable":
+            raise RuntimeError("The next track comes from a plugin that cannot open it.")
+        self._start_source_resolve(
+            _SourceRequest(
+                session_id=session_id,
+                track_id=str(track.get("id", "")),
+                plugin_id=str(track["sourcePluginId"]),
+                source_key=str(track["sourceKey"]),
+                row=dict(track),
+                prefetch=True,
+                base_queue=base_queue,
+                next_queue=next_queue,
+            )
+        )
+
+    def _cancel_prefetch(self) -> None:
+        """Remove the queued entry from the backend and release its file."""
+        for session, item in tuple(self._source_requests.items()):
+            if item.prefetch:
+                del self._source_requests[session]
+        prefetch = self._prefetch
+        if prefetch is None:
+            return
+        self._prefetch = None
+        if isinstance(self._backend, GaplessPlayerBackend):
+            try:
+                self._backend.clear_next()
+            except Exception as error:
+                _LOGGER.warning("Could not remove the queued track: %s", error)
+        self._release_read_lease(prefetch.session_id)
+
+    def _enter_prefetched(self, prefetch: _Prefetch) -> None:
+        """Become the entry the backend just switched to, exactly as a track change does."""
+        self._prefetch = None
+        self._queue = prefetch.next_queue
+        entry = self._queue.current
+        if entry is None:
+            return
+        self._pause_requested_session_id = None
+        self._expected_pause_state = False
+        self._restore_seek = None
+        if self._state.current_entry_id != entry.entry_id:
+            self._record_history()
+        track = self._track_rows.get(entry.track_id, {})
+        self._publish_new_track(
+            status=PlaybackStatus.PLAYING,
+            track_ids=self._queue_track_ids(),
+            index=len(self._queue.past),
+            track_id=entry.track_id,
+            entry_id=entry.entry_id,
+            session_id=prefetch.session_id,
+            source=entry.source or self._queue.source,
+            source_title=entry.source_title or self._queue.source_title,
+        )
+        self._open_play_event(entry.track_id, dict(track), playing=True)
+        self._schedule_session_save()
+        _LOGGER.debug(
+            "Playback gapless switch session=%s track=%s", prefetch.session_id, entry.track_id
+        )
+
+    def _publish_new_track(
+        self,
+        *,
+        status: PlaybackStatus,
+        track_ids: tuple[str, ...],
+        index: int,
+        track_id: str,
+        entry_id: str,
+        session_id: int,
+        source: str,
+        source_title: str,
+    ) -> None:
+        self._publish(
+            status=status,
+            track_ids=tuple(track_ids),
+            current_id=track_id,
+            current_entry_id=entry_id,
+            current_index=index,
+            position_us=0,
+            duration_us=_duration_us(self._track_rows.get(track_id, {})),
+            seekable=False,
+            error_message="",
+            session_id=session_id,
+            source=source,
+            source_title=source_title,
+            codec="",
+            sample_rate=None,
+            channels="",
+            seeking=False,
+            history=tuple(entry.track_id for entry in self._history.entries),
+        )
+        self.queueChanged.emit()
+        self._pending_seek_us = None
 
     def _handle_backend_event(self, event: object) -> None:
         if not isinstance(event, BackendEvent):
@@ -983,10 +1428,17 @@ class PlayerService(QObject):
         if event.name == "error":
             self._release_read_lease(event.session_id)
             if event.session_id == self._state.session_id:
-                self._fail(
-                    str(event.value or "The audio file could not be played."),
-                    source_closed=True,
-                )
+                message = str(event.value or "The audio file could not be played.")
+                row = self._track_rows.get(self._state.current_id, {})
+                if is_non_file_row(row) and self._sources is not None:
+                    title = self._sources.plugin_title(str(row["sourcePluginId"]))
+                    self._source_failed(
+                        f"{title} could not play this track: {message}",
+                        skip=True,
+                        source_closed=True,
+                    )
+                else:
+                    self._fail(message, source_closed=True)
             return
         if event.session_id != self._state.session_id:
             return
@@ -1005,6 +1457,7 @@ class PlayerService(QObject):
             self._set_play_clock(not pause_when_loaded)
             self._position_timer.start()
             self._apply_restore_seek()
+            self._sync_prefetch()
         elif event.name == "eof":
             self._release_read_lease(event.session_id)
             self._on_eof()
@@ -1062,6 +1515,7 @@ class PlayerService(QObject):
                 self._pending_seek_us = None
                 seeking = False
         self._publish(position_us=max(0, position), seeking=seeking)
+        self._sync_prefetch()
         if (
             self._state.status is PlaybackStatus.PLAYING
             and time.monotonic() - self._last_checkpoint >= 5
@@ -1090,6 +1544,12 @@ class PlayerService(QObject):
 
     def _on_eof(self) -> None:
         self._end_play_event(completed=True)
+        prefetch = self._prefetch
+        if prefetch is not None and prefetch.base_queue is self._queue:
+            # The backend is already playing the next entry, with no gap.
+            self._enter_prefetched(prefetch)
+            return
+        self._cancel_prefetch()
         if self._queue.repeat == "one":
             self._open_index(self._state.current_index)
         elif self._queue.upcoming:
@@ -1103,6 +1563,7 @@ class PlayerService(QObject):
 
     def _finish(self, *, stop_backend: bool = False) -> None:
         self._end_play_event(completed=False)
+        self._cancel_prefetch()
         self._record_history()
         self._transient_silence = False
         self._position_timer.stop()
@@ -1125,6 +1586,7 @@ class PlayerService(QObject):
 
     def _fail(self, message: str, *, source_closed: bool = False) -> None:
         self._end_play_event(completed=False)
+        self._cancel_prefetch()
         self._transient_silence = False
         self._position_timer.stop()
         self._pending_seek_us = None

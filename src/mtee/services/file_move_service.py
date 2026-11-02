@@ -99,8 +99,9 @@ class FileMoveService:
         """Move one track's file into ``folder`` without replacing anything."""
         record = self._library.source_record(track_id)
         if record is None or record.status != "readable":
+            refusal = self._library.non_file_refusal(track_id, "moved") if record is None else ""
             return FileMoveResult(
-                track_id, track_id, "conflict", "The file is no longer available."
+                track_id, track_id, "conflict", refusal or "The file is no longer available."
             )
         current = record.path
         name = current.name

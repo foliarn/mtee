@@ -5,9 +5,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
-__all__ = ["BackendEvent", "BackendEventHandler", "PlayerBackend", "PlayerBackendError"]
+from mtee.domain.source_tracks import PlayableSource
+
+__all__ = [
+    "BackendEvent",
+    "BackendEventHandler",
+    "GaplessPlayerBackend",
+    "PlayerBackend",
+    "PlayerBackendError",
+]
 
 
 class PlayerBackendError(RuntimeError):
@@ -31,7 +39,9 @@ class PlayerBackend(Protocol):
 
     def set_event_handler(self, handler: BackendEventHandler | None) -> None: ...
 
-    def load(self, path: Path, session_id: int) -> None: ...
+    def load(self, source: Path | PlayableSource, session_id: int, /) -> None:
+        """Replace what plays by ``source``: a file path or a ``PlayableSource`` (url, headers)."""
+        ...
 
     def set_paused(self, paused: bool) -> None: ...
 
@@ -46,3 +56,20 @@ class PlayerBackend(Protocol):
     def stop(self) -> None: ...
 
     def close(self) -> None: ...
+
+
+@runtime_checkable
+class GaplessPlayerBackend(PlayerBackend, Protocol):
+    """A backend that can open the next entry ahead of time and switch with no gap.
+
+    ``queue_next`` appends the entry that follows the playing one, with the gain it is
+    played at; the backend switches to it at the exact end of the playing entry and then
+    reports it with the events of ``session_id``. ``clear_next`` forgets it. Backends
+    without these methods simply load each entry when the previous one has ended.
+    """
+
+    def queue_next(
+        self, source: Path | PlayableSource, session_id: int, gain_db: float, /
+    ) -> None: ...
+
+    def clear_next(self) -> None: ...

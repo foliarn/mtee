@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -42,7 +42,7 @@ class FakeBackend:
     def set_event_handler(self, handler: BackendEventHandler | None) -> None:
         self.handler = handler
 
-    def load(self, path: Path, session_id: int) -> None:
+    def load(self, path: Any, session_id: int) -> None:
         if self.fail_load:
             raise OSError("fake decoder error")
         self.active_session_id = session_id

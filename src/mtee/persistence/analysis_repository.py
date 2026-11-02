@@ -120,6 +120,76 @@ class AnalysisRepository:
                 ),
             )
 
+    def import_analysis(
+        self,
+        track_id: str,
+        *,
+        bpm: float | None,
+        key: MusicalKey | None,
+        bpm_user_edited: bool,
+        key_user_edited: bool,
+        source_duration_us: int | None,
+        algorithm_version: int | None,
+        analyzed_at_utc: str | None,
+    ) -> None:
+        """Store an analysis computed elsewhere, as it was, without the loudness columns.
+
+        Unlike ``save_result`` this keeps the algorithm version and the date of the result,
+        so a result of an older algorithm still reads as outdated here. A value the user
+        edited on this computer wins: its value and flag stay, whatever is imported. The
+        loudness columns are not touched. The track must exist in the library.
+        """
+        with self._database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO track_analysis (track_id, bpm, key_tonic, key_minor, "
+                "bpm_user_edited, key_user_edited, source_duration_us, algorithm_version, "
+                "analyzed_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(track_id) DO UPDATE SET "
+                "bpm = CASE WHEN bpm_user_edited = 1 THEN bpm ELSE excluded.bpm END, "
+                "bpm_user_edited = MAX(bpm_user_edited, excluded.bpm_user_edited), "
+                "key_tonic = CASE WHEN key_user_edited = 1 THEN key_tonic "
+                "ELSE excluded.key_tonic END, "
+                "key_minor = CASE WHEN key_user_edited = 1 THEN key_minor "
+                "ELSE excluded.key_minor END, "
+                "key_user_edited = MAX(key_user_edited, excluded.key_user_edited), "
+                "source_duration_us = COALESCE(excluded.source_duration_us, source_duration_us), "
+                "algorithm_version = excluded.algorithm_version, "
+                "analyzed_at_utc = excluded.analyzed_at_utc",
+                (
+                    track_id,
+                    round(bpm, 3) if bpm is not None else None,
+                    key.tonic if key is not None else None,
+                    int(key.minor) if key is not None else None,
+                    int(bpm_user_edited),
+                    int(key_user_edited),
+                    source_duration_us,
+                    algorithm_version,
+                    analyzed_at_utc,
+                ),
+            )
+
+    def import_loudness(
+        self,
+        track_id: str,
+        *,
+        integrated_lufs: float | None,
+        sample_peak_dbfs: float | None,
+        loudness_version: int | None,
+        source_duration_us: int | None,
+    ) -> None:
+        """Store a loudness measured elsewhere, with its version, leaving tempo and key alone."""
+        with self._database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO track_analysis (track_id, integrated_lufs, sample_peak_dbfs, "
+                "loudness_version, source_duration_us) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(track_id) DO UPDATE SET "
+                "integrated_lufs = excluded.integrated_lufs, "
+                "sample_peak_dbfs = excluded.sample_peak_dbfs, "
+                "loudness_version = excluded.loudness_version, "
+                "source_duration_us = COALESCE(excluded.source_duration_us, source_duration_us)",
+                (track_id, integrated_lufs, sample_peak_dbfs, loudness_version, source_duration_us),
+            )
+
     def mark_user_edited(self, track_ids: Iterable[str], field: str) -> None:
         """Flag ``field`` (``bpm`` or ``key``) as edited by the user for these tracks."""
         column = _FIELDS.get(field)

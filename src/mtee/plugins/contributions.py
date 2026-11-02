@@ -15,6 +15,7 @@ from PySide6.QtCore import QAbstractItemModel
 
 from mtee.plugins.api import (
     Contribution,
+    DeleteChoices,
     LibraryScanned,
     PlaylistMeta,
     PluginActivity,
@@ -26,6 +27,7 @@ from mtee.plugins.api import (
     TabKind,
     TrackAction,
     TrackColumn,
+    TrackSource,
     WaitingItems,
 )
 
@@ -92,6 +94,19 @@ def check_contributions(plugin_id: str, contributions: Sequence[Contribution]) -
         _need_callable("playlist meta", "text", meta.text)
     for hook in (item for item in contributions if isinstance(item, LibraryScanned)):
         _need_callable("library scan hook", "callback", hook.callback)
+    track_sources = [item for item in contributions if isinstance(item, TrackSource)]
+    if len(track_sources) > 1:
+        raise ValueError("A plugin declares at most one track source.")
+    for source in track_sources:
+        _need_callable("track source", "open", source.open)
+        if source.cover is not None:
+            _need_callable("track source", "cover", source.cover)
+    delete_choices = [item for item in contributions if isinstance(item, DeleteChoices)]
+    for choices in delete_choices:
+        _need_callable("delete choices", "offer", choices.offer)
+        _need_callable("delete choices", "run", choices.run)
+    if len(delete_choices) > 1:
+        raise ValueError("A plugin declares DeleteChoices once; this one declares it twice.")
 
 
 def _check_activity(activity: PluginActivity) -> None:
