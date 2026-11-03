@@ -5,6 +5,8 @@ All notable changes to MTEE are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-03
+
 ### Added
 
 - Gapless playback: consecutive tracks play with no silence between them, and each track keeps
@@ -106,6 +108,9 @@ All notable changes to MTEE are listed here. The format follows
   it showed an empty page, so a plugin could not be switched on.
 - MTEE no longer crashes now and then while closing: a cover still being loaded could read the
   database after it was closed.
+- MTEE starts with about 490 MB less private memory on a large library. The numerical library
+  reserved one buffer per CPU core when it was imported; MTEE now lets it use one thread, which
+  costs no speed for its small calculations.
 
 ## [0.1.0] - 2026-10-15
 
