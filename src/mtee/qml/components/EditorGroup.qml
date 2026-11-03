@@ -30,128 +30,22 @@ Rectangle {
             content.item.selectAll()
     }
 
-    Rectangle {
+    TabStrip {
         id: strip
         width: parent.width
-        height: Theme.tabHeight
-        color: Theme.sidebar
-
-        ListView {
-            id: tabs
-            anchors.left: parent.left
-            anchors.right: actions.left
-            height: parent.height
-            orientation: ListView.Horizontal
-            boundsBehavior: Flickable.StopAtBounds
-            clip: true
-            model: group.groupData.tabs
-            MouseArea {
-                parent: tabs
-                x: Math.min(tabs.width, Math.max(0, tabs.contentWidth - tabs.contentX))
-                width: Math.max(0, tabs.width - x)
-                height: tabs.height
-                z: 10
-                acceptedButtons: Qt.LeftButton
-                onClicked: group.workspace.clearSelection(group.groupIndex)
-            }
-
-            delegate: Rectangle {
-                id: tab
-
-                required property var modelData
-                readonly property bool isActive: modelData.id === group.groupData.active
-
-                width: Math.min(220, tabRow.implicitWidth + 44)
-                height: Theme.tabHeight
-                color: isActive ? Theme.editor : tabMouse.containsMouse ? Theme.chrome : "transparent"
-
-                Rectangle {
-                    visible: tab.isActive
-                    width: parent.width
-                    height: 1
-                    color: group.focused ? Theme.primary : Theme.textMuted
-                }
-
-                Rectangle {
-                    anchors.right: parent.right
-                    width: 1
-                    height: parent.height
-                    color: Theme.chrome
-                }
-
-                MouseArea {
-                    id: tabMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                    onClicked: (event) => {
-                        if (event.button === Qt.MiddleButton)
-                            group.workspace.closeTab(group.groupIndex, tab.modelData.id)
-                        else
-                            group.workspace.activateTab(group.groupIndex, tab.modelData.id)
-                    }
-                    onDoubleClicked: (event) => {
-                        if (event.button === Qt.LeftButton && tab.modelData.preview
-                                && typeof group.workspace.keepTab === "function")
-                            group.workspace.keepTab(group.groupIndex, tab.modelData.id)
-                    }
-                }
-
-                Row {
-                    id: tabRow
-                    x: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 6
-
-                    Icon {
-                        anchors.verticalCenter: parent.verticalCenter
-                        name: tab.modelData.kind === "folder" ? "folder"
-                            : tab.modelData.kind === "playlist" ? "playlists"
-                            : tab.modelData.kind === "convert" ? "convert"
-                            : tab.modelData.kind === "tasks" ? "tasks"
-                            : tab.modelData.kind === "artists" || tab.modelData.kind === "artist" ? "artists"
-                            : tab.modelData.kind === "profile" ? "profile"
-                            : tab.modelData.kind === "settings" ? "settings"
-                            : tab.modelData.kind === "plugin" ? "plugins"
-                            : tab.modelData.icon || "settings"
-                        size: 15
-                        color: tab.isActive ? Theme.primary : Theme.textMuted
-                    }
-
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: Math.min(implicitWidth, 150)
-                        text: tab.modelData.title
-                        font.italic: tab.modelData.preview === true
-                        elide: Text.ElideRight
-                        color: tab.isActive ? Theme.textPrimary : Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSecondary
-                    }
-                }
-
-                IconButton {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 6
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 20
-                    height: 20
-                    visible: tab.isActive || tabMouse.containsMouse || hovered
-                    icon: "close"
-                    iconSize: 14
-                    tip: "Close"
-                    onClicked: group.workspace.closeTab(group.groupIndex, tab.modelData.id)
-                }
-            }
+        groupId: group.groupIndex
+        tabs: group.groupData.tabs
+        activeId: group.groupData.active
+        focused: group.focused
+        onTabClicked: (tabId) => group.workspace.activateTab(group.groupIndex, tabId)
+        onTabClosed: (tabId) => group.workspace.closeTab(group.groupIndex, tabId)
+        onTabKept: (tabId) => {
+            if (typeof group.workspace.keepTab === "function")
+                group.workspace.keepTab(group.groupIndex, tabId)
         }
+        onEmptyClicked: group.workspace.clearSelection(group.groupIndex)
 
-        Row {
-            id: actions
-            anchors.right: parent.right
-            anchors.rightMargin: 6
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-
+        trailing: [
             Repeater {
                 model: group.singleGroup && group.groupCount > 1 ? group.groupCount : 0
                 delegate: TextButton {
@@ -161,7 +55,7 @@ Rectangle {
                     text: "Group " + (index + 1)
                     onClicked: group.workspace.setActiveGroup(index)
                 }
-            }
+            },
 
             IconButton {
                 width: 28
@@ -171,7 +65,7 @@ Rectangle {
                 active: group.groupCount > 1
                 tip: group.groupCount > 1 ? "Join editor groups (Ctrl+\\)" : "Split editor (Ctrl+\\)"
                 onClicked: group.workspace.toggleSplit()
-            }
+            },
 
             IconButton {
                 objectName: "toggleRightPanel"
@@ -184,7 +78,7 @@ Rectangle {
                 tip: group.workspace.rightPanelVisible ? "Hide side panel" : "Show side panel"
                 onClicked: group.workspace.toggleRightPanel(group.workspace.rightPanelTab)
             }
-        }
+        ]
     }
 
     Loader {

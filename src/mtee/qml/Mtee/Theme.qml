@@ -54,8 +54,27 @@ QtObject {
     readonly property int fontSizeTitle: 18
     readonly property int fontSizeHeading: 28
 
-    readonly property int radius: 0
-    readonly property int badgeRadius: 2
+    // UI rework (plan 130): frame, windows and rounded controls.
+    readonly property color windowSurface: editor
+    readonly property int frameSize: 40
+    readonly property int windowGap: 5
+    readonly property int radiusWindow: 8
+    readonly property int radiusControl: 6
+    readonly property int radiusChip: 4
+    readonly property int radiusCover: 2
+    readonly property int overlayDockWidth: 1100
+    readonly property int singleWindowWidth: 760
+    readonly property int minWindowWidth: 560
+    readonly property int minWindowHeight: 420
+    readonly property int minCenterWindowWidth: 320
+    readonly property int minCenterWindowHeight: 200
+    readonly property int leftDockMin: 220
+    readonly property int leftDockMax: 480
+    readonly property int rightDockMin: 260
+    readonly property int rightDockMax: 480
+
+    readonly property int radius: radiusControl
+    readonly property int badgeRadius: radiusChip
     readonly property int spacingSmall: 6
     readonly property int spacing: 12
     readonly property int spacingLarge: 20

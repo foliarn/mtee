@@ -59,6 +59,7 @@ Item {
         rightPadding: 10
         onEditingFinished: fieldRow.edited(text)
         background: Rectangle {
+            radius: Theme.radius
             color: Theme.surface
             border.width: 1
             border.color: fieldBox.activeFocus ? Theme.focus : Theme.separator

@@ -34,6 +34,11 @@ Item {
         rowMenu.trackId = trackId
         rowMenu.source = source
         rowMenu.current = current
+        rowMenu.trackIds = [trackId]
+        rowMenu.extraGroups = current ? [] : [{ "id": "queueEntry", "items": [
+            { "id": "removeFromQueue", "label": "Remove from queue", "objectName": "queueRemove" }
+        ] }]
+        rowMenu.prepare(true)
         rowMenu.popup(anchor, x, y)
     }
 
@@ -78,6 +83,7 @@ Item {
     }
 
     ListView {
+        WheelScrollHandler { flickable: list }
         id: list
         objectName: queue.listObjectName
         anchors.top: nowPlaying.bottom
@@ -210,35 +216,23 @@ Item {
         acceptedButtons: Qt.NoButton
         onWheel: (wheel) => {
             const max = Math.max(0, list.contentHeight - list.height)
-            list.contentY = Math.max(0, Math.min(max, list.contentY - wheel.angleDelta.y * 0.5))
+            list.contentY = Math.max(0, Math.min(max, list.contentY - wheel.angleDelta.y * 1.5))
             wheel.accepted = true
         }
     }
 
-    AppMenu {
+    TrackMenu {
         id: rowMenu
 
         property string entryId: ""
-        property string trackId: ""
-        property string source: ""
         property bool current: false
 
-        AppMenuItem {
-            objectName: "queueRemove"
-            text: "Remove from queue"
-            visible: !rowMenu.current
-            height: visible ? implicitHeight : 0
-            onTriggered: queue.playback.removeQueueEntry(rowMenu.entryId)
-        }
-        AppMenuItem {
-            objectName: "queueGoTo"
-            text: rowMenu.source.indexOf("playlist:") === 0 ? "Go to playlist" : "Go to folder"
-            onTriggered: queue.workspace.revealTrack(rowMenu.trackId, rowMenu.source)
-        }
-        AppMenuItem {
-            objectName: "queueEditInfo"
-            text: "Edit info"
-            onTriggered: queue.workspace.revealTrackForEdit(rowMenu.trackId, rowMenu.source)
+        workspace: queue.workspace
+        listKind: "queue"
+        showAddToQueue: false
+        onTriggered: (actionId) => {
+            if (actionId === "removeFromQueue")
+                queue.playback.removeQueueEntry(rowMenu.entryId)
         }
     }
 }

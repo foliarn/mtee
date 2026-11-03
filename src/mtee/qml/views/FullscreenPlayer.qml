@@ -402,7 +402,10 @@ Rectangle {
                     iconColor: player.onCardIcon
                     hoverColor: player.onCard
                     tip: "More"
-                    onClicked: moreMenu.popup(moreButton, 0, -moreMenu.implicitHeight)
+                    onClicked: {
+                        moreMenu.prepare(true)
+                        moreMenu.popup(moreButton, 0, -moreMenu.implicitHeight)
+                    }
                 }
             }
             // Square cover with rounded corners; not clickable.
@@ -598,11 +601,17 @@ Rectangle {
         playlistMenu.popup(anchor, 0, -playlistMenu.height)
     }
 
-    PlayingTrackMenu {
+    // The "..." menu acts on the playing track, never on the current selection.
+    TrackMenu {
         id: moreMenu
+        objectName: "playingTrackMenu"
         workspace: player.workspace
         trackId: player.playback.playingId
+        trackIds: [player.playback.playingId]
         source: player.playback.playingSource
+        listKind: "playing"
+        showAddToQueue: false
+        externalPlaylistChooser: true
         onAddToPlaylistRequested: player.openPlaylistMenu(moreButton)
     }
 

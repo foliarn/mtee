@@ -76,6 +76,7 @@ Rectangle {
     }
 
     Flickable {
+        WheelScrollHandler { flickable: settingsFlick }
         id: settingsFlick
         anchors.fill: parent
         contentHeight: content.implicitHeight + 48 + settings.bottomInset

@@ -204,6 +204,7 @@ class WorkspaceModel(QObject):
     explorerTrackReady = Signal(int, object, object)
     sessionWriteFinished = Signal(object, object)
     playlistCreationRequested = Signal(list)
+    renameFileRequested = Signal(str, str)
     enqueuePrepared = Signal(int, object)
     artistsChanged = Signal()
     availabilityFilterChanged = Signal()
@@ -1465,6 +1466,7 @@ class WorkspaceModel(QObject):
         self._file_move_model = model
         model.setParent(self)
         model.tracksMoved.connect(self._on_tracks_moved)
+        model.tracksRenamed.connect(self._on_tracks_renamed)
         model.noticeRaised.connect(self._set_message)
 
     def attach_plugin_host(self, host: PluginHost) -> None:
@@ -1610,6 +1612,37 @@ class WorkspaceModel(QObject):
             return
         root_id, relative, name = target
         self._file_move_model.move_tracks(track_ids, root_id, relative, name)
+
+    @Slot(str)
+    def requestRenameFile(self, track_id: str) -> None:
+        """Ask the window for the new name of a track's file (``renameFileRequested``)."""
+        source = self._library.source_record(str(track_id))
+        if source is None:
+            self._set_message(
+                self._library.non_file_refusal(str(track_id), "renamed")
+                or "This file is no longer in the library."
+            )
+            return
+        self.renameFileRequested.emit(str(track_id), source.path.stem)
+
+    @Slot(str, str)
+    def renameTrackFile(self, track_id: str, new_base_name: str) -> None:
+        """Rename a track's file in its folder, keeping its extension, as a job.
+
+        The new name must not contain a path separator or a name reserved by Windows, and must
+        not be the name of another file of the folder; a refusal is shown on the message line
+        and nothing changes on disk.
+        """
+        if self._file_move_model is None:
+            self._set_message("Renaming files is not available.")
+            return
+        self._file_move_model.rename_track(str(track_id), str(new_base_name))
+
+    @Slot(object)
+    def _on_tracks_renamed(self, _renamed: object) -> None:
+        """A file changed name: reload the tree, the open lists and the inspector."""
+        self._refresh_library()
+        self.metadataChanged.emit()
 
     @Slot(object)
     def _on_tracks_moved(self, _moved: object) -> None:

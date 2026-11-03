@@ -33,6 +33,7 @@ Rectangle {
     color: Theme.editor
 
     Flickable {
+        WheelScrollHandler { flickable: scroller }
         id: scroller
         anchors.fill: parent
         anchors.bottomMargin: page.bottomInset
@@ -176,7 +177,7 @@ Rectangle {
                             width: waitingGroup.width
                             height: waitingRow.implicitHeight + 28
                             color: Theme.surface
-                            radius: 6
+                            radius: Theme.radius
 
                             TaskChoiceRow {
                                 id: waitingRow
@@ -253,7 +254,7 @@ Rectangle {
         implicitHeight: body.implicitHeight + 28
         height: visible ? implicitHeight : 0
         color: Theme.surface
-        radius: 6
+        radius: Theme.radius
 
         TaskRow {
             id: body

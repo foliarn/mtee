@@ -116,6 +116,7 @@ Item {
     }
 
     Flickable {
+        WheelScrollHandler { flickable: list }
         id: list
         anchors.top: searchBox.bottom
         anchors.topMargin: 6

@@ -27,6 +27,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
 
     background: Rectangle {
+        radius: Theme.radiusWindow
         color: Theme.editor
         border.width: 1
         border.color: Theme.separator
@@ -113,6 +114,7 @@ Dialog {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeBody
                 background: Rectangle {
+                    radius: Theme.radius
                     color: Theme.sidebar
                     border.color: field.activeFocus ? Theme.focus
                         : dialog.destinationId.length > 0 ? Theme.primary : Theme.separator

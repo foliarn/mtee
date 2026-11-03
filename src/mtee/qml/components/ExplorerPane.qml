@@ -196,19 +196,32 @@ Item {
         const data = row.modelData
         if (data.kind === "folder") {
             explorerMenu.folderId = String(data.id)
-            explorerMenu.trackIds = []
-        } else {
-            const selected = workspace.selectedIds
-            explorerMenu.folderId = ""
-            explorerMenu.trackIds = selected.indexOf(data.id) >= 0 ? selected : [String(data.id)]
+            explorerMenu.popup(row, x, y)
+            return
         }
-        explorerMenu.popup(row, x, y)
+        const selected = workspace.selectedIds
+        const ids = selected.indexOf(data.id) >= 0 ? selected : [String(data.id)]
+        trackMenu.trackId = String(data.id)
+        trackMenu.trackIds = ids
+        trackMenu.orderedIds = ids
+        trackMenu.captureQueueTargets()
+        trackMenu.prepare(data.available !== false)
+        trackMenu.popup(row, x, y)
     }
 
     ExplorerContextMenu {
         id: explorerMenu
         objectName: "explorerContextMenu"
         workspace: pane.workspace
+    }
+
+    // The tracks of the tree have the same menu as the tracks of a list.
+    TrackMenu {
+        id: trackMenu
+        objectName: "explorerTrackMenu"
+        workspace: pane.workspace
+        listKind: "explorer"
+        source: "explorer"
     }
 
     FolderDialog {

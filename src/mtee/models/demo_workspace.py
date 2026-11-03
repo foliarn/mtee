@@ -117,6 +117,7 @@ class DemoWorkspace(QObject):
     layoutChanged = Signal()
     explorerChanged = Signal()
     libraryChanged = Signal()
+    renameFileRequested = Signal(str, str)
     selectionChanged = Signal()
     playbackChanged = Signal()
     positionChanged = Signal()
@@ -1416,6 +1417,14 @@ class DemoWorkspace(QObject):
     @Slot(str)
     def showInExplorer(self, _track_id: str) -> None:
         """The demo library has no files to show."""
+
+    @Slot(str)
+    def requestRenameFile(self, _track_id: str) -> None:
+        """The demo library has no files to rename."""
+
+    @Slot(str, str)
+    def renameTrackFile(self, _track_id: str, _new_base_name: str) -> None:
+        """The demo library has no files to rename."""
 
     @Slot(str, result=bool)
     def isLiked(self, track_id: str) -> bool:

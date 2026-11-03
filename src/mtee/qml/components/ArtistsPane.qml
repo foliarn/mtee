@@ -112,6 +112,7 @@ Item {
     }
 
     ListView {
+        WheelScrollHandler { flickable: artistList }
         id: artistList
         objectName: "artistList"
         anchors.top: countLine.bottom

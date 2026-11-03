@@ -7,6 +7,7 @@ import Mtee
 // and the listening statistics of the chosen period. Every figure comes from the real
 // models; the picture is copied and shown as it is, never cropped.
 Flickable {
+    WheelScrollHandler { flickable: profileFlick }
     id: profileFlick
 
     objectName: "profilePage"
@@ -152,6 +153,7 @@ Flickable {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeBody
                 background: Rectangle {
+                    radius: Theme.radius
                     color: Theme.surface
                     border.color: nameField.activeFocus ? Theme.focus : Theme.separator
                 }

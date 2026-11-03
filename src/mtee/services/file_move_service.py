@@ -20,7 +20,28 @@ from mtee.persistence.library_repository import LibraryRepository, normalize_pat
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.file_import import place_without_overwrite
 
-__all__ = ["FileMoveError", "FileMoveResult", "FileMoveService"]
+__all__ = ["FileMoveError", "FileMoveResult", "FileMoveService", "invalid_base_name"]
+
+_REFUSED_CHARACTERS = frozenset('<>:"/\\|?*')
+_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{number}" for number in range(1, 10)}
+    | {f"LPT{number}" for number in range(1, 10)}
+)
+
+
+def invalid_base_name(value: str) -> str:
+    """Return why ``value`` cannot be the base name of a file, or an empty string when it can."""
+    name = value.strip()
+    if not name:
+        return "The name cannot be empty."
+    if any(character in _REFUSED_CHARACTERS or ord(character) < 32 for character in name):
+        return 'The name cannot contain any of these characters: \\ / : * ? " < > |'
+    if name.endswith("."):
+        return "The name cannot end with a dot."
+    if name.split(".", 1)[0].strip().upper() in _RESERVED_NAMES:
+        return "This name is reserved by Windows."
+    return ""
 
 
 class FileMoveError(Exception):
@@ -119,7 +140,53 @@ class FileMoveService:
                 )
         except OSError as error:
             return FileMoveResult(track_id, name, "failed", f"The file is not available: {error}")
-        lease = self._access.acquire(TrackId.parse(track_id), "move audio file", timeout_seconds=0)
+        return self._relocate(
+            record, track_id, name, target, "move audio file", on_disk_moved=on_disk_moved
+        )
+
+    def rename(self, track_id: str, new_base_name: str) -> FileMoveResult:
+        """Rename one track's file inside its folder; the extension stays and nothing is replaced.
+
+        A name that is empty, holds a path separator or another character Windows refuses, ends
+        with a dot or a space, or is a reserved device name is refused. So is a name another
+        file of the folder already has: the user chose the name, so it is not changed silently.
+        The record keeps the same track UUID, so playlists, analyses and tag history follow.
+        """
+        record = self._library.source_record(track_id)
+        if record is None or record.status != "readable":
+            refusal = self._library.non_file_refusal(track_id, "renamed") if record is None else ""
+            return FileMoveResult(
+                track_id, track_id, "conflict", refusal or "The file is no longer available."
+            )
+        current = record.path
+        name = current.name
+        problem = invalid_base_name(new_base_name)
+        if problem:
+            return FileMoveResult(track_id, name, "failed", problem)
+        target = current.with_name(new_base_name.strip() + current.suffix)
+        if target.name == name:
+            return FileMoveResult(track_id, name, "unchanged", "The name did not change.")
+        only_case = normalize_path(target) == normalize_path(current)
+        if not only_case and (target.exists() or self._library.path_owner(target) is not None):
+            return FileMoveResult(
+                track_id, name, "conflict", "A file with this name already exists in this folder."
+            )
+        return self._relocate(record, track_id, name, target, "rename audio file")
+
+    def _relocate(
+        self,
+        record,
+        track_id: str,
+        name: str,
+        target: Path,
+        purpose: str,
+        *,
+        on_disk_moved: Callable[[], None] | None = None,
+    ) -> FileMoveResult:
+        """Rename the file on disk to ``target`` and point the track at it, or undo it all."""
+        current = record.path
+        verb = "moved" if purpose.startswith("move") else "renamed"
+        lease = self._access.acquire(TrackId.parse(track_id), purpose, timeout_seconds=0)
         try:
             with lease:
                 try:
@@ -147,7 +214,7 @@ class FileMoveService:
                     )
                 except OSError as error:
                     return FileMoveResult(
-                        track_id, name, "failed", f"The file could not be moved: {error}"
+                        track_id, name, "failed", f"The file could not be {verb}: {error}"
                     )
                 if on_disk_moved is not None:
                     try:

@@ -5,6 +5,20 @@ All notable changes to MTEE are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Track menu: the same menu everywhere a track can be right-clicked (folder lists, playlists,
+  the Explorer tree, the Queue, the History and the Fullscreen player), regrouped, with Go to
+  artist, Show in folder and Rename file. The file actions (Open in Windows Explorer, Rename
+  file, Delete file) are a separate group at the bottom. Play, Move up and Move down are gone
+  from the menu.
+- Reusable interface components for windows, lists, menus and dialogs (see `docs/plugins.md`).
+
+### Changed
+
+- Buttons, fields, menus, dialogs and tabs have rounded corners.
+- The mouse wheel scrolls three times further in every list and page.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

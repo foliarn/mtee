@@ -91,7 +91,7 @@ Item {
         x: (parent.width - width) / 2; y: Math.max(16, (parent.height - height) / 2)
         modal: true; focus: true; padding: 20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Column {
             id: fields
             spacing: 16
@@ -109,7 +109,7 @@ Item {
                 visible: ["create", "folder", "edit", "renameFolder"].indexOf(dialogs.action) >= 0
                 placeholderText: "Name"; color: Theme.textPrimary; placeholderTextColor: Theme.textMuted
                 font.family: Theme.fontFamily; font.pixelSize: 16
-                background: Rectangle { color: Theme.editor; border.color: name.activeFocus ? Theme.focus : Theme.separator }
+                background: Rectangle { radius: Theme.radius; color: Theme.editor; border.color: name.activeFocus ? Theme.focus : Theme.separator }
             }
             TextArea {
                 id: description
@@ -118,7 +118,7 @@ Item {
                 placeholderText: "Description"; color: Theme.textPrimary
                 font.family: Theme.fontFamily; font.pixelSize: 15
                 wrapMode: TextEdit.Wrap
-                background: Rectangle { color: Theme.editor; border.color: description.activeFocus ? Theme.focus : Theme.separator }
+                background: Rectangle { radius: Theme.radius; color: Theme.editor; border.color: description.activeFocus ? Theme.focus : Theme.separator }
             }
             Row {
                 visible: dialogs.action === "edit"
@@ -133,7 +133,7 @@ Item {
                 model: [{id: "", name: "Playlists (root)"}].concat(Array.from(dialogs.model.folders))
                 textRole: "name"
                 contentItem: Text { text: chooser.displayText; color: Theme.textPrimary; font.family: Theme.fontFamily; verticalAlignment: Text.AlignVCenter; leftPadding: 12 }
-                background: Rectangle { color: Theme.editor; border.color: Theme.separator }
+                background: Rectangle { radius: Theme.radius; color: Theme.editor; border.color: Theme.separator }
             }
             Text {
                 width: parent.width
@@ -176,7 +176,7 @@ Item {
         parent: Overlay.overlay; width: 440; height: 190
         x: (parent.width - width) / 2; y: (parent.height - height) / 2
         modal: true; focus: true; padding: 20
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Column {
             spacing: 16
             Text { width: parent.width; text: "Incomplete song tags"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 22 }
@@ -195,10 +195,12 @@ Item {
         width: Math.min(740, parent.width - 48); height: Math.min(600, parent.height - 48)
         x: (parent.width - width) / 2; y: (parent.height - height) / 2
         modal: true; focus: true; padding: 20
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Item {
             Text { id: importTitle; text: "Import " + (dialogs.model.importPreview.name || "playlist"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 24 }
             ListView {
+                id: importList
+                WheelScrollHandler { flickable: importList }
                 anchors.top: importTitle.bottom; anchors.topMargin: 20
                 anchors.bottom: importActions.top; anchors.bottomMargin: 16
                 width: parent.width; clip: true
@@ -236,11 +238,13 @@ Item {
         parent: Overlay.overlay; width: Math.min(600, parent.width - 40); height: Math.min(460, parent.height - 40)
         x: (parent.width - width) / 2; y: (parent.height - height) / 2
         modal: true; focus: true; padding: 20
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Column {
             spacing: 16
             Text { text: "Resume playlist import"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 24 }
             ListView {
+                id: resumeList
+                WheelScrollHandler { flickable: resumeList }
                 width: parent.width; height: resumes.height - 120; clip: true
                 model: dialogs.model.pendingImports
                 ScrollBar.vertical: ThinScrollBar {}

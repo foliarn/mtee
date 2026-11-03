@@ -75,7 +75,7 @@ Column {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 6
                 height: 6
-                radius: 3
+                radius: Theme.radiusChip
                 color: field.error.length > 0 ? Theme.danger : Theme.primary
             }
 

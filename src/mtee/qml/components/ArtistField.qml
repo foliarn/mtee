@@ -62,7 +62,7 @@ Column {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 6
                 height: 6
-                radius: 3
+                radius: Theme.radiusChip
                 color: Theme.primary
             }
 

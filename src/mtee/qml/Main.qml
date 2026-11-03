@@ -219,6 +219,10 @@ Window {
         }
     }
 
+    RenameFileDialog {
+        workspace: root.ws
+    }
+
     // One pixel frame so the window stays distinct from what lies behind it.
     Rectangle {
         anchors.fill: parent

@@ -42,6 +42,7 @@ Item {
     }
 
     Flickable {
+        WheelScrollHandler { flickable: scroller }
         id: scroller
         visible: info.selection.length > 0
         anchors.top: parent.top

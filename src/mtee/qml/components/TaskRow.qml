@@ -204,6 +204,7 @@ Column {
     }
 
     Flickable {
+        WheelScrollHandler { flickable: failureList }
         id: failureList
         visible: task.failuresOpen && task.failureCount > 0 && !task.compact
         width: parent.width

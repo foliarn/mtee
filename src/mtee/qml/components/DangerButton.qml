@@ -11,6 +11,7 @@ Rectangle {
 
     implicitWidth: dangerText.implicitWidth + 28
     implicitHeight: 32
+    radius: Theme.radius
     color: dangerMouse.containsMouse && enabledAction ? Qt.lighter(Theme.danger, 1.1) : Theme.danger
     opacity: enabledAction ? 1.0 : 0.4
 

@@ -25,6 +25,8 @@ Item {
     }
 
     Flickable {
+        id: tasksFlick
+        WheelScrollHandler { flickable: tasksFlick }
         anchors.top: header.bottom
         anchors.left: parent.left
         anchors.right: parent.right

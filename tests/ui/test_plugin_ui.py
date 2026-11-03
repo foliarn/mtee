@@ -413,11 +413,15 @@ def test_the_context_menu_shows_the_plugin_group_for_the_selected_rows(
         # In the open window: a row without a file hides what needs one, and offers the group.
         menu_labels = _open_menu_labels(window, 2)
         assert "Play" not in menu_labels and "Analyze" not in menu_labels
-        assert "File actions" not in menu_labels
+        assert "Move up" not in menu_labels and "Move down" not in menu_labels
+        assert "Delete file…" not in menu_labels and "Rename file…" not in menu_labels
         assert "PROBE" in menu_labels and "Link to a local track" in menu_labels
         local_labels = _open_menu_labels(window, 1)
-        assert "Play" in local_labels and "Add to playlist…" in local_labels
-        assert local_labels.index("PROBE") < local_labels.index("File actions")
+        assert "Play" not in local_labels and "Add to playlist…" in local_labels
+        # The plugin group sits after the edit group and before the file group.
+        assert local_labels.index("Edit info") < local_labels.index("PROBE")
+        assert local_labels.index("PROBE") < local_labels.index("Open in Windows Explorer")
+        assert local_labels[-3:] == ["Open in Windows Explorer", "Rename file…", "Delete file…"]
     finally:
         _shutdown(runtime)
 

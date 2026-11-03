@@ -66,6 +66,8 @@ Rectangle {
     }
 
     Flickable {
+        id: detailFlick
+        WheelScrollHandler { flickable: detailFlick }
         anchors.fill: parent
         contentHeight: content.implicitHeight + 48 + detail.bottomInset
         clip: true

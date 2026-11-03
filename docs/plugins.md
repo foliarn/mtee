@@ -462,7 +462,9 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   `TabKind.kind`) where the column is shown until the user hides it. Plugin columns are not
   offered in Explorer folder lists.
 - `TrackAction(action_id, label, group, run, enabled_fn=None)`: an entry of the track context
-  menu, in a captioned group named `group` before "File actions". `enabled_fn(rows)` decides
+  menu, in a captioned group named `group`. The groups of plugins sit after the edit group
+  (Analyze, Edit info, Convert) and before the file group (Open in Windows Explorer, Rename file,
+  Delete file), so a plugin never adds to the file group. `enabled_fn(rows)` decides
   whether it shows for the selected rows; `run(rows)` usually submits a job. A row is a
   dictionary with `id`, `trackId`, `title`, `artist`, `album`, `available`, `data` (a plugin row
   only), `tabKind` and `tabRef` (the list the row is shown in: `"playlist"` and the playlist
@@ -653,6 +655,27 @@ Components of `Mtee` for a Settings page, all taking the width of their parent:
 | `NoticeCard` | `title`, `text`: a warning card. |
 | `CodeBadge` | `text`: a short code. |
 | `DangerButton` | `text`, `enabledAction`, `clicked()`. |
+
+Components of `Mtee` to draw windows, lists, menus and dialogs (UI rework, plan 130). They use
+the tokens of `Theme` (`frameSize`, `windowGap`, `radiusWindow` 8, `radiusControl` 6,
+`radiusChip` 4, `radiusCover` 2, `windowSurface`):
+
+| Component | Properties, signals and use |
+| --- | --- |
+| `WindowSurface` | A rounded window. `focused` (accent outline), `padding`, `cornerColor` (the colour behind the window, `Theme.chrome` by default). Children go into its clipped content area. |
+| `SplitHandle` | The hit area across the gap between two windows. `orientation` (`Qt.Horizontal`: windows side by side), `dragged(delta)` (pixels since the press), `released()`, `doubleClicked()`. It draws only on hover or drag. |
+| `Popover` | A drop-down under `anchorItem`, closed by Esc or a click outside, kept 8 px inside the window. `alignRight`, `bodyWidth`, `maxHeight`; children are its content. |
+| `HeaderButton` | A `Theme.frameSize` square icon button. `icon`, `badge` (a count), `active`, `tip`, `enabledAction`, `clicked()`. |
+| `TagChip` | A small label. `text`, `tone` (`neutral`, `primary`, `warning`). |
+| `CycleButton` | A ghost icon button stepping through `options` (`[{key, label, icon}]`). `currentKey`, `chosen(key)`. |
+| `SearchField` | An icon that unfolds a field; Esc clears and folds. `text`, `placeholder`, `open`, `edited(text)`. |
+| `ConfirmDialog` | A modal question. `title`, `text`, `buttons` (`[{key, label, kind}]`, kind `primary`, `ghost` or `danger`), `answered(key)` (`"cancel"` for Esc); children are extra content. |
+| `InlineEdit` | A field that replaces a label to rename it. `begin(text)`, `keepExtension`, `committed(text)`, `cancelled()`. |
+| `NavItem` | One sidebar row. `size` (`compact` 28 px or `regular` 52 px), `leading` (a cover URL, one letter or an icon name), `title`, `subtitle`, `tag`, `tagTone`, `depth`, `expandable`, `expanded`, `selected`, `renaming`, `dropTarget`; `clicked(modifiers)`, `doubleClicked()`, `contextRequested(x, y)`, `chevronClicked()`, `renamed(text)`. `trailing: [...]` adds items at the right end. |
+| `NavList` | A list of `NavItem` rows from an array or `ListModel` of `{id, title, ...}`. Click, Ctrl+click and Shift+click select by row id across depths: `selectedIds`, `anchorId`, `selectionUpdated()`, `activated(rowId)`, `rowContextRequested(rowId, x, y)`, `rowDragStarted(ids)`. |
+| `TabStrip` | The tab strip of a center window. `tabs` (`[{id, title, kind, icon, preview}]`), `activeId`, `groupId`, `focused`, `switcher`, `switcherEntries`; `tabClicked`, `tabClosed`, `tabKept`, `tabMoved(tabId, index)`, `tabDropped(payload, index)`, `switcherChosen`. A tab drag carries `{type: "tab", groupId, tabId}` with the drag key `mtee-tab`. `trailing: [...]` adds buttons at the right end. |
+| `DropZoneOverlay` | Placed over a center window: draws the left, right, top, bottom or center drop zone while a `mtee-tab` or `mtee-folder` drag is over it and emits `dropped(zone, payload)`. The pure function `zoneAt` is in `dropzones.js`. |
+| `ActionMenu` | A menu built from `groups` (`[{id, items: [{id, label, hint, icon, enabled, visible, danger, submenu}]}]`) with one separator between non-empty groups; `triggered(id)`. |
 
 `Mtee` also offers the controls of the core (`TextButton`, `IconButton`, `ToggleSwitch`,
 `FilterChip`, `CheckLine`, `Icon`, menus and others, listed in `src/mtee/qml/Mtee/qmldir`).

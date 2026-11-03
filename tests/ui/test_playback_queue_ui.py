@@ -211,6 +211,9 @@ def test_queue_panel_shows_distinct_upcoming_occurrences(
         qtbot.waitUntil(lambda: _find(root, "enqueuePlaylistAction") is not None)
         playlist_action = _find(root, "enqueuePlaylistAction")
         assert playlist_action is not None
+        # Let the popup open completely before clicking its item (see the steps above).
+        qtbot.waitUntil(lambda: playlist_action.isVisible() and playlist_action.height() > 0)
+        qtbot.wait(100)
         action_point = playlist_action.mapToScene(playlist_action.boundingRect().center())
         QTest.mouseClick(
             root,

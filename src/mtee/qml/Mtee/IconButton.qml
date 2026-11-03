@@ -19,6 +19,7 @@ Rectangle {
 
     implicitWidth: 32
     implicitHeight: 32
+    radius: Theme.radius
     color: hoverBackground && mouse.containsMouse && enabledAction
         ? (mouse.pressed ? Theme.selection : Theme.surface) : "transparent"
     opacity: enabledAction ? 1.0 : 0.4

@@ -36,7 +36,7 @@ Item {
         focus: true
         padding: 20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         onClosed: if (host.hasPending && host.view) host.view.cancelInstall()
 
         contentItem: Column {
@@ -162,7 +162,7 @@ Item {
         focus: true
         padding: 20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         onClosed: if (host.hasRefusal && host.view) host.view.dismissRefusal()
 
         contentItem: Column {

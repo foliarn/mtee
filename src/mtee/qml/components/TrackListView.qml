@@ -406,7 +406,7 @@ FocusScope {
             }
             return
         }
-        if (event.key === Qt.Key_Escape && !playlistSearch.activeFocus) {
+        if (event.key === Qt.Key_Escape && !playlistSearch.fieldActive) {
             workspace.clearSelection(view.groupIndex)
             event.accepted = true
             return
@@ -501,31 +501,21 @@ FocusScope {
             anchors.bottomMargin: (view.isPlaylist || view.isArtist) ? 36 : 14
             spacing: 2
 
-            TextField {
+            SearchField {
                 id: playlistSearch
-                objectName: "playlistSearchField"
                 visible: view.isPlaylist
-                width: view.playlistSearchOpen ? Math.min(220, view.width * 0.25) : 0
-                height: 28
-                opacity: view.playlistSearchOpen ? 1 : 0
-                clip: true
-                placeholderText: "Search this playlist"
+                open: view.playlistSearchOpen
+                onOpenChanged: view.playlistSearchOpen = open
+                expandedWidth: Math.min(220, view.width * 0.25)
+                fieldObjectName: "playlistSearchField"
+                buttonObjectName: "playlistSearchButton"
+                placeholder: "Search this playlist"
+                tip: "Search playlist"
                 text: view.tab.searchQuery || ""
-                color: Theme.textPrimary; placeholderTextColor: Theme.textMuted
-                font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
-                onTextEdited: {
+                onEdited: (text) => {
                     view.workspace.setActiveGroup(view.groupIndex)
                     view.workspace.setSearch(view.tab.id, text)
                 }
-                Behavior on width { NumberAnimation { duration: 190; easing.type: Easing.OutExpo } }
-                background: Rectangle { color: Theme.surface; border.color: playlistSearch.activeFocus ? Theme.focus : Theme.separator }
-            }
-            IconButton {
-                visible: view.isPlaylist
-                objectName: "playlistSearchButton"
-                icon: "search"; iconSize: 18; tip: "Search playlist"
-                active: view.playlistSearchOpen || (view.tab.searchQuery || "").length > 0
-                onClicked: { view.playlistSearchOpen = !view.playlistSearchOpen; if (view.playlistSearchOpen) playlistSearch.forceActiveFocus() }
             }
             IconButton {
                 icon: "list"
@@ -674,6 +664,7 @@ FocusScope {
                 event.accepted = true
             }
             background: Rectangle {
+                radius: Theme.radius
                 color: Theme.surface
                 border.width: 1
                 border.color: parent.activeFocus ? Theme.focus : Theme.separator
@@ -1137,7 +1128,7 @@ FocusScope {
         }
     }
 
-    TrackContextMenu {
+    TrackMenu {
         id: contextMenu
         objectName: "trackContextMenu"
         workspace: view.workspace

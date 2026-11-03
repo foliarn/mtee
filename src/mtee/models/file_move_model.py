@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QObject, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError
@@ -18,6 +20,8 @@ class FileMoveModel(QObject):
 
     resultsReady = Signal(str, object)
     tracksMoved = Signal(object)
+    tracksRenamed = Signal(object)
+    renameFinished = Signal(object)
     noticeRaised = Signal(str)
 
     def __init__(
@@ -27,6 +31,7 @@ class FileMoveModel(QObject):
         self._service = service
         self._jobs = jobs
         self.resultsReady.connect(self._on_results_ready)
+        self.renameFinished.connect(self._on_rename_finished)
 
     @Slot(list, str, str, str)
     def move_tracks(
@@ -67,6 +72,38 @@ class FileMoveModel(QObject):
             self._jobs.submit(task, label=f"Move files to {folder_name}")
         except RuntimeError as error:
             self.noticeRaised.emit(str(error))
+
+    @Slot(str, str)
+    def rename_track(self, track_id: str, new_base_name: str) -> None:
+        """Rename one track's file in its folder as a job; the extension stays."""
+        identity = str(track_id)
+        if not identity:
+            return
+
+        def task(context: JobContext) -> None:
+            result = self._service.rename(identity, str(new_base_name))
+            context.report_progress(1.0)
+            self.renameFinished.emit(result)
+            if result.status in _PROBLEMS:
+                context.report_failure(result.name, result.message)
+                raise _MoveBatchError(result.message)
+
+        try:
+            self._jobs.submit(task, label="Rename file")
+        except RuntimeError as error:
+            self.noticeRaised.emit(str(error))
+
+    @Slot(object)
+    def _on_rename_finished(self, result: object) -> None:
+        if not isinstance(result, FileMoveResult):
+            return
+        if result.status == "moved":
+            self.tracksRenamed.emit([{"trackId": result.track_id, "path": result.path}])
+            self.noticeRaised.emit(f"Renamed “{result.name}” to “{Path(result.path).name}”.")
+        elif result.status == "unchanged":
+            self.noticeRaised.emit(result.message)
+        else:
+            self.noticeRaised.emit(f"“{result.name}” was not renamed: {result.message}")
 
     @Slot(str, object)
     def _on_results_ready(self, folder_name: str, results: object) -> None:

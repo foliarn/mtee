@@ -26,6 +26,7 @@ Dialog {
     standardButtons: Dialog.NoButton
 
     background: Rectangle {
+        radius: Theme.radiusWindow
         color: Theme.editor
         border.width: 1
         border.color: Theme.separator
@@ -77,6 +78,8 @@ Dialog {
             border.color: Theme.separator
 
             ListView {
+                id: resultsList
+                WheelScrollHandler { flickable: resultsList }
                 anchors.fill: parent
                 anchors.margins: 8
                 clip: true

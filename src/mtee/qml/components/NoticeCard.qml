@@ -12,7 +12,7 @@ Rectangle {
     width: parent ? parent.width : 0
     height: noticeBody.implicitHeight + 20
     color: Theme.surface
-    radius: 4
+    radius: Theme.radius
 
     Rectangle {
         width: 3

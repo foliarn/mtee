@@ -25,6 +25,7 @@ Item {
         AppMenuItem { objectName: "importPlaylistMenuItem"; text: "Import playlist…"; visible: pane.live; onTriggered: pane.playlistsModel.requestUI("import", "", []) }
     }
     ListView {
+        WheelScrollHandler { flickable: tree }
         id: tree
         anchors.top: header.bottom; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
         clip: true

@@ -34,6 +34,7 @@ Item {
     }
 
     ListView {
+        WheelScrollHandler { flickable: list }
         id: list
         objectName: "historyList"
         anchors.fill: parent
@@ -81,6 +82,12 @@ Item {
                 menu.trackId = String(rowData.trackId || rowData.id || "")
                 menu.source = String(rowData.source || "")
                 menu.available = available
+                menu.trackIds = [menu.trackId]
+                menu.extraGroups = [{ "id": "historyEntry", "items": [
+                    { "id": "addEntryToQueue", "label": "Add to queue", "enabled": available,
+                      "objectName": "historyAddToQueue" }
+                ] }]
+                menu.prepare(available)
                 menu.popup(anchor, x, y)
             }
         }
@@ -97,29 +104,18 @@ Item {
         font.pixelSize: Theme.fontSizeSecondary
     }
 
-    AppMenu {
+    TrackMenu {
         id: menu
 
         property string historyId: ""
-        property string trackId: ""
-        property string source: ""
         property bool available: true
 
-        AppMenuItem {
-            objectName: "historyAddToQueue"
-            text: "Add to queue"
-            enabled: menu.available
-            onTriggered: history.playback.enqueueHistoryEntry(menu.historyId)
-        }
-        AppMenuItem {
-            objectName: "historyGoTo"
-            text: menu.source.indexOf("playlist:") === 0 ? "Go to playlist" : "Go to folder"
-            onTriggered: history.workspace.revealTrack(menu.trackId, menu.source)
-        }
-        AppMenuItem {
-            objectName: "historyEditInfo"
-            text: "Edit info"
-            onTriggered: history.workspace.revealTrackForEdit(menu.trackId, menu.source)
+        workspace: history.workspace
+        listKind: "history"
+        showAddToQueue: false
+        onTriggered: (actionId) => {
+            if (actionId === "addEntryToQueue")
+                history.playback.enqueueHistoryEntry(menu.historyId)
         }
     }
 }
