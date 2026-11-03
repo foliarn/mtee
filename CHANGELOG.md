@@ -80,6 +80,10 @@ All notable changes to MTEE are listed here. The format follows
   `track_data.changed_since(cursor, limit)` (the tracks whose analysis, loudness or corrections
   changed). The last one reads a change log that the database gains with migration 031, written by
   triggers and backed up first. See `docs/plugins.md`, section 6.
+- Developers: the sidebar contract gains optional fields, `API_VERSION` stays 1. `PaneAction` takes
+  `label` (a text button) and `visible`; `SidebarSection` takes `on_fold`, `count` and `expanded`;
+  `PluginActivity` takes `badge`. A click on the name of a group row calls `activate`, and a
+  `tone="warning"` row is drawn in the warning colour. See `docs/plugins.md`, section 7.
 
 ### Changed
 

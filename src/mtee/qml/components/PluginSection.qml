@@ -2,9 +2,11 @@ import QtQuick
 import Mtee
 
 // A SidebarSection of a plugin. The header is the PaneHeader of a sidebar pane (uppercase
-// caption, actions on the right) with a chevron; the rows are the rows of the Explorer tree
-// (24 px, chevron for groups, muted counts on the right). The rows come from the plugin's
-// model, the actions and the click from the plugin through ``workspace.pluginUi``.
+// caption, a count badge, actions on the right) with a chevron; the rows are the rows of the
+// Explorer tree (24 px, chevron for groups, muted counts on the right). The rows come from the
+// plugin's model, the actions and the click from the plugin through ``workspace.pluginUi``.
+// A warning row is drawn in the warning colour, icon included; a group folds by its chevron and
+// a click on its name is the plugin's ``activate``.
 Column {
     id: section
 
@@ -22,6 +24,9 @@ Column {
     // Groups the user folded or unfolded: id -> true (folded) or false. A group with no entry
     // follows the plugin's ``expanded`` value.
     property var folded: ({})
+    readonly property var ui: workspace.pluginUi
+    // The count the plugin declared for the section, read again with the plugins' revision.
+    readonly property int headerCount: ui ? ui.sectionCount(sectionKey, ui.revision) : 0
 
     function isFolded(item) {
         return section.folded[item.id] !== undefined ? section.folded[item.id] : item.expanded === false
@@ -41,6 +46,9 @@ Column {
         }
         return rows
     }
+
+    // The state of the section the first time it is shown; after that the user's choice is kept.
+    Component.onCompleted: section.expanded = section.ui.sectionStartsExpanded(section.sectionKey)
 
     objectName: "pluginSection_" + sectionKey
     width: parent ? parent.width : 240
@@ -67,6 +75,7 @@ Column {
         }
 
         Text {
+            id: titleText
             x: 30
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: 1
@@ -76,6 +85,28 @@ Column {
             font.pixelSize: Theme.fontSizeCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 1.1
+        }
+
+        // The count of the section, in the accent colour as the badge of an activity; hidden at 0.
+        Rectangle {
+            objectName: "pluginSectionCount_" + section.sectionKey
+            visible: section.headerCount > 0
+            x: titleText.x + titleText.implicitWidth + 6
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: 1
+            width: Math.max(14, countText.implicitWidth + 6)
+            height: 14
+            color: Theme.primary
+
+            Text {
+                id: countText
+                anchors.centerIn: parent
+                text: section.headerCount
+                color: Theme.textOnColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                font.weight: Font.Bold
+            }
         }
 
         MouseArea {
@@ -96,11 +127,32 @@ Column {
 
             Repeater {
                 model: section.actions
-                delegate: IconButton {
+                // A hidden button takes no place in the row; a button with a label is a text button.
+                delegate: Item {
+                    id: slot
                     required property var modelData
-                    objectName: "pluginSectionAction_" + modelData.id
-                    icon: modelData.icon; iconSize: 16; width: 26; height: 26; tip: modelData.tip
-                    onClicked: section.workspace.pluginUi.runSectionAction(section.sectionKey, modelData.id)
+                    readonly property bool hasLabel: (modelData.label || "").length > 0
+                    visible: section.ui.actionShown("section:" + section.sectionKey, modelData.id, section.ui.revision)
+                    width: hasLabel ? textAction.implicitWidth : 26
+                    height: 26
+
+                    IconButton {
+                        objectName: "pluginSectionAction_" + slot.modelData.id
+                        visible: !slot.hasLabel
+                        icon: slot.modelData.icon; iconSize: 16; width: 26; height: 26; tip: slot.modelData.tip
+                        onClicked: section.ui.runSectionAction(section.sectionKey, slot.modelData.id)
+                    }
+
+                    TextButton {
+                        id: textAction
+                        objectName: "pluginSectionLabelAction_" + slot.modelData.id
+                        visible: slot.hasLabel
+                        kind: "ghost"
+                        text: slot.modelData.label || ""
+                        tip: slot.modelData.tip
+                        height: 26
+                        onClicked: section.ui.runSectionAction(section.sectionKey, slot.modelData.id)
+                    }
                 }
             }
         }
@@ -115,6 +167,7 @@ Column {
             readonly property bool isGroup: modelData.kind === "group"
             readonly property bool current: !isGroup && modelData.id === section.activeId
             readonly property bool hasIcon: isGroup || (modelData.icon || "").length > 0
+            readonly property bool warning: modelData.tone === "warning"
 
             objectName: "pluginRow_" + modelData.id
             width: section.width
@@ -129,11 +182,13 @@ Column {
                 name: row.isGroup ? (section.isFolded(row.modelData) ? "chevron-right" : "chevron-down")
                     : (row.modelData.icon || "")
                 size: row.isGroup ? 16 : 14
-                color: row.isGroup ? Theme.textSecondary
+                color: row.warning ? Theme.warning
+                    : row.isGroup ? Theme.textSecondary
                     : row.modelData.tone === "secondary" ? Theme.secondary : Theme.textSecondary
             }
 
             Text {
+                id: nameText
                 anchors.left: lead.visible ? lead.right : parent.left
                 anchors.leftMargin: lead.visible ? (row.isGroup ? 4 : 8) : 8 + (row.modelData.depth || 0) * 14 + 22
                 anchors.right: tail.left
@@ -141,7 +196,8 @@ Column {
                 anchors.verticalCenter: parent.verticalCenter
                 text: row.modelData.name
                 elide: Text.ElideRight
-                color: row.current ? Theme.primary : row.isGroup ? Theme.textPrimary : Theme.textSecondary
+                color: row.current ? Theme.primary : row.warning ? Theme.warning
+                    : row.isGroup ? Theme.textPrimary : Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
                 font.weight: row.isGroup && (row.modelData.depth || 0) === 0 ? Font.DemiBold : Font.Normal
@@ -183,7 +239,7 @@ Column {
                         visible: (row.modelData.count || "").length > 0
                         anchors.verticalCenter: parent.verticalCenter
                         text: row.modelData.count || ""
-                        color: Theme.textMuted
+                        color: row.warning ? Theme.warning : Theme.textMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSmall
                         font.features: { "tnum": 1 }
@@ -195,13 +251,26 @@ Column {
                 id: rowMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                onClicked: {
-                    if (row.isGroup) {
-                        const next = Object.assign({}, section.folded)
-                        next[row.modelData.id] = !section.isFolded(row.modelData)
-                        section.folded = next
-                    } else {
-                        section.workspace.pluginUi.activateRow(section.sectionKey, row.modelData.id)
+                onClicked: (mouse) => {
+                    // The references are taken first: changing the fold state rebuilds this
+                    // delegate, so nothing below may read the row's ids after that.
+                    const ui = section.ui
+                    const column = section
+                    const key = section.sectionKey
+                    const item = row.modelData
+                    if (!row.isGroup) {
+                        ui.activateRow(key, item.id)
+                        return
+                    }
+                    // The chevron folds and unfolds; the name of the group is the plugin's activate.
+                    if (mouse.x < lead.x + lead.width + 4) {
+                        const expanded = column.isFolded(item)
+                        const next = Object.assign({}, column.folded)
+                        next[item.id] = !expanded
+                        column.folded = next
+                        ui.foldRow(key, item.id, expanded)
+                    } else if (mouse.x >= nameText.x && mouse.x <= nameText.x + nameText.paintedWidth) {
+                        ui.activateRow(key, item.id)
                     }
                 }
             }

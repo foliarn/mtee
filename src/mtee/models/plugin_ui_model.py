@@ -89,6 +89,10 @@ class PluginUiModel(QObject):
         self._waiting: dict[str, _Owned[WaitingItems]] = {}
         self._dialogs: dict[str, _Owned[PluginDialog]] = {}
         self._delete_choices: dict[str, _Owned[DeleteChoices]] = {}
+        # Read on registration and on refresh: the counts, badges and button visibilities.
+        self._section_counts: dict[str, int] = {}
+        self._activity_badges: dict[str, int] = {}
+        self._action_shown: dict[str, bool] = {}
         self._waiting_count = 0
         self._columns_store = PluginColumnStore(None)
         self._revision = 0
@@ -151,6 +155,7 @@ class PluginUiModel(QObject):
             self._adopt(group.item.model)
             self._watch_waiting(group.item.model)
         self._update_waiting()
+        self._read_dynamic()
         self._revision += 1
         self.changed.emit()
 
@@ -179,10 +184,75 @@ class PluginUiModel(QObject):
 
     @Slot()
     def refresh(self) -> None:
-        """The data of a plugin changed: header buttons are read again and open lists reload."""
+        """The data of a plugin changed: counts, badges and buttons are read again, lists reload."""
+        self._read_dynamic()
         self._revision += 1
         self.changed.emit()
         self.refreshRequested.emit()
+
+    def _read_dynamic(self) -> None:
+        """Read the counts, badges and visibilities the plugins declared; a failure gives none."""
+        self._section_counts = {}
+        self._activity_badges = {}
+        self._action_shown = {}
+        for key, section in self._sections.items():
+            if section.item.count is not None:
+                value = self._guard(section.plugin_title, "counting a section", section.item.count)
+                self._section_counts[key] = _as_count(value)
+            self._read_action_visibility(
+                f"section:{key}", section.plugin_title, section.item.actions
+            )
+        for key, activity in self._activities.items():
+            if activity.item.badge is not None:
+                value = self._guard(
+                    activity.plugin_title, "counting an activity", activity.item.badge
+                )
+                self._activity_badges[key] = _as_count(value)
+            self._read_action_visibility(
+                f"activity:{key}", activity.plugin_title, activity.item.actions
+            )
+
+    def _read_action_visibility(
+        self, scope: str, plugin_title: str, actions: Sequence[PaneAction]
+    ) -> None:
+        for action in actions:
+            if action.visible is not None:
+                shown = self._guard(plugin_title, "reading a button", action.visible)
+                self._action_shown[f"{scope}|{action.action_id}"] = bool(shown)
+
+    @Slot(str, int, result=int)
+    def sectionCount(self, key: str, _revision: int = 0) -> int:
+        """The badge of a section title; 0 hides it. Read again on ``refresh``."""
+        return self._section_counts.get(key, 0)
+
+    @Slot(str, int, result=int)
+    def activityBadge(self, activity: str, _revision: int = 0) -> int:
+        """The badge of an activity-bar button; 0 hides it. Read again on ``refresh``."""
+        return self._activity_badges.get(activity, 0)
+
+    @Slot(str, str, int, result=bool)
+    def actionShown(self, scope: str, action_id: str, _revision: int = 0) -> bool:
+        """Whether a header button is drawn (``scope``: ``activity:<key>`` or ``section:<key>``)."""
+        return self._action_shown.get(f"{scope}|{action_id}", True)
+
+    @Slot(str, result=bool)
+    def sectionStartsExpanded(self, key: str) -> bool:
+        """The state of a section the first time it is shown (read once by the QML)."""
+        owned = self._sections.get(key)
+        if owned is None:
+            return True
+        expanded = owned.item.expanded
+        if isinstance(expanded, bool):
+            return expanded
+        value = self._guard(owned.plugin_title, "reading a section", expanded)
+        return True if value is None else bool(value)
+
+    @Slot(str, str, bool)
+    def foldRow(self, key: str, row_id: str, expanded: bool) -> None:
+        """A group row of a section was folded or unfolded by the user: tell the plugin."""
+        owned = self._sections.get(key)
+        if owned is not None and owned.item.on_fold is not None:
+            self._guard(owned.plugin_title, "folding an item", owned.item.on_fold, row_id, expanded)
 
     # ------------------------------------------------------------------ activities
 
@@ -693,7 +763,18 @@ class PluginUiModel(QObject):
 
 
 def _pane_actions(actions: Sequence[PaneAction]) -> list[dict[str, str]]:
-    return [{"id": item.action_id, "tip": item.tip, "icon": item.icon} for item in actions]
+    return [
+        {"id": item.action_id, "tip": item.tip, "icon": item.icon, "label": item.label}
+        for item in actions
+    ]
+
+
+def _as_count(value: Any) -> int:
+    """A count read from a plugin, never negative; anything that is not a number is 0."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _list_row(item: TrackListRow, library: dict[str, Any]) -> dict[str, Any]:

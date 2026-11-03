@@ -23,11 +23,32 @@ Item {
 
         Repeater {
             model: pane.info.actions
-            delegate: IconButton {
+            // A hidden button takes no place in the header; a button with a label is a text button.
+            delegate: Item {
+                id: slot
                 required property var modelData
-                objectName: "pluginPaneAction_" + modelData.id
-                icon: modelData.icon; iconSize: 16; width: 26; height: 26; tip: modelData.tip
-                onClicked: pane.ui.runActivityAction(pane.activity, modelData.id)
+                readonly property bool hasLabel: (modelData.label || "").length > 0
+                visible: pane.ui.actionShown("activity:" + pane.activity, modelData.id, pane.ui.revision)
+                width: hasLabel ? textAction.implicitWidth : 26
+                height: 26
+
+                IconButton {
+                    objectName: "pluginPaneAction_" + slot.modelData.id
+                    visible: !slot.hasLabel
+                    icon: slot.modelData.icon; iconSize: 16; width: 26; height: 26; tip: slot.modelData.tip
+                    onClicked: pane.ui.runActivityAction(pane.activity, slot.modelData.id)
+                }
+
+                TextButton {
+                    id: textAction
+                    objectName: "pluginPaneLabelAction_" + slot.modelData.id
+                    visible: slot.hasLabel
+                    kind: "ghost"
+                    text: slot.modelData.label || ""
+                    tip: slot.modelData.tip
+                    height: 26
+                    onClicked: pane.ui.runActivityAction(pane.activity, slot.modelData.id)
+                }
             }
         }
     }
