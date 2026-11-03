@@ -16,8 +16,13 @@ Dialog {
     readonly property real windowHeight: parent && parent.Window.window ? parent.Window.window.height : 900
     height: Math.max(510, Math.min(510 + (choiceBlock.visible ? Math.max(0, choiceBlock.height + 12 - 110) : 0),
                                    windowHeight - 40))
+    // Like the other dialogs of the core: centred over the window. Loaded inside Main.qml's
+    // Loader, which is 0 x 0 at the top-left corner, it would otherwise centre on that corner.
+    parent: Overlay.overlay
     anchors.centerIn: parent
-    title: trashModel.state === "confirm" ? "Move to Recycle Bin" : "Recycle operation"
+    title: trashModel.state === "confirm"
+        ? (trashModel.hasLocalFiles ? "Move to Recycle Bin" : "Choose an action")
+        : "Recycle operation"
     standardButtons: Dialog.NoButton
 
     background: Rectangle {
@@ -44,7 +49,9 @@ Dialog {
             text: dialog.trashModel.state === "preparing"
                 ? dialog.trashModel.message
                 : dialog.trashModel.state === "confirm"
-                    ? "Move " + dialog.trashModel.selectedCount + " selected audio file(s) to the Windows Recycle Bin?"
+                    ? (dialog.trashModel.hasLocalFiles
+                        ? "Move " + dialog.trashModel.selectedCount + " selected audio file(s) to the Windows Recycle Bin?"
+                        : "None of the selected tracks has a file on this computer, so none can go to the Windows Recycle Bin.")
                     : dialog.trashModel.message
             wrapMode: Text.Wrap
             color: dialog.trashModel.state === "result" ? Theme.textSecondary : Theme.textPrimary
@@ -54,7 +61,7 @@ Dialog {
 
         Text {
             width: parent.width
-            visible: dialog.trashModel.state === "confirm"
+            visible: dialog.trashModel.state === "confirm" && dialog.trashModel.hasLocalFiles
             text: "You can restore recycled files from the Windows Recycle Bin. If a file is in use, stop playback and retry it."
             wrapMode: Text.Wrap
             color: Theme.textSecondary
@@ -117,8 +124,8 @@ Dialog {
             }
         }
 
-        // What plugins offer for this selection, one group per plugin under its name. Pending
-        // the user's answer to question 3 of the 125/126 UX review (see TrashModel).
+        // What plugins offer for this selection, one group per plugin under its name. Approved
+        // 2026-11-02 (private/docs/ux/review-125-126.md, Decision 3), see TrashModel.
         Column {
             id: choiceBlock
             objectName: "trashChoices"
@@ -238,6 +245,15 @@ Dialog {
                     text: modelData.label
                     onClicked: dialog.trashModel.run_choice(modelData.key)
                 }
+            }
+
+            // Closes the confirmation without doing anything: the same as Escape (reject).
+            TextButton {
+                objectName: "trashCancel"
+                visible: dialog.trashModel.state === "confirm"
+                text: "Cancel"
+                kind: "ghost"
+                onClicked: dialog.reject()
             }
 
             TextButton {

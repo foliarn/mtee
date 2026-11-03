@@ -17,6 +17,7 @@ from mtee.domain.navigation_history import NavigationLocation
 from mtee.models.analysis_model import AnalysisModel
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.models.artist_index_model import ArtistListModel
+from mtee.models.availability_filter import AvailabilityFilter
 from mtee.models.file_move_model import FileMoveModel
 from mtee.models.folder_tree_model import FolderTreeModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
@@ -25,6 +26,7 @@ from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
 from mtee.models.plugin_ui_model import PluginUiModel
 from mtee.models.plugins_view_model import PluginsViewModel
+from mtee.models.status_bar_model import StatusBarModel
 from mtee.models.tag_conflicts_model import TagConflictsModel
 from mtee.models.track_list_model import TrackListModel
 from mtee.models.trash_model import TrashModel
@@ -133,6 +135,7 @@ from mtee.persistence.workspace_repository import (
     DEFAULT_COLUMN_PREFERENCES,
     WorkspaceRepository,
 )
+from mtee.plugins.availability_registry import TrackAvailabilityRegistry
 from mtee.plugins.context import PluginHost
 from mtee.plugins.loader import LoadedPlugin
 from mtee.plugins.registry import plugin_ui_enabled
@@ -194,6 +197,7 @@ class WorkspaceModel(QObject):
     playlistCreationRequested = Signal(list)
     enqueuePrepared = Signal(int, object)
     artistsChanged = Signal()
+    availabilityFilterChanged = Signal()
 
     def __init__(
         self,
@@ -218,6 +222,8 @@ class WorkspaceModel(QObject):
         self._conversion_model: Any | None = None
         # What the running plugins add to the interface: empty without a plugin.
         self._plugin_ui = PluginUiModel(self)
+        # The status bar under the player bar (plan 125.5): the items of the plugins, if any.
+        self._status_bar = StatusBarModel(self)
         self._plugins_view: PluginsViewModel | None = None
         self._trash_model: TrashModel | None = None
         self._file_move_model: FileMoveModel | None = None
@@ -292,6 +298,8 @@ class WorkspaceModel(QObject):
         self._scan_coordinator = WorkspaceScanCoordinator()
         self._branch_tracker = FolderBranchTracker()
         self._track_models: dict[str, TrackListModel] = {}
+        # "Hide tracks not on this device": the stored choice and the plugin that answers (125.3).
+        self._availability = AvailabilityFilter()
         self._track_tracker = TrackRequestTracker()
         self._explorer_coordinator = ExplorerTrackCoordinator()
         self._folder_root_generation = 0
@@ -327,6 +335,7 @@ class WorkspaceModel(QObject):
         self._plugin_ui.tabRequested.connect(self.openPluginTab)
         self._plugin_ui.refreshRequested.connect(self._refresh_plugin_lists)
         self._plugin_ui.noticeRaised.connect(self._set_message)
+        self._status_bar.noticeRaised.connect(self._set_message)
         if player is not None:
             player.playbackChanged.connect(self.playbackChanged.emit)
             player.positionChanged.connect(self.positionChanged.emit)
@@ -1170,6 +1179,11 @@ class WorkspaceModel(QObject):
         """What the running plugins contribute; every list is empty without a plugin."""
         return self._plugin_ui
 
+    @Property(QObject, constant=True)
+    def statusBar(self) -> QObject:
+        """The items the plugins show in the status bar; empty without a plugin."""
+        return self._status_bar
+
     @Property(QObject, notify=layoutChanged)
     def pluginsView(self) -> QObject | None:
         """The Plugins activity: installed plugins, the Marketplace and installs; ``None``."""
@@ -1451,6 +1465,42 @@ class WorkspaceModel(QObject):
         host.uiRefreshRequested.connect(self._plugin_ui.refresh)
         host.dialogRequested.connect(self._plugin_ui.open_dialog)
         host.tabRequested.connect(self.openPluginTab)
+        host.availabilityChanged.connect(self._on_availability_changed)
+        host.attach_status_bar(self._status_bar)
+
+    def attach_availability(
+        self, registry: TrackAvailabilityRegistry, settings: SettingsRepository
+    ) -> None:
+        """Let the track lists leave out the tracks a plugin reports as not on this device."""
+        self._availability.attach(registry, settings)
+        self.availabilityFilterChanged.emit()
+        self._refresh_track_models(None)
+
+    @Property(bool, notify=availabilityFilterChanged)
+    def availabilityProvided(self) -> bool:
+        """Whether a running plugin provides track availability; the filter is offered then."""
+        return self._availability.provided
+
+    @Property(bool, notify=availabilityFilterChanged)
+    def hideNotOnDevice(self) -> bool:
+        """The choice "Hide tracks not on this device", one value for every track list."""
+        return self._availability.wanted
+
+    @Slot(bool)
+    def setHideNotOnDevice(self, hide: bool) -> None:
+        self._availability.set_wanted(bool(hide))
+        self.availabilityFilterChanged.emit()
+        self._refresh_track_models(None)
+
+    @Slot(object)
+    def _on_availability_changed(self, track_ids: object) -> None:
+        """A plugin says the availability of some tracks (None: all) changed; ask again."""
+        changed = {str(item) for item in track_ids} if isinstance(track_ids, list | tuple) else None
+        self._refresh_track_models(changed)
+
+    def _refresh_track_models(self, changed: set[str] | None) -> None:
+        for model in tuple(self._track_models.values()):
+            model.refresh_filter(changed)
 
     def attach_plugins_view(self, model: PluginsViewModel) -> None:
         """Attach the Plugins activity; its detail tabs and notices come back to this workspace."""
@@ -1477,6 +1527,7 @@ class WorkspaceModel(QObject):
         A saved plugin activity that no running plugin provides falls back to the Explorer.
         """
         self._plugin_ui.register(plugins, settings)
+        self._status_bar.register(plugins)
         if "." in self._activity and not self._plugin_ui.has_activity(self._activity):
             self._activity = "explorer"
             self._persist()
@@ -1579,7 +1630,9 @@ class WorkspaceModel(QObject):
             if job_id:
                 with suppress(LookupError, ValueError):
                     self._jobs.cancel(JobId.parse(job_id))
-            model.replace([row for row in model.rows_snapshot() if str(row["id"]) not in moved_ids])
+            model.replace(
+                [row for row in model.source_rows_snapshot() if str(row["id"]) not in moved_ids]
+            )
 
     def attach_analysis(
         self,
@@ -1672,6 +1725,7 @@ class WorkspaceModel(QObject):
         model = self._track_models.get(model_key)
         if model is None:
             model = TrackListModel(self)
+            model.set_hidden_ids(self._availability.remote_ids)
             self._track_models[model_key] = model
         if kind in {"folder", "playlist", "artist"} or self._plugin_ui.is_track_list_kind(kind):
             self._request_track_rows(model_key, tab_id, group, kind, ref, sort_key, ascending)

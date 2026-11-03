@@ -31,7 +31,10 @@ All notable changes to MTEE are listed here. The format follows
   meta line of local playlists (`PlaylistMeta`).
 - A job error whose exception says `readable = True` is shown in Tasks as its sentence alone.
 - A plugin can add choices to the Recycle Bin confirmation (`DeleteChoices`, plan 125.4). Without
-  one the dialog is unchanged, and MTEE itself still only uses the Recycle Bin.
+  one the dialog is unchanged, and MTEE itself still only uses the Recycle Bin. A choice can send
+  its files to the Recycle Bin without a second dialog (`request.recycle`), and a selection with no
+  file on this computer shows the plugin's choices alone.
+- The Recycle Bin confirmation has a Cancel button, which closes it and runs nothing.
 - A plugin is packed into a `.mteeplugin` file by `scripts/pack_plugin.py`: `plugin.json` lists
   the bundled libraries and licences, MTEE's own libraries are never bundled (`docs/plugins.md`,
   section 11).
@@ -50,6 +53,21 @@ All notable changes to MTEE are listed here. The format follows
 - Plugins can be listed in a Marketplace: MTEE reads the list from GitHub when asked and
   downloads a package only on request, checked against the list (`docs/plugins.md`, section 12;
   plan 123.4).
+- A plugin can say which tracks are not on this device. Track lists then offer "Hide tracks not
+  on this device" in their settings menu, with the number of hidden tracks in the meta line, and
+  Settings > Library has the same choice (plan 125.3).
+- The status bar under the player shows what a plugin reports, such as the state of a server,
+  and a click runs the plugin's action. It is shown only while a plugin uses it (plan 125.5).
+- For plugin developers (`API_VERSION` stays 1): the optional capabilities `TrackAvailability`,
+  `StatusItem` and the store access for sync (`play_log`, playlist revisions, `track_data`,
+  `synced_settings`, `database_snapshot`). `docs/plugins.md` describes each one, and the sample
+  plugin uses it (plans 125.2 to 125.6).
+- A plugin dialog can ask for a width from 320 to 640 pixels (`PluginDialog(width=...)`, 480 by
+  default).
+- For plugin developers (`API_VERSION` stays 1): the optional capability
+  `files.replace_content(track_id, source)` puts a file in place of a track's file, keeping the
+  track's identifier. The old file goes to the Recycle Bin through the trash path and journal
+  (plan 126.4). See `docs/plugins.md`, section 6.
 
 ### Changed
 
@@ -60,6 +78,10 @@ All notable changes to MTEE are listed here. The format follows
 ### Fixed
 
 - Entries of the track context menu that are hidden no longer leave an empty band in it.
+- The Recycle Bin confirmation is centred over the window, and it names a track that a plugin
+  provides without a file by its artist and title, not by its identifier.
+- The column picker shows a plugin named "... plugin" once ("Sample plugin", not "Sample plugin
+  plugin").
 
 ## [0.1.0] - 2026-10-15
 

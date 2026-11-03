@@ -60,9 +60,19 @@ FocusScope {
     // The kind that decides which plugin columns start visible.
     readonly property string columnKind: isPluginList ? tab.kind : "playlist"
     readonly property bool isArtist: tab.kind === "artist" && modelBacked
+    // The plugin's name on the right of its column: its title, with " plugin" added unless the
+    // title already ends with the word "plugin" ("Sample plugin", not "Sample plugin plugin").
+    function pluginHint(title) {
+        const name = String(title).trim()
+        return /(^|\W)plugin$/i.test(name) ? name : name + " plugin"
+    }
     property bool playlistSearchOpen: false
     readonly property var playlistOptions: ["title", "artist", "album", "bpm", "key", "duration"]
     readonly property bool artwork: tab.view === "artwork"
+    // "Hide tracks not on this device" is offered only while a plugin provides availability.
+    readonly property bool availabilityFilterOffered: workspace.availabilityProvided === true
+    // Tracks the filter leaves out of this list; the meta line says so.
+    readonly property int hiddenCount: modelBacked ? (trackModel.hiddenCount || 0) : 0
 
     // Lists handed over by Python reach QML as Qt sequences, for which
     // Array.isArray is false; a length is what identifies them.
@@ -475,6 +485,7 @@ FocusScope {
                 Text {
                     anchors.baseline: name.baseline
                     text: view.workspace.tabSummary(view.tab.kind, view.tab.ref, view.workspace.revision)
+                        + (view.hiddenCount > 0 ? " · " + view.hiddenCount + " hidden" : "")
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSecondary
@@ -565,7 +576,7 @@ FocusScope {
                     required property var modelData
                     objectName: "columnOption_" + modelData.key
                     text: modelData.label
-                    hint: modelData.plugin ? modelData.plugin + " plugin" : ""
+                    hint: modelData.plugin ? view.pluginHint(modelData.plugin) : ""
                     checkable: true
                     checked: view.columns.keys.indexOf(modelData.key) >= 0
                     mark: checked
@@ -588,6 +599,29 @@ FocusScope {
             }
 
             AppMenuSeparator {}
+
+            AppMenuItem {
+                text: "FILTER"
+                enabled: false
+                visible: view.availabilityFilterOffered
+                height: visible ? implicitHeight : 0
+            }
+
+            AppMenuItem {
+                objectName: "hideNotOnDevice"
+                text: "Hide tracks not on this device"
+                visible: view.availabilityFilterOffered
+                height: visible ? implicitHeight : 0
+                // The choice is read from the workspace, not from the item: a checkable item
+                // flips its own check before it reports the trigger.
+                mark: view.workspace.hideNotOnDevice === true
+                onTriggered: view.workspace.setHideNotOnDevice(view.workspace.hideNotOnDevice !== true)
+            }
+
+            AppMenuSeparator {
+                visible: view.availabilityFilterOffered
+                height: visible ? implicitHeight : 0
+            }
 
             AppMenuItem {
                 text: "Show artwork"

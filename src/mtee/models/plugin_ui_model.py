@@ -17,6 +17,7 @@ from typing import Any
 
 from PySide6.QtCore import Property, QAbstractItemModel, QObject, QUrl, Signal, Slot
 
+from mtee.domain.recycling import RecycleOutcome
 from mtee.domain.source_tracks import is_non_file_row, row_is_available
 from mtee.models.plugin_columns import (
     PluginColumnStore,
@@ -30,6 +31,7 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins.api import (
     DeleteChoice,
     DeleteChoices,
+    DeleteRequest,
     JobContext,
     LibraryScanned,
     PaneAction,
@@ -595,6 +597,12 @@ class PluginUiModel(QObject):
         owned = self._dialogs.get(key)
         return owned.item.backend if owned is not None else None
 
+    @Slot(str, result=int)
+    def dialogWidth(self, key: str) -> int:
+        """The width in pixels the plugin asked for its dialog ``key`` (480 when unknown)."""
+        owned = self._dialogs.get(key)
+        return owned.item.width if owned is not None else 480
+
     # ------------------------------------------------------------------ delete choices
 
     def delete_choices(self, track_ids: Sequence[str]) -> list[dict[str, Any]]:
@@ -641,17 +649,25 @@ class PluginUiModel(QObject):
                 )
         return groups
 
-    def run_delete_choice(self, key: str, track_ids: Sequence[str], job: JobContext) -> str:
+    def run_delete_choice(
+        self,
+        key: str,
+        track_ids: Sequence[str],
+        job: JobContext,
+        recycle: Callable[[Sequence[str]], RecycleOutcome],
+    ) -> str:
         """Run the choice ``key`` of a plugin and return the sentence to show; job thread.
 
-        The plugin's exception is not caught here: the caller shows it. Raises ``LookupError``
-        when the plugin or its choices are gone.
+        ``recycle`` is what the request's ``recycle`` calls: the core's recycle of the files the
+        user confirmed. The plugin's exception is not caught here: the caller shows it. Raises
+        ``LookupError`` when the plugin or its choices are gone.
         """
         plugin_id, _, choice_id = key.partition(".")
         owned = self._delete_choices.get(plugin_id)
         if owned is None or not choice_id:
             raise LookupError("The plugin that offered this choice is no longer running.")
-        done = owned.item.run(choice_id, tuple(track_ids), job)
+        request = DeleteRequest(choice_id, tuple(track_ids), job, recycle)
+        done = owned.item.run(request)
         return done if isinstance(done, str) and done.strip() else "Done."
 
     # ------------------------------------------------------------------ library scans

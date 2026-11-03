@@ -34,6 +34,7 @@ from mtee.plugins.api import (
     PluginContext,
     PluginManifest,
     PluginService,
+    TrackAvailability,
 )
 from mtee.plugins.contributions import check_contributions
 from mtee.plugins.libraries import LibraryUser, install_finder, plan_libraries, uninstall_finder
@@ -265,8 +266,14 @@ class PluginManager:
         }
         self._plugins = []
         failed: list[LoadedPlugin] = []
+        availability_owner: LoadedPlugin | None = None
         for plugin in discovered:
             record = self._record(plugin, enabled, plan.refused, context_factory)
+            if record.status is PluginStatus.RUNNING and _provides_availability(record):
+                if availability_owner is None:
+                    availability_owner = record
+                else:
+                    self._refuse_availability(record, availability_owner)
             _log_state(record)
             if record.status is PluginStatus.FAILED and plugin.plugin_id in enabled:
                 failed.append(record)
@@ -346,6 +353,21 @@ class PluginManager:
             self._release_service(record.plugin_id, record.service)
         _forget_modules(record.plugin_id)
 
+    def _refuse_availability(self, record: LoadedPlugin, owner: LoadedPlugin) -> None:
+        """Stop a running plugin when another one already provides track availability (plan 125.3).
+
+        MTEE accepts one provider of ``TrackAvailability``; the first plugin in folder order keeps
+        it. The refused plugin is released and marked Failed with the reason, as any failure.
+        """
+        self._release(record)
+        record.status = PluginStatus.FAILED
+        record.error = (
+            f"Track availability is already provided by {owner.title}, and MTEE accepts one "
+            "plugin for it. This plugin is disabled."
+        )
+        record.service = None
+        record.contributions = ()
+
     @staticmethod
     def _release_service(plugin_id: str, service: PluginService) -> None:
         try:
@@ -377,6 +399,11 @@ def _library_users(plugins: Sequence[DiscoveredPlugin]) -> list[LibraryUser]:
         for plugin in plugins
         if plugin.declared is not None and plugin.declared.libraries
     ]
+
+
+def _provides_availability(record: LoadedPlugin) -> bool:
+    """Return whether a loaded plugin declares a ``TrackAvailability`` contribution."""
+    return any(isinstance(item, TrackAvailability) for item in record.contributions)
 
 
 def _read_contributions(plugin_id: str, service: object) -> tuple[Contribution, ...]:

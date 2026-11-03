@@ -10,7 +10,7 @@ a readable result, and no choice ever moves a file by itself.
 from __future__ import annotations
 
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 from PySide6.QtCore import QObject
@@ -18,8 +18,10 @@ from tests.unit import test_trash_model as _trash_tests
 from tests.unit.test_trash_model import _Env, _results, _statuses
 
 from mtee.domain.jobs import JobState
+from mtee.domain.recycling import RecycleOutcome
 from mtee.models.trash_model import TrashModel
 from mtee.services.jobs import JobContext
+from mtee.services.trash_service import TrashServiceError
 
 env = _trash_tests.env  # the fixture of test_trash_model, found by pytest under this name
 
@@ -56,6 +58,9 @@ class _Source:
         self.offer_error: Exception | None = None
         self.answer = "Done on the server."
         self.gate: threading.Event | None = None
+        # When set, the run asks the core to recycle these ids, and keeps the outcome.
+        self.recycle_request: list[str] | None = None
+        self.outcome: RecycleOutcome | None = None
 
     def delete_choices(self, track_ids: Sequence[str]) -> list[dict[str, Any]]:
         self.offered.append(list(track_ids))
@@ -63,8 +68,16 @@ class _Source:
             raise self.offer_error
         return [{**group, "choices": [dict(c) for c in group["choices"]]} for group in self.groups]
 
-    def run_delete_choice(self, key: str, track_ids: Sequence[str], job: JobContext) -> str:
+    def run_delete_choice(
+        self,
+        key: str,
+        track_ids: Sequence[str],
+        job: JobContext,
+        recycle: Callable[[Sequence[str]], RecycleOutcome],
+    ) -> str:
         self.runs.append((key, list(track_ids), threading.get_ident()))
+        if self.recycle_request is not None:
+            self.outcome = recycle(self.recycle_request)
         if self.gate is not None:
             while not job.is_cancelled:
                 if self.gate.wait(0.01):
@@ -360,3 +373,106 @@ def test_qml_reads_the_new_properties_through_qt(env: _Env) -> None:
     assert qml_view.property("replacesRecycle") is False
     assert len(qml_view.property("choiceGroups")) == 1
     assert [button["key"] for button in qml_view.property("choiceButtons")] == ["sample.log"]
+
+
+# --- cancel, a selection without local files, and the recycle of a choice --------------------
+
+
+def test_cancel_in_the_confirmation_runs_nothing(env: _Env) -> None:
+    track = env.add_track("a.wav")
+    source = _Source(_group("Remote", _choice("remote.x", "Remote: x")))
+    model = _model(env, source)
+    env.prepare(model, [track])
+    dialogs: list[int] = []
+    model.dialogRequested.connect(lambda: dialogs.append(1))
+
+    model.cancel()  # the Cancel button closes the dialog; no job is running to stop
+    env.settle()
+
+    assert model.state == "confirm" and not model.canCancel
+    assert source.runs == [] and env.service.calls == [] and env.journal_rows() == []
+    assert (env.music / "a.wav").is_file()
+    assert dialogs == []
+
+
+def test_a_selection_without_a_local_file_offers_only_the_plugin_choices(env: _Env) -> None:
+    source = _Source(_group("Remote", _choice("remote.x", "Remote: x")))
+    model = _model(env, source)
+
+    env.prepare(model, ["ghost"])  # a track that a plugin provides: no file here
+
+    assert model.state == "confirm"
+    assert model.hasLocalFiles is False
+    assert model.replacesRecycle is True  # the core button is not offered
+    assert _buttons(model) == [("Remote: x", "primary")]
+    assert [item["status"] for item in _results(model)] == ["conflict"]
+    model.confirm()  # the core action has nothing to recycle
+    env.settle()
+    assert model.state == "confirm" and env.service.calls == []
+
+
+def test_a_choice_recycles_the_confirmed_files_without_a_second_dialog(env: _Env) -> None:
+    first, second = env.add_track("a.wav"), env.add_track("b.wav")
+    source = _Source(
+        _group("Remote", _choice("remote.local", "Remove from this computer", replaces=True))
+    )
+    source.recycle_request = [first]
+    model = _model(env, source)
+    env.prepare(model, [first, second])
+    dialogs: list[int] = []
+    model.dialogRequested.connect(lambda: dialogs.append(1))
+    recycled: list[Any] = []
+    model.tracksRecycled.connect(recycled.append)
+
+    model.run_choice("remote.local")
+    env.wait(lambda: model.state == "result")
+    env.settle()
+
+    assert source.outcome == RecycleOutcome(recycled=(first,))
+    assert dialogs == []  # the choice recycled without asking the user again
+    assert env.service.calls == [env.music / "a.wav"]
+    assert not (env.music / "a.wav").exists() and (env.music / "b.wav").is_file()
+    assert [(row[0], row[1]) for row in env.journal_rows()] == [(first, "recycled")]
+    assert [item["trackId"] for item in recycled[0]] == [first]
+    assert _statuses(model) == ["done"]
+
+
+def test_a_choice_reports_a_track_that_had_no_file_in_the_confirmation(env: _Env) -> None:
+    first = env.add_track("a.wav")
+    source = _Source(_group("Remote", _choice("remote.local", "Remove from this computer")))
+    source.recycle_request = [first, "ghost"]
+    model = _model(env, source)
+    env.prepare(model, [first, "ghost"])
+
+    model.run_choice("remote.local")
+    env.wait(lambda: model.state == "result")
+    env.settle()
+
+    assert source.outcome is not None
+    assert source.outcome.recycled == (first,)
+    [missing] = source.outcome.failed
+    assert missing.track_id == "ghost" and "no file on this computer" in missing.reason
+    assert env.service.calls == [env.music / "a.wav"]
+
+
+def test_a_recycle_bin_that_stops_a_choice_leaves_the_rest_not_attempted(env: _Env) -> None:
+    first, second, third = env.add_track("a.wav"), env.add_track("b.wav"), env.add_track("c.wav")
+    env.service.errors["a.wav"] = TrashServiceError("The Recycle Bin is unavailable.")
+    source = _Source(_group("Remote", _choice("remote.local", "Remove from this computer")))
+    source.recycle_request = [first, second, third]
+    model = _model(env, source)
+    env.prepare(model, [first, second, third])
+
+    model.run_choice("remote.local")
+    env.wait(lambda: model.state == "result")
+    env.settle()
+
+    outcome = source.outcome
+    assert outcome is not None and outcome.recycled == ()
+    assert [item.track_id for item in outcome.failed] == [first, second, third]
+    reasons = [item.reason for item in outcome.failed]
+    assert reasons[0] == "TrashServiceError: The Recycle Bin is unavailable."
+    assert all(reason.startswith("Not attempted") for reason in reasons[1:])
+    assert len(env.service.calls) == 1  # no retry, and the other files were not sent
+    assert all((env.music / name).is_file() for name in ("a.wav", "b.wav", "c.wav"))
+    assert [(row[0], row[1]) for row in env.journal_rows()] == [(first, "failed")]

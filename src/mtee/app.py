@@ -60,6 +60,7 @@ from mtee.persistence.trash_repository import TrashRepository
 from mtee.persistence.workspace_repository import WorkspaceRepository
 from mtee.platform.media_transport import create_media_transport
 from mtee.platform.windows_frame import WindowFrame
+from mtee.plugins.availability_registry import TrackAvailabilityRegistry
 from mtee.plugins.context import PluginHost
 from mtee.plugins.installer import clean_staging, plugin_folders
 from mtee.plugins.loader import PluginManager, PluginPreferences
@@ -69,6 +70,7 @@ from mtee.services.analysis_service import AnalysisService
 from mtee.services.app_paths import AppPaths, resolve_app_paths
 from mtee.services.artist_index_service import ArtistIndexService
 from mtee.services.audio_analyzer import AudioAnalyzer
+from mtee.services.content_replacement import ContentReplacement
 from mtee.services.data_privacy import RestoreLayout, apply_pending_restore
 from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveService
@@ -344,6 +346,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         )
         workspace.attach_trash_model(trash_model)
         file_move_service = FileMoveService(database, library, file_access)
+        content_replacement = ContentReplacement(database, library, file_access, trash_model)
         workspace.attach_file_move_model(FileMoveModel(file_move_service, jobs))
         # Plugins load last, once every core service they can use exists. The Plugins activity
         # is always offered, so the host, the manager and its view exist in every run; without an
@@ -384,6 +387,8 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             source_tracks_changed=lambda track_ids: _refresh_after_source_tracks(
                 player_service, artist_index, playlists_model, track_ids
             ),
+            file_access=file_access,
+            content_replacement=content_replacement,
         )
         workspace.attach_plugin_host(plugin_host)
         plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
@@ -403,6 +408,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         artist_index.refresh()
         playlists_model.refresh()
         workspace.register_plugins(plugin_manager.plugins, settings)
+        # "Hide tracks not on this device" (plan 125.3): the running plugin that answers, if any.
+        availability_registry = TrackAvailabilityRegistry()
+        availability_registry.register(plugin_manager.plugins)
+        workspace.attach_availability(availability_registry, settings)
         plugin_host.run_startup_tasks(plugin_manager.plugins)
         # The snapshot of the start is taken here, after the plugins are loaded.
         workspace.attach_plugins_view(

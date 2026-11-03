@@ -83,7 +83,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 "tests/*" = ["S101"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "plugins"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 reportMissingTypeStubs = false

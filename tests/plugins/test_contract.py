@@ -37,13 +37,17 @@ from mtee.models.plugin_ui_model import PluginUiModel
 from mtee.persistence.database import Database, discover_migrations
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins.api import (
+    DeleteChoices,
     LibraryTrack,
     PaneAction,
     PluginActivity,
     PluginContext,
     PluginManifest,
     StartupTask,
+    StatusItem,
     TabKind,
+    TrackAvailability,
+    TrackSource,
 )
 from mtee.plugins.loader import (
     LoadedPlugin,
@@ -137,6 +141,9 @@ class Harness:
         self.library = MagicMock()
         self.playlists = MagicMock()
         self.files = MagicMock()
+        self.status_bar = MagicMock()
+        self.track_sources = MagicMock()
+        self.track_sources.list.return_value = []  # no track of its own: every track is local
         self.gui_calls: list[Callable[[], None]] = []
 
     def run_gui_calls(self) -> None:
@@ -158,6 +165,8 @@ class Harness:
             notify=self.notices.append,
             log=logging.getLogger(f"mtee.plugins.{manifest.plugin_id}"),
             run_on_gui=self.gui_calls.append,
+            track_sources=self.track_sources,
+            status_item=self.status_bar,
         )
 
     def stage(self, *plugins: ContractPlugin) -> Path:
@@ -633,3 +642,23 @@ def test_the_sample_lists_what_waits_for_the_user_and_answers_it(harness: Harnes
     assert shown.property("waitingCount") == 1
     shown.dismissWaiting("sample.waiting", "w2")
     assert shown.property("waitingCount") == 0  # an empty group is not drawn
+
+
+def test_the_sample_declares_each_optional_capability_once(harness: Harness) -> None:
+    """The sample uses the track source, availability, status item and delete choices (125)."""
+    folder = harness.stage(SAMPLE)
+    record = harness.start(folder, SAMPLE.plugin_id)[SAMPLE.plugin_id]
+    assert record.status is PluginStatus.RUNNING, record.error
+    for kind in (TrackSource, TrackAvailability, StatusItem, DeleteChoices):
+        assert sum(isinstance(item, kind) for item in record.contributions) == 1, kind.__name__
+    # The status item shows its first text as the plugin starts.
+    harness.status_bar.update.assert_called_once_with("Sample: ready")
+    # The delete choice is offered for any selection; pressing it is tested in test_delete_choices.
+    choices = next(item for item in record.contributions if isinstance(item, DeleteChoices))
+    assert [choice.choice_id for choice in choices.offer(["t1"])] == ["log_only"]
+    # Availability: a track the plugin does not provide is local, so nothing is reported remote.
+    availability = next(
+        item for item in record.contributions if isinstance(item, TrackAvailability)
+    )
+    assert availability.status(["t1", "t2"]) == {}
+    _sample_events().clear()
