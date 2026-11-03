@@ -21,6 +21,7 @@ Column {
     readonly property int pendingCount: backend ? backend.pendingCount : 0
     readonly property bool autoPull: backend ? backend.autoPull : false
     readonly property bool downloadNew: backend ? backend.downloadNew : false
+    readonly property string streamLevel: backend ? backend.streamLevel : "original"
     // The folder being linked (its path), and the choice made in its editor.
     property string editingPath: ""
     property string editRootId: ""
@@ -290,6 +291,108 @@ Column {
         actionKind: "ghost"
         enabledAction: !page.busy && !(page.backend && page.backend.fetching)
         onAction: page.backend.fetchNow()
+    }
+
+    // Playback (plan 127.5 and 127.6): the quality of a server track that is not on this computer,
+    // and the size of the copies kept here for offline play. Shown with or without a connection.
+    Group {
+        objectName: "remoteGroupPlayback"
+        title: "Playback"
+    }
+
+    Item {
+        objectName: "remoteStreamLevel"
+        width: page.width
+        height: Math.max(52, levelTexts.implicitHeight + 16)
+
+        Column {
+            id: levelTexts
+            anchors.left: parent.left
+            anchors.right: levelChips.left
+            anchors.rightMargin: 24
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            Text {
+                text: "Quality on this computer"
+                color: Theme.textPrimary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeBody
+            }
+
+            Text {
+                width: parent.width
+                text: "The quality of a track that is not on this computer. Original plays the file as it is and keeps a copy for offline play. The other levels are converted on the server and are not kept here."
+                wrapMode: Text.WordWrap
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+        }
+
+        Row {
+            id: levelChips
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 6
+
+            FilterChip {
+                objectName: "remoteLevelOriginal"
+                text: "Original"
+                checked: page.streamLevel === "original"
+                onToggled: page.backend.setStreamLevel("original")
+            }
+
+            FilterChip {
+                objectName: "remoteLevelLossless"
+                text: "Lossless"
+                checked: page.streamLevel === "lossless"
+                onToggled: page.backend.setStreamLevel("lossless")
+            }
+
+            FilterChip {
+                objectName: "remoteLevel320"
+                text: "320 kbps"
+                checked: page.streamLevel === "320"
+                onToggled: page.backend.setStreamLevel("320")
+            }
+
+            FilterChip {
+                objectName: "remoteLevel128"
+                text: "128 kbps"
+                checked: page.streamLevel === "128"
+                onToggled: page.backend.setStreamLevel("128")
+            }
+        }
+    }
+
+    StepperRow {
+        objectName: "remoteCacheSize"
+        label: "Cache size (GB)"
+        description: "Copies of server tracks kept on this computer for offline play. The ones played longest ago are removed first."
+        value: page.backend ? page.backend.cacheGb : 10
+        from: 1
+        to: 200
+        step: 1
+        onChosen: (value) => page.backend.setCacheGb(value)
+    }
+
+    ActionRow {
+        objectName: "remoteClearCache"
+        label: "Stream cache"
+        description: "Removes the copies kept for offline play. Your own tracks and the files of the library are not touched."
+        detail: page.backend ? page.backend.cacheText : ""
+        actionText: "Clear cache"
+        actionKind: "ghost"
+        enabledAction: !page.busy
+        onAction: page.backend.clearCache()
+    }
+
+    Item {
+        // Reads the size of the stream cache when the page is opened.
+        objectName: "remoteCacheLoader"
+        visible: false
+        Component.onCompleted: if (page.backend) page.backend.refreshCache()
     }
 
     // Backups (plan 126.8): a copy of the database to the server, on a schedule or now. The list

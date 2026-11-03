@@ -28,6 +28,7 @@ from ..backups import (
     set_keep,
     set_schedule,
 )
+from ..cache import cache_limit_gb, open_cache, set_cache_limit_gb
 from ..client import RemoteClient
 from ..connection import ConnectionManager
 from ..engine import (
@@ -42,11 +43,27 @@ from ..engine import (
 from ..fetch import download_new, set_download_new
 from ..first_match import REF_COMPARE, FirstMatchController
 from ..folders import clean_subpath, folder_row, local_folders, watched_path
+from ..offload import format_size
 from ..records import set_travel, travel_rows
+from ..sources import set_stream_level, stream_level
 from ..store import FolderMapping, RemoteStore
 from ..tasks import submit
 
 _KIND_TEXT = {"desktop": "Windows", "phone": "Phone", "web": "Browser"}
+
+
+def _trim_cache(context: PluginContext) -> int:
+    """Remove the least recently used copies over the limit; return the size left (a job)."""
+    cache = open_cache(context)
+    cache.evict()
+    return cache.size()
+
+
+def _clear_cache(context: PluginContext) -> int:
+    """Remove every copy of the stream cache; return the size left (a job)."""
+    cache = open_cache(context)
+    cache.clear()
+    return cache.size()
 
 
 def device_rows(raw: Sequence[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
@@ -131,6 +148,8 @@ class SettingsBackend(QObject):
         self._keep: dict[str, int] = {"daily": 30, "weekly": 12}
         self._backing_up = False
         self._seen_automatic = last_automatic(context)
+        # The size of the stream cache (plan 127.6), read in a job; None until it is read.
+        self._cache_bytes: int | None = None
         connection.changed.connect(self.changed.emit)
         engine.changed.connect(self.changed.emit)
         engine.changed.connect(self._on_engine_changed)
@@ -467,6 +486,78 @@ class SettingsBackend(QObject):
     def _on_connection_state(self, state: str) -> None:
         if state == "connected":
             self.refreshBackups()
+
+    # -- playback of server tracks (plan 127.5) and the stream cache (plan 127.6) ----------
+    @Property(str, notify=changed)
+    def streamLevel(self) -> str:  # noqa: N802
+        return stream_level(self._context)
+
+    @Property(int, notify=changed)
+    def cacheGb(self) -> int:  # noqa: N802
+        return cache_limit_gb(self._context)
+
+    @Property(str, notify=changed)
+    def cacheText(self) -> str:  # noqa: N802
+        if self._cache_bytes is None:
+            return "Reading the cache…"
+        return f"Using {format_size(self._cache_bytes)}"
+
+    @Slot(str)
+    def setStreamLevel(self, level: str) -> None:  # noqa: N802
+        """The quality of a server track played on this computer; the next play uses it."""
+        try:
+            set_stream_level(self._context, level)
+        except ValueError as error:
+            self._context.notify(str(error))
+            return
+        self.changed.emit()
+
+    @Slot(int)
+    def setCacheGb(self, value: int) -> None:  # noqa: N802
+        """The size limit of the stream cache; a smaller limit removes the copies over it."""
+        try:
+            set_cache_limit_gb(self._context, value)
+        except ValueError as error:
+            self._context.notify(str(error))
+            return
+        self.changed.emit()
+        submit(
+            self._context,
+            "Trimming the stream cache",
+            lambda _job: _trim_cache(self._context),
+            self._on_cache_read,
+            visible=False,
+        )
+
+    @Slot()
+    def refreshCache(self) -> None:  # noqa: N802
+        """Read the size of the stream cache, in a job."""
+        submit(
+            self._context,
+            "Reading the stream cache",
+            lambda _job: open_cache(self._context).size(),
+            self._on_cache_read,
+            visible=False,
+        )
+
+    @Slot()
+    def clearCache(self) -> None:  # noqa: N802
+        """Remove every copy kept for offline play. The library's own files are not touched."""
+        submit(
+            self._context,
+            "Clearing the stream cache",
+            lambda _job: _clear_cache(self._context),
+            self._on_cache_read,
+            visible=False,
+        )
+
+    def _on_cache_read(self, result: int | None, error: BaseException | None) -> None:
+        if error is not None:
+            self._context.notify(str(error) or type(error).__name__)
+            return
+        if result is not None:
+            self._cache_bytes = result
+        self.changed.emit()
 
     # -- folders -------------------------------------------------------------------------
     @Slot()

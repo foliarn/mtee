@@ -1,15 +1,16 @@
 """Explorer > Server: the server's folders of the mapped folders, and their tracks (plan 126.9).
 
 The section is a ``SidebarSection`` of the Explorer. Its rows are the folders of each mapped server
-folder: a group row per folder, with its depth, the number of tracks below it (``count``) and its
-fold state (``expanded``). A folder row opens a ``remote.folder`` tab with the tracks directly in
-that folder. A linked track plays its local file; a server-only track plays through its track
-source (the ``TrackSource`` of the plugin, which downloads it).
+folder: a group row per folder, with its depth and the number of tracks below it (``count``). A
+click on a folder's name opens a ``remote.folder`` tab with the tracks directly in that folder; its
+chevron folds it, and ``on_fold`` remembers the fold state. A linked track plays its local file; a
+server-only track plays through its track source (the ``TrackSource`` of the plugin, which
+downloads it).
 
-Fold state is kept per folder in the plugin settings (``explorer_folds``). The first time the
-library has tracks, every folder starts collapsed when the library has more than 2000 tracks, and
-expanded otherwise. A folder reference is ``<server root id>/<folder path>``; an empty path is the
-root.
+The section itself starts collapsed when the local library has more than 2000 tracks, and expanded
+otherwise (``starts_expanded``, read the first time the section is shown). The fold state of each
+folder is kept in the plugin settings (``explorer_folds``); a folder not named there is expanded.
+A folder reference is ``<server root id>/<folder path>``; an empty path is the root.
 
 The tree is built by a job (``refresh``), so a large server does not stall the window; ``build`` is
 the same work on the calling thread.
@@ -19,7 +20,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -75,7 +76,13 @@ class ServerFolders:
     def contributions(self) -> Sequence[Contribution]:
         return [
             SidebarSection(
-                SECTION_ID, SECTION_TITLE, "explorer", self._model, activate=self.activate
+                SECTION_ID,
+                SECTION_TITLE,
+                "explorer",
+                self._model,
+                activate=self.activate,
+                on_fold=self.on_fold,
+                expanded=self.starts_expanded,
             ),
             TabKind(
                 TAB_KIND,
@@ -103,22 +110,25 @@ class ServerFolders:
 
     def build(self) -> list[dict[str, Any]]:
         """The rows of the tree now, on the calling thread (the job of ``refresh`` runs this)."""
-        self._ensure_default()
         return self._rows()
 
     def activate(self, row_id: str) -> TabRequest | None:
-        """A folder row opens the folder's tab."""
+        """A click on a folder's name opens the folder's tab."""
         return TabRequest(TAB_KIND, row_id) if row_id else None
+
+    def on_fold(self, row_id: str, expanded: bool) -> None:
+        """The user folded or unfolded a folder by its chevron: remember it."""
+        self.set_folded(row_id, not expanded)
+
+    def starts_expanded(self) -> bool:
+        """The section starts collapsed for a local library of more than 2000 tracks."""
+        return len(self._context.library.track_ids()) <= LARGE_LIBRARY
 
     def set_folded(self, ref: str, folded: bool) -> None:
         """Remember the fold state of one folder and show it again."""
-        self._ensure_default()
-        state = self._state()
-        folds = dict(state["folded"])
+        folds = dict(self._state())
         folds[ref] = folded
-        self._context.settings.set_json(
-            FOLDS_KEY, {"default_folded": state["default_folded"], "folded": folds}
-        )
+        self._context.settings.set_json(FOLDS_KEY, {"folded": folds})
         self._model.replace(self.build())
 
     def _on_built(self, rows: list[dict[str, Any]] | None, error: BaseException | None) -> None:
@@ -168,7 +178,7 @@ class ServerFolders:
         mappings = self._store.mappings()
         if not mappings:
             return []
-        state = self._state()
+        folded = self._state()
         items = self._all_items()
         rows: list[dict[str, Any]] = []
         emitted: set[str] = set()
@@ -193,7 +203,7 @@ class ServerFolders:
                         "name": folder[-1] if folder else _local_name(mapping),
                         "depth": len(folder) - len(top),
                         "kind": "group",
-                        "expanded": not _folded(state, ref),
+                        "expanded": not folded.get(ref, False),
                         "count": f"{counts.get((root_id, folder), 0):,}",
                     }
                 )
@@ -235,36 +245,13 @@ class ServerFolders:
                 return _local_name(mapping)
         return _UNNAMED
 
-    def _state(self) -> dict[str, Any]:
-        """The stored fold state: the default for folders not named, and the named ones."""
+    def _state(self) -> dict[str, bool]:
+        """The stored fold state of the folders that are folded (True) or unfolded (False)."""
         raw = self._context.settings.get_json(FOLDS_KEY, None)
-        if not isinstance(raw, dict):
-            raw = {}
-        folded = raw.get("folded")
+        folded = raw.get("folded") if isinstance(raw, dict) else None
         if not isinstance(folded, dict):
-            folded = {}
-        return {
-            "default_folded": bool(raw.get("default_folded", False)),
-            "folded": {str(key): bool(value) for key, value in folded.items()},
-        }
-
-    def _ensure_default(self) -> None:
-        """Write the first-show default once: collapsed for a library over 2000 tracks."""
-        raw = self._context.settings.get_json(FOLDS_KEY, None)
-        if isinstance(raw, dict) and "default_folded" in raw:
-            return
-        count = len(self._context.library.track_ids())
-        if count == 0:
-            # The library is not read yet: the default is decided on a later build.
-            return
-        self._context.settings.set_json(
-            FOLDS_KEY, {"default_folded": count > LARGE_LIBRARY, "folded": {}}
-        )
-
-
-def _folded(state: Mapping[str, Any], ref: str) -> bool:
-    folded: Mapping[str, bool] = state["folded"]
-    return folded.get(ref, bool(state["default_folded"]))
+            return {}
+        return {str(key): bool(value) for key, value in folded.items()}
 
 
 def _metadata(text: str | None) -> dict[str, Any] | None:

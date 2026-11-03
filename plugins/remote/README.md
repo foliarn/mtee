@@ -93,7 +93,8 @@ Backups come in a later version.
   resolved), the kind and both versions as JSON, and after a choice the action and the sentence
   that says what was done. The conflict is never deleted; it stays as the record of the choice.
 - `<data-dir>/plugin-data/remote/incoming` (downloads on their way into a folder) and
-  `<data-dir>/plugin-data/remote/cache` (server-only tracks as they are played). Both hold copies
+  `<data-dir>/plugin-data/remote/cache` (the originals of server-only tracks, kept while they play,
+  checked by SHA-256 and removed least recently used above the size setting). Both hold copies
   only; the library's own files are never written here.
 
 ## How to test it
@@ -114,8 +115,10 @@ Backups come in a later version.
   computer no longer holds a token for; revoke it from the device list.
 - A second copy of audio that the first match left out as a duplicate is never sent. A copy added
   later is not a duplicate of anything known, so it is sent as a new item.
-- Server-only tracks are not in the Explorer, and playing one downloads the whole file first (plan
-  127 streams them). Their cover is the placeholder for now.
+- Server-only tracks are not in the Explorer. Playing one streams it from the server at the level
+  of Settings > Remote > Playback (Original by default), and keeps a verified copy of the original
+  in the cache for the next play and for offline play; a lossy level is not kept. Their cover is
+  read from the server once and kept.
 - A link made by a fetch or by a download is kept, but the playlists that held a server-only track
   keep pointing to it; they do not move to the local file.
 - Availability is read from the hash cache: a file changed a moment ago shows as synced until the

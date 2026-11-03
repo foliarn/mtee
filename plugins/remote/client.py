@@ -322,6 +322,43 @@ class RemoteClient:
         status, _, data = self.request("GET", f"/api/v1/items/{quote(item_id, safe='')}")
         return _object(_json_body(status, data), status)
 
+    # -- playback of server-only tracks (plan 127.5) -----------------------------------------
+    def authorization_headers(self) -> dict[str, str]:
+        """The header with this device's token: sent with a stream request, never in a URL."""
+        if self._token is None:
+            return {}
+        return {"Authorization": f"Bearer {self._token}"}
+
+    def stream_url(self, item_id: str, level: str, codecs: Sequence[str] = ()) -> str:
+        """The address of an item's stream at a level. It names no token: send the headers too."""
+        return f"{self.base_url}/api/v1/items/{quote(item_id, safe='')}/stream?" + _stream_query(
+            level, codecs
+        )
+
+    def prepare_stream(self, item_id: str, level: str, codecs: Sequence[str] = ()) -> bool:
+        """Start the transcode of an item at a level; return True when it is ready to stream."""
+        status, _, data = self.request(
+            "POST",
+            f"/api/v1/items/{quote(item_id, safe='')}/prepare?" + _stream_query(level, codecs),
+        )
+        parsed = _object(_json_body(status, data), status)
+        ready = parsed.get("ready")
+        if not isinstance(ready, bool):
+            raise ApiError(status, "bad_response", _UNREADABLE)
+        return ready
+
+    def cover(self, item_id: str, size: str = "m") -> bytes | None:
+        """The JPEG cover of an item at ``size`` (s, m or l); None when the item has no cover."""
+        try:
+            _, _, data = self.request(
+                "GET", f"/api/v1/items/{quote(item_id, safe='')}/cover?size={size}"
+            )
+        except ApiError as error:
+            if error.status == 404:
+                return None
+            raise
+        return data
+
     def trash_item(self, item_id: str) -> str:
         """Move an item's file to the server trash and mark the item trashed; return the trash id.
 
@@ -724,6 +761,13 @@ class RemoteClient:
                 host, self._parts.port, timeout=timeout, context=ssl.create_default_context()
             )
         return http.client.HTTPConnection(host, self._parts.port, timeout=timeout)
+
+
+def _stream_query(level: str, codecs: Sequence[str]) -> str:
+    query = f"level={quote(level, safe='')}"
+    if codecs:
+        query += f"&codecs={quote(','.join(codecs), safe=',')}"
+    return query
 
 
 def _playlist_path(playlist_id: str) -> str:

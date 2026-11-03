@@ -3,29 +3,41 @@
 A server item with no linked local track is a *server-only* track. Its row stays in
 ``remote_server_items``, and ``context.track_sources`` holds the track under the item id as its key,
 so the library lists it like any other track. ``ServerTracks`` is the ``TrackSource`` of the plugin:
-when such a track is played, it downloads the original into the plugin's cache, verified against the
-SHA-256 the server reported, and the player plays that file.
+when such a track is played, it plays a copy from the stream cache (``cache.py``) when there is a
+verified one, else the server's stream at the chosen level (plan 127.5). Its cover is read from the
+server once and kept under ``<data-dir>/covers``.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, TypeGuard
 
-from mtee.plugins.api import PlayableSource, PluginContext, SourceTrack
+from mtee.plugins.api import JobContext, PlayableSource, PluginContext, SourceTrack
 
+from .cache import StreamCache, ext_of, open_cache
+from .client import NetworkError, RemoteClient
 from .connection import ConnectionManager
-from .hashing import file_sha256
 from .store import RemoteStore, ServerRow, upsert_server_item
+from .tasks import submit
 
-CACHE_DIR = "cache"
+COVER_DIR = "covers"
+STREAM_LEVEL_SETTING = "stream_level"
+STREAM_LEVELS = ("original", "lossless", "320", "128")
+# The codecs a desktop accepts from the server: FLAC as stored, Opus for the lossy levels.
+PLAY_CODECS = ("flac", "opus")
+PREPARE_TIMEOUT_S = 60.0
+PREPARE_POLL_S = 0.5
 _MAX_TEXT = 2000
-_NOT_CONNECTED = "Connect to MTEE Remote to play this track."
+OFFLINE_TEXT = "Not available offline."
 _UNKNOWN = "MTEE Remote does not know this track any more. Fetch to refresh the list of tracks."
+_NOT_READY = "MTEE Remote is still preparing this track. Try again in a moment."
 
 
 class ServerTrackError(Exception):
@@ -177,18 +189,40 @@ def refresh_server_only(context: PluginContext, store: RemoteStore) -> int:
 
 def server_item_row(conn: sqlite3.Connection, item_id: str) -> sqlite3.Row | None:
     return conn.execute(
-        "SELECT item_id, root_id, relative_path, sha256, size_bytes, metadata_json"
+        "SELECT item_id, root_id, relative_path, sha256, size_bytes, revision, metadata_json"
         " FROM remote_server_items WHERE item_id = ?",
         (item_id,),
     ).fetchone()
 
 
-class ServerTracks:
-    """The ``TrackSource`` of the plugin: opens a server-only track by downloading its original.
+def stream_level(context: PluginContext) -> str:
+    """The level of a server track played on this computer; *original* unless the setting says."""
+    value = context.settings.get(STREAM_LEVEL_SETTING, "original") or "original"
+    return value if value in STREAM_LEVELS else "original"
 
-    ``open`` runs on a job thread. The original is kept in ``<data-dir>/cache`` under the item id;
-    a cached file is used only when its SHA-256 is the one the server reports now, so a new revision
-    of the item is downloaded again. A lock per item stops two plays from writing the same part.
+
+def set_stream_level(context: PluginContext, value: str) -> None:
+    """Store the level of a server track played here; another value raises ``ValueError``."""
+    if value not in STREAM_LEVELS:
+        raise ValueError("The streaming quality must be Original, Lossless, 320 kbps or 128 kbps.")
+    context.settings.set(STREAM_LEVEL_SETTING, value)
+
+
+class ServerTracks:
+    """The ``TrackSource`` of the plugin: opens a server-only track for playback (plan 127.5).
+
+    ``open`` runs on a job thread and keeps nothing it returns:
+
+    - a copy in the stream cache whose SHA-256 is the one the server reports is played from this
+      computer, also offline;
+    - otherwise, with no connection, the track is *not available offline*;
+    - at the *Original* level the server's stream is played, and a background job keeps a verified
+      copy in the cache, so the next play is local;
+    - at the other levels the server prepares the transcode (polled, at most 60 seconds) and its
+      stream at that level is played. Transcodes are not kept on this computer.
+
+    The device token goes only in the ``Authorization`` header of the player's request: never in a
+    URL, a log line or a message.
     """
 
     def __init__(
@@ -197,48 +231,101 @@ class ServerTracks:
         self._context = context
         self._store = store
         self._connection = connection
-        self._locks: dict[str, threading.Lock] = {}
+        self._keeping: set[tuple[str, str]] = set()
         self._guard = threading.Lock()
 
     def open(self, source_key: str) -> PlayableSource:
-        client = self._connection.client()
-        if client is None:
-            raise ServerTrackError(_NOT_CONNECTED)
         row = server_item_row(self._store.connection(), source_key)
         if row is None or row["sha256"] is None:
             raise ServerTrackError(_UNKNOWN)
+        item_id = str(row["item_id"])
         sha256 = str(row["sha256"])
-        target = self._cache_path(source_key, str(row["relative_path"]))
-        with self._lock_of(source_key):
-            if not _is_verified(target, sha256):
-                client.download(source_key, target, expected_sha256=sha256)
-        return PlayableSource(path=target)
+        ext = ext_of(str(row["relative_path"]))
+        cache = open_cache(self._context)
+        cached = cache.lookup(item_id, sha256, ext)
+        if cached is not None:
+            return PlayableSource(path=cached)
+        client = self._connection.client()
+        if client is None or self._connection.state == "offline":
+            raise ServerTrackError(OFFLINE_TEXT)
+        level = stream_level(self._context)
+        headers = client.authorization_headers()
+        if level == "original":
+            self._keep_copy(client, cache, item_id, sha256, ext)
+            return PlayableSource(url=client.stream_url(item_id, level), headers=headers)
+        _wait_until_prepared(client, item_id, level)
+        return PlayableSource(url=client.stream_url(item_id, level, PLAY_CODECS), headers=headers)
 
     def cover(self, source_key: str) -> bytes | None:
-        """No cover yet: plan 126.7 adds the covers of the server (the placeholder is shown)."""
-        del source_key
-        return None
+        """The medium cover of the item, kept under ``covers``; None when it has none."""
+        row = server_item_row(self._store.connection(), source_key)
+        if row is None:
+            return None
+        item_id = str(row["item_id"])
+        path = self._cover_path(item_id, int(row["revision"]))
+        if path.is_file():
+            return path.read_bytes()
+        client = self._connection.client()
+        if client is None or self._connection.state == "offline":
+            return None
+        try:
+            data = client.cover(item_id, "m")
+        except NetworkError:
+            return None
+        if data is None:
+            return None
+        part = path.with_name(path.name + ".part")
+        part.write_bytes(data)
+        os.replace(part, path)
+        return data
 
-    def _cache_path(self, item_id: str, relative_path: str) -> Path:
-        suffix = PurePosixPath(relative_path).suffix.lower()
-        folder = self._context.data_dir / CACHE_DIR
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder / f"{item_id}{suffix}"
-
-    def _lock_of(self, item_id: str) -> threading.Lock:
+    def _keep_copy(
+        self, client: RemoteClient, cache: StreamCache, item_id: str, sha256: str, ext: str
+    ) -> None:
+        """Start the download of the original into the cache, unless one is already running."""
+        key = (item_id, sha256)
         with self._guard:
-            lock = self._locks.get(item_id)
-            if lock is None:
-                lock = threading.Lock()
-                self._locks[item_id] = lock
-            return lock
+            if key in self._keeping:
+                return
+            self._keeping.add(key)
+
+        def keep(job: JobContext) -> None:
+            del job
+            try:
+                incoming = cache.incoming_dir() / f"{item_id}-{sha256}{ext}"
+                client.download(item_id, incoming, expected_sha256=sha256)
+                kept = cache.add(item_id, sha256, incoming)
+                if kept is not None:
+                    cache.evict(keep=kept)
+            finally:
+                with self._guard:
+                    self._keeping.discard(key)
+
+        try:
+            submit(self._context, "Keeping a copy of a server track", keep, _nothing, visible=False)
+        except BaseException:
+            with self._guard:
+                self._keeping.discard(key)
+            raise
+
+    def _cover_path(self, item_id: str, revision: int) -> Path:
+        folder = self._context.data_dir / COVER_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f"{item_id}-{revision}.jpg"
 
 
-def _is_verified(path: Path, sha256: str) -> bool:
-    """True when ``path`` is a file whose bytes have the SHA-256 the server reported."""
-    if not path.is_file():
-        return False
-    return file_sha256(path) == sha256
+def _wait_until_prepared(client: RemoteClient, item_id: str, level: str) -> None:
+    """Ask the server to prepare the transcode, and poll until it is ready (60 seconds at most)."""
+    deadline = time.monotonic() + PREPARE_TIMEOUT_S
+    while not client.prepare_stream(item_id, level, PLAY_CODECS):
+        if time.monotonic() >= deadline:
+            raise ServerTrackError(_NOT_READY)
+        time.sleep(PREPARE_POLL_S)
+
+
+def _nothing(result: object, error: BaseException | None) -> None:
+    """The graphical-thread answer of a background job: nothing to show."""
+    del result, error
 
 
 def _metadata_of(text: str | None) -> dict[str, Any] | None:

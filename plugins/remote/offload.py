@@ -38,10 +38,11 @@ from mtee.plugins.api import (
 )
 
 from .availability import REMOTE, SYNCED, availability_of
+from .cache import ext_of, open_cache
 from .client import ApiError, DownloadError, NetworkError, RemoteClient
 from .fetch import _folder_of, _location
-from .hashing import file_sha256, hash_tracks
-from .sources import CACHE_DIR, source_track_of
+from .hashing import hash_tracks
+from .sources import source_track_of
 from .store import CachedHashes, FolderMapping, RemoteStore, insert_link, write_log
 from .tasks import submit
 
@@ -474,10 +475,9 @@ def _download_one(
 def _take_cached(
     context: PluginContext, item_id: str, relative: str, sha256: str, target: Path
 ) -> bool:
-    """Move the copy the player kept in the cache to ``target`` if its SHA-256 is the expected."""
-    suffix = PurePosixPath(relative).suffix.lower()
-    cached = context.data_dir / CACHE_DIR / f"{item_id}{suffix}"
-    if not cached.is_file() or file_sha256(cached) != sha256:
+    """Move the copy the stream cache kept to ``target``, when its SHA-256 is the expected one."""
+    cached = open_cache(context).lookup(item_id, sha256, ext_of(relative))
+    if cached is None:
         return False
     try:
         os.replace(cached, target)

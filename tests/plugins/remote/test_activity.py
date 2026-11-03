@@ -7,7 +7,7 @@ library and the files are the fakes of the remote tests.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,11 @@ from mtee.plugins.remote.activity import (  # pyright: ignore[reportMissingImpor
 from mtee.plugins.remote.conflicts import (  # pyright: ignore[reportMissingImports]
     TAB_KIND,
     ConflictFeature,
+)
+from mtee.plugins.remote.engine import (  # pyright: ignore[reportMissingImports]
+    AUTO,
+    MANUAL,
+    set_sync_mode,
 )
 from mtee.plugins.remote.store import (  # pyright: ignore[reportMissingImports]
     CONFLICT_OPEN,
@@ -251,3 +256,73 @@ def test_the_apply_action_has_the_check_icon_and_its_tooltip(harness: Harness) -
     apply = _action(harness.contributions, "apply")
     assert apply.icon == "check"
     assert apply.tip == "Apply pending changes"
+
+
+def test_apply_is_a_text_button_drawn_in_manual_mode_only(harness: Harness) -> None:
+    apply = _action(harness.contributions, "apply")
+    assert apply.label == "Apply"
+    assert apply.visible is not None
+    assert apply.visible() is False  # Auto is the default
+    set_sync_mode(harness.context, MANUAL)
+    assert apply.visible() is True
+    set_sync_mode(harness.context, AUTO)
+    assert apply.visible() is False
+
+
+def test_the_counts_are_the_operations_to_send_and_the_open_conflicts(harness: Harness) -> None:
+    changes = _section(harness.contributions, CHANGES_ID)
+    conflicts = _section(harness.contributions, CONFLICTS_ID)
+    activity = next(item for item in harness.contributions if isinstance(item, PluginActivity))
+    assert changes.count is not None and conflicts.count is not None
+    assert activity.badge is not None
+    assert (changes.count(), conflicts.count(), activity.badge()) == (0, 0, 0)
+
+    with harness.store.transaction() as conn:
+        enqueue(conn, kind="upload", track_id="t1", item_id=None)
+        enqueue(conn, kind="move", track_id="t2", item_id=None)
+        enqueue(conn, kind="upload", track_id="t1", item_id=None)
+    with harness.store.transaction() as conn:
+        conn.execute("UPDATE remote_queue SET state = 'blocked' WHERE track_id = 't2'")
+        conn.execute("UPDATE remote_queue SET state = 'done' WHERE kind = 'upload' AND rowid = 3")
+        insert_conflict(
+            conn,
+            track_id="t1",
+            item_id="item-1",
+            local={"kind": "both_changed", "relative_path": "House/a.flac"},
+            server={"kind": "both_changed", "item_id": "item-1"},
+            state=CONFLICT_OPEN,
+        )
+
+    # Pending (one) and blocked (one) count for Changes; the done one does not.
+    assert changes.count() == 2
+    assert conflicts.count() == 1
+    # The badge is the open conflicts plus the blocked operations.
+    assert activity.badge() == 2
+
+
+def test_refresh_asks_the_core_again_only_when_a_count_or_the_mode_changed(
+    harness: Harness,
+) -> None:
+    calls: list[int] = []
+    context = replace(harness.context, refresh_ui=lambda: calls.append(1))
+    view = RemoteActivity(context, harness.store, harness.engine, harness.conflicts, FakeLink())
+
+    view.refresh()
+    assert calls == [1]
+    view.refresh()
+    assert calls == [1]
+
+    with harness.store.transaction() as conn:
+        enqueue(conn, kind="upload", track_id="t1", item_id=None)
+    view.refresh()
+    assert calls == [1, 1]
+
+    # A pending operation that becomes blocked keeps the queue count but moves the badge.
+    with harness.store.transaction() as conn:
+        conn.execute("UPDATE remote_queue SET state = 'blocked'")
+    view.refresh()
+    assert calls == [1, 1, 1]
+
+    set_sync_mode(context, MANUAL)
+    view.refresh()
+    assert calls == [1, 1, 1, 1]

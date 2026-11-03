@@ -49,12 +49,15 @@ from tests.plugins.remote.helpers import (
     sha256_of,
     upload_file,
 )
+from tests.plugins.remote.stream_helpers import item_facts, wait_for_copy
 
 from mtee.plugins.api import DeleteRequest, JobContext
 
 
 class _Link:
     """The connection of a test: a client, as the connection manager gives it while signed in."""
+
+    state = "connected"
 
     def __init__(self, client: Any) -> None:
         self._client = client
@@ -409,9 +412,11 @@ def test_a_cached_copy_is_reused_without_a_second_download(
         return original(item, target, **options)
 
     monkeypatch.setattr(computer.client, "download", counting)
-    # Playing the track downloads its original into the cache (plan 126.4).
+    # Playing the track streams it and keeps its original in the stream cache (plan 127.5, 127.6).
     played = ServerTracks(computer.context, computer.store, cast(Any, _Link(computer.client)))
     played.open(item_id)
+    sha, ext = item_facts(computer.store, item_id)
+    wait_for_copy(computer.context, item_id, sha, ext)
     assert downloads == [item_id]
 
     text = download_tracks(
@@ -421,7 +426,7 @@ def test_a_cached_copy_is_reused_without_a_second_download(
     assert text == "Downloaded 1 track."
     assert downloads == [item_id]  # the cached copy was used
     assert (computer.local / "Cached" / "played.flac").is_file()
-    assert not (computer.context.data_dir / "cache" / f"{item_id}.flac").exists()
+    assert not (computer.context.data_dir / "cache" / f"{item_id}-{sha}.flac").exists()
 
 
 def test_download_refuses_a_track_that_is_not_server_only(

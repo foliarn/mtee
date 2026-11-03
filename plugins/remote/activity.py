@@ -12,6 +12,11 @@ from the plugin's own tables:
   the warning tone.
 
 The header has Sync now (a pass of the engine) and Fetch (``SyncEngine.fetch_now``).
+
+The counts are read by the core on ``refresh_ui``: the Changes section counts the operations to send
+and the blocked ones, the Conflicts section counts the open conflicts, and the activity badge is the
+open conflicts plus the blocked operations. Apply is a text button, drawn in Manual mode only. The
+plugin asks for a refresh of the interface only when one of those values changed.
 """
 
 from __future__ import annotations
@@ -32,7 +37,8 @@ from mtee.plugins.api import (
 
 from .backups import backup_rows
 from .conflicts import ConflictFeature
-from .engine import CONNECTED, SyncEngine, SyncLink
+from .engine import CONNECTED, MANUAL, SyncEngine, SyncLink, sync_mode
+from .push import BLOCKED, PENDING
 from .store import RemoteStore
 from .tasks import submit
 
@@ -78,6 +84,8 @@ class RemoteActivity:
         self._backups: list[dict[str, Any]] = []
         self._backups_read_at: datetime | None = None
         self._reading_backups = False
+        # The values the core showed on its last refresh; a change asks for a new one.
+        self._shown: tuple[int, int, int, bool] | None = None
 
     def contributions(self) -> Sequence[Contribution]:
         """The activity and its four sections, as the plugin's factory returns them."""
@@ -90,6 +98,7 @@ class RemoteActivity:
                     PaneAction("sync", "Sync now", "repeat", self._engine.request_pass),
                     PaneAction("fetch", "Fetch", "arrow-down", self._engine.fetch_now),
                 ),
+                badge=self._attention,
             ),
             SidebarSection(
                 CHANGES_ID,
@@ -98,9 +107,15 @@ class RemoteActivity:
                 self._models[CHANGES_ID],
                 actions=(
                     PaneAction(
-                        "apply", "Apply pending changes", "check", self._engine.apply_pending
+                        "apply",
+                        "Apply pending changes",
+                        "check",
+                        self._engine.apply_pending,
+                        label="Apply",
+                        visible=self._is_manual,
                     ),
                 ),
+                count=self._queued,
             ),
             SidebarSection(
                 CONFLICTS_ID,
@@ -108,6 +123,7 @@ class RemoteActivity:
                 ACTIVITY_ID,
                 self._models[CONFLICTS_ID],
                 activate=self._conflicts.run_waiting,
+                count=self._conflicts.open_count,
             ),
             SidebarSection(BACKUPS_ID, "Backups", ACTIVITY_ID, self._models[BACKUPS_ID]),
             SidebarSection(LOG_ID, "Activity log", ACTIVITY_ID, self._models[LOG_ID]),
@@ -124,6 +140,39 @@ class RemoteActivity:
         self._models[BACKUPS_ID].replace(self._backup_rows())
         self._models[LOG_ID].replace(self._log_rows(conn))
         self._read_backups_if_due()
+        # A move from pending to blocked keeps the queue count and changes the badge: compare all.
+        state = (self._queued(), self._conflicts.open_count(), self._blocked(), self._is_manual())
+        if state != self._shown:
+            self._shown = state
+            self._context.refresh_ui()
+
+    # -- counts and buttons (read by the core on refresh_ui) --------------------------------
+    def _queued(self) -> int:
+        """The operations to send and the blocked ones: the Changes count and part of the badge."""
+        row = (
+            self._store.connection()
+            .execute(
+                "SELECT COUNT(*) AS n FROM remote_queue WHERE state IN (?, ?)",
+                (PENDING, BLOCKED),
+            )
+            .fetchone()
+        )
+        return int(row["n"])
+
+    def _attention(self) -> int:
+        """The activity badge: the open conflicts and the blocked operations."""
+        return self._conflicts.open_count() + self._blocked()
+
+    def _blocked(self) -> int:
+        row = (
+            self._store.connection()
+            .execute("SELECT COUNT(*) AS n FROM remote_queue WHERE state = ?", (BLOCKED,))
+            .fetchone()
+        )
+        return int(row["n"])
+
+    def _is_manual(self) -> bool:
+        return sync_mode(self._context) == MANUAL
 
     def set_backups(self, raw: Sequence[dict[str, Any]]) -> None:
         """Keep the server's backup list (newest first, as the server sends it) and show it."""

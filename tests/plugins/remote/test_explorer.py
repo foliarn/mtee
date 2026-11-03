@@ -170,29 +170,24 @@ def test_a_library_of_up_to_2000_tracks_starts_expanded(tree: Tree) -> None:
     assert all(row["expanded"] for row in tree.folders.build())
 
 
-def test_a_library_over_2000_tracks_starts_collapsed(tmp_path: Path) -> None:
+def test_the_section_starts_collapsed_only_for_a_library_over_2000_tracks(tmp_path: Path) -> None:
+    small = _tree(tmp_path / "small", tracks=2000)
+    big = _tree(tmp_path / "big", tracks=2001)
+    assert small.folders.starts_expanded() is True
+    assert big.folders.starts_expanded() is False
+
+
+def test_the_section_start_is_not_written_and_the_folders_start_expanded(tmp_path: Path) -> None:
     big = _tree(tmp_path, tracks=2001)
-    assert not any(row["expanded"] for row in big.folders.build())
+    # The collapsed start is the section's; the folders keep no default of their own.
+    assert big.folders.starts_expanded() is False
+    assert all(row["expanded"] for row in big.folders.build())
+    assert big.context.settings.get_json(FOLDS_KEY, None) is None
 
 
-def test_the_first_show_default_is_written_once(tmp_path: Path) -> None:
-    empty = _tree(tmp_path, tracks=0)
-    # An empty library is not read yet: nothing is decided, so a later build decides.
-    empty.folders.build()
-    assert empty.context.settings.get_json(FOLDS_KEY, None) is None
-
-    for index in range(2001):
-        empty.library.add(track(f"more{index}", empty.music / f"m{index}.flac"))
-    assert not any(row["expanded"] for row in empty.folders.build())
-    assert empty.context.settings.get_json(FOLDS_KEY, None) == {
-        "default_folded": True,
-        "folded": {},
-    }
-
-    # The library shrinks later: the decision made on the first show stays.
-    for index in range(2000):
-        empty.library.remove(f"more{index}")
-    assert not any(row["expanded"] for row in empty.folders.build())
+def test_a_default_stored_by_an_earlier_version_is_ignored(tree: Tree) -> None:
+    tree.context.settings.set_json(FOLDS_KEY, {"default_folded": True, "folded": {}})
+    assert all(row["expanded"] for row in tree.folders.build())
 
 
 def test_a_fold_is_remembered_per_folder_across_instances(tree: Tree) -> None:
@@ -206,13 +201,24 @@ def test_a_fold_is_remembered_per_folder_across_instances(tree: Tree) -> None:
     assert _by_id(again)[f"{ROOT}/House"]["expanded"] is False
 
 
-def test_a_fold_overrides_the_default_of_a_large_library(tmp_path: Path) -> None:
-    big = _tree(tmp_path, tracks=2001)
-    big.folders.set_folded(f"{ROOT}/House", False)
+def test_a_chevron_fold_goes_through_on_fold_and_is_remembered(tree: Tree) -> None:
+    # The core calls on_fold(row_id, expanded) when the chevron is clicked.
+    tree.folders.on_fold(f"{ROOT}/House", False)
+    assert _by_id(tree.folders)[f"{ROOT}/House"]["expanded"] is False
+    assert _by_id(tree.folders)[f"{ROOT}/Techno"]["expanded"] is True
 
-    by_id = _by_id(big.folders)
-    assert by_id[f"{ROOT}/House"]["expanded"] is True
-    assert by_id[f"{ROOT}/Techno"]["expanded"] is False
+    tree.folders.on_fold(f"{ROOT}/House", True)
+    assert _by_id(tree.folders)[f"{ROOT}/House"]["expanded"] is True
+    assert _by_id(ServerFolders(tree.context, tree.store))[f"{ROOT}/House"]["expanded"] is True
+
+
+def test_the_section_declares_its_fold_start_and_name_click(tree: Tree) -> None:
+    section = next(
+        item for item in tree.folders.contributions() if isinstance(item, SidebarSection)
+    )
+    assert section.on_fold == tree.folders.on_fold
+    assert section.expanded == tree.folders.starts_expanded
+    assert section.activate == tree.folders.activate
 
 
 def test_a_folder_row_opens_its_folder_tab(tree: Tree) -> None:

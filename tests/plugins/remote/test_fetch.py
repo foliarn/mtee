@@ -41,6 +41,7 @@ from tests.plugins.remote.devices import (
     wait_hashed,
 )
 from tests.plugins.remote.helpers import copy_of, fake_job, sha256_of, track, upload_file
+from tests.plugins.remote.stream_helpers import item_facts, wait_for_copy
 
 from mtee.domain.jobs import JobCancelledError
 from mtee.plugins.api import JobContext, JobId
@@ -352,7 +353,7 @@ def test_auto_pull_picks_up_a_change_and_stops_on_unload(
     assert time.monotonic() - started < 30
 
 
-def test_tracksource_open_downloads_once_verifies_and_returns_a_path(
+def test_tracksource_open_streams_then_plays_the_verified_copy(
     computer: Computer, sources: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     item = upload_file(computer.peer, computer.root_id, "Incoming/played.flac", sources["other"])
@@ -362,6 +363,8 @@ def test_tracksource_open_downloads_once_verifies_and_returns_a_path(
 
     class Link:
         """The connection as the track source sees it: a signed-in device."""
+
+        state = "connected"
 
         def client(self) -> RemoteClient:
             return computer.client
@@ -375,16 +378,20 @@ def test_tracksource_open_downloads_once_verifies_and_returns_a_path(
 
     monkeypatch.setattr(RemoteClient, "download", counting)
     tracks = ServerTracks(computer.context, computer.store, cast(Any, Link()))
+    sha, ext = item_facts(computer.store, item_id)
 
-    first = tracks.open(item_id).path
-    assert first is not None
+    # At the Original level the first open streams the file and keeps a copy in the background.
+    assert tracks.open(item_id).path is None
+    first = wait_for_copy(computer.context, item_id, sha, ext)
     assert sha256_of(first) == sha256_of(sources["other"])
     assert tracks.open(item_id).path == first
     assert downloads == [item_id]
-    # A cached file whose bytes are not the server's is downloaded again, never played.
+    # A cached file whose bytes are not the server's is discarded, and the track streams again.
     first.write_bytes(b"not the track")
-    assert tracks.open(item_id).path is not None
-    assert sha256_of(first) == sha256_of(sources["other"])
+    assert tracks.open(item_id).path is None
+    assert sha256_of(wait_for_copy(computer.context, item_id, sha, ext)) == sha256_of(
+        sources["other"]
+    )
     assert downloads == [item_id, item_id]
     with pytest.raises(ServerTrackError):
         tracks.open(NO_ITEM)
