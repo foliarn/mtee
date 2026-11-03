@@ -29,9 +29,11 @@ services:
       # To add another user's folder, add a line like this one (then create that account):
       #   - /home/guest/music:/music/guest
       - ${MUSIC_DIR:?set MUSIC_DIR}:/music/${ADMIN_USER:?set ADMIN_USER}
-    # Bound to this host only. Never use a bare "8080:8080" here.
+    # Bound to this host only by default. BIND_ADDRESS can name this machine's home-network
+    # address (for example 192.168.1.29) so computers at home connect without a tunnel; the
+    # traffic is plain HTTP then. Never use a bare "8080:8080" or 0.0.0.0 here.
     ports:
-      - "127.0.0.1:${PORT:-8080}:8080"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:8080"
     # To join an existing reverse-proxy network instead of publishing the port,
     # remove the `ports:` block above and uncomment the lines below.
     # networks:

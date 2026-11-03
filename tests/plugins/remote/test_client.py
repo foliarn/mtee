@@ -13,6 +13,7 @@ from mtee.plugins.remote.client import (  # pyright: ignore[reportMissingImports
     ApiError,
     NetworkError,
     RemoteClient,
+    normalize_base_url,
 )
 from tests.plugins.remote.conftest import RemoteServer, free_port
 
@@ -86,7 +87,7 @@ def test_the_roots_and_the_library_status_are_read(remote_server: RemoteServer) 
         "music.example.net",
         "ftp://music.example.net",
         "http://music.example.net",
-        "http://192.168.1.10:8080",
+        "http://203.0.113.10:8080",
         "http://127.0.0.1",
         "https://",
         "https://user:secret@music.example.net",
@@ -117,3 +118,12 @@ def test_a_closed_port_is_a_readable_network_error() -> None:
         client.health()
     assert NetworkError.readable is True
     assert "cannot be reached" in str(caught.value)
+
+
+def test_plain_http_is_accepted_for_a_home_network_address_only() -> None:
+
+    assert normalize_base_url("http://192.168.1.29:8080/") == "http://192.168.1.29:8080"
+    assert normalize_base_url("http://10.0.0.6:8080") == "http://10.0.0.6:8080"
+    for refused in ("http://8.8.8.8:8080", "http://music.lan:8080", "http://192.168.1.29"):
+        with pytest.raises(ValueError):
+            normalize_base_url(refused)

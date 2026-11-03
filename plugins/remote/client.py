@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import http.client
+import ipaddress
 import json
 import os
 import socket
@@ -30,8 +31,26 @@ _RANGE_NOT_SATISFIABLE = 416
 _UNREADABLE = "The server answered with something MTEE cannot read."
 _ADDRESS_MESSAGE = (
     "The server address must start with https://, for example https://music.example.net. "
-    "Without https, only http://127.0.0.1:<port> and http://localhost:<port> are accepted."
+    "Without https, only this computer (http://127.0.0.1:<port>) and an address of the home "
+    "network (http://192.168.x.x:<port>, 10.x.x.x, 172.16-31.x.x) are accepted."
 )
+
+
+# The RFC 1918 ranges only: ``is_private`` also covers documentation and other reserved ranges.
+_HOME_NETWORKS = tuple(
+    ipaddress.ip_network(text) for text in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
+def _plain_http_allowed(host: str) -> bool:
+    """This computer, or an address of a private network (RFC 1918), never a public one."""
+    if host in LOCAL_HOSTS:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(address in network for network in _HOME_NETWORKS)
 
 
 class ApiError(Exception):
@@ -100,7 +119,9 @@ class PlayEventPage:
 def normalize_base_url(base_url: str) -> str:
     """Return the server address without its trailing slash, or raise ``ValueError``.
 
-    ``https://`` is required, except for ``127.0.0.1`` and ``localhost`` with a port (tests).
+    ``https://`` is required, except with a port for ``127.0.0.1`` and ``localhost`` (tests) and for
+    a private network address such as ``192.168.1.29`` (a server at home, before HTTPS is set up:
+    the traffic is not encrypted, so only the home network may carry it).
     Credentials, a query and a fragment are refused.
     """
     text = base_url.strip()
@@ -114,7 +135,7 @@ def normalize_base_url(base_url: str) -> str:
     host = parts.hostname or ""
     if not host:
         raise ValueError("The server address has no host name, for example music.example.net.")
-    if parts.scheme == "http" and (host not in LOCAL_HOSTS or parts.port is None):
+    if parts.scheme == "http" and (not _plain_http_allowed(host) or parts.port is None):
         raise ValueError(_ADDRESS_MESSAGE)
     path = parts.path.rstrip("/")
     return f"{parts.scheme}://{parts.netloc}{path}"
