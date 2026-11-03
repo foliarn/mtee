@@ -316,6 +316,12 @@ into a library folder under the same `track_id` and the source row is removed. A
 a source key: a later `upsert` of that key gives a new `track_id`, so the plugin must not store it
 again as a source track. Both calls refresh the views of the interface, as a scan does.
 
+The key rule: a key is held by the source row of its track, whether the track is available or
+removed. `attach` deletes that row, so the key of an attached track is free: when its file is
+recycled again, `adopt(track_id, entry)` with the same key works and keeps the same `track_id`
+(the rows of the track keep pointing to it). A removed track keeps its key on purpose, because
+`upsert` gives the key back to that track; `adopt` refuses another track under it.
+
 **What the core does with them.** The tracks are stored in the core table `plugin_source_tracks`
 (migration 030), keyed by `(plugin_id, source_key)`. They are not in `track_locations` or
 `root_tracks`: the scanner never sees them and they are in no library folder, so they are not in the
