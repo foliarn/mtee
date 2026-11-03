@@ -209,6 +209,30 @@ class PlaylistsRepository:
                     ),
                 )
 
+    def rename_at_revision(self, identity: str, name: str, expected_revision: int) -> int:
+        """Rename a playlist only if it is still at ``expected_revision``; return the new revision.
+
+        The check and the write are one transaction, as in ``replace_entries_at_revision``. The
+        name is checked the way the interface checks it (``playlist_name``). Raises
+        ``StaleRevisionError`` when the playlist changed (nothing is written) and ``LookupError``
+        when it no longer exists.
+        """
+        cleaned = playlist_name(name)
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT revision FROM playlists WHERE playlist_id=?", (identity,)
+            ).fetchone()
+            if row is None:
+                raise LookupError("This playlist no longer exists.")
+            if int(row[0]) != expected_revision:
+                raise StaleRevisionError(expected_revision, int(row[0]))
+            connection.execute(
+                "UPDATE playlists SET name=?,version=version+1,revision=revision+1,"
+                "updated_at_utc=? WHERE playlist_id=?",
+                (cleaned, _now(), identity),
+            )
+        return expected_revision + 1
+
     def replace_entries_at_revision(
         self, identity: str, entries: list[dict[str, Any]], expected_revision: int
     ) -> int:

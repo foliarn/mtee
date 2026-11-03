@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +41,7 @@ from mtee.plugins.api import (
     LibraryRoot,
     LibraryTrack,
     PlaylistEntry,
+    PlaylistInfo,
     PlaylistSnapshot,
     PluginContext,
     PluginManifest,
@@ -469,6 +470,11 @@ class _Playlists:
             entries=tuple(self.entries(playlist_id)),
         )
 
+    def rename(self, playlist_id: str, name: str, expected_revision: int | None = None) -> int:
+        revision = self._service.rename(playlist_id, name, expected_revision)
+        self._changed()
+        return revision
+
     def name(self, playlist_id: str) -> str | None:
         return self._service.playlist_name(playlist_id)
 
@@ -485,6 +491,17 @@ class _Playlists:
                 available=bool(row["available"]),
             )
             for row in self._service.rows(playlist_id)
+        ]
+
+    def list(self) -> list[PlaylistInfo]:
+        return [
+            PlaylistInfo(
+                playlist_id=identity,
+                name=playlist_name,
+                revision=revision,
+                entry_count=count,
+            )
+            for identity, playlist_name, revision, count in self._service.summaries()
         ]
 
 
@@ -803,19 +820,59 @@ class _TrackData:
             raise LookupError("This track is not in the library.")
 
     def _credit_keys(self, track_id: str) -> set[str]:
-        """Return the normalized credits of the track: each Artist value and its strong segments.
-
-        The user's choices are stored by credit text, and the Artists view looks them up by
-        the whole value and by each segment cut at a comma or ``feat``.
-        """
         snapshot = self._library.snapshot_of(track_id)
-        keys: set[str] = set()
-        for value in snapshot.artist if snapshot is not None else ():
-            if not clean_name(value):
-                continue
-            keys.add(normalize_key(value))
-            keys.update(normalize_key(part.origin) for part in split_credit_parts(value))
-        return keys
+        return credit_keys_of(snapshot.artist if snapshot is not None else ())
+
+    def changed_since(self, cursor: str | None, limit: int) -> tuple[list[str], str | None]:
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a whole number of at least 1")
+        after = _log_position(cursor)
+        if after > self._analysis.latest_change():
+            raise ValueError("The cursor is not from this change log; start again from None.")
+        rows = self._analysis.changes_after(after, limit)
+        if not rows:
+            return [], cursor
+        credits = {credit for _seq, _track, credit in rows if credit is not None}
+        holders = self._holders_of(credits) if credits else {}
+        tracks: dict[str, None] = {}
+        for _seq, track_id, credit in rows:
+            if track_id is not None:
+                tracks[track_id] = None
+            for holder in holders.get(credit or "", ()):
+                tracks[holder] = None
+        return list(tracks), str(rows[-1][0])
+
+    def _holders_of(self, credits: set[str]) -> dict[str, list[str]]:
+        """The tracks of the library that hold each of the credit keys, in track order."""
+        holders: dict[str, list[str]] = {}
+        for track_id, values in sorted(self._library.artist_credit_rows()):
+            for key in credit_keys_of(values) & credits:
+                holders.setdefault(key, []).append(track_id)
+        return holders
+
+
+def credit_keys_of(values: Iterable[str]) -> set[str]:
+    """Return the normalized credits of a track: each Artist value and its strong segments.
+
+    The user's choices are stored by credit text, and the Artists view looks them up by the whole
+    value and by each segment cut at a comma or ``feat``.
+    """
+    keys: set[str] = set()
+    for value in values:
+        if not clean_name(value):
+            continue
+        keys.add(normalize_key(value))
+        keys.update(normalize_key(part.origin) for part in split_credit_parts(value))
+    return keys
+
+
+def _log_position(cursor: str | None) -> int:
+    """The sequence number a track data cursor stands for; ``None`` is the start of the log."""
+    if cursor is None:
+        return 0
+    if not (cursor.isascii() and cursor.isdecimal()):
+        raise ValueError("The cursor is not one that the track data gave.")
+    return int(cursor)
 
 
 def _check_optional_count(name: str, value: int | None) -> None:

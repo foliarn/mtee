@@ -203,6 +203,39 @@ class AnalysisRepository:
                     (track_id,),
                 )
 
+    def latest_change(self) -> int:
+        """Return the sequence number of the newest row of the track data change log (0 if none)."""
+        row = (
+            self._database.connection()
+            .execute("SELECT COALESCE(MAX(seq), 0) FROM track_data_changes")
+            .fetchone()
+        )
+        return int(row[0])
+
+    def changes_after(self, after: int, limit: int) -> list[tuple[int, str | None, str | None]]:
+        """Return up to ``limit`` rows ``(seq, track_id, credit_key)`` with ``seq`` above ``after``.
+
+        Oldest first. A row names a track (its tempo, key or loudness changed) or a credit (its
+        correction changed); see migration 031.
+        """
+        rows = (
+            self._database.connection()
+            .execute(
+                "SELECT seq, track_id, credit_key FROM track_data_changes "
+                "WHERE seq > ? ORDER BY seq LIMIT ?",
+                (after, limit),
+            )
+            .fetchall()
+        )
+        return [
+            (
+                int(row["seq"]),
+                str(row["track_id"]) if row["track_id"] is not None else None,
+                str(row["credit_key"]) if row["credit_key"] is not None else None,
+            )
+            for row in rows
+        ]
+
     def is_current(self, analysis: TrackAnalysis | None, current_duration_us: int | None) -> bool:
         """Return whether ``analysis`` is a complete result that still fits the audio."""
         return (
