@@ -16,7 +16,7 @@ from starlette.routing import BaseRoute, Route
 
 from mtee_remote import backups, uploads
 from mtee_remote.db import Database
-from mtee_remote.errors import ApiError, error_response
+from mtee_remote.errors import ApiError, error_response, file_operation
 from mtee_remote.http import get_int, get_str, json_ok, read_json
 from mtee_remote.library.service import LibraryService
 from mtee_remote.security import auth
@@ -104,6 +104,7 @@ async def get_upload(request: Request) -> JSONResponse:
     return json_ok(status)
 
 
+@file_operation
 def _prepare_chunk(
     db: Database, settings: Any, user_id: str, upload_id: str
 ) -> tuple[Path, int, int, str]:
@@ -115,8 +116,20 @@ def _prepare_chunk(
     return part, row["size_bytes"], uploads.part_size(part), row["state"]
 
 
+@file_operation
 def _open_part(part: Path) -> BinaryIO:
     return open(part, "ab")
+
+
+def _write_batch(handle: BinaryIO, data: bytes) -> None:
+    """Write a batch mid-stream; a full disk is `507`, not a 500."""
+    try:
+        handle.write(data)
+    except OSError:
+        log.exception("Writing an upload batch failed.")
+        raise ApiError(
+            "insufficient_storage", "The server could not write the file.", 507
+        ) from None
 
 
 def _finish_write(handle: BinaryIO, data: bytes) -> None:
@@ -172,7 +185,7 @@ async def put_chunk(request: Request) -> Response:
                     if len(buffer) >= BATCH_BYTES:
                         data = bytes(buffer)
                         buffer.clear()
-                        await anyio.to_thread.run_sync(handle.write, data)
+                        await anyio.to_thread.run_sync(_write_batch, handle, data)
             except ClientDisconnect:
                 pass  # keep what arrived; the client asks again with GET
         finally:

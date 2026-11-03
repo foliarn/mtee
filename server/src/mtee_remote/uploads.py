@@ -33,15 +33,17 @@ import logging
 import os
 import re
 import sqlite3
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from mtee_remote import clock
 from mtee_remote.config import Settings
 from mtee_remote.db import Database, Transaction
-from mtee_remote.errors import ApiError
+from mtee_remote.errors import ApiError, file_operation, is_busy_error
 from mtee_remote.ids import new_id
 from mtee_remote.library import hashing, store
 from mtee_remote.paths import disk_path, normalize_relative_path, resolve_under
@@ -128,6 +130,36 @@ def path_in_use(conn: sqlite3.Connection, root_id: str, relative_path: str, targ
     return store.present_path_taken(conn, root_id, relative_path) or os.path.lexists(target)
 
 
+# Waits before each retry of a file operation that met a busy file: five retries, 1.55 s in all.
+RETRY_DELAYS: tuple[float, ...] = (0.05, 0.1, 0.2, 0.4, 0.8)
+
+
+def _pause(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def retry_busy[T](operation: Callable[[], T]) -> T:
+    """Run a file operation again while the file is busy; then answer `409 busy`.
+
+    Busy means a `PermissionError` or a Windows `OSError` with winerror 32 or 33 (a file that
+    another process has open). Any other `OSError` is raised at once. The caller undoes its
+    partial steps when `ApiError("busy")` comes out, so nothing is lost or overwritten.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except OSError as exc:
+            if not is_busy_error(exc):
+                raise
+            if attempt == len(RETRY_DELAYS):
+                raise ApiError(
+                    "busy", "The file is in use on the server; try again in a moment."
+                ) from exc
+            _pause(RETRY_DELAYS[attempt])
+            attempt += 1
+
+
 def place_file(src: Path, dst: Path) -> None:
     """Move `src` to `dst` without ever overwriting: the one way every module places a file.
 
@@ -137,26 +169,29 @@ def place_file(src: Path, dst: Path) -> None:
     after checking that `dst` does not exist. That check is not atomic against another
     process writing the same path at the same instant (for example a hand copy); the root
     lock only protects against this server's own writers and the scanner.
+    The link, the rename and the removal of `src` retry while the file is busy (`retry_busy`).
+    A link that stays busy takes the rename path, like any file system without hard links;
+    a source that stays busy then ends in `409 busy` from the rename or the removal.
     If removing `src` fails, the new link is removed again and the error is raised, so the
     file never exists twice because of a failed move.
     """
     try:
-        os.link(src, dst)
+        retry_busy(partial(os.link, src, dst))
     except FileExistsError:
         raise ApiError("path_taken", "A file already exists at that path.") from None
     except FileNotFoundError:
         raise
-    except OSError:
+    except (OSError, ApiError):
         if os.path.lexists(dst):
             raise ApiError("path_taken", "A file already exists at that path.") from None
         try:
-            os.rename(src, dst)
+            retry_busy(partial(os.rename, src, dst))
         except FileExistsError:
             raise ApiError("path_taken", "A file already exists at that path.") from None
         return
     try:
-        os.unlink(src)
-    except OSError:
+        retry_busy(partial(os.unlink, src))
+    except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(dst)
         raise
@@ -186,6 +221,7 @@ def part_file(
     return part_path(library_folder(conn, settings, user_id), upload_id)
 
 
+@file_operation
 def part_size(part: Path) -> int:
     """The real size of the part file (0 when it does not exist)."""
     try:
@@ -272,6 +308,7 @@ def load_upload(conn: sqlite3.Connection, user_id: str, upload_id: str) -> sqlit
     return row
 
 
+@file_operation
 def create_upload(
     db: Database,
     settings: Settings,
@@ -340,6 +377,7 @@ def create_upload(
     )
 
 
+@file_operation
 def create_backup_upload(
     db: Database,
     settings: Settings,
@@ -377,6 +415,7 @@ def create_backup_upload(
     )
 
 
+@file_operation
 def _open_upload(
     db: Database,
     settings: Settings,
@@ -456,6 +495,7 @@ def decode_backup_meta(raw: str | None) -> tuple[str | None, str]:
     )
 
 
+@file_operation
 def upload_status(db: Database, settings: Settings, user_id: str, upload_id: str) -> dict[str, Any]:
     """The state of an upload; `received_bytes` is the real size of the part file.
 
@@ -494,20 +534,22 @@ def _set_state(db: Database, upload_id: str, state: str) -> None:
         )
 
 
+@file_operation
 def cancel_upload(db: Database, settings: Settings, user_id: str, upload_id: str) -> None:
     conn = db.conn()
     row = load_upload(conn, user_id, upload_id)
     if row["state"] == "done":
         raise ApiError("conflict", "This upload is already committed.")
     part = part_file(settings, conn, user_id, row["purpose"], upload_id)
+    # The file goes first: a busy part file keeps the upload open, so the cancel can be retried.
+    retry_busy(partial(part.unlink, missing_ok=True))
     _set_state(db, upload_id, "cancelled")
-    with contextlib.suppress(FileNotFoundError):
-        part.unlink()
 
 
 # -- commit ----------------------------------------------------------------------------
 
 
+@file_operation
 def verify_received(
     db: Database, settings: Settings, *, user_id: str, upload_id: str
 ) -> tuple[sqlite3.Row, Path]:
@@ -534,6 +576,7 @@ def verify_received(
     return row, part
 
 
+@file_operation
 def commit_upload(
     db: Database,
     settings: Settings,
@@ -612,9 +655,9 @@ def _commit_new(
         source = _find_duplicate(conn, settings, upload["sha256"], upload["size_bytes"])
         if source is not None:
             try:
-                os.link(source, target)
+                retry_busy(partial(os.link, source, target))
                 linked = True
-            except OSError:
+            except (OSError, ApiError):
                 linked = False
         if linked:
             try:
@@ -705,7 +748,11 @@ def _commit_replacement(
         trash_file.parent.mkdir(parents=True, exist_ok=True)
         # The old file leaves its path (and any hard link it shared): the new content is a
         # new file, so another user's linked copy is never touched.
-        place_file(target, trash_file)
+        try:
+            place_file(target, trash_file)
+        except BaseException:
+            remove_empty_dir(trash_file.parent)
+            raise
         try:
             place_file(part, target)
         except BaseException:

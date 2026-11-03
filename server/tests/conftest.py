@@ -40,6 +40,22 @@ def _ffmpeg_from_vendor() -> Iterator[None]:  # pyright: ignore[reportUnusedFunc
         yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _ffprobe_from_vendor() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Use the repository's pinned ffprobe when none is installed."""
+    vendored = REPO_ROOT / "vendor" / "ffmpeg" / "bin" / "ffprobe.exe"
+    if (
+        shutil.which("ffprobe") is None
+        and not os.environ.get("MTEE_REMOTE_FFPROBE")
+        and vendored.is_file()
+    ):
+        os.environ["MTEE_REMOTE_FFPROBE"] = str(vendored)
+        yield
+        os.environ.pop("MTEE_REMOTE_FFPROBE", None)
+    else:
+        yield
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     data_dir = tmp_path / "data"

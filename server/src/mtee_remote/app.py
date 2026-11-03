@@ -25,11 +25,14 @@ from mtee_remote.routes import (
     changes,
     devices,
     items,
+    media,
     roots,
+    streaming,
     trash,
     uploads,
 )
 from mtee_remote.security import AuthMiddleware
+from mtee_remote.streaming.signed import SignedUrls
 
 DATA_SUBDIRS = ("db-backups", "uploads", "trash", "backups")
 
@@ -53,10 +56,22 @@ def create_app(settings: Settings) -> Starlette:
         try:
             yield
         finally:
-            services.stop(app)
+            await services.stop(app)
 
     routes: list[BaseRoute] = [Route("/health", health)]
-    for module in (auth, devices, admin, roots, items, uploads, trash, changes, backups):
+    for module in (
+        auth,
+        devices,
+        admin,
+        roots,
+        items,
+        uploads,
+        trash,
+        changes,
+        backups,
+        streaming,
+        media,
+    ):
         routes.extend(module.ROUTES)
 
     app = Starlette(
@@ -68,4 +83,6 @@ def create_app(settings: Settings) -> Starlette:
     app.state.settings = settings
     app.state.db = db
     app.state.notifier = notifier
+    app.state.stream_urls = SignedUrls(settings.data_dir / "stream-secret.bin")
+    app.state.prepares = {}
     return app

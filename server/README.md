@@ -116,6 +116,28 @@ Run them with `docker compose exec server mtee-remote ...`:
 - `reset-password --username NAME` sets a new password for an account.
 - `scan --user NAME [--root NAME]` scans a user's library again. Run it after copying files onto the server by hand (scp): the server does not rescan on its own, unless `MTEE_REMOTE_SCAN_INTERVAL` (seconds) is set.
 
+## Streaming
+
+The server streams an item at a level: `original`, `lossless`, `320` or `128`. Every response
+supports HTTP Range. A file that already fits the level is sent as it is, and nothing is upscaled.
+
+- `GET /api/v1/items/{id}/stream?level=&codecs=`: with the device token. `codecs` is the list of
+  codecs the client takes (`flac`, `alac`, `aac`, `opus`, `mp3`); empty means `flac`, `aac`, `opus`.
+- `POST /api/v1/items/{id}/stream-url`: a signed path (`/api/v1/s/<token>`) for players that cannot
+  send the token header. It lasts 6 hours by default (`ttl_seconds`, 60 to 86400). The token stops
+  working when its device is revoked or its user is disabled. The secret is `DATA_DIR/stream-secret.bin`.
+- `GET /api/v1/items/{id}/cover?size=s|m|l`: the album cover at 128, 512 or 1200 px.
+
+The response headers `X-MTEE-Codec`, `X-MTEE-Sample-Rate`, `X-MTEE-Bit-Depth` and `X-MTEE-Bitrate`
+give the delivered format (bitrate in bits per second).
+
+Transcodes are kept in `DATA_DIR/cache/transcodes/` and covers in `DATA_DIR/cache/covers/`. The
+cache is disposable: stop the server and delete `DATA_DIR/cache/`. The server never writes to the
+music folder for streaming.
+
+The server reads the streaming settings (`max_transcodes`, `cache_limit_gb`, `wav_to_flac`,
+`lossless_cap`) when it starts. A changed setting applies after the next restart.
+
 ## Data and backups
 
 Everything the server keeps in `DATA_DIR`:

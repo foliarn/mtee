@@ -20,6 +20,8 @@ from mtee_remote.db import Database
 from mtee_remote.errors import ApiError, error_response
 
 PUBLIC_PATHS = frozenset({"/health", "/api/v1/auth/login"})
+# Paths whose route checks the credential itself: the signed stream URLs carry their own token.
+PUBLIC_PREFIXES = ("/api/v1/s/",)
 
 LAST_SEEN_INTERVAL = timedelta(minutes=1)
 
@@ -86,6 +88,10 @@ def _lookup(db: Database, token: str) -> AuthContext | None:
     )
 
 
+def _is_public(path: str) -> bool:
+    return path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES)
+
+
 class AuthMiddleware:
     """Refuse every HTTP request without a valid device token, except `PUBLIC_PATHS`."""
 
@@ -93,7 +99,7 @@ class AuthMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["path"] in PUBLIC_PATHS:
+        if scope["type"] != "http" or _is_public(scope["path"]):
             await self.app(scope, receive, send)
             return
         token = _bearer_token(scope)

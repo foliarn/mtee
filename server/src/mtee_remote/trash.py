@@ -22,13 +22,14 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from functools import partial
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from mtee_remote import journal
 from mtee_remote.config import Settings
 from mtee_remote.db import Database
-from mtee_remote.errors import ApiError
+from mtee_remote.errors import ApiError, file_operation
 from mtee_remote.ids import new_id
 from mtee_remote.library import store
 from mtee_remote.paths import resolve_under
@@ -43,6 +44,7 @@ from mtee_remote.uploads import (
     path_in_use,
     place_file,
     remove_empty_dir,
+    retry_busy,
     trash_stored_path,
     undo_place,
 )
@@ -57,6 +59,7 @@ BACKUP_TRASH_DIRNAME = "backups"
 _TAKEN = "A file already exists at that path."
 
 
+@file_operation
 def move_item(
     db: Database, settings: Settings, *, user_id: str, item_id: str, new_relative_path: str
 ) -> dict[str, Any]:
@@ -93,6 +96,7 @@ def move_item(
     return store.item_public_by_id(conn, item_id)
 
 
+@file_operation
 def trash_item(
     db: Database, settings: Settings, *, user_id: str, device_id: str, item_id: str
 ) -> str:
@@ -212,6 +216,7 @@ def _is_current_entry(conn: sqlite3.Connection, entry: sqlite3.Row) -> bool:
     return newest is not None and newest["trash_id"] == entry["trash_id"]
 
 
+@file_operation
 def restore(
     db: Database,
     settings: Settings,
@@ -277,12 +282,14 @@ def restore(
     return store.item_public_by_id(conn, item_id)
 
 
+@file_operation
 def purge(db: Database, settings: Settings, *, user_id: str, trash_id: str) -> None:
     """Permanently delete one trash entry: the only permanent delete the server has.
 
     The database goes first (one transaction: the trash row, and for the current file of a
     trashed item also the item row with a `purged` journal entry), then the file. If the
-    file cannot be removed it stays in the trash folder, harmless and logged.
+    file cannot be removed (also when it stays busy) it stays in the trash folder, harmless
+    and logged: the database has already changed, so the answer is still success.
     """
     conn = db.conn()
     row = _row(conn, user_id, trash_id)
@@ -296,8 +303,8 @@ def purge(db: Database, settings: Settings, *, user_id: str, trash_id: str) -> N
             store.purge_item(tx, entry["item_id"])
         tx.conn.execute("DELETE FROM trash WHERE trash_id = ?", (trash_id,))
     try:
-        path.unlink(missing_ok=True)
-    except OSError:
+        retry_busy(partial(path.unlink, missing_ok=True))
+    except (OSError, ApiError):
         log.exception("Purged trash entry %s: its file could not be removed.", trash_id)
         return
     remove_empty_dir(path.parent)
@@ -306,6 +313,7 @@ def purge(db: Database, settings: Settings, *, user_id: str, trash_id: str) -> N
 # -- backups (milestone 124.7) -------------------------------------------------------
 
 
+@file_operation
 def trash_backup(
     db: Database,
     settings: Settings,
@@ -362,6 +370,7 @@ def trash_backup(
             raise
 
 
+@file_operation
 def restore_backup(db: Database, settings: Settings, *, user_id: str, trash_id: str) -> str:
     """Move a trashed backup back to its own place and return its `backup_id`.
 
@@ -410,6 +419,6 @@ def _purge_backup(db: Database, settings: Settings, entry: sqlite3.Row) -> None:
             tx.conn.execute("DELETE FROM backups WHERE backup_id = ?", (entry["backup_id"],))
             tx.conn.execute("DELETE FROM trash WHERE trash_id = ?", (entry["trash_id"],))
         try:
-            path.unlink(missing_ok=True)
-        except OSError:
+            retry_busy(partial(path.unlink, missing_ok=True))
+        except (OSError, ApiError):
             log.exception("Purged backup %s: its file could not be removed.", entry["backup_id"])

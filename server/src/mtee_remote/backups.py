@@ -28,7 +28,7 @@ from typing import Any
 from mtee_remote import journal, trash, uploads
 from mtee_remote.config import Settings
 from mtee_remote.db import Database
-from mtee_remote.errors import ApiError
+from mtee_remote.errors import ApiError, file_operation
 from mtee_remote.ids import new_id
 from mtee_remote.paths import disk_path
 
@@ -108,6 +108,7 @@ def backup_file(db: Database, settings: Settings, user_id: str, backup_id: str) 
     return str(path), str(row["sha256"])
 
 
+@file_operation
 def commit_backup(
     db: Database,
     settings: Settings,

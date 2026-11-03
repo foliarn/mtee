@@ -101,8 +101,9 @@ def test_place_file_removes_its_new_link_when_the_source_cannot_be_removed(
         real_unlink(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "unlink", selective)
-    with pytest.raises(PermissionError):
+    with pytest.raises(ApiError) as caught:
         uploads.place_file(src, dst)
+    assert caught.value.code == "busy"
     monkeypatch.undo()
     assert (src.read_bytes(), dst.exists()) == (b"data", False)
 
