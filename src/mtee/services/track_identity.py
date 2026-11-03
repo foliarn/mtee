@@ -66,6 +66,12 @@ class TrackIdentity:
         when the track does not exist, still has a file on this computer (or is still listed by a
         library folder), belongs to another plugin, or when ``entry.source_key`` is taken by
         another track of the plugin. Any thread.
+
+        The key rule: a key is held by the source row of its track, live or removed. ``attach``
+        deletes that row, so an attached key is free again: once the track's file is recycled,
+        ``adopt`` gives the same track the same key back. A removed row keeps its key on purpose
+        (``upsert`` gives the key back to its track); taking it over would leave the removed track
+        with no source, and its playlist entries and history would point to nothing.
         """
         if not plugin_id:
             raise ValueError("A plugin identifier is required.")

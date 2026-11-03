@@ -486,3 +486,39 @@ def test_the_track_list_shows_the_file_after_attach(lib: _Library, qapp: Any) ->
     assert row["title"] == "Downloaded"
     assert row["path"] == str(folder / "download.flac")
     assert row.get("sourcePluginId", "") == ""
+
+
+def test_a_key_given_back_by_attach_is_free_once_the_file_is_recycled(lib: _Library) -> None:
+    context = _context(lib)
+    track_id = _adopted_track(lib, context)
+    incoming = lib.incoming_file("download.flac", seconds=1.0, title="Downloaded", artist="Bea")
+    _in_thread(lambda: context.files.attach_file(track_id, incoming, lib.music / "Downloads"))
+
+    # attach deleted the source row, so the key is no longer held; the track has a file again,
+    # so adopt refuses it for that reason.
+    rows = (
+        lib.database.connection()
+        .execute("SELECT COUNT(*) FROM plugin_source_tracks WHERE track_id=?", (track_id,))
+        .fetchone()
+    )
+    assert rows[0] == 0
+    with pytest.raises(ValueError, match="still has a file"):
+        context.track_sources.adopt(track_id, _entry("k1"))
+
+    _recycle(lib, track_id)
+    assert context.track_sources.adopt(track_id, _entry("k1")) == track_id
+    assert [entry.track_id for entry in context.track_sources.list()] == [track_id]
+
+
+def test_a_removed_track_keeps_its_key_against_another_track(lib: _Library) -> None:
+    context = _context(lib)
+    repository = SourceTrackRepository(lib.database)
+    holder = repository.upsert("sample", [_entry("k1")])[0]["k1"]
+    repository.remove("sample", ["k1"])
+    other = lib.add_track("second.flac", seconds=0.5, title="Second", artist="Bea")
+    _recycle(lib, other)
+
+    with pytest.raises(ValueError, match="already belongs to another track"):
+        context.track_sources.adopt(other, _entry("k1"))
+
+    assert repository.upsert("sample", [_entry("k1")])[0]["k1"] == holder
