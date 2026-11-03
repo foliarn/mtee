@@ -1,11 +1,11 @@
 """The records of MTEE Remote: play log, playlists, track data and synced settings (plan 126.7).
 
 Each record goes to the server through the ``records`` routes and is kept here through the core's
-own services: the play log (``context.play_log``), the playlists (``context.playlists``, with the
-revision check of ``replace_entries``), the analysis, loudness and corrections
-(``context.track_data``)
-and the allow-listed settings (``context.synced_settings``). Nothing here writes SQL into a core
-table, and nothing reads or writes an audio file.
+own services: the play log (``context.play_log``), the playlists (``context.playlists``: their
+listing, the revision check of ``replace_entries`` and the rename), the analysis, loudness and
+corrections (``context.track_data``, with its change log) and the allow-listed settings
+(``context.synced_settings``). Nothing here writes SQL into a core table, and nothing reads or
+writes an audio file.
 
 Push (in each pass that sends, so in Auto mode and after Apply) sends this device's play events, its
 playlists, the track data layers that changed and the synced settings that changed. Pull (on a
@@ -47,6 +47,11 @@ T = TypeVar("T")
 PLAY_PUSH_CURSOR = "play_local"
 PLAY_PULL_CURSOR = "play_server"
 PLAY_PAGE = 500
+# The position in the core's track data change log that this device has pushed up to, and the time
+# of the last pass (a track linked after it is checked in full, see push_track_data).
+TRACK_DATA_CURSOR = "track_data_local"
+TRACK_LINK_CURSOR = "track_data_linked_at"
+TRACK_DATA_PAGE = 500
 LAYERS = ("analysis", "loudness", "corrections")
 
 # Plugin settings (kept in the ``plugins.remote.`` namespace of the core settings).
@@ -427,53 +432,92 @@ def _receive_layer(
 
 
 def push_track_data(context: PluginContext, store: RemoteStore, client: RemoteClient) -> int:
-    """Send the layers of the linked tracks that changed; return how many items were sent.
+    """Send the layers that changed since the last pass; return how many items were sent.
 
+    The core's change log names the tracks whose analysis, loudness or corrections changed, and
+    only those tracks are read. A track linked since the last pass is checked too, because the
+    layers it already holds are not in the log after it. The per-layer digests decide what is
+    sent, so a layer that came from another device is never sent back.
     A layer this device has never sent is first compared with the server: where the server already
     holds it, the server's layer is received instead, so a first sync never overwrites it.
     """
+    started = utc_now()
+    linked_since = _cursor(store, TRACK_LINK_CURSOR)
+    cursor = _cursor(store, TRACK_DATA_CURSOR)
+    try:
+        changed, following = _changed_tracks(context, cursor)
+    except ValueError:
+        # The cursor is not from this change log (the database was restored): every linked track
+        # is checked, as on a first pass.
+        linked_since = None
+        changed, following = _changed_tracks(context, None)
+    changed_set = set(changed)
     sent = 0
-    links = store.connection().execute("SELECT item_id, track_id FROM remote_links").fetchall()
+    links = (
+        store.connection()
+        .execute("SELECT item_id, track_id, linked_at_utc FROM remote_links ORDER BY item_id")
+        .fetchall()
+    )
     for row in links:
-        item_id = str(row["item_id"])
         track_id = str(row["track_id"])
-        values = _layer_values(context, track_id)
-        if not values:
-            continue
-        stored = _stored_digests(store, item_id)
-        unseen = [layer for layer in values if layer not in stored]
-        refused: set[str] = set()
-        if unseen:
-            try:
-                server_layers = client.track_data(item_id)
-            except ApiError as error:
-                if error.status == 404:
-                    continue
-                raise
-            for layer in unseen:
-                if layer not in server_layers:
-                    continue
-                try:
-                    _receive_layer(context, store, item_id, track_id, layer, server_layers[layer])
-                except (ValueError, LookupError, KeyError, TypeError) as error:
-                    # The server's layer was not applied: the local one must not replace it.
-                    refused.add(layer)
-                    _log(store, f"A {layer} of another device was not applied: {error}", "warning")
-            values = _layer_values(context, track_id)
-            stored = _stored_digests(store, item_id)
-        changed = {
-            layer: value
-            for layer, value in values.items()
-            if layer not in refused and stored.get(layer) != digest_of(value)
-        }
-        if not changed:
-            continue
-        client.put_track_data(item_id, changed)
-        _store_digests(
-            store, item_id, {layer: digest_of(value) for layer, value in changed.items()}
-        )
-        sent += 1
+        is_new = linked_since is None or str(row["linked_at_utc"]) >= linked_since
+        if is_new or track_id in changed_set:
+            sent += _push_track(context, store, client, str(row["item_id"]), track_id)
+    # An empty log gives no cursor: "0" is the start of the log and replaces a stale cursor.
+    _set_cursor(store, TRACK_DATA_CURSOR, following or "0")
+    _set_cursor(store, TRACK_LINK_CURSOR, started)
     return sent
+
+
+def _changed_tracks(context: PluginContext, cursor: str | None) -> tuple[list[str], str | None]:
+    """The tracks named by the change log after ``cursor``, page by page, and the cursor to keep."""
+    tracks: list[str] = []
+    while True:
+        batch, following = context.track_data.changed_since(cursor, TRACK_DATA_PAGE)
+        tracks.extend(batch)
+        if following == cursor:
+            return tracks, following
+        cursor = following
+
+
+def _push_track(
+    context: PluginContext, store: RemoteStore, client: RemoteClient, item_id: str, track_id: str
+) -> int:
+    """Send the layers of one linked track that differ from what was last synced; 1 when sent."""
+    values = _layer_values(context, track_id)
+    if not values:
+        return 0
+    stored = _stored_digests(store, item_id)
+    unseen = [layer for layer in values if layer not in stored]
+    refused: set[str] = set()
+    if unseen:
+        try:
+            server_layers = client.track_data(item_id)
+        except ApiError as error:
+            if error.status == 404:
+                return 0
+            raise
+        for layer in unseen:
+            if layer not in server_layers:
+                continue
+            try:
+                _receive_layer(context, store, item_id, track_id, layer, server_layers[layer])
+            except (ValueError, LookupError, KeyError, TypeError) as error:
+                # The server's layer was not applied: the local one must not replace it.
+                refused.add(layer)
+                _log(store, f"A {layer} of another device was not applied: {error}", "warning")
+        values = _layer_values(context, track_id)
+        stored = _stored_digests(store, item_id)
+    changed = {
+        layer: value
+        for layer, value in values.items()
+        if layer not in refused and stored.get(layer) != digest_of(value)
+    }
+    if not changed:
+        return 0
+    client.put_track_data(item_id, changed)
+    _store_digests(store, item_id, {layer: digest_of(value) for layer, value in changed.items()})
+    return 1
 
 
 def pull_track_data(
@@ -603,16 +647,8 @@ def push_settings(context: PluginContext, store: RemoteStore, client: RemoteClie
 
 # -- playlists -----------------------------------------------------------------------------------
 def _local_playlist_ids(context: PluginContext) -> list[str]:
-    """The identifiers of the local playlists.
-
-    The playlist service has no listing, so this reads the core's ``playlists`` table (read only).
-    """
-    rows = (
-        context.database.connection()
-        .execute("SELECT playlist_id FROM playlists ORDER BY playlist_id")
-        .fetchall()
-    )
-    return [str(row[0]) for row in rows]
+    """The identifiers of the local playlists, from the core's playlist listing."""
+    return sorted(info.playlist_id for info in context.playlists.list())
 
 
 def _links(store: RemoteStore) -> dict[str, PlaylistLink]:
@@ -877,11 +913,34 @@ def _sync_one(
         new_rev = context.playlists.replace_entries(local_id, tracks, expected_revision=local_rev)
     except StaleRevisionError:
         return 0  # the playlist moved here meanwhile: the next pass sees both changes
-    _set_link(store, PlaylistLink(local_id, server_id, new_rev, _count(full.get("revision"))))
     server_name = _text(full.get("name"))
     if server_name and server_name != name:
-        _log(store, f"Renamed on the server to {server_name}; the name here is kept.", "warning")
+        new_rev = _rename_here(context, store, local_id, server_name, new_rev)
+    _set_link(store, PlaylistLink(local_id, server_id, new_rev, _count(full.get("revision"))))
     return 1
+
+
+def _rename_here(
+    context: PluginContext, store: RemoteStore, local_id: str, server_name: str, revision: int
+) -> int:
+    """Give the local playlist the name it has on the server; return the revision to remember.
+
+    The revision checked is the one this pass left behind: a change made here meanwhile is not
+    overwritten, and the revision then stays behind so the next pass sends that change.
+    """
+    try:
+        renamed = context.playlists.rename(local_id, server_name, expected_revision=revision)
+    except StaleRevisionError:
+        return revision
+    except ValueError as error:
+        _log(
+            store,
+            f"The name {server_name!r} from the server is not a name here: {error}",
+            "warning",
+        )
+        return revision
+    _log(store, f"Renamed here to {server_name}, as on the server.")
+    return renamed
 
 
 def _open_conflict(

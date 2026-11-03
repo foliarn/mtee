@@ -9,12 +9,25 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.plugins.api import PluginContext
 
+from ..backups import (
+    MANUAL,
+    backup_rows,
+    keep_counts,
+    last_automatic,
+    last_backup_text,
+    make_backup,
+    restore,
+    schedule,
+    set_keep,
+    set_schedule,
+)
 from ..client import RemoteClient
 from ..connection import ConnectionManager
 from ..engine import (
@@ -111,8 +124,17 @@ class SettingsBackend(QObject):
         self._store = RemoteStore(context)
         self._server_roots: list[dict[str, str]] = []
         self._folder_rows: list[dict[str, object]] = []
+        # The backups (plan 126.8): the list and the retention as the server last answered.
+        self._backup_raw: list[dict[str, Any]] = []
+        self._backup_rows: list[dict[str, object]] = []
+        self._backups_loaded = False
+        self._keep: dict[str, int] = {"daily": 30, "weekly": 12}
+        self._backing_up = False
+        self._seen_automatic = last_automatic(context)
         connection.changed.connect(self.changed.emit)
         engine.changed.connect(self.changed.emit)
+        engine.changed.connect(self._on_engine_changed)
+        connection.stateChanged.connect(self._on_connection_state)
 
     @Property(str, notify=changed)
     def serverUrl(self) -> str:  # noqa: N802
@@ -263,6 +285,188 @@ class SettingsBackend(QObject):
     @Slot()
     def applyPending(self) -> None:  # noqa: N802
         self._engine.apply_pending()
+
+    # -- backups (plan 126.8) ------------------------------------------------------------
+    @Property(str, notify=changed)
+    def backupSchedule(self) -> str:  # noqa: N802
+        return schedule(self._context)
+
+    @Property(int, notify=changed)
+    def backupKeepDaily(self) -> int:  # noqa: N802
+        return self._keep["daily"]
+
+    @Property(int, notify=changed)
+    def backupKeepWeekly(self) -> int:  # noqa: N802
+        return self._keep["weekly"]
+
+    @Property(list, notify=changed)
+    def backups(self) -> list[dict[str, object]]:
+        """The backups on the server, newest first, as rows of date, kind, device and size."""
+        return list(self._backup_rows)
+
+    @Property(str, notify=changed)
+    def lastBackupText(self) -> str:  # noqa: N802
+        return last_backup_text(self._backup_raw) if self._backups_loaded else ""
+
+    @Property(bool, notify=changed)
+    def backingUp(self) -> bool:  # noqa: N802
+        return self._backing_up
+
+    @Slot(str)
+    def setBackupSchedule(self, value: str) -> None:  # noqa: N802
+        """Daily, Weekly or Off; the next pass checks whether a backup is due."""
+        try:
+            set_schedule(self._context, value)
+        except ValueError as error:
+            self._context.notify(str(error))
+            return
+        self.changed.emit()
+        self._engine.request_pass()
+
+    @Slot(int)
+    def setKeepDaily(self, value: int) -> None:  # noqa: N802
+        self._set_keep(daily=value, weekly=self._keep["weekly"])
+
+    @Slot(int)
+    def setKeepWeekly(self, value: int) -> None:  # noqa: N802
+        self._set_keep(daily=self._keep["daily"], weekly=value)
+
+    @Slot()
+    def backUpNow(self) -> None:  # noqa: N802
+        """Make a manual backup now and upload it, in a job."""
+        client = self._connection.client()
+        if client is None:
+            self._context.notify("Connect to the server first.")
+            return
+        if self._backing_up:
+            return
+        self._backing_up = True
+        self.changed.emit()
+        context = self._context
+        submit(
+            context,
+            "Backing up the database to MTEE Remote",
+            lambda job: make_backup(context, client, job, kind=MANUAL),
+            self._on_backed_up,
+        )
+
+    @Slot()
+    def refreshBackups(self) -> None:  # noqa: N802
+        """Read the list of backups and the retention from the server, in a job."""
+        client = self._connection.client()
+        if client is None:
+            return
+        submit(
+            self._context,
+            "Reading the backups",
+            lambda _job: (client.backups(), keep_counts(client)),
+            self._on_backups,
+            visible=False,
+        )
+
+    @Slot(str)
+    def restoreBackup(self, backup_id: str) -> None:  # noqa: N802
+        """Download a backup and offer it to MTEE's restore (the person confirms there)."""
+        client = self._connection.client()
+        if client is None:
+            self._context.notify("Connect to the server first.")
+            return
+        context = self._context
+        submit(
+            context,
+            "Preparing the restore of a backup",
+            lambda job: restore(context, client, job, backup_id),
+            self._on_restored,
+        )
+
+    @Slot(str)
+    def deleteBackup(self, backup_id: str) -> None:  # noqa: N802
+        """Move a backup to the server's trash; the page asked the person first."""
+        client = self._connection.client()
+        if client is None:
+            self._context.notify("Connect to the server first.")
+            return
+        submit(
+            self._context,
+            "Deleting a backup",
+            lambda _job: client.delete_backup(backup_id),
+            lambda _result, error: self._after_backup_write(error),
+            visible=False,
+        )
+
+    def _set_keep(self, *, daily: int, weekly: int) -> None:
+        client = self._connection.client()
+        if client is None:
+            self._context.notify("Connect to the server first.")
+            return
+        self._keep = {"daily": daily, "weekly": weekly}
+        self.changed.emit()
+        submit(
+            self._context,
+            "Saving the backup retention",
+            lambda _job: set_keep(client, daily=daily, weekly=weekly),
+            self._on_keep,
+            visible=False,
+        )
+
+    def _on_keep(self, result: dict[str, int] | None, error: BaseException | None) -> None:
+        if error is not None:
+            self._context.notify(str(error) or type(error).__name__)
+        elif result is not None:
+            self._keep = result
+        self.changed.emit()
+        # Retention may have moved older backups to the trash: the list is read again.
+        self.refreshBackups()
+
+    def _on_backed_up(self, _result: object, error: BaseException | None) -> None:
+        self._backing_up = False
+        if error is not None:
+            self._context.notify(str(error) or type(error).__name__)
+        else:
+            self._context.notify("The database backup is on the server.")
+        self.changed.emit()
+        self.refreshBackups()
+
+    def _on_restored(self, _result: Path | None, error: BaseException | None) -> None:
+        # On success MTEE's Settings > Data & privacy asks the person to confirm the restore.
+        if error is not None:
+            self._context.notify(str(error) or type(error).__name__)
+
+    def _after_backup_write(self, error: BaseException | None) -> None:
+        if error is not None:
+            self._context.notify(str(error) or type(error).__name__)
+        self.refreshBackups()
+
+    def _on_backups(
+        self,
+        result: tuple[list[dict[str, Any]], dict[str, int]] | None,
+        error: BaseException | None,
+    ) -> None:
+        if error is not None or result is None:
+            if error is not None:
+                self._context.log.warning("Reading the backups failed: %s", error)
+            return
+        raw, keep = result
+        self._backup_raw = raw
+        self._keep = keep
+        self._backups_loaded = True
+        names = {
+            str(device.get("device_id", "")): str(device.get("name", ""))
+            for device in self._connection.devices
+        }
+        self._backup_rows = list(backup_rows(raw, names))
+        self.changed.emit()
+
+    def _on_engine_changed(self) -> None:
+        """A backup of the schedule may have been made in the pass: the list is read again then."""
+        latest = last_automatic(self._context)
+        if latest != self._seen_automatic:
+            self._seen_automatic = latest
+            self.refreshBackups()
+
+    def _on_connection_state(self, state: str) -> None:
+        if state == "connected":
+            self.refreshBackups()
 
     # -- folders -------------------------------------------------------------------------
     @Slot()

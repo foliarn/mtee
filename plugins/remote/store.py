@@ -81,30 +81,19 @@ class RemoteStore:
         return self._database.transaction()
 
     # -- hash cache ----------------------------------------------------------------------
-    def cached_hashes(self, path: str, size_bytes: int, mtime_ns: int) -> CachedHashes | None:
-        row = (
-            self.connection()
-            .execute(
-                "SELECT sha256, audio_hash FROM remote_hash_cache"
-                " WHERE path = ? AND size_bytes = ? AND mtime_ns = ?",
-                (path, size_bytes, mtime_ns),
-            )
-            .fetchone()
-        )
-        if row is None:
-            return None
-        return CachedHashes(str(row["sha256"]), row["audio_hash"])
-
     def remember_hashes(
         self, path: str, size_bytes: int, mtime_ns: int, hashes: CachedHashes
     ) -> None:
+        # hashed_at_ns is cleared: the hashing module trusts a cached row only when that time says
+        # the file was hashed after its last change. A hash stored here (from a fetch, a conflict or
+        # an offload) has no such time, so it is not trusted until hashing records one.
         with self.transaction() as conn:
             conn.execute(
                 "INSERT INTO remote_hash_cache (path, size_bytes, mtime_ns, sha256, audio_hash)"
                 " VALUES (?, ?, ?, ?, ?)"
                 " ON CONFLICT (path) DO UPDATE SET size_bytes = excluded.size_bytes,"
                 " mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,"
-                " audio_hash = excluded.audio_hash",
+                " audio_hash = excluded.audio_hash, hashed_at_ns = NULL",
                 (path, size_bytes, mtime_ns, hashes.sha256, hashes.audio_hash),
             )
 

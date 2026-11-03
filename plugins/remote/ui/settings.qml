@@ -292,6 +292,230 @@ Column {
         onAction: page.backend.fetchNow()
     }
 
+    // Backups (plan 126.8): a copy of the database to the server, on a schedule or now. The list
+    // restores (MTEE asks the person to confirm) or deletes a backup (the row asks first).
+    Group {
+        objectName: "remoteGroupBackups"
+        visible: page.connected
+        title: "Backups"
+    }
+
+    Item {
+        objectName: "remoteBackupSchedule"
+        visible: page.connected
+        width: page.width
+        height: Math.max(52, scheduleTexts.implicitHeight + 16)
+
+        Column {
+            id: scheduleTexts
+            anchors.left: parent.left
+            anchors.right: scheduleChips.left
+            anchors.rightMargin: 24
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            Text {
+                text: "Automatic backup"
+                color: Theme.textPrimary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeBody
+            }
+
+            Text {
+                width: parent.width
+                text: "A copy of the MTEE database is sent to the server. Music files are not part of it."
+                wrapMode: Text.WordWrap
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+        }
+
+        Row {
+            id: scheduleChips
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 6
+
+            FilterChip {
+                objectName: "remoteBackupDaily"
+                text: "Daily"
+                checked: page.backend && page.backend.backupSchedule === "daily"
+                onToggled: page.backend.setBackupSchedule("daily")
+            }
+
+            FilterChip {
+                objectName: "remoteBackupWeekly"
+                text: "Weekly"
+                checked: page.backend && page.backend.backupSchedule === "weekly"
+                onToggled: page.backend.setBackupSchedule("weekly")
+            }
+
+            FilterChip {
+                objectName: "remoteBackupOff"
+                text: "Off"
+                checked: page.backend && page.backend.backupSchedule === "off"
+                onToggled: page.backend.setBackupSchedule("off")
+            }
+        }
+    }
+
+    StepperRow {
+        objectName: "remoteKeepDaily"
+        visible: page.connected
+        label: "Daily backups kept"
+        description: "Older daily backups are deleted from the server."
+        value: page.backend ? page.backend.backupKeepDaily : 30
+        from: 0
+        to: 365
+        step: 1
+        onChosen: (value) => page.backend.setKeepDaily(value)
+    }
+
+    StepperRow {
+        objectName: "remoteKeepWeekly"
+        visible: page.connected
+        label: "Weekly backups kept"
+        description: "The oldest backup of each week is kept longer."
+        value: page.backend ? page.backend.backupKeepWeekly : 12
+        from: 0
+        to: 104
+        step: 1
+        onChosen: (value) => page.backend.setKeepWeekly(value)
+    }
+
+    ActionRow {
+        objectName: "remoteBackupNow"
+        visible: page.connected
+        label: "Back up now"
+        description: "Send a copy of the database to the server at once."
+        detail: page.backend ? page.backend.lastBackupText : ""
+        actionText: page.backend && page.backend.backingUp ? "Backing up…" : "Back up now"
+        actionKind: "ghost"
+        enabledAction: !page.busy && !(page.backend && page.backend.backingUp)
+        onAction: page.backend.backUpNow()
+    }
+
+    Item {
+        // Reads the list when the page is opened while connected; a connection reads it on its own.
+        objectName: "remoteBackupsLoader"
+        visible: false
+        Component.onCompleted: if (page.connected && page.backend) page.backend.refreshBackups()
+    }
+
+    Text {
+        objectName: "remoteBackupsHeading"
+        visible: backupList.count > 0
+        text: "Backups on the server"
+        color: Theme.textSecondary
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSizeSmall
+    }
+
+    Repeater {
+        id: backupList
+        model: page.backend ? page.backend.backups : []
+
+        delegate: Column {
+            id: backupEntry
+            required property var modelData
+            property bool confirming: false
+
+            objectName: "remoteBackup"
+            width: page.width
+            spacing: 0
+
+            Item {
+                width: backupEntry.width
+                height: 56
+
+                Column {
+                    anchors.left: parent.left
+                    anchors.right: backupButtons.left
+                    anchors.rightMargin: 24
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+
+                    Text {
+                        text: backupEntry.modelData.when + " · " + backupEntry.modelData.kind
+                        color: Theme.textPrimary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeBody
+                    }
+
+                    Text {
+                        text: backupEntry.modelData.device + " · " + backupEntry.modelData.size
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+                }
+
+                Row {
+                    id: backupButtons
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+
+                    TextButton {
+                        objectName: "remoteRestoreBackup"
+                        text: "Restore…"
+                        kind: "ghost"
+                        enabledAction: !page.busy
+                        onClicked: page.backend.restoreBackup(backupEntry.modelData.backupId)
+                    }
+
+                    TextButton {
+                        objectName: "remoteDeleteBackup"
+                        text: "Delete"
+                        kind: "ghost"
+                        enabledAction: !page.busy
+                        onClicked: backupEntry.confirming = true
+                    }
+                }
+            }
+
+            Column {
+                objectName: "remoteDeleteConfirm"
+                visible: backupEntry.confirming
+                width: backupEntry.width
+                bottomPadding: 12
+                spacing: 8
+
+                Text {
+                    width: parent.width
+                    text: "Delete this backup? It moves to the server's trash and leaves this list."
+                    wrapMode: Text.WordWrap
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Row {
+                    spacing: 12
+
+                    TextButton {
+                        objectName: "remoteConfirmDeleteBackup"
+                        text: "Delete backup"
+                        kind: "primary"
+                        enabledAction: !page.busy
+                        onClicked: {
+                            backupEntry.confirming = false
+                            page.backend.deleteBackup(backupEntry.modelData.backupId)
+                        }
+                    }
+
+                    TextButton {
+                        objectName: "remoteCancelDeleteBackup"
+                        text: "Cancel"
+                        kind: "ghost"
+                        onClicked: backupEntry.confirming = false
+                    }
+                }
+            }
+        }
+    }
+
     // Settings that travel (plan 126.7): one switch per synced setting of the core, on by default.
     // What never travels is said under the switches.
     Group {

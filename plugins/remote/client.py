@@ -462,10 +462,27 @@ class RemoteClient:
         ``Range`` request. A complete download is hashed and renamed to ``target``. A hash that
         does not match deletes the part and raises ``DownloadError``. Runs on a job thread.
         """
+        return self._download(
+            f"/api/v1/items/{quote(item_id, safe='')}/file",
+            target,
+            expected_sha256=expected_sha256,
+            chunk=chunk,
+            job=job,
+        )
+
+    def _download(
+        self,
+        path: str,
+        target: Path,
+        *,
+        expected_sha256: str,
+        chunk: int = DOWNLOAD_CHUNK_BYTES,
+        job: _Cancellable | None = None,
+    ) -> Path:
+        """The download of any file route (an item, a backup): see ``download``."""
         destination = Path(target)
         part = destination.with_name(destination.name + ".part")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        path = f"/api/v1/items/{quote(item_id, safe='')}/file"
         for _attempt in range(2):
             offset = part.stat().st_size if part.is_file() else 0
             headers = {"Range": f"bytes={offset}-"} if offset else {}
@@ -499,6 +516,76 @@ class RemoteClient:
             )
         os.replace(part, destination)
         return destination
+
+    # -- database backups (plan 126.8) --------------------------------------------------------
+    def open_backup_upload(
+        self, *, size_bytes: int, sha256: str, kind: str, label: str | None = None
+    ) -> dict[str, Any]:
+        """Open an upload of a database backup; ``kind`` is ``manual`` or ``automatic``.
+
+        The bytes then go through ``upload_chunk`` and ``commit_upload``, as for an item.
+        """
+        body: dict[str, Any] = {
+            "purpose": "backup",
+            "size_bytes": size_bytes,
+            "sha256": sha256,
+            "kind": kind,
+        }
+        if label is not None:
+            body["label"] = label
+        status, _, data = self.request("POST", "/api/v1/uploads", json=body)
+        parsed = _object(_json_body(status, data), status)
+        if not isinstance(parsed.get("upload_id"), str):
+            raise ApiError(status, "bad_response", _UNREADABLE)
+        return parsed
+
+    def backups(self) -> list[dict[str, Any]]:
+        """The present backups of the account, newest first."""
+        status, _, data = self.request("GET", "/api/v1/backups")
+        return _list_of(_object(_json_body(status, data), status), "backups", status)
+
+    def download_backup(
+        self,
+        backup_id: str,
+        target: Path,
+        *,
+        expected_sha256: str,
+        chunk: int = DOWNLOAD_CHUNK_BYTES,
+        job: _Cancellable | None = None,
+    ) -> Path:
+        """Download a backup to ``target``, verified and resumed like ``download``."""
+        return self._download(
+            f"/api/v1/backups/{quote(backup_id, safe='')}/file",
+            target,
+            expected_sha256=expected_sha256,
+            chunk=chunk,
+            job=job,
+        )
+
+    def delete_backup(self, backup_id: str) -> None:
+        """Move a backup to the server's trash (it leaves the list at once)."""
+        self.request("DELETE", f"/api/v1/backups/{quote(backup_id, safe='')}")
+
+    def backup_settings(self) -> dict[str, int]:
+        """How many daily and weekly backups the account keeps: ``{"daily", "weekly"}``."""
+        status, _, data = self.request("GET", "/api/v1/settings/backups")
+        return self._backup_counts(_object(_json_body(status, data), status), status)
+
+    def put_backup_settings(self, daily: int, weekly: int) -> dict[str, int]:
+        """Set how many daily (0 to 365) and weekly (0 to 104) backups are kept."""
+        status, _, data = self.request(
+            "PUT", "/api/v1/settings/backups", json={"daily": daily, "weekly": weekly}
+        )
+        parsed = _object(_json_body(status, data), status)
+        return self._backup_counts(parsed, status)
+
+    @staticmethod
+    def _backup_counts(parsed: dict[str, Any], status: int) -> dict[str, int]:
+        daily = parsed.get("daily")
+        weekly = parsed.get("weekly")
+        if not _is_count(daily) or not _is_count(weekly):
+            raise ApiError(status, "bad_response", _UNREADABLE)
+        return {"daily": int(daily), "weekly": int(weekly)}
 
     # -- records (plan 126.7): play log, playlists, track data, synced settings ---------------
     def post_play_events(self, events: Sequence[dict[str, Any]]) -> dict[str, Any]:

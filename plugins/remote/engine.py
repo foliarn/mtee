@@ -21,8 +21,10 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from mtee.domain.jobs import JobCancelledError
 from mtee.plugins.api import JobContext, JobId, PluginContext
 
+from .backups import is_due, run_automatic
 from .client import NetworkError, RemoteClient
 from .fetch import FetchResult, fetch_once, link_pending_imports
 from .first_match import DONE_SETTING
@@ -120,6 +122,8 @@ class SyncEngine(QObject):
         self._pull = AutoPull(context, self._store)
         self._fetch_job: JobId | None = None
         self._fetching = False
+        self._backup_job: JobId | None = None
+        self._backing_up = False
         self._timer = QTimer(self)
         self._timer.setInterval(PASS_INTERVAL_MS)
         self._timer.timeout.connect(self.request_pass)
@@ -217,6 +221,9 @@ class SyncEngine(QObject):
         if self._fetch_job is not None:
             self._context.jobs.cancel(self._fetch_job)
             self._fetch_job = None
+        if self._backup_job is not None:
+            self._context.jobs.cancel(self._backup_job)
+            self._backup_job = None
 
     # -- one pass -------------------------------------------------------------------------
     def _start(self, send: bool | None) -> None:
@@ -278,11 +285,40 @@ class SyncEngine(QObject):
         self._link.refresh_status()
         self._context.availability_changed(None)
         self.changed.emit()
+        self._maybe_backup()
         if self._again:
             send = True if self._again_send else None
             self._again = False
             self._again_send = False
             self._start(send)
+
+    def _maybe_backup(self) -> None:
+        """Make the automatic backup when the schedule says it is due (plan 126.8), in a job.
+
+        Checked after every pass, so it is due within a minute of the time. Nothing runs when the
+        plugin is not connected or a backup already runs.
+        """
+        if self._closed or self._backing_up or self._link.state != CONNECTED:
+            return
+        client = self._link.client()
+        if client is None or not is_due(self._context):
+            return
+        self._backing_up = True
+        self._backup_job = submit(
+            self._context,
+            "Backing up the database to MTEE Remote",
+            lambda job: run_automatic(self._context, client, job),
+            self._on_backed_up,
+        )
+
+    def _on_backed_up(self, result: None, error: BaseException | None) -> None:
+        self._backing_up = False
+        self._backup_job = None
+        if self._closed:
+            return
+        if error is not None and not isinstance(error, (NetworkError, JobCancelledError)):
+            self._context.log.warning("The automatic backup failed: %s", error)
+        self.changed.emit()
 
     def _on_fetched(self, result: FetchResult | None, error: BaseException | None) -> None:
         self._fetching = False

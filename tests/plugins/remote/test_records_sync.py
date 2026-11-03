@@ -12,6 +12,7 @@ import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from mtee.plugins.remote.client import RemoteClient  # pyright: ignore[reportMissingImports]
@@ -350,6 +351,27 @@ def test_a_playlist_changed_on_both_sides_keep_both_makes_a_copy(
     assert len(pair.a.client.playlist(server_id)["entries"]) == 2
 
 
+def test_a_playlist_renamed_on_the_server_is_renamed_here_and_not_sent_back(
+    pair: Pair, sources: dict[str, Path]
+) -> None:
+    first = share_one_track(pair, sources)
+    playlist = pair.a.context.playlists.create("Mix", [first])
+    assert sync_playlists(pair.a.context, pair.a.store, pair.a.client) == 1
+    server_id = server_playlist_of(pair.a.store, playlist)
+    assert server_id is not None
+    fetch(pair.b)
+    b_playlist = local_playlist_of(pair.b.store, server_id)
+    assert b_playlist is not None
+    b_revision = pair.b.context.playlists.revision(b_playlist)
+    pair.b.context.playlists.rename(b_playlist, "Renamed", expected_revision=b_revision)
+    assert sync_playlists(pair.b.context, pair.b.store, pair.b.client) == 1
+
+    fetch(pair.a)
+
+    assert pair.a.context.playlists.name(playlist) == "Renamed"
+    assert sync_playlists(pair.a.context, pair.a.store, pair.a.client) == 0  # nothing to send back
+
+
 def _track_named(device: SyncDevice, stem: str) -> str:
     """The local track of ``device`` whose file is ``stem``.flac (the tests name their files so)."""
     del device
@@ -405,6 +427,45 @@ def test_track_data_reaches_the_other_device_and_is_not_sent_back(
     fetch(pair.a)
     assert push_track_data(pair.a.context, pair.a.store, pair.a.client) == 0
     assert journal_kinds(pair.a.client).count("track_data") == before
+
+
+def test_a_track_data_push_after_one_change_reads_and_sends_only_that_track(
+    pair: Pair, sources: dict[str, Path]
+) -> None:
+    first = share_one_track(pair, sources)
+    second = add_file(pair.a, "two.flac", sources["other"])
+    push_files(pair.a)
+    data = pair.a.context.track_data
+    client = pair.a.client
+    data.write_analysis(first, TrackAnalysisData(bpm=100.0))
+    data.write_analysis(second, TrackAnalysisData(bpm=110.0))
+    assert push_track_data(pair.a.context, pair.a.store, client) == 2
+
+    data.write_loudness(second, TrackLoudnessData(-12.0, -1.0, loudness_version=1))
+    with (
+        patch.object(client, "put_track_data", wraps=client.put_track_data) as put,
+        patch.object(client, "track_data", wraps=client.track_data) as get,
+    ):
+        assert push_track_data(pair.a.context, pair.a.store, client) == 1
+
+    assert [call.args[0] for call in put.call_args_list] == [item_of(pair.a, second)]
+    assert [call.args[0] for call in get.call_args_list] == [item_of(pair.a, second)]
+
+
+def test_a_track_linked_after_its_data_changed_is_pushed_on_the_next_pass(
+    pair: Pair, sources: dict[str, Path]
+) -> None:
+    share_one_track(pair, sources)
+    assert push_track_data(pair.a.context, pair.a.store, pair.a.client) == 0
+    later = add_file(pair.a, "two.flac", sources["other"])
+    pair.a.context.track_data.write_analysis(later, TrackAnalysisData(bpm=100.0))
+    # The pass runs before the file is uploaded: its change is in the log, but no item exists yet.
+    assert push_track_data(pair.a.context, pair.a.store, pair.a.client) == 0
+
+    push_files(pair.a)  # the upload links the track to its item
+
+    assert push_track_data(pair.a.context, pair.a.store, pair.a.client) == 1
+    assert set(pair.a.client.track_data(item_of(pair.a, later))) == {"analysis"}
 
 
 # -- synced settings -------------------------------------------------------------------------------

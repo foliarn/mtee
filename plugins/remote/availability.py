@@ -93,7 +93,10 @@ def availability_column(context: PluginContext, store: RemoteStore) -> TrackColu
         text, tone = _BADGES[state]
         return CellValue(text=text, tone=tone)
 
-    return TrackColumn(COLUMN_ID, COLUMN_TITLE, value_of, default_visible_for=("playlist",))
+    # The Server folder tabs of the Explorer show the badge too (plan 126.9, explorer.TAB_KIND).
+    return TrackColumn(
+        COLUMN_ID, COLUMN_TITLE, value_of, default_visible_for=("playlist", "remote.folder")
+    )
 
 
 def _paths_of(context: PluginContext, track_ids: Iterable[str]) -> dict[str, str]:

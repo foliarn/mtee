@@ -68,6 +68,10 @@ class CoreLibraryStub:
         del track_id
         return None
 
+    def artist_credit_rows(self) -> list[tuple[str, tuple[str, ...]]]:
+        """Every registered track, with the artist it is credited with (as the core lists them)."""
+        return [(track_id, (ARTIST,)) for track_id in self.titles]
+
 
 @dataclasses.dataclass
 class SyncDevice:

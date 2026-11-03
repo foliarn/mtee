@@ -107,7 +107,7 @@ def test_statuses_and_badges_follow_the_link_the_file_and_the_server(
     assert dict(status([synced, local_only, remote])) == statuses
 
     column = availability_column(computer.context, computer.store)
-    assert column.default_visible_for == ("playlist",)
+    assert column.default_visible_for == ("playlist", "remote.folder")
     badges = [
         cast(CellValue, column.value_fn({"trackId": track_id}))
         for track_id in (synced, local_only, remote)

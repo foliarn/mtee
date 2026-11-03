@@ -29,10 +29,12 @@ from mtee.plugins.api import (
     WaitingItems,
 )
 
+from .activity import RemoteActivity
 from .availability import availability_column, availability_status
 from .conflicts import TAB_KIND, ConflictFeature
 from .connection import ConnectionManager
 from .engine import SyncEngine
+from .explorer import ServerFolders
 from .first_match import DIALOG_ID, FirstMatchController
 from .offload import OffloadService
 from .sources import ServerTracks
@@ -51,6 +53,7 @@ class RemoteService:
     """What the factory returns: the contributions, and the release of the connection."""
 
     def __init__(self, context: PluginContext) -> None:
+        self._context = context
         self._connection = ConnectionManager(context)
         self._first_backend = FirstMatchBackend()
         self._first_match = FirstMatchController(context, self._connection, self._first_backend)
@@ -74,9 +77,21 @@ class RemoteService:
         self._unsubscribe_settings = _watch_synced_settings(context, self._engine)
         self._conflict_backend = ConflictBackend(self._conflicts)
         self._engine.changed.connect(self._conflicts.refresh)
+        # The Remote activity and Explorer > Server (plan 126.9): read again after each pass, fetch
+        # and resolution. A conflict change is read on the next turn, once the conflicts have rows.
+        self._activity = RemoteActivity(
+            context, store, self._engine, self._conflicts, self._connection
+        )
+        self._folders = ServerFolders(context, store)
+        self._engine.changed.connect(self._activity.refresh)
+        self._engine.changed.connect(self._folders.refresh)
+        self._conflicts.changed.connect(
+            lambda _conflict_id: context.run_on_gui(self._activity.refresh)
+        )
+        self._connection.stateChanged.connect(lambda _state: self._activity.refresh())
         self._contributions: list[Contribution] = [
             SettingsPage("remote", "Remote", PAGE_QML, backend=self._backend),
-            StatusItem("connection", "cloud-off"),
+            StatusItem("connection", "cloud-off", on_click=self._open_first_conflict),
             PluginDialog(DIALOG_ID, DIALOG_QML, backend=self._first_backend),
             LibraryScanned(self._on_library_scanned),
             TrackSource(open=self._server_tracks.open, cover=self._server_tracks.cover),
@@ -98,13 +113,23 @@ class RemoteService:
                 backend=self._conflict_backend,
                 icon="alert",
             ),
+            *self._activity.contributions(),
+            *self._folders.contributions(),
         ]
         self._conflicts.refresh()
+        self._activity.refresh()
+        self._folders.refresh()
         self._connection.start()
 
     def _on_library_scanned(self, root: Path) -> None:
         self._engine.on_library_scanned(root)
         self._conflicts.refresh()
+
+    def _open_first_conflict(self) -> None:
+        """The status item's click: the tab of the first open conflict, when there is one."""
+        rows = self._conflicts.model.rows()
+        if rows:
+            self._context.open_tab(TAB_KIND, str(rows[0]["id"]))
 
     def contributions(self) -> list[Contribution]:
         return list(self._contributions)
