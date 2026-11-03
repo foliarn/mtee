@@ -47,6 +47,18 @@ class ArtworkProvider(QQuickImageProvider):
         self._cache: OrderedDict[tuple[str, int, int], QImage] = OrderedDict()
         self._cache_bytes = 0
         self._lock = threading.RLock()
+        # Qt answers the requests on its own threads. A library read holds this lock, and close()
+        # takes it, so that the database is never closed under a read in progress.
+        self._source_lock = threading.Lock()
+        self._closed = False
+
+    def close(self) -> None:
+        """Stop reading the library: a read in progress ends, later requests get a placeholder.
+
+        The application calls this before it closes the database.
+        """
+        with self._source_lock:
+            self._closed = True
 
     def requestImage(self, image_id: str, size: QSize, requested_size: QSize) -> QImage:
         """Return ``track-id/generation/size`` after checking the source revision."""
@@ -66,11 +78,14 @@ class ArtworkProvider(QQuickImageProvider):
             return image
         key = (track_id, generation, target_size)
         self._invalidate_old_revisions(track_id, generation)
-        source = self._library.artwork_source(track_id)
-        if source is None and self._source_cover is not None:
-            origin = self._library.source_origin(track_id)
-            if origin is not None:
-                return self._plugin_cover(track_id, origin, key, target_size, size)
+        origin = None
+        with self._source_lock:
+            closed = self._closed
+            source = None if closed else self._library.artwork_source(track_id)
+            if source is None and not closed and self._source_cover is not None:
+                origin = self._library.source_origin(track_id)
+        if origin is not None:
+            return self._plugin_cover(track_id, origin, key, target_size, size)
         try:
             observed = SourceRevision.observe(source[0]) if source is not None else None
         except OSError:
