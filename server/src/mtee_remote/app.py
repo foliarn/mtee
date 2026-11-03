@@ -26,6 +26,7 @@ from mtee_remote.routes import (
     devices,
     items,
     media,
+    records,
     roots,
     streaming,
     trash,
@@ -71,6 +72,7 @@ def create_app(settings: Settings) -> Starlette:
         backups,
         streaming,
         media,
+        records,
     ):
         routes.extend(module.ROUTES)
 

@@ -104,7 +104,11 @@ async def list_items(request: Request) -> JSONResponse:
             if len(rows) > limit
             else None
         )
-        return {"items": [store.item_public(row) for row in page], "next": next_cursor}
+        loudness = store.loudness_by_item(
+            db.conn(), context.user_id, [row["item_id"] for row in page]
+        )
+        public = [store.item_public(row, loudness.get(row["item_id"])) for row in page]
+        return {"items": public, "next": next_cursor}
 
     return json_ok(await anyio.to_thread.run_sync(work))
 
@@ -124,7 +128,10 @@ async def get_item(request: Request) -> JSONResponse:
             )
             .fetchone()
         )
-        return store.item_public(row) if row is not None else None
+        if row is None:
+            return None
+        loudness = store.loudness_by_item(db.conn(), context.user_id, [item_id])
+        return store.item_public(row, loudness.get(item_id))
 
     item = await anyio.to_thread.run_sync(work)
     if item is None:

@@ -76,7 +76,8 @@ def move_item(
         item = store.get_present_item(conn, user_id, item_id)
         old = item["relative_path"]
         if new == old:
-            return store.item_public(item)
+            loudness = store.loudness_by_item(conn, user_id, [item_id])
+            return store.item_public(item, loudness.get(item_id))
         source = disk_path(root_dir, old)
         if not source.is_file():
             raise ApiError("conflict", "The file is missing on the server; scan the root first.")

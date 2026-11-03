@@ -21,6 +21,10 @@ KINDS = frozenset(
         "purged",
         "backup_added",
         "backup_trashed",
+        "play_events",
+        "playlist",
+        "track_data",
+        "settings",
     }
 )
 

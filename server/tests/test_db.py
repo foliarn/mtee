@@ -37,7 +37,7 @@ def _new_db(tmp_path: Path) -> Database:
 
 def test_migrate_empty_database(tmp_path: Path) -> None:
     db = _new_db(tmp_path)
-    assert db.migrate() == [1]
+    assert db.migrate() == [1, 2]
     assert _tables(db) >= EXPECTED_TABLES
     assert "folders" not in _tables(db)
     row = (
@@ -68,7 +68,7 @@ def test_reopen_and_second_migrate_do_nothing(tmp_path: Path) -> None:
     again = _new_db(tmp_path)
     assert again.migrate() == []
     count = again.conn().execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
-    assert count == 1
+    assert count == 2
     assert not (tmp_path / "backups").exists()
     again.close()
 
@@ -84,14 +84,14 @@ def test_new_migration_makes_a_backup_first(
 
     extra = tmp_path / "migrations"
     shutil.copytree(MIGRATIONS_DIR, extra, ignore=shutil.ignore_patterns("__pycache__"))
-    (extra / "0002_add_note.sql").write_text(
+    (extra / "0003_add_note.sql").write_text(
         "ALTER TABLE users ADD COLUMN note TEXT;\n", encoding="utf-8"
     )
     db.migrations_dir = extra
     monkeypatch.setattr(clock, "utc_now", clock.utc_now)  # keep the real clock explicit
-    assert db.migrate() == [2]
+    assert db.migrate() == [3]
 
-    backups = list((tmp_path / "backups").glob("mtee-remote-*-before-0002.db"))
+    backups = list((tmp_path / "backups").glob("mtee-remote-*-before-0003.db"))
     assert len(backups) == 1
     copy = sqlite3.connect(backups[0])
     try:
@@ -109,7 +109,7 @@ def test_failed_migration_rolls_back(tmp_path: Path) -> None:
     db.migrate()
     extra = tmp_path / "migrations"
     shutil.copytree(MIGRATIONS_DIR, extra, ignore=shutil.ignore_patterns("__pycache__"))
-    (extra / "0002_broken.sql").write_text(
+    (extra / "0003_broken.sql").write_text(
         "CREATE TABLE half_done (x INTEGER);\nINSERT INTO missing_table VALUES (1);\n",
         encoding="utf-8",
     )
@@ -118,7 +118,7 @@ def test_failed_migration_rolls_back(tmp_path: Path) -> None:
         db.migrate()
     assert "half_done" not in _tables(db)
     versions = [row[0] for row in db.conn().execute("SELECT version FROM schema_migrations")]
-    assert versions == [1]
+    assert versions == [1, 2]
     db.close()
 
 

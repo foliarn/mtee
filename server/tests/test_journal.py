@@ -72,6 +72,10 @@ def test_all_documented_kinds_are_accepted(db: Database) -> None:
         "purged",
         "backup_added",
         "backup_trashed",
+        "play_events",
+        "playlist",
+        "track_data",
+        "settings",
     ]
     with db.transaction() as tx:
         for kind in kinds:

@@ -290,7 +290,9 @@ def test_item_public_has_the_documented_fields(env: Env) -> None:
         "metadata",
         "duration_us",
         "updated_at_utc",
+        "loudness",
     }
+    assert public["loudness"] is None
     assert public["metadata"] == {"title": ["T"]}
     assert public["hash_state"] == "done"
     pending = env.insert("b.flac")

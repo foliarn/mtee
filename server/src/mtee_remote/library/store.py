@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -328,10 +328,29 @@ def remove_missing(tx: Transaction, item_id: str) -> None:
     )
 
 
-def item_public(row: Mapping[str, Any] | sqlite3.Row) -> dict[str, Any]:
+def loudness_by_item(
+    conn: sqlite3.Connection, user_id: str, item_ids: Sequence[str]
+) -> dict[str, Any]:
+    """Return the stored `loudness` layer of each item that has one (one query for all).
+
+    Items without the layer are missing from the result. The value is the parsed JSON.
+    """
+    if not item_ids:
+        return {}
+    marks = ",".join("?" for _ in item_ids)
+    rows = conn.execute(
+        "SELECT item_id, value_json FROM record_track_data"
+        f" WHERE user_id = ? AND layer = 'loudness' AND item_id IN ({marks})",
+        [user_id, *item_ids],
+    ).fetchall()
+    return {row["item_id"]: json.loads(row["value_json"]) for row in rows}
+
+
+def item_public(row: Mapping[str, Any] | sqlite3.Row, loudness: Any = None) -> dict[str, Any]:
     """Return the client view of an item row (select `ITEM_COLUMNS` to have every field).
 
-    `metadata` is the parsed `metadata_json` (an object) or None. No absolute path appears.
+    `metadata` is the parsed `metadata_json` (an object) or None. `loudness` is the item's
+    stored `loudness` record (see `loudness_by_item`), or None. No absolute path appears.
     """
     metadata_json = row["metadata_json"]
     metadata: Any = None
@@ -352,6 +371,7 @@ def item_public(row: Mapping[str, Any] | sqlite3.Row) -> dict[str, Any]:
         "metadata": metadata,
         "duration_us": row["duration_us"],
         "updated_at_utc": row["updated_at_utc"],
+        "loudness": loudness,
     }
 
 
@@ -382,10 +402,13 @@ def present_path_taken(conn: sqlite3.Connection, root_id: str, relative_path: st
 
 def item_public_by_id(conn: sqlite3.Connection, item_id: str) -> dict[str, Any]:
     """Return `item_public` of the item with this id (any state); `not_found` if it is gone."""
-    row = conn.execute(f"SELECT {ITEM_COLUMNS} FROM items WHERE item_id = ?", (item_id,)).fetchone()
+    row = conn.execute(
+        f"SELECT {ITEM_COLUMNS}, user_id FROM items WHERE item_id = ?", (item_id,)
+    ).fetchone()
     if row is None:
         raise ApiError("not_found", "Unknown item.")
-    return item_public(row)
+    loudness = loudness_by_item(conn, row["user_id"], [item_id]).get(item_id)
+    return item_public(row, loudness)
 
 
 def purge_item(tx: Transaction, item_id: str) -> None:
