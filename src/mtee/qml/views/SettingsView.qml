@@ -28,7 +28,8 @@ Rectangle {
             { "key": "playback", "label": "Playback" },
             { "key": "analysis", "label": "Analysis" },
             { "key": "shortcuts", "label": "Keyboard shortcuts" },
-            { "key": "privacy", "label": "Data & privacy" }
+            { "key": "privacy", "label": "Data & privacy" },
+            { "key": "plugins", "label": "Plugins" }
         ]
         for (const page of pluginPages)
             pages.push(page)
@@ -104,8 +105,8 @@ Rectangle {
             Flickable {
                 id: tabFlick
                 objectName: "settingsTabs"
-                // With plugin pages the tabs may not fit the 720 px column: the strip takes the page width.
-                width: settings.pluginPages.length > 0 ? settings.width - 48 : content.width
+                // The tabs may not fit the 720 px column (Plugins is the last core page): the strip takes the page width.
+                width: settings.width - 48
                 height: Theme.tabHeight
                 contentWidth: tabRow.width
                 contentHeight: Theme.tabHeight
@@ -581,6 +582,187 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     text: "Data actions are not available in the demo."
                     color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+            }
+
+            // Plugins: the marketplace lists the Plugins view reads (workspace.pluginsView).
+            Column {
+                id: pluginsPage
+                objectName: "pluginsSettings"
+                width: content.width
+                visible: settings.page === "plugins"
+                spacing: 8
+                readonly property var view: settings.workspace.pluginsView ? settings.workspace.pluginsView : null
+
+                function addCurrent() {
+                    if (pluginsPage.view && pluginsPage.view.addMarketplace(addInput.text) === true)
+                        addInput.text = ""
+                }
+
+                Group { title: "Marketplaces" }
+
+                Text {
+                    width: parent.width
+                    topPadding: 8
+                    wrapMode: Text.WordWrap
+                    text: "Where the Plugins view finds plugins to install. Add a GitHub repository (owner/repo) or the https address of an index.json. Plugins from lists other than the official one are not reviewed by MTEE: add only lists you trust."
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Repeater {
+                    model: pluginsPage.view ? pluginsPage.view.marketplaces : []
+
+                    delegate: Item {
+                        id: listRow
+                        required property var modelData
+                        required property int index
+                        width: pluginsPage.width
+                        height: 52
+
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: listRemove.visible ? listRemove.left : listSwitch.left
+                            anchors.rightMargin: 24
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+
+                            Row {
+                                spacing: 8
+
+                                Text {
+                                    text: listRow.modelData.title
+                                    elide: Text.ElideRight
+                                    color: Theme.textPrimary
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeBody
+                                }
+
+                                Text {
+                                    objectName: "marketplaceOfficial_" + listRow.index
+                                    visible: listRow.modelData.official === true
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "Official"
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeCaption
+                                }
+                            }
+
+                            Text {
+                                width: parent.width
+                                visible: text.length > 0
+                                text: listRow.modelData.stateText || ""
+                                elide: Text.ElideRight
+                                color: Theme.textSecondary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSmall
+                            }
+                        }
+
+                        TextButton {
+                            id: listRemove
+                            objectName: "removeMarketplace_" + listRow.index
+                            visible: listRow.modelData.official !== true
+                            anchors.right: listSwitch.left
+                            anchors.rightMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            implicitHeight: 28
+                            kind: "ghost"
+                            text: "Remove"
+                            onClicked: if (pluginsPage.view) pluginsPage.view.removeMarketplace(listRow.modelData.address)
+                        }
+
+                        ToggleSwitch {
+                            id: listSwitch
+                            objectName: "marketplaceSwitch_" + listRow.index
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            checked: listRow.modelData.enabled === true
+                            onToggled: (on) => { if (pluginsPage.view) pluginsPage.view.setMarketplaceEnabled(listRow.modelData.address, on) }
+                        }
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: Theme.separator
+                        }
+                    }
+                }
+
+                Item { width: parent.width; height: 16 }
+
+                Item {
+                    width: parent.width
+                    height: 32
+
+                    Rectangle {
+                        id: addBox
+                        anchors.left: parent.left
+                        anchors.right: addButton.left
+                        anchors.rightMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 32
+                        color: addInput.activeFocus ? Theme.editor : Theme.chrome
+                        border.width: 1
+                        border.color: addInput.activeFocus ? Theme.focus : Theme.separator
+
+                        TextInput {
+                            id: addInput
+                            objectName: "marketplaceAddress"
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: Theme.textPrimary
+                            selectionColor: Theme.primary
+                            selectedTextColor: Theme.textOnColor
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSecondary
+                            selectByMouse: true
+                            clip: true
+                            readOnly: pluginsPage.view === null
+                            onTextEdited: if (pluginsPage.view) pluginsPage.view.clearMarketplaceAddError()
+                            Keys.onReturnPressed: pluginsPage.addCurrent()
+                            Keys.onEnterPressed: pluginsPage.addCurrent()
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: addInput.text.length === 0
+                                text: "owner/repo or https://…/index.json"
+                                color: Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSecondary
+                            }
+                        }
+                    }
+
+                    TextButton {
+                        id: addButton
+                        objectName: "addMarketplace"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        implicitHeight: 32
+                        kind: "neutral"
+                        text: "Add"
+                        enabledAction: pluginsPage.view !== null
+                        onClicked: pluginsPage.addCurrent()
+                    }
+                }
+
+                Text {
+                    objectName: "marketplaceAddError"
+                    width: parent.width
+                    topPadding: 8
+                    visible: text.length > 0
+                    wrapMode: Text.WordWrap
+                    text: pluginsPage.view ? pluginsPage.view.marketplaceAddError : ""
+                    color: Theme.danger
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSmall
                 }

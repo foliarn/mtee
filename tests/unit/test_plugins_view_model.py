@@ -450,7 +450,7 @@ def test_install_from_the_marketplace_downloads_then_asks_for_the_warning(
     assert "Downloading Sample alpha 1.0.0" in harness.jobs.labels
     pending = view.property("pendingInstall")
     assert pending["source"] == "marketplace"
-    assert pending["sourceText"].startswith("Downloaded from the MTEE plugin list")
+    assert pending["sourceText"].startswith("Downloaded from the official MTEE plugin list")
     downloads = plugins_folder(harness.data_dir) / ".downloads"
     assert len(list(downloads.iterdir())) == 1
 

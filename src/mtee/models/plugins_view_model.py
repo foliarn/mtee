@@ -13,6 +13,7 @@ counts in ``restartNeeded``.
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -49,6 +50,10 @@ __all__ = ["PluginsViewModel"]
 Opener = Callable[..., Any]
 # Where an installed plugin came from, kept in the settings: "file" or "marketplace".
 SOURCE_SETTING_PREFIX = "plugin-source."
+# The address of the marketplace a plugin was installed from; empty for a file.
+ADDRESS_SETTING_PREFIX = "plugin-source-address."
+# The marketplaces of the list, as a JSON list of {"address", "enabled"}.
+MARKETPLACES_SETTING = "plugins.marketplaces"
 PLATFORM = "win_amd64" if sys.platform == "win32" else "any"
 MAX_README_CHARS = 200_000
 _STATUS_TEXT = {
@@ -67,6 +72,17 @@ class _Pending:
     source: str
     description: PluginDescription
     size: int
+    # The address of the marketplace it was downloaded from; empty for a file.
+    address: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceRead:
+    """The result of reading one enabled marketplace: its list, or the one-sentence error."""
+
+    address: str
+    index: MarketplaceIndex | None
+    error: str
 
 
 class PluginsViewModel(QObject):
@@ -114,9 +130,15 @@ class PluginsViewModel(QObject):
         )
         self._quit: Callable[[], None] = quit_app or (lambda: None)
         self._search = ""
-        self._index: MarketplaceIndex | None = None
+        self._marketplaces = self._load_marketplaces()
+        # The lists read from the enabled marketplaces, in the order of the list, and the errors.
+        self._indexes: list[tuple[str, MarketplaceIndex]] = []
+        self._source_errors: dict[str, str] = {}
         self._market_state = "idle"
         self._market_error = ""
+        # Set when the list of marketplaces changes while a read runs: the lists are read again.
+        self._read_again = False
+        self._add_error = ""
         self._checked_at: datetime | None = None
         self._refusal: dict[str, str] | None = None
         self._pending: _Pending | None = None
@@ -159,6 +181,16 @@ class PluginsViewModel(QObject):
     def marketplaceError(self) -> str:
         return self._market_error
 
+    @Property(list, notify=changed)
+    def marketplaces(self) -> list[dict[str, Any]]:
+        """The marketplaces of the list, the official one first, with the state of each read."""
+        return [self._marketplace_info(item) for item in self._marketplaces]
+
+    @Property(str, notify=changed)
+    def marketplaceAddError(self) -> str:
+        """The one-sentence reason the last added marketplace was refused, or an empty text."""
+        return self._add_error
+
     @Property(str, notify=changed)
     def lastCheckedText(self) -> str:
         if self._checked_at is None:
@@ -200,7 +232,9 @@ class PluginsViewModel(QObject):
             return {}
         description = pending.description
         if pending.source == "marketplace":
-            source_text = "Downloaded from the MTEE plugin list. Its file matched the list."
+            source_text = (
+                f"Downloaded from {_source_name(pending.address)}. Its file matched the list."
+            )
         else:
             source_text = f"Local file: {pending.path.name}"
         return {
@@ -212,6 +246,7 @@ class PluginsViewModel(QObject):
             "librariesCount": len(description.libraries),
             "source": pending.source,
             "sourceText": source_text,
+            "sourceAddress": pending.address,
         }
 
     @Property(dict, notify=changed)
@@ -225,19 +260,22 @@ class PluginsViewModel(QObject):
     # ------------------------------------------------------------------ slots
 
     @Slot(str)
-    def openDetail(self, plugin_id: str) -> None:
-        """Open, or focus, the detail tab of a plugin."""
-        title = self._title_of(plugin_id)
-        if title:
-            self.detailRequested.emit(plugin_id, title)
+    def openDetail(self, key: str) -> None:
+        """Open, or focus, the detail tab of a plugin, given by its id or its key ``id@address``."""
+        row = self._find_row(key)
+        if row is not None:
+            self.detailRequested.emit(key, str(row["title"]))
 
     @Slot(str, result=dict)
-    def detail(self, plugin_id: str) -> dict[str, Any]:
-        """The row of an installed plugin, or of a Marketplace plugin, or an empty dict."""
-        for row in (*self._installed_rows, *self._market_rows):
-            if row["id"] == plugin_id:
-                return dict(row)
-        return {}
+    def detail(self, key: str) -> dict[str, Any]:
+        """The row of a plugin, given by its id or its key, or an empty dict.
+
+        A plain id gives the installed plugin, or else its first Marketplace row. A key gives the
+        installed plugin only when it was installed from that address; otherwise the Marketplace
+        row of that key.
+        """
+        row = self._find_row(key)
+        return dict(row) if row is not None else {}
 
     @Slot(str, bool)
     def setEnabled(self, plugin_id: str, enabled: bool) -> None:
@@ -313,7 +351,9 @@ class PluginsViewModel(QObject):
                     pending.path.unlink(missing_ok=True)
                 raise
             self._onGui.emit(
-                partial(self._installed, plugin.plugin_id, pending.source, pending.path)
+                partial(
+                    self._installed, plugin.plugin_id, pending.source, pending.path, pending.address
+                )
             )
 
         self._jobs.submit(task, label=f"Installing {title}", visible=True)
@@ -330,33 +370,36 @@ class PluginsViewModel(QObject):
         self.changed.emit()
 
     @Slot(str)
-    def install(self, plugin_id: str) -> None:
-        """Download a Marketplace plugin as a job; then the warning asks for the install."""
-        self._download(plugin_id)
+    def install(self, key: str) -> None:
+        """Download a Marketplace plugin as a job; ``key`` is its id or its key ``id@address``."""
+        self._download(key)
 
     @Slot(str)
-    def update(self, plugin_id: str) -> None:
+    def update(self, key: str) -> None:
         """Download the newer Marketplace version of a plugin, as ``install`` does."""
-        self._download(plugin_id)
+        self._download(key)
 
     @Slot()
     def checkMarketplace(self) -> None:
-        """Read the plugin list again, as a job; a failure is one sentence."""
+        """Read the list of every enabled marketplace, as one job.
+
+        Some lists failing is shown in ``marketplaceError``; the job fails only when all do.
+        """
         if self._market_state == "loading":
             return
         self._market_state = "loading"
         self._market_error = ""
         self.changed.emit()
         opener = self._opener
+        addresses = [item["address"] for item in self._marketplaces if item["enabled"]]
 
         def task(context: JobContext) -> None:
             del context
-            try:
-                index = marketplace.fetch_index(opener=opener)
-            except MarketplaceError as error:
-                self._onGui.emit(partial(self._index_failed, str(error)))
-                raise
-            self._onGui.emit(partial(self._index_loaded, index))
+            reads = [_read_source(address, opener) for address in addresses]
+            self._onGui.emit(partial(self._reads_done, reads))
+            failed = [read for read in reads if read.index is None]
+            if reads and len(failed) == len(reads):
+                raise MarketplaceError(failed[0].error)
 
         self._jobs.submit(task, label="Reading the plugin list", visible=True)
 
@@ -365,6 +408,58 @@ class PluginsViewModel(QObject):
         """Called when the Marketplace is shown: the list is read once per session."""
         if self._market_state == "idle":
             self.checkMarketplace()
+
+    @Slot(str, result=bool)
+    def addMarketplace(self, text: str) -> bool:
+        """Add a marketplace given as ``owner/repo``, a GitHub page or an https address.
+
+        Return False and keep the reason in ``marketplaceAddError`` when it is refused.
+        """
+        try:
+            address = marketplace.normalize_address(text)
+        except MarketplaceError as error:
+            self._add_error = str(error)
+            self.changed.emit()
+            return False
+        if any(item["address"] == address for item in self._marketplaces):
+            self._add_error = "This marketplace is already in the list."
+            self.changed.emit()
+            return False
+        self._marketplaces.append({"address": address, "enabled": True})
+        self._add_error = ""
+        self._save_marketplaces()
+        self._reread_marketplaces()
+        self._refresh()
+        return True
+
+    @Slot(str)
+    def removeMarketplace(self, address: str) -> None:
+        """Remove a marketplace from the list. The official one is never removed."""
+        if address == marketplace.OFFICIAL_ADDRESS:
+            return
+        self._marketplaces = [item for item in self._marketplaces if item["address"] != address]
+        self._indexes = [(listed, index) for listed, index in self._indexes if listed != address]
+        self._source_errors.pop(address, None)
+        self._save_marketplaces()
+        self._reread_marketplaces()
+        self._refresh()
+
+    @Slot(str, bool)
+    def setMarketplaceEnabled(self, address: str, enabled: bool) -> None:
+        """Switch a marketplace on or off; a disabled one is not read."""
+        for item in self._marketplaces:
+            if item["address"] == address:
+                item["enabled"] = bool(enabled)
+                self._save_marketplaces()
+                self._reread_marketplaces()
+                self._refresh()
+                return
+
+    @Slot()
+    def clearMarketplaceAddError(self) -> None:
+        if self._add_error:
+            self._add_error = ""
+            self.changed.emit()
 
     @Slot()
     def openPluginsFolder(self) -> None:
@@ -400,10 +495,119 @@ class PluginsViewModel(QObject):
         return any(query in str(field).casefold() for field in fields)
 
     def _title_of(self, plugin_id: str) -> str:
-        for row in (*self._installed_rows, *self._market_rows):
-            if row["id"] == plugin_id:
-                return str(row["title"])
+        row = self._find_row(plugin_id)
+        return str(row["title"]) if row is not None else ""
+
+    def _find_row(self, key: str) -> dict[str, Any] | None:
+        """The row a plugin id or key stands for; see ``detail`` for the rules."""
+        plugin_id, address = _split_key(key)
+        installed = next((row for row in self._installed_rows if row["id"] == plugin_id), None)
+        if installed is not None and (not address or self._source_address(plugin_id) == address):
+            return installed
+        if address:
+            return next((row for row in self._market_rows if row["key"] == key), None)
+        return next((row for row in self._market_rows if row["id"] == plugin_id), None)
+
+    def _marketplace_info(self, item: Mapping[str, Any]) -> dict[str, Any]:
+        address = str(item["address"])
+        return {
+            "address": address,
+            "title": address,
+            "official": address == marketplace.OFFICIAL_ADDRESS,
+            "enabled": bool(item["enabled"]),
+            "stateText": self._state_text(address),
+        }
+
+    def _state_text(self, address: str) -> str:
+        """The result of the last read of a marketplace: its plugin count or its error."""
+        if address in self._source_errors:
+            return self._source_errors[address]
+        for listed, index in self._indexes:
+            if listed == address:
+                return _plugins_text(len(index.entries))
         return ""
+
+    def _load_marketplaces(self) -> list[dict[str, Any]]:
+        """The stored list, with the official marketplace first; it is added when missing."""
+        stored = self._settings.get_json(MARKETPLACES_SETTING, None)
+        listed: list[dict[str, Any]] = []
+        for item in stored if isinstance(stored, list) else []:
+            if not isinstance(item, dict) or not isinstance(item.get("address"), str):
+                continue
+            address = item["address"]
+            if address and all(address != known["address"] for known in listed):
+                listed.append({"address": address, "enabled": bool(item.get("enabled", True))})
+        official = next(
+            (item for item in listed if item["address"] == marketplace.OFFICIAL_ADDRESS), None
+        )
+        if official is None:
+            official = {"address": marketplace.OFFICIAL_ADDRESS, "enabled": True}
+        else:
+            listed.remove(official)
+        return [official, *listed]
+
+    def _save_marketplaces(self) -> None:
+        self._settings.set_json(MARKETPLACES_SETTING, self._marketplaces)
+
+    def _reread_marketplaces(self) -> None:
+        """Read the lists again after the marketplaces changed, when they were read before."""
+        if self._market_state == "loading":
+            self._read_again = True
+        elif self._market_state != "idle":
+            self.checkMarketplace()
+
+    def _current_sources(self) -> list[tuple[str, MarketplaceIndex]]:
+        """The lists read from the marketplaces that are enabled now, in the order of the list."""
+        enabled = {item["address"] for item in self._marketplaces if item["enabled"]}
+        return [(address, index) for address, index in self._indexes if address in enabled]
+
+    def _offers(self) -> list[tuple[str, MarketplaceEntry]]:
+        """Every plugin of the current sources, with the address it comes from."""
+        return [
+            (address, entry)
+            for address, index in self._current_sources()
+            for entry in index.entries
+        ]
+
+    def _source_address(self, plugin_id: str) -> str:
+        """The address a plugin was installed from, or an empty text when it was not."""
+        if self._settings.get(f"{SOURCE_SETTING_PREFIX}{plugin_id}", "") != "marketplace":
+            return ""
+        address = self._settings.get(f"{ADDRESS_SETTING_PREFIX}{plugin_id}", "") or ""
+        # An install made before the addresses were kept came from the official list.
+        return address or marketplace.OFFICIAL_ADDRESS
+
+    def _offer_for(self, plugin_id: str, source: str) -> tuple[str, MarketplaceEntry] | None:
+        """The offer of a plugin: from ``source`` when it offers the id, else the first source."""
+        offers = self._offers()
+        if source:
+            preferred = next(
+                (offer for offer in offers if offer[0] == source and offer[1].id == plugin_id),
+                None,
+            )
+            if preferred is not None:
+                return preferred
+        return next((offer for offer in offers if offer[1].id == plugin_id), None)
+
+    def _resolve_offer(self, key: str) -> tuple[str, MarketplaceEntry] | None:
+        """The offer a key stands for; a plain id uses the source of the installed plugin."""
+        plugin_id, address = _split_key(key)
+        if address:
+            return next(
+                (
+                    offer
+                    for offer in self._offers()
+                    if offer[0] == address and offer[1].id == plugin_id
+                ),
+                None,
+            )
+        installed = any(row["id"] == plugin_id for row in self._installed_rows)
+        return self._offer_for(plugin_id, self._source_address(plugin_id) if installed else "")
+
+    def _is_offer(self, address: str, plugin_id: str) -> bool:
+        """Whether the offer of a plugin that comes from ``address`` is the one that updates it."""
+        offer = self._offer_for(plugin_id, self._source_address(plugin_id))
+        return offer is not None and offer[0] == address
 
     def _refresh(self) -> None:
         """Read the plugins folder and rebuild every list; called after each change."""
@@ -492,9 +696,12 @@ class PluginsViewModel(QObject):
             folder = record.discovered.package_dir if record is not None else None
         readme = _read_text(folder / "README.md") if folder is not None else ""
         update = ""
-        if found is not None:
-            entry = self._entry(plugin_id)
-            if entry is not None:
+        offer_key = ""
+        offer = self._offer_for(plugin_id, self._source_address(plugin_id))
+        if offer is not None:
+            offer_address, entry = offer
+            offer_key = _key(entry.id, offer_address)
+            if found is not None:
                 candidate = self._update_of(entry, found.description.version)
                 update = candidate.version if candidate is not None else ""
         installed_from = self._settings.get(f"{SOURCE_SETTING_PREFIX}{plugin_id}", "") or ""
@@ -511,6 +718,7 @@ class PluginsViewModel(QObject):
             "usesNetwork": bool(network),
             "enabled": enabled,
             "updateVersion": update,
+            "offerKey": offer_key,
             "librariesCount": libraries,
             "licence": licence,
             "homepage": homepage,
@@ -521,36 +729,47 @@ class PluginsViewModel(QObject):
     def _marketplace_rows(
         self, disk: Mapping[str, installer.InstalledPlugin]
     ) -> list[dict[str, Any]]:
-        if self._index is None:
-            return []
+        """One row per plugin and source, the sources in the order of the list."""
+        sources = self._current_sources()
+        # A plugin offered by more than one source is shown once per source, and marked.
+        offered = Counter(entry.id for _, index in sources for entry in index.entries)
         rows: list[dict[str, Any]] = []
-        for entry in self._index.entries:
-            candidate = self._candidate(entry)
-            if candidate is None:
-                continue
-            found = disk.get(entry.id)
-            if found is None:
-                state, version, installed_version = "install", candidate.version, ""
-            else:
-                installed_version = found.description.version
-                update = self._update_of(entry, installed_version)
-                if update is not None:
-                    state, version = "update", update.version
+        for address, index in sources:
+            for entry in index.entries:
+                candidate = self._candidate(entry)
+                if candidate is None:
+                    continue
+                found = disk.get(entry.id)
+                if found is None:
+                    state, version, installed_version = "install", candidate.version, ""
                 else:
-                    state, version = "installed", installed_version
-            rows.append(
-                {
-                    "id": entry.id,
-                    "title": entry.title,
-                    "version": version,
-                    "author": entry.author,
-                    "description": entry.description,
-                    "letter": _letter(entry.title, entry.id),
-                    "usesNetwork": entry.uses_network,
-                    "state": state,
-                    "installedVersion": installed_version,
-                }
-            )
+                    installed_version = found.description.version
+                    update = (
+                        self._update_of(entry, installed_version)
+                        if self._is_offer(address, entry.id)
+                        else None
+                    )
+                    if update is not None:
+                        state, version = "update", update.version
+                    else:
+                        state, version = "installed", installed_version
+                rows.append(
+                    {
+                        "id": entry.id,
+                        "key": _key(entry.id, address),
+                        "source": address,
+                        "sourceTitle": _source_title(address),
+                        "duplicate": offered[entry.id] > 1,
+                        "title": entry.title,
+                        "version": version,
+                        "author": entry.author,
+                        "description": entry.description,
+                        "letter": _letter(entry.title, entry.id),
+                        "usesNetwork": entry.uses_network,
+                        "state": state,
+                        "installedVersion": installed_version,
+                    }
+                )
         return rows
 
     def _candidate(self, entry: MarketplaceEntry) -> MarketplaceVersion | None:
@@ -574,19 +793,16 @@ class PluginsViewModel(QObject):
             platform=PLATFORM,
         )
 
-    def _entry(self, plugin_id: str) -> MarketplaceEntry | None:
-        if self._index is None:
-            return None
-        return next((entry for entry in self._index.entries if entry.id == plugin_id), None)
-
-    def _download(self, plugin_id: str) -> None:
-        entry = self._entry(plugin_id)
-        if entry is None:
+    def _download(self, key: str) -> None:
+        plugin_id, _ = _split_key(key)
+        offer = self._resolve_offer(key)
+        if offer is None:
             self._set_refusal(
                 f"{plugin_id} was not installed",
                 "The plugin is not in the plugin list. Read the list again and retry.",
             )
             return
+        address, entry = offer
         candidate = self._candidate(entry)
         if candidate is None:
             self._set_refusal(
@@ -634,30 +850,41 @@ class PluginsViewModel(QObject):
             self._onGui.emit(
                 partial(
                     self._set_pending,
-                    _Pending(path, "marketplace", found.description, found.size),
+                    _Pending(path, "marketplace", found.description, found.size, address),
                 )
             )
 
         self._jobs.submit(task, label=f"Downloading {title}", visible=True)
 
-    def _installed(self, plugin_id: str, source: str, package: Path) -> None:
+    def _installed(self, plugin_id: str, source: str, package: Path, address: str) -> None:
         self._settings.set(f"{SOURCE_SETTING_PREFIX}{plugin_id}", source)
+        self._settings.set(
+            f"{ADDRESS_SETTING_PREFIX}{plugin_id}", address if source == "marketplace" else ""
+        )
         if source == "marketplace":
             package.unlink(missing_ok=True)
         self._refresh()
 
-    def _index_loaded(self, index: MarketplaceIndex) -> None:
-        self._index = index
-        self._market_state = "ready"
-        self._market_error = ""
+    def _reads_done(self, reads: list[_SourceRead]) -> None:
+        """Keep the result of each read; the state is failed only when every list failed."""
+        self._indexes = [(read.address, read.index) for read in reads if read.index is not None]
+        self._source_errors = {read.address: read.error for read in reads if read.index is None}
+        failed = len(self._source_errors)
+        if reads and failed == len(reads):
+            self._market_state = "failed"
+            self._market_error = reads[0].error
+        else:
+            self._market_state = "ready"
+            self._market_error = (
+                f"{failed} of {len(reads)} plugin lists could not be read. See Settings > Plugins."
+                if failed
+                else ""
+            )
         self._checked_at = self._clock()
         self._refresh()
-
-    def _index_failed(self, text: str) -> None:
-        self._market_state = "failed"
-        self._market_error = text
-        self._checked_at = self._clock()
-        self.changed.emit()
+        if self._read_again:
+            self._read_again = False
+            self.checkMarketplace()
 
     def _set_pending(self, pending: _Pending) -> None:
         self._drop_pending()
@@ -681,6 +908,45 @@ def _size_text(size: int) -> str:
     if size < 1024 * 1024:
         return f"{max(1, round(size / 1024))} KB"
     return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _key(plugin_id: str, address: str) -> str:
+    """The key of a plugin offered by a marketplace: ``id@address``."""
+    return f"{plugin_id}@{address}"
+
+
+def _split_key(key: str) -> tuple[str, str]:
+    """Split a plugin id or a key at its first ``@``; a plain id has no address.
+
+    Plugin ids never contain ``@``, so the address keeps any ``@`` after the first one.
+    """
+    plugin_id, separator, address = key.partition("@")
+    return plugin_id, (address if separator else "")
+
+
+def _source_title(address: str) -> str:
+    """The short name of a marketplace in a list: ``Official`` or its address."""
+    return "Official" if address == marketplace.OFFICIAL_ADDRESS else address
+
+
+def _source_name(address: str) -> str:
+    """The name of a marketplace in a sentence."""
+    if address == marketplace.OFFICIAL_ADDRESS:
+        return "the official MTEE plugin list"
+    return address
+
+
+def _plugins_text(count: int) -> str:
+    return "1 plugin" if count == 1 else f"{count} plugins"
+
+
+def _read_source(address: str, opener: Opener | None) -> _SourceRead:
+    """Read the list of one marketplace; a failure is kept as its one-sentence error."""
+    try:
+        index = marketplace.fetch_index(marketplace.index_url(address), opener=opener)
+    except MarketplaceError as error:
+        return _SourceRead(address, None, str(error))
+    return _SourceRead(address, index, "")
 
 
 def _letter(title: str, plugin_id: str) -> str:

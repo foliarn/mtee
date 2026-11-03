@@ -155,7 +155,16 @@ __all__ = ["WorkspaceModel"]
 # Listening columns: their values come from the play log, read off the graphical thread.
 _PLAY_COLUMN_KEYS = PLAY_COLUMN_KEYS
 # The pages of the Settings tab, in the order of its category list.
-SETTINGS_PAGES = ("general", "library", "playback", "analysis", "shortcuts", "privacy", "about")
+SETTINGS_PAGES = (
+    "general",
+    "library",
+    "playback",
+    "analysis",
+    "shortcuts",
+    "privacy",
+    "plugins",
+    "about",
+)
 # The Profile page is a tab opened from the activity bar, not an activity of the sidebar.
 _ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "artists", "plugins"}
 

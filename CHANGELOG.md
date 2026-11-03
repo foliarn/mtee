@@ -38,9 +38,13 @@ All notable changes to MTEE are listed here. The format follows
 - A plugin is packed into a `.mteeplugin` file by `scripts/pack_plugin.py`: `plugin.json` lists
   the bundled libraries and licences, MTEE's own libraries are never bundled (`docs/plugins.md`,
   section 11).
+- Settings > Plugins lists the marketplaces: add a GitHub repository (`owner/repo`) or an https
+  `index.json`, and switch any of them off. The official list cannot be removed, and a plugin
+  offered by two lists shows twice, each row with its source.
 - The Plugins activity of the left bar lists the installed plugins and the Marketplace, installs
   from a package file or the Marketplace, uninstalls to the Recycle Bin and offers a restart
-  (plan 123.6). Settings > Plugins is removed; a plugin's own Settings page stays.
+  (plan 123.6). The plugin switches moved there from Settings > Plugins; a plugin's own Settings
+  page stays.
 - A plugin package is installed from its file into the plugins folder: MTEE checks it before
   anything is extracted (a path outside the package, a link, a Python, platform or MTEE version
   that does not fit, a library MTEE ships, a library version conflict). An update or uninstall

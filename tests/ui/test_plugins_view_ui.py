@@ -131,7 +131,7 @@ def test_the_pane_lists_the_installed_plugins_with_their_status_words(demo: Demo
     for word in ("Running", "Disabled", "Failed", "Restart needed"):
         assert word in texts, word
     for plugin_id in ("convert", "artist_manager", "genre_manager", "loudness_report"):
-        assert visible(window, f"pluginsMarket_{plugin_id}"), plugin_id
+        assert visible(window, f"pluginsMarket_{plugin_id}@foliarn/mtee-plugins"), plugin_id
     assert "Update to 1.2.0" in texts
     assert "Installed" in texts
 
@@ -146,7 +146,7 @@ def test_search_filters_both_groups(demo: DemoContext) -> None:
     pump()
     assert visible(window, "pluginsInstalled_spotify")
     assert find_item(window, "pluginsInstalled_sample") is None
-    assert find_item(window, "pluginsMarket_convert") is None
+    assert find_item(window, "pluginsMarket_convert@foliarn/mtee-plugins") is None
 
 
 def test_typing_in_the_search_field_sets_the_search(demo: DemoContext) -> None:
@@ -204,13 +204,16 @@ def test_uninstall_has_no_prompt_and_the_detail_says_so(demo: DemoContext) -> No
 
 def test_a_marketplace_plugin_offers_install(demo: DemoContext) -> None:
     window = demo.window
-    click(window, cast(QQuickItem, find_item(window, "pluginsMarket_artist_manager")))
-    assert active_tab(demo.workspace) == "plugin:artist_manager"
+    click(
+        window,
+        cast(QQuickItem, find_item(window, "pluginsMarket_artist_manager@foliarn/mtee-plugins")),
+    )
+    assert active_tab(demo.workspace) == "plugin:artist_manager@foliarn/mtee-plugins"
     action = find_item(window, "action_pluginDetailAction")
     assert action is not None and action.property("text") == "Install"
     assert not visible(window, "pluginDetailSwitch")
     click(window, action)
-    assert ("install", "artist_manager") in demo.view.calls
+    assert ("install", "artist_manager@foliarn/mtee-plugins") in demo.view.calls
 
 
 def test_an_installed_plugin_with_a_newer_version_offers_the_update(demo: DemoContext) -> None:
@@ -219,7 +222,7 @@ def test_an_installed_plugin_with_a_newer_version_offers_the_update(demo: DemoCo
     action = find_item(window, "action_pluginDetailAction")
     assert action is not None and action.property("text") == "Update to 1.2.0"
     click(window, action)
-    assert ("update", "convert") in demo.view.calls
+    assert ("update", "convert@foliarn/mtee-plugins") in demo.view.calls
 
 
 def test_an_install_waits_in_the_warning_dialog(demo: DemoContext) -> None:
@@ -264,7 +267,7 @@ def test_the_marketplace_empty_state_says_no_plugin_is_listed(demo: DemoContext)
     pump()
     assert visible(window, "marketplaceEmpty")
     assert text_of(window, "marketplaceEmpty") == "No plugins are listed yet."
-    assert find_item(window, "pluginsMarket_convert") is None
+    assert find_item(window, "pluginsMarket_convert@foliarn/mtee-plugins") is None
 
 
 def test_the_marketplace_failure_says_why_and_offers_a_new_check(demo: DemoContext) -> None:

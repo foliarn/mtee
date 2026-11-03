@@ -86,7 +86,7 @@ def test_without_a_plugin_folder_nothing_is_added(qapp, tmp_path: Path) -> None:
         assert cast(Any, workspace).pluginsView.property("installed") == []
         workspace.openSettings()
         _settle(runtime)
-        assert _find(window, "settingsTab_plugins") is None
+        assert _find(window, "settingsTab_plugins") is not None  # the core tab always exists
         assert _find(window, "settingsTab_about") is not None
         assert _find(window, "activity-ui_probe.main") is None
         assert _find(window, "pluginSections") is not None  # the empty footer takes no space

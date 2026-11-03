@@ -14,6 +14,12 @@ Item {
     readonly property var installedRows: view ? view.installed : []
     readonly property var marketRows: view ? view.marketplace : []
     readonly property bool searching: view ? view.search.trim().length > 0 : false
+    // Text for a StyledText label: the characters that the rich-text parser reads are escaped.
+    function escapeText(value) {
+        return String(value === undefined || value === null ? "" : value)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+    // The tab ref of the open plugin: a plugin id, or a Marketplace key ("id@address").
     readonly property string activeId: {
         const groups = pane.workspace.groups
         if (groups.length === 0)
@@ -274,13 +280,15 @@ Item {
                 delegate: Item {
                     id: marketRow
                     required property var modelData
+                    readonly property bool selected: modelData.key === pane.activeId
                     width: column.width
                     height: 32
-                    objectName: "pluginsMarket_" + modelData.id
+                    objectName: "pluginsMarket_" + modelData.key
 
                     Rectangle {
                         anchors.fill: parent
-                        color: marketHit.containsMouse ? Theme.surface : "transparent"
+                        color: marketRow.selected ? Theme.selection
+                            : marketHit.containsMouse ? Theme.surface : "transparent"
                     }
 
                     PluginLetterTile {
@@ -307,9 +315,14 @@ Item {
                         anchors.right: marketState.left
                         anchors.rightMargin: 8
                         anchors.verticalCenter: parent.verticalCenter
-                        text: marketRow.modelData.title
+                        // A plugin listed by two marketplaces shows which list this entry comes from.
+                        textFormat: Text.StyledText
+                        text: pane.escapeText(marketRow.modelData.title)
+                            + (marketRow.modelData.duplicate === true
+                                ? " <font color=\"" + Theme.textMuted + "\">· " + pane.escapeText(marketRow.modelData.sourceTitle) + "</font>"
+                                : "")
                         elide: Text.ElideRight
-                        color: Theme.textPrimary
+                        color: marketRow.selected ? Theme.primary : Theme.textPrimary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSecondary
                     }
@@ -319,7 +332,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: if (pane.view) pane.view.openDetail(marketRow.modelData.id)
+                        onClicked: if (pane.view) pane.view.openDetail(marketRow.modelData.key)
                     }
                 }
             }
