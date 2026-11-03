@@ -116,6 +116,23 @@ def test_a_folder_without_the_switch_lists_the_plugin_but_adds_nothing(
         _shutdown(runtime)
 
 
+def test_the_detail_tab_of_a_plugin_shows_its_version_and_switch(qapp, tmp_path: Path) -> None:
+    runtime, _module = _start(tmp_path, enabled=False)
+    try:
+        workspace = _workspace(runtime)
+        window = _window(runtime)
+        cast(Any, workspace).pluginsView.openDetail(PLUGIN_ID)
+        _settle(runtime)
+        byline = cast(QQuickItem, _find(window, "pluginDetailByline"))
+        assert byline.property("text") == "version 1.2.3"
+        switch = cast(QQuickItem, _find(window, "pluginDetailSwitch"))
+        assert switch.isVisible() and switch.property("checked") is False
+        network = cast(QQuickItem, _find(window, "pluginDetailNetwork"))
+        assert network.property("value") == "Yes"
+    finally:
+        _shutdown(runtime)
+
+
 def test_the_switch_is_saved_and_applies_after_a_restart(qapp, tmp_path: Path) -> None:
     runtime, _module = _start(tmp_path, enabled=False)
     try:

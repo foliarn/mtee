@@ -101,9 +101,13 @@ def open_special_tab(
     tab_id: str,
     title: str,
 ) -> None:
-    """Configure a special tab (settings, convert, profile, tasks...) and activate it."""
-    kind = tab_id.partition(":")[0]
-    tab_state.update({"id": tab_id, "kind": kind, "ref": "", "title": title})
+    """Configure a special tab (settings, convert, profile, tasks...) and activate it.
+
+    The ref is what follows the kind, as when the session restores the tab: the plugin id of a
+    plugin detail tab, the view of an artists or genre manager tab, empty for the others.
+    """
+    kind, _, ref = tab_id.partition(":")
+    tab_state.update({"id": tab_id, "kind": kind, "ref": ref, "title": title})
     tabs: list[str] = group["tabs"]
     if tab_id not in tabs:
         tabs.append(tab_id)
