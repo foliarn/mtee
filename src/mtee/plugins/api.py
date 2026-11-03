@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -19,6 +20,7 @@ from typing import Any, Literal, Protocol
 from PySide6.QtCore import QAbstractItemModel, QObject
 
 from mtee.domain.jobs import JobId
+from mtee.domain.recycling import RecycleFailure, RecycleOutcome
 from mtee.domain.source_tracks import (
     NonFileTrackError,
     PlayableSource,
@@ -42,6 +44,8 @@ __all__ = [
     "API_VERSION",
     "SUPPORTED_API_VERSIONS",
     "ActionKind",
+    "Availability",
+    "AvailabilityChanged",
     "CapabilityUnavailableError",
     "CellValue",
     "Contribution",
@@ -50,6 +54,7 @@ __all__ = [
     "DatabaseSnapshot",
     "DeleteChoice",
     "DeleteChoices",
+    "DeleteRequest",
     "DeleteTone",
     "FileMoveError",
     "FileMoveResult",
@@ -58,6 +63,7 @@ __all__ = [
     "JobId",
     "JobTask",
     "LibraryAccess",
+    "LibraryRoot",
     "LibraryScanned",
     "LibraryTrack",
     "NonFileTrackError",
@@ -78,6 +84,8 @@ __all__ = [
     "PluginRowsModel",
     "PluginService",
     "PluginSettings",
+    "RecycleFailure",
+    "RecycleOutcome",
     "SettingNotSyncedError",
     "SettingsPage",
     "SidebarSection",
@@ -85,6 +93,8 @@ __all__ = [
     "SourceTrackEntry",
     "StaleRevisionError",
     "StartupTask",
+    "StatusItem",
+    "StatusItemAccess",
     "SyncedSettings",
     "TabAction",
     "TabHeader",
@@ -93,6 +103,7 @@ __all__ = [
     "Tone",
     "TrackAction",
     "TrackAnalysisData",
+    "TrackAvailability",
     "TrackColumn",
     "TrackData",
     "TrackDataAccess",
@@ -134,8 +145,8 @@ class Contribution:
     The core renders contributions; a plugin only describes them as data. The kinds are
     ``PluginActivity``, ``SidebarSection``, ``TabKind``, ``TabAction``, ``TrackColumn``,
     ``TrackAction``, ``SettingsPage``, ``StartupTask``, ``LibraryScanned``,
-    ``WaitingItems``, ``PluginDialog``, ``PlaylistMeta``, ``DeleteChoices`` and ``TrackSource``,
-    defined below. Plugin QML reaches
+    ``WaitingItems``, ``PluginDialog``, ``PlaylistMeta``, ``DeleteChoices``, ``TrackSource`` and
+    ``StatusItem``, ``TrackAvailability``, defined below. Plugin QML reaches
     the core components with ``import Mtee``; a contribution never names a QML type.
     """
 
@@ -152,6 +163,15 @@ class LibraryTrack:
     duration_us: int
     readable: bool
     isrc: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryRoot:
+    """A watched folder of the library: ``root_id``, the identifier that ``FileOperations``
+    takes, and its ``path``. Returned by ``LibraryAccess.roots``."""
+
+    root_id: str
+    path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +217,14 @@ class LibraryAccess(Protocol):
         """Rescan the library folder that holds ``path``; ``False`` when none does.
 
         Graphical thread only.
+        """
+        ...
+
+    def roots(self) -> list[LibraryRoot]:
+        """Return the watched folders of the library, in the order the library lists them.
+
+        Any thread. Optional capability (``API_VERSION`` stays 1): it reads the stored folders
+        and changes nothing.
         """
         ...
 
@@ -298,6 +326,45 @@ class FileOperations(Protocol):
         Any thread. Raises ``FileMoveError`` when ``folder`` is not inside a library folder
         or ``source`` already belongs to the library (use ``move_track``), and ``OSError``
         when the file cannot be moved; ``source`` is then untouched.
+        """
+        ...
+
+    def replace_content(self, track_id: str, source: Path) -> Path:
+        """Put ``source`` in place of the file of a track and return the track's path.
+
+        The track keeps its path and its identifier. Its current file goes to the Windows
+        Recycle Bin through the core's trash path, so it appears in MTEE's trash history; then
+        ``source`` takes its exact path and the library is refreshed from the new file (tags,
+        size, revision). ``source`` must be a regular file outside every library folder. On the
+        same volume it is renamed; on another volume it is copied to a hidden ``.<name>.part``
+        file of the folder first, then renamed, and the source goes to the Recycle Bin once the
+        replacement is recorded. Optional capability (``API_VERSION`` stays 1).
+
+        Holds the write lease of the track: a reader (the player, an analysis) or a tag write
+        waits for it, up to 10 seconds, then ``TimeoutError``. Job thread only (``RuntimeError``
+        on the graphical thread). Raises ``NonFileTrackError`` for a track without a file,
+        ``LookupError`` for an unknown track, ``FileNotFoundError`` when the track's file or
+        ``source`` is missing, and ``ValueError`` when ``source`` is not a regular file or lies
+        inside a library folder. When the replacement fails after the old file went to the
+        Recycle Bin, it raises a readable error that says where the old file is (MTEE cannot
+        restore it from the Recycle Bin) and that ``source`` is untouched.
+        """
+        ...
+
+    def read_lease(self, track_id: str) -> AbstractContextManager[Path]:
+        """Hold the read lease of a track's file and yield its path, for the ``with`` block.
+
+        The lease is the file-access coordinator's shared read lease, the one the player and
+        the audio analysis hold: a tag write or a move on the same track waits for the block
+        to end (or is refused when it cannot wait). Use it to hash or upload a file without
+        racing a tag write. Optional capability (``API_VERSION`` stays 1).
+
+        Call it from a job thread (``context.jobs``), never from the graphical thread:
+        ``RuntimeError`` there. The lease waits up to 10 seconds for a writer to finish; past
+        that it raises ``TimeoutError`` (``FileAccessTimeoutError``). Raises
+        ``NonFileTrackError`` for a track without a local file, ``FileNotFoundError`` when the
+        file is missing, and ``LookupError`` for an unknown track. The path is valid only inside
+        the block: keep nothing from it after the block ends.
         """
         ...
 
@@ -563,6 +630,47 @@ class TrackSourceAccess(Protocol):
         ...
 
 
+class StatusItemAccess(Protocol):
+    """The item this plugin shows in the status bar under the player bar (plan 125.5).
+
+    ``update`` shows the item, or changes it; ``clear`` hides it. Both may be called from any
+    thread: the change is queued to the graphical thread. The item exists only when the plugin
+    declares a ``StatusItem``; without one the calls change nothing visible. ``tone`` is one of
+    the tones of the contract (``Tone``); ``progress`` is a number from 0 to 1, or ``None`` for
+    no progress line; ``tooltip`` is the long sentence shown on hover; ``icon``, when given,
+    replaces the icon of the declaration for this update. An invalid value raises
+    ``ValueError`` in the calling thread.
+    """
+
+    def update(
+        self,
+        text: str,
+        tone: Tone = "neutral",
+        progress: float | None = None,
+        tooltip: str = "",
+        icon: str | None = None,
+    ) -> None: ...
+
+    def clear(self) -> None: ...
+
+
+class _NoStatusBar:
+    """The status item of a context built without a status bar: its calls do nothing."""
+
+    def update(
+        self,
+        text: str,
+        tone: Tone = "neutral",
+        progress: float | None = None,
+        tooltip: str = "",
+        icon: str | None = None,
+    ) -> None:
+        return None
+
+    def clear(self) -> None:
+        return None
+
+
 class _UnavailablePlayLog:
     device_id = ""
 
@@ -619,6 +727,20 @@ class _UnavailableDatabaseSnapshot:
         raise CapabilityUnavailableError("Database snapshots are not available in this context.")
 
 
+def _unavailable_ffmpeg() -> Path:
+    raise CapabilityUnavailableError("The FFmpeg runtime is not available in this context.")
+
+
+class AvailabilityChanged(Protocol):
+    """The call a plugin makes to tell the core that the availability of tracks changed."""
+
+    def __call__(self, track_ids: Sequence[str] | None = None) -> None: ...
+
+
+def _ignore_availability_changed(track_ids: Sequence[str] | None = None) -> None:
+    """The availability hook of a context built without one: the core is not told."""
+
+
 @dataclass(frozen=True, slots=True)
 class PluginContext:
     """What the core gives to the factory of a plugin.
@@ -639,7 +761,14 @@ class PluginContext:
     ``play_log``, ``track_data``, ``synced_settings`` and ``database_snapshot`` are the
     optional store capabilities for sync; ``playlists`` also reads and checks playlist
     revisions. ``track_sources`` stores the tracks the plugin provides without a file; its
-    ``TrackSource`` contribution opens them.
+    ``TrackSource`` contribution opens them. ``status_item`` shows the plugin's item in the
+    status bar; its ``StatusItem`` contribution declares it. ``availability_changed(track_ids)``
+    makes the core ask the ``TrackAvailability`` contribution again for those tracks (every
+    track for None); any thread may call it.
+    ``ffmpeg_path()`` returns the core's pinned ``ffmpeg`` executable; any thread may call it.
+    ``files.read_lease`` and ``ffmpeg_path()`` raise ``CapabilityUnavailableError`` in a context
+    built without them (``ffmpeg_executable`` and the file-access coordinator). ``library.roots()``
+    is part of ``library``, which every context has.
     """
 
     plugin_id: str
@@ -666,12 +795,27 @@ class PluginContext:
     database_snapshot: DatabaseSnapshot = field(default_factory=_UnavailableDatabaseSnapshot)
     # Tracks without a file (plan 125.2).
     track_sources: TrackSourceAccess = field(default_factory=_UnavailableTrackSources)
+    # The item of the status bar (plan 125.5); a context built without one ignores the calls.
+    status_item: StatusItemAccess = field(default_factory=_NoStatusBar)
+    # Plan 125.3: tell the core that the availability of these tracks (all, for None) changed.
+    availability_changed: AvailabilityChanged = field(default=_ignore_availability_changed)
+    # The core's pinned ffmpeg executable (remote plan 126.1); behind ``ffmpeg_path()``.
+    ffmpeg_executable: Callable[[], Path] = field(default=_unavailable_ffmpeg)
 
     @property
     def data_dir(self) -> Path:
         """Return the folder for the plugin's own files (tokens, caches), creating it."""
         self.base_dir.mkdir(parents=True, exist_ok=True)
         return self.base_dir
+
+    def ffmpeg_path(self) -> Path:
+        """Return the path of the core's pinned ``ffmpeg`` executable, from any thread.
+
+        It is the executable the core itself runs (the vendored runtime), never one found on
+        ``PATH``. Raises ``FileNotFoundError`` when the runtime is missing from the installation.
+        The plugin runs it itself, with an argument list and no shell.
+        """
+        return self.ffmpeg_executable()
 
     def python_command(self, module: str, *args: str) -> list[str]:
         """Return the command line that runs ``module`` in a helper process of this plugin.
@@ -955,17 +1099,20 @@ class PluginDialog(Contribution):
     """A modal dialog the plugin opens with ``PluginContext.open_dialog(dialog_id, ref)``.
 
     ``content`` is a plugin QML file. The core draws the popup (surface, border, rounded
-    corners, a width of at most 480 px, centred over the window, closed by Escape or a click
-    outside) and loads the file in it with a ``Loader``; the file sets its own title, fields
-    and buttons with the components of ``Mtee``, and gives its ``implicitHeight``. It
-    receives ``workspace``, ``backend``, ``ref`` (the text given to ``open_dialog``) and
-    ``dialog``, whose ``close()`` closes the popup. ``ref`` changes each time the dialog is
-    opened, so every binding must read it again.
+    corners, centred over the window, closed by Escape or a click outside) and loads the file
+    in it with a ``Loader``; the file sets its own title, fields and buttons with the components
+    of ``Mtee``, and gives its ``implicitHeight``. It receives ``workspace``, ``backend``,
+    ``ref`` (the text given to ``open_dialog``) and ``dialog``, whose ``close()`` closes the
+    popup. ``ref`` changes each time the dialog is opened, so every binding must read it again.
+
+    ``width`` is the popup width in pixels, from 320 to 640 (default 480). A popup is never
+    wider than the window less 16 px on each side. A value outside the range refuses the plugin.
     """
 
     dialog_id: str
     content: Path
     backend: QObject | None = None
+    width: int = 480
 
 
 @dataclass(frozen=True, slots=True)
@@ -1015,20 +1162,57 @@ class DeleteChoices(Contribution):
     ``DeleteChoice`` that apply to them, or nothing. It runs on the graphical thread each time
     the confirmation opens: keep it cheap and read only the plugin's own data.
 
-    ``run(choice_id, track_ids, job)`` runs when the user presses a choice, on a job thread
-    (the core submits it with the job service, so it shows in Tasks and ``job`` can be
-    cancelled). It receives the same identifiers that ``offer`` received. It returns a short
-    sentence that tells what was done, or ``None`` for the default "Done."; it raises when it
-    fails. An exception with the class attribute ``readable = True`` is shown as its message
-    alone, any other as ``ClassName: message``, as in Tasks. The core's own action is not
-    touched: it still only uses the Windows Recycle Bin, never a permanent delete, and a plugin
-    that wants files recycled calls ``context.files.recycle`` itself. A plugin has at most one
-    ``DeleteChoices``. If ``offer`` raises, the failure is logged and announced once, the
-    plugin's choices are left out and the core action works as usual.
+    ``run(request)`` runs when the user presses a choice, on a job thread (the core submits it
+    with the job service, so it shows in Tasks and ``request.job`` can be cancelled). The
+    ``DeleteRequest`` carries the choice id, the identifiers that ``offer`` received and
+    ``request.recycle``. It returns a short sentence that tells what was done, or ``None`` for
+    the default "Done."; it raises when it fails. An exception with the class attribute
+    ``readable = True`` is shown as its message alone, any other as ``ClassName: message``, as
+    in Tasks. Pressing a choice moves no file by itself: a choice that must recycle files calls
+    ``request.recycle``, which needs no second dialog because the user confirmed the selection
+    just before. A plugin has at most one ``DeleteChoices``. If ``offer`` raises, the failure is
+    logged and announced once, the plugin's choices are left out and the core action works as
+    usual.
     """
 
     offer: Callable[[Sequence[str]], Sequence[DeleteChoice]]
-    run: Callable[[str, Sequence[str], JobContext], str | None]
+    run: Callable[[DeleteRequest], str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteRequest:
+    """What a plugin receives when the user presses one of its delete choices.
+
+    ``choice_id`` is the id the plugin gave its ``DeleteChoice``. ``track_ids`` are the
+    identifiers of the selection, the ones ``offer`` received. ``job`` is the job the choice
+    runs in: ``job.is_cancelled`` and ``job.raise_if_cancelled()`` tell when the user cancelled.
+
+    ``recycle(track_ids)`` sends the given tracks' files to the Windows Recycle Bin through the
+    core's own recycle path, without opening the confirmation again. Call it on the job thread
+    only. Only identifiers of ``track_ids`` are accepted; any other raises ``ValueError``. The
+    files are the ones the confirmation showed, and every rule of that path applies: the file
+    must still be the one that was confirmed, the operation is recorded in the recycle journal,
+    the file goes to the Windows Recycle Bin and is never deleted permanently, and a file that is
+    in use is reported, not forced. When the Recycle Bin does not confirm a file, the rest are not
+    attempted and are reported as failed. It returns a ``RecycleOutcome``: the identifiers that
+    were recycled and the ones that were not, each with its reason. If the job is cancelled, the
+    files already recycled stay recycled and the cancellation is raised.
+    """
+
+    choice_id: str
+    track_ids: tuple[str, ...]
+    job: JobContext
+    _recycle: Callable[[Sequence[str]], RecycleOutcome] = field(repr=False, compare=False)
+
+    def recycle(self, track_ids: Sequence[str]) -> RecycleOutcome:
+        """Recycle the given tracks of this selection; job thread. See the class."""
+        requested = tuple(dict.fromkeys(str(value) for value in track_ids))
+        outside = [track_id for track_id in requested if track_id not in self.track_ids]
+        if outside:
+            raise ValueError(
+                "These tracks are not part of this delete choice: " + ", ".join(outside)
+            )
+        return self._recycle(requested)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1050,3 +1234,47 @@ class TrackSource(Contribution):
 
     open: Callable[[str], PlayableSource]
     cover: Callable[[str], bytes | None] | None = None
+
+
+# ------------------------------------------------- track availability (plan 125.3)
+
+Availability = Literal["local", "synced", "remote"]
+"""Where a track is: "local" (its file is on this device), "synced" (on this device and kept
+in step with another place) or "remote" (not on this device)."""
+
+
+@dataclass(frozen=True, slots=True)
+class TrackAvailability(Contribution):
+    """Which tracks are not on this device, for the view filter "Hide tracks not on this device".
+
+    ``status(track_ids)`` receives track identifiers and returns ``{track_id: availability}``.
+    A track missing from the answer, or with another value, counts as ``"local"``. The core
+    calls it on the graphical thread each time it shows or refilters a track list, and only
+    while the filter is on: keep it cheap and read only the plugin's own data. When the answer
+    for some tracks changes, the plugin calls ``PluginContext.availability_changed``. The badge
+    is not drawn here: the plugin draws it with a ``TrackColumn``. At most one plugin provides
+    this contribution; a second one is refused with a reason.
+    """
+
+    status: Callable[[Sequence[str]], Mapping[str, Availability]]
+
+
+# ------------------------------------------------------------------ status bar (plan 125.5)
+
+
+@dataclass(frozen=True, slots=True)
+class StatusItem(Contribution):
+    """The item the plugin shows in the status bar, the strip under the player bar.
+
+    The strip is drawn only while at least one plugin shows an item; the items are in plugin load
+    order. ``item_id`` is lowercase snake_case. ``icon`` is the name of an icon of the core. The
+    text, tone, progress and tooltip come from ``PluginContext.status_item.update``, which is also
+    where the item appears; ``clear`` hides it. ``on_click()`` runs on the graphical thread when
+    the user clicks the item, for example to open a plugin activity or dialog; ``None`` makes the
+    item a plain text. A failure of ``on_click`` is logged and announced once, as other plugin
+    failures are, and the application goes on. A plugin declares at most one ``StatusItem``.
+    """
+
+    item_id: str
+    icon: str
+    on_click: Callable[[], None] | None = None

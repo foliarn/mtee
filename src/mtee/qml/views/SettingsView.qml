@@ -35,6 +35,8 @@ Rectangle {
         pages.push({ "key": "about", "label": "About" })
         return pages
     }
+    // The track filter setting is offered only while a plugin provides track availability.
+    readonly property bool availabilityOffered: workspace.availabilityProvided === true
     readonly property bool privacyAvailable: typeof dataPrivacy !== "undefined"
     readonly property bool rulesAvailable: typeof artistRules !== "undefined"
     readonly property bool historyAvailable: typeof workspace.playerModel !== "undefined"
@@ -185,6 +187,17 @@ Rectangle {
                 width: content.width
                 visible: settings.page === "library"
                 spacing: 8
+
+                Group { title: "Tracks"; visible: settings.availabilityOffered }
+
+                ToggleRow {
+                    objectName: "hideNotOnDeviceSetting"
+                    visible: settings.availabilityOffered
+                    label: "Hide tracks not on this device"
+                    description: "Track lists leave out the tracks that a plugin reports as not on this device. The same choice is in the settings menu of each track list."
+                    checked: settings.workspace.hideNotOnDevice === true
+                    onToggled: (checked) => settings.workspace.setHideNotOnDevice(checked)
+                }
 
                 Group { title: "Artist name rules" }
 

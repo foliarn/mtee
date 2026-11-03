@@ -123,6 +123,13 @@ def test_queue_panel_shows_distinct_upcoming_occurrences(
         qtbot.waitUntil(lambda: _find(root, "addToQueueAction") is not None)
         add = _find(root, "addToQueueAction")
         assert add is not None
+        # The popup lays out its items one frame after it appears; a click before that misses
+        # the item (the menu's height is still 0) and closes the menu without adding.
+        add_item = add
+        popup = add_item.parentItem()
+        assert popup is not None
+        qtbot.waitUntil(lambda: add_item.isVisible() and popup.height() > 0)
+        qtbot.wait(100)
         add_point = add.mapToScene(add.boundingRect().center())
         QTest.mouseClick(
             root,

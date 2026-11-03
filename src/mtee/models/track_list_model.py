@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Any
 
 from PySide6.QtCore import (
@@ -15,14 +16,23 @@ from PySide6.QtCore import (
     Slot,
 )
 
-__all__ = ["TrackListModel"]
+__all__ = ["TrackListModel", "track_id_of_row"]
 
 _DATA_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 _ROOT_INDEX = QModelIndex()
 
 
+def track_id_of_row(row: Mapping[str, Any]) -> str:
+    """Return the library track of a row: ``trackId`` of a playlist or plugin row, else ``id``."""
+    return str(row["trackId"] if "trackId" in row else row.get("id", ""))
+
+
 class TrackListModel(QAbstractListModel):
-    """Keep row data in a Qt model while ListView/GridView recycle delegates."""
+    """Keep row data in a Qt model while ListView/GridView recycle delegates.
+
+    The rows given to ``replace`` are kept whole; the rows shown leave out the tracks that
+    ``set_hidden_ids`` names (plan 125.3), and ``hiddenCount`` says how many were left out.
+    """
 
     rowsChanged = Signal()
 
@@ -30,6 +40,11 @@ class TrackListModel(QAbstractListModel):
         super().__init__(parent)
         self._rows: list[dict[str, Any]] = []
         self._row_by_id: dict[str, int] = {}
+        # Every row as it was given, hidden ones included, and the function that names the
+        # track identifiers to hide (None hides nothing: no question is asked at all).
+        self._source: list[dict[str, Any]] = []
+        self._hidden_ids: Callable[[Sequence[str]], frozenset[str]] | None = None
+        self._hidden_count = 0
 
     def roleNames(self) -> dict[int, QByteArray]:
         return {_DATA_ROLE: QByteArray(b"modelData")}
@@ -101,9 +116,45 @@ class TrackListModel(QAbstractListModel):
     def count(self) -> int:
         return len(self._rows)
 
+    @Property(int, notify=rowsChanged)
+    def hiddenCount(self) -> int:
+        """How many rows the filter leaves out; the meta line of the list says so."""
+        return self._hidden_count
+
+    def set_hidden_ids(self, hidden_ids: Callable[[Sequence[str]], frozenset[str]] | None) -> None:
+        """Set the function that names the tracks to leave out, and apply it at once."""
+        self._hidden_ids = hidden_ids
+        self.refresh_filter()
+
+    def refresh_filter(self, changed: Collection[str] | None = None) -> None:
+        """Apply the filter again to the rows given last.
+
+        With ``changed`` (track identifiers) the rows are asked again only when one of them is
+        in this list; None asks again in every case.
+        """
+        if changed is not None and not any(track_id_of_row(row) in changed for row in self._source):
+            return
+        self._show(self._source)
+
+    def source_rows_snapshot(self) -> list[dict[str, Any]]:
+        """Return the rows as they were given, hidden ones included."""
+        return [dict(row) for row in self._source]
+
     def replace(self, rows: list[dict[str, Any]]) -> None:
+        self._source = [dict(row) for row in rows]
+        self._show(self._source)
+
+    def _show(self, rows: list[dict[str, Any]]) -> None:
+        """Show ``rows`` less the hidden ones, numbered from 1, changing only what differs."""
+        hidden: frozenset[str] = frozenset()
+        if self._hidden_ids is not None and rows:
+            hidden = self._hidden_ids([track_id_of_row(row) for row in rows])
+        visible = [row for row in rows if track_id_of_row(row) not in hidden]
+        if len(rows) - len(visible) != self._hidden_count:
+            self._hidden_count = len(rows) - len(visible)
+            self.rowsChanged.emit()
         numbered: list[dict[str, Any]] = []
-        for index, row in enumerate(rows, start=1):
+        for index, row in enumerate(visible, start=1):
             item = dict(row)
             item["number"] = index
             numbered.append(item)

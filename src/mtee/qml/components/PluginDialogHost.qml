@@ -14,6 +14,8 @@ Item {
     readonly property var ui: workspace.pluginUi
     property string key: ""
     property string ref: ""
+    // The width the plugin asked for (PluginDialog.width, 320 to 640 px, 480 by default).
+    property int dialogWidth: 480
     readonly property bool opened: popup.opened
     readonly property var content: loader.item
 
@@ -28,6 +30,7 @@ Item {
         function onDialogRequested(key, ref) {
             host.key = key
             host.ref = ref
+            host.dialogWidth = host.ui.dialogWidth(key)
             loader.source = host.ui.dialogQml(key)
             popup.open()
         }
@@ -37,7 +40,7 @@ Item {
         id: popup
         objectName: "pluginDialog"
         parent: Overlay.overlay
-        width: Math.min(480, parent.width - 32)
+        width: Math.min(host.dialogWidth, parent.width - 32)
         height: (loader.item ? loader.item.implicitHeight : 0) + 40
         x: (parent.width - width) / 2
         y: Math.max(16, (parent.height - height) / 2)

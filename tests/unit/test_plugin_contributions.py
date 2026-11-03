@@ -649,6 +649,17 @@ def test_a_dialog_needs_an_identifier_and_an_existing_qml_file(qapp, tmp_path: P
         check_contributions("pl", [PluginDialog("note", content), PluginDialog("note", content)])
 
 
+def test_a_dialog_width_is_480_by_default_and_320_to_640_otherwise(tmp_path: Path) -> None:
+    content = tmp_path / "dialog.qml"
+    content.write_text("import QtQuick\nItem {}\n", encoding="utf-8")
+    assert PluginDialog("note", content).width == 480
+    for width in (320, 640):
+        check_contributions("pl", [PluginDialog("note", content, width=width)])
+    for width in (319, 641, 700, 480.0, True):
+        with pytest.raises(ValueError, match="must be a whole number of pixels from 320 to 640"):
+            check_contributions("pl", [PluginDialog("note", content, width=width)])  # type: ignore[arg-type]
+
+
 def test_a_dialog_request_reaches_the_window_only_for_a_known_dialog(qapp, tmp_path: Path) -> None:
     content = tmp_path / "dialog.qml"
     content.write_text("import QtQuick\nItem {}\n", encoding="utf-8")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,13 +13,14 @@ from typing import Any, Protocol
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.domain.jobs import JobCancelledError, JobId
+from mtee.domain.recycling import RecycleFailure, RecycleOutcome
 from mtee.domain.tracks import SourceRevision, TrackId
 from mtee.models.player_model import PlayerModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.trash_repository import TrashRepository
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.jobs import JobContext, JobService
-from mtee.services.trash_service import TrashService
+from mtee.services.trash_service import TrashService, TrashServiceError
 
 __all__ = ["DeleteChoiceSource", "TrashModel"]
 
@@ -33,9 +34,22 @@ class DeleteChoiceSource(Protocol):
         """Return the groups of choices for the selection; graphical thread."""
         ...
 
-    def run_delete_choice(self, key: str, track_ids: Sequence[str], job: JobContext) -> str:
+    def run_delete_choice(
+        self,
+        key: str,
+        track_ids: Sequence[str],
+        job: JobContext,
+        recycle: Callable[[Sequence[str]], RecycleOutcome],
+    ) -> str:
         """Run one choice and return the sentence to show; job thread. Raises on failure."""
         ...
+
+
+def _track_label(row: dict[str, Any], track_id: str) -> str:
+    """The name of a track that has no file: "Artist - Title", or its identifier when unknown."""
+    title = str(row.get("title") or "")
+    artist = str(row.get("artist") or "")
+    return " - ".join(part for part in (artist, title) if part) or track_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,12 +157,10 @@ class TrashModel(QObject):
         return bool(self._active_job_id)
 
     # ------------------------------------------------------- plugin choices (plan 125.4)
-    # Pending the user's answer to open question 3 of private/docs/ux/review-125-126.md
-    # ("Delete dialog"). Drawn as the mock-up 125-delete and as the review recommends: a plugin
-    # choice that replaces the core action takes the place of "Move to Recycle Bin", and the
-    # plugin's primary choice is then the default button; a choice that does not replace it is
-    # added next to the core button, which stays the default. Change here and in
-    # TrashDialog.qml if the answer differs.
+    # Approved 2026-11-02 (private/docs/ux/review-125-126.md, Decision 3): a plugin choice that
+    # replaces the core action takes the place of "Move to Recycle Bin", and the plugin's primary
+    # choice is then the default button; a choice that does not replace it is added next to the
+    # core button, which stays the default. Without a local file the core button is not offered.
 
     def attach_delete_choices(self, source: DeleteChoiceSource) -> None:
         """Let the plugins add choices to the confirmation; call once, before the first request."""
@@ -165,9 +177,20 @@ class TrashModel(QObject):
         ]
 
     @Property(bool, notify=changed)
+    def hasLocalFiles(self) -> bool:
+        """Whether the open confirmation has at least one file the core can recycle."""
+        return self._state == "confirm" and bool(self._candidates)
+
+    @Property(bool, notify=changed)
     def replacesRecycle(self) -> bool:
-        """Whether a plugin choice takes the place of the core's "Move to Recycle Bin" button."""
-        return self._state == "confirm" and any(
+        """Whether the core's "Move to Recycle Bin" button is not offered for this confirmation.
+
+        That is the case when a plugin choice replaces it, and when no selected track has a
+        local file: then the plugin's choices are the only actions.
+        """
+        if self._state != "confirm":
+            return False
+        return not self._candidates or any(
             choice["replaces"] for group in self._choice_groups for choice in group["choices"]
         )
 
@@ -221,6 +244,8 @@ class TrashModel(QObject):
         group, choice = found
         source = self._choice_source
         track_ids = list(self._requested_ids)
+        # The files the user saw in this confirmation: a choice can recycle only these.
+        confirmed = {candidate.track_id: candidate for candidate in self._candidates}
         title = f"{group['plugin']}: {choice['label']}"
         self._generation += 1
         generation = self._generation
@@ -231,8 +256,11 @@ class TrashModel(QObject):
         self.changed.emit()
 
         def task(context: JobContext) -> None:
+            def recycle(requested: Sequence[str]) -> RecycleOutcome:
+                return self._recycle_confirmed(requested, confirmed, context)
+
             try:
-                sentence = source.run_delete_choice(key, track_ids, context)
+                sentence = source.run_delete_choice(key, track_ids, context, recycle)
             except JobCancelledError:
                 self.choiceFinished.emit(generation, False, title, "Cancelled.")
                 raise
@@ -264,6 +292,65 @@ class TrashModel(QObject):
         except Exception:
             _LOGGER.exception("The plugin delete choices could not be read.")
             return []
+
+    def _recycle_candidate(self, candidate: _Candidate, context: JobContext) -> dict[str, Any]:
+        """Journal one confirmed file and recycle it, for the confirmed action and for a choice."""
+        operation_id = str(uuid.uuid4())
+        self._journal.prepare(
+            operation_id,
+            candidate.track_id,
+            str(candidate.path),
+            candidate.revision,
+        )
+        return self._recycle_one(candidate, operation_id, context)
+
+    def _recycle_confirmed(
+        self,
+        requested: Sequence[str],
+        confirmed: dict[str, _Candidate],
+        context: JobContext,
+    ) -> RecycleOutcome:
+        """Recycle the files of a plugin choice without a second dialog; job thread.
+
+        Only files the user saw in the confirmation are recycled, through the same path as the
+        confirmed action. A file the Recycle Bin does not confirm stops the rest, which are then
+        reported as not attempted. Cancellation is raised; the files already recycled stay so.
+        """
+        recycled: list[str] = []
+        failed: list[RecycleFailure] = []
+        results: list[dict[str, Any]] = []
+        stop_reason = ""
+        try:
+            for track_id in requested:
+                if stop_reason:
+                    failed.append(RecycleFailure(track_id, stop_reason))
+                    continue
+                candidate = confirmed.get(track_id)
+                if candidate is None:
+                    failed.append(
+                        RecycleFailure(
+                            track_id,
+                            "This track has no file on this computer, so nothing was done.",
+                        )
+                    )
+                    continue
+                context.raise_if_cancelled()
+                result = self._recycle_candidate(candidate, context)
+                results.append(result)
+                if result.get("status") == "recycled":
+                    recycled.append(track_id)
+                    continue
+                message = str(result.get("message") or result.get("status"))
+                failed.append(RecycleFailure(track_id, message))
+                if message.startswith(f"{TrashServiceError.__name__}:"):
+                    stop_reason = (
+                        "Not attempted: the Windows Recycle Bin did not confirm the previous file."
+                    )
+        finally:
+            done = [dict(item) for item in results if item.get("status") == "recycled"]
+            if done:
+                self.tracksRecycled.emit(done)
+        return RecycleOutcome(tuple(recycled), tuple(failed))
 
     @Slot(int, bool, str, str)
     def _on_choice_finished(
@@ -318,10 +405,12 @@ class TrashModel(QObject):
                             if source is None
                             else ""
                         )
+                        # Without a file, the row names the track as the library shows it.
+                        name = source.path.name if source else _track_label(row, track_id)
                         failures.append(
                             {
                                 "trackId": track_id,
-                                "source": source.path.name if source else track_id,
+                                "source": name,
                                 "status": "conflict",
                                 "message": refusal
                                 or "The file is no longer available in the library.",
@@ -424,14 +513,7 @@ class TrashModel(QObject):
                 total = max(1, len(candidates))
                 for index, candidate in enumerate(candidates):
                     context.raise_if_cancelled()
-                    operation_id = str(uuid.uuid4())
-                    self._journal.prepare(
-                        operation_id,
-                        candidate.track_id,
-                        str(candidate.path),
-                        candidate.revision,
-                    )
-                    result = self._recycle_one(candidate, operation_id, context)
+                    result = self._recycle_candidate(candidate, context)
                     results.append(result)
                     context.report_progress((index + 1) / total)
                     context.report_items(index + 1, len(candidates), candidate.path.name)
@@ -468,14 +550,18 @@ class TrashModel(QObject):
             if isinstance(failures, list)
             else []
         )
-        if self._candidates:
+        # A plugin's choices open the confirmation even when no selected track has a local file.
+        self._choice_groups = self._offered_choices()
+        if self._candidates or self._choice_groups:
             self._state = "confirm"
             self._message = (
                 "Review the selected files, then confirm moving them to the Windows Recycle Bin."
+                if self._candidates
+                else "None of the selected tracks has a file on this computer."
             )
-            self._choice_groups = self._offered_choices()
         else:
             self._state = "result"
+            self._choice_groups = []
             self._message = "No selected audio files are available to recycle."
         self.dialogRequested.emit()
         self.changed.emit()
@@ -529,13 +615,7 @@ class TrashModel(QObject):
     def _recycle_one(
         self, candidate: _Candidate, operation_id: str, context: JobContext
     ) -> dict[str, Any]:
-        base = {
-            "operationId": operation_id,
-            "trackId": candidate.track_id,
-            "source": str(candidate.path),
-            "rootId": candidate.root_id,
-            "parentRelative": candidate.parent_relative,
-        }
+        base = self._row_base(candidate, operation_id)
         try:
             current = self._library.source_record(candidate.track_id)
             observed = SourceRevision.observe(
@@ -557,50 +637,7 @@ class TrashModel(QObject):
             with self._file_access.acquire(
                 TrackId.parse(candidate.track_id), "recycle audio file", timeout_seconds=0
             ):
-                current = self._library.source_record(candidate.track_id)
-                observed = SourceRevision.observe(
-                    candidate.path, generation=candidate.revision.generation
-                )
-                if (
-                    current is None
-                    or not candidate.revision.matches(current.revision)
-                    or not candidate.revision.matches(observed)
-                ):
-                    self._journal.finish(operation_id, "conflict", "The file revision changed.")
-                    return {
-                        **base,
-                        "status": "conflict",
-                        "message": "The file changed before recycling.",
-                    }
-                context.raise_if_cancelled()
-                recycle_item_identity = self._service.recycle(candidate.path)
-            message = "Moved to the Windows Recycle Bin."
-            try:
-                self._journal.finish(
-                    operation_id,
-                    "recycled",
-                    message,
-                    recycle_item_identity=recycle_item_identity,
-                )
-            except Exception:
-                # Already recycled: any failure only flags the journal, never fails the result.
-                message += " The recycle was confirmed, but its journal needs inspection."
-            try:
-                updated = self._library.mark_recycled(candidate.track_id, candidate.revision)
-            except Exception:
-                # Already recycled: any failure only flags the library, never fails the result.
-                updated = False
-                message += (
-                    " The library could not be updated; it will be reconciled on the next scan."
-                )
-            if not updated and "reconciled" not in message:
-                message += " The library record will be reconciled on the next scan."
-            return {
-                **base,
-                "status": "recycled",
-                "message": message,
-                "recycleItemIdentity": recycle_item_identity,
-            }
+                return self._recycle_locked(candidate, operation_id, context)
         except FileAccessTimeoutError:
             message = "The file is in use. Stop playback, then retry this file."
             self._journal.finish(operation_id, "failed", message)
@@ -611,6 +648,96 @@ class TrashModel(QObject):
             message = f"{type(error).__name__}: {error}"
             self._journal.finish(operation_id, "failed", message)
             return {**base, "status": "failed", "message": message}
+
+    def _recycle_locked(
+        self, candidate: _Candidate, operation_id: str, context: JobContext | None
+    ) -> dict[str, Any]:
+        """Recycle one file whose write lease the caller holds: the one path of every recycle.
+
+        A confirmed delete and a replacement of a track's file both come here. The revision is
+        checked again, the file goes to the Recycle Bin, then the journal and the library are
+        updated. A failure of the Shell propagates; the caller journals it as failed.
+        """
+        base = self._row_base(candidate, operation_id)
+        current = self._library.source_record(candidate.track_id)
+        observed = SourceRevision.observe(candidate.path, generation=candidate.revision.generation)
+        if (
+            current is None
+            or not candidate.revision.matches(current.revision)
+            or not candidate.revision.matches(observed)
+        ):
+            self._journal.finish(operation_id, "conflict", "The file revision changed.")
+            return {**base, "status": "conflict", "message": "The file changed before recycling."}
+        if context is not None:
+            context.raise_if_cancelled()
+        recycle_item_identity = self._service.recycle(candidate.path)
+        message = "Moved to the Windows Recycle Bin."
+        try:
+            self._journal.finish(
+                operation_id,
+                "recycled",
+                message,
+                recycle_item_identity=recycle_item_identity,
+            )
+        except Exception:
+            # Already recycled: any failure only flags the journal, never fails the result.
+            message += " The recycle was confirmed, but its journal needs inspection."
+        try:
+            updated = self._library.mark_recycled(candidate.track_id, candidate.revision)
+        except Exception:
+            # Already recycled: any failure only flags the library, never fails the result.
+            updated = False
+            message += " The library could not be updated; it will be reconciled on the next scan."
+        if not updated and "reconciled" not in message:
+            message += " The library record will be reconciled on the next scan."
+        return {
+            **base,
+            "status": "recycled",
+            "message": message,
+            "recycleItemIdentity": recycle_item_identity,
+        }
+
+    def recycle_held(self, track_id: str) -> tuple[bool, str]:
+        """Send the current file of a track to the Recycle Bin; the caller holds its write lease.
+
+        Used when a plugin replaces the file of a track (``FileOperations.replace_content``). It is
+        not a confirmed delete: there is no dialog, and the lease is not taken again here (the
+        caller holds it). The operation is journalled and the library updated as for a delete.
+        Job thread only. Returns ``(recycled, message)``; a file that the Recycle Bin does not
+        confirm is journalled as failed and reported, never raised.
+        """
+        record = self._library.source_record(track_id)
+        row = self._library.track(track_id)
+        if record is None or not row:
+            return False, "This track is no longer in the library."
+        relative = str(row.get("relativePath", ""))
+        candidate = _Candidate(
+            track_id,
+            record.path,
+            record.revision,
+            str(row.get("rootId", "")),
+            relative.rpartition("/")[0],
+        )
+        operation_id = str(uuid.uuid4())
+        self._journal.prepare(operation_id, track_id, str(candidate.path), candidate.revision)
+        try:
+            result = self._recycle_locked(candidate, operation_id, None)
+        except Exception as error:
+            message = f"{type(error).__name__}: {error}"
+            self._journal.finish(operation_id, "failed", message)
+            return False, message
+        message = str(result.get("message") or result.get("status"))
+        return result.get("status") == "recycled", message
+
+    @staticmethod
+    def _row_base(candidate: _Candidate, operation_id: str) -> dict[str, Any]:
+        return {
+            "operationId": operation_id,
+            "trackId": candidate.track_id,
+            "source": str(candidate.path),
+            "rootId": candidate.root_id,
+            "parentRelative": candidate.parent_relative,
+        }
 
     @Slot(int, object)
     def _on_results_ready(self, generation: int, results: object) -> None:

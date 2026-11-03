@@ -84,10 +84,12 @@ Window {
 
     Item {
         id: body
+        objectName: "mainBody"
         anchors.top: titleBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        // The status bar, when a plugin gives an item, takes its 24 px under the player bar.
+        anchors.bottom: statusBar.visible ? statusBar.top : parent.bottom
         // The player bar spans the window under every pane.
         readonly property real playerReserve: root.islandVisible ? Theme.islandHeight : 0
 
@@ -164,6 +166,15 @@ Window {
             bottomInset: 0
             onResizeRequested: (delta) => root.rightPanelWidth = Math.max(260, Math.min(480, root.rightPanelWidth + delta))
         }
+    }
+
+    // Plan 125.5: the status bar under the whole window and under the player bar.
+    StatusBar {
+        id: statusBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        items: root.ws.statusBar
     }
 
     Rectangle {

@@ -17,10 +17,12 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.plugins.api import (
+    Availability,
     CellValue,
     Contribution,
     DeleteChoice,
     DeleteChoices,
+    DeleteRequest,
     JobContext,
     LibraryScanned,
     PaneAction,
@@ -36,12 +38,14 @@ from mtee.plugins.api import (
     SidebarSection,
     SourceTrack,
     StartupTask,
+    StatusItem,
     TabAction,
     TabHeader,
     TabKind,
     TabRequest,
     TrackAction,
     TrackAnalysisData,
+    TrackAvailability,
     TrackColumn,
     TrackListRow,
     TrackLoudnessData,
@@ -148,6 +152,8 @@ class Service:
         self._foot = PluginRowsModel([{"text": "Sample is connected", "tone": "secondary"}])
         self._backend = SettingsBackend(context.settings, self._count_items())
         self._audio: AudioServer | None = None
+        # The status bar item (plan 125.5): shown from the start, clicked to record the click.
+        context.status_item.update("Sample: ready")
 
     def _count_items(self) -> int:
         cursor = self._context.database.connection().execute("SELECT COUNT(*) FROM sample_items")
@@ -214,6 +220,10 @@ class Service:
         EVENTS.append("startup")
         self._context.run_on_gui(lambda: EVENTS.append("gui"))
 
+    def _status_clicked(self) -> None:
+        """The status bar item was clicked; runs on the graphical thread."""
+        EVENTS.append("status click")
+
     @staticmethod
     def _offer_delete(track_ids: Sequence[str]) -> list[DeleteChoice]:
         """Add one choice to the delete confirmation. Runs on the graphical thread."""
@@ -227,11 +237,11 @@ class Service:
         ]
 
     @staticmethod
-    def _run_delete(choice_id: str, track_ids: Sequence[str], _job: JobContext) -> str:
+    def _run_delete(request: DeleteRequest) -> str:
         """Run the pressed choice on a job thread, never the graphical one."""
-        DELETE_RUNS.append((choice_id, tuple(track_ids), threading.get_ident()))
-        EVENTS.append(f"delete {choice_id} {','.join(track_ids)}")
-        return f"Logged {len(track_ids)} track(s)."
+        DELETE_RUNS.append((request.choice_id, request.track_ids, threading.get_ident()))
+        EVENTS.append(f"delete {request.choice_id} {','.join(request.track_ids)}")
+        return f"Logged {len(request.track_ids)} track(s)."
 
     @staticmethod
     def _scanned(root: Path) -> None:
@@ -388,6 +398,18 @@ class Service:
         """Give the cover image of the first track. Runs on an image thread."""
         return tiny_png() if source_key == SOURCE_KEY else None
 
+    def _availability(self, track_ids: Sequence[str]) -> dict[str, Availability]:
+        """Mark the track served over HTTP as remote: its audio is not on this computer.
+
+        Runs on the graphical thread; it reads only the plugin's own tracks (plan 125.3).
+        """
+        served = {
+            entry.track_id
+            for entry in self._context.track_sources.list(available_only=True)
+            if entry.source_key == SOURCE_KEY
+        }
+        return {track_id: "remote" for track_id in track_ids if track_id in served}
+
     # -- the contributions
     def contributions(self) -> Sequence[Contribution]:
         return [
@@ -461,6 +483,8 @@ class Service:
             LibraryScanned(self._scanned),
             DeleteChoices(self._offer_delete, self._run_delete),
             TrackSource(self._open_track, self._cover),
+            TrackAvailability(self._availability),
+            StatusItem("status", "cloud", on_click=self._status_clicked),
         ]
 
     def unload(self) -> None:

@@ -23,9 +23,11 @@ from mtee.plugins.api import (
     SettingsPage,
     SidebarSection,
     StartupTask,
+    StatusItem,
     TabAction,
     TabKind,
     TrackAction,
+    TrackAvailability,
     TrackColumn,
     TrackSource,
     WaitingItems,
@@ -38,6 +40,8 @@ CORE_ACTIVITIES = frozenset({"explorer", "playlists", "convert", "tasks", "artis
 # The core activities whose sidebar lists the sections of plugins.
 SECTION_ACTIVITIES = frozenset({"explorer", "playlists"})
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
+# The widths a PluginDialog may ask for, in pixels (inclusive).
+DIALOG_WIDTH_RANGE = (320, 640)
 
 
 def is_identifier(value: object) -> bool:
@@ -90,6 +94,11 @@ def check_contributions(plugin_id: str, contributions: Sequence[Contribution]) -
     for dialog in dialogs:
         _check_dialog(dialog)
     _unique("dialog", [item.dialog_id for item in dialogs])
+    status_items = [item for item in contributions if isinstance(item, StatusItem)]
+    for status in status_items:
+        _check_status_item(status)
+    if len(status_items) > 1:
+        raise ValueError("A plugin declares at most one status item.")
     for meta in (item for item in contributions if isinstance(item, PlaylistMeta)):
         _need_callable("playlist meta", "text", meta.text)
     for hook in (item for item in contributions if isinstance(item, LibraryScanned)):
@@ -107,6 +116,11 @@ def check_contributions(plugin_id: str, contributions: Sequence[Contribution]) -
         _need_callable("delete choices", "run", choices.run)
     if len(delete_choices) > 1:
         raise ValueError("A plugin declares DeleteChoices once; this one declares it twice.")
+    availabilities = [item for item in contributions if isinstance(item, TrackAvailability)]
+    for availability in availabilities:
+        _need_callable("track availability", "status", availability.status)
+    if len(availabilities) > 1:
+        raise ValueError("A plugin declares TrackAvailability at most once.")
 
 
 def _check_activity(activity: PluginActivity) -> None:
@@ -198,6 +212,21 @@ def _check_dialog(dialog: PluginDialog) -> None:
     _need_identifier("dialog", dialog.dialog_id)
     if not dialog.content.is_file():
         raise ValueError(f"The QML file of dialog {dialog.dialog_id} does not exist.")
+    width = dialog.width
+    lowest, highest = DIALOG_WIDTH_RANGE
+    whole = isinstance(width, int) and not isinstance(width, bool)
+    if not whole or not lowest <= width <= highest:
+        raise ValueError(
+            f"The width of dialog {dialog.dialog_id} must be a whole number of pixels from "
+            f"{lowest} to {highest}, not {width!r}."
+        )
+
+
+def _check_status_item(status: StatusItem) -> None:
+    _need_identifier("status item", status.item_id)
+    _need_text("status item", status.item_id, status.icon, "icon")
+    if status.on_click is not None:
+        _need_callable("status item", status.item_id, status.on_click)
 
 
 def _need_identifier(what: str, value: object) -> None:

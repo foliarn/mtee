@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -20,7 +21,9 @@ from PySide6.QtCore import QObject, Qt, Signal, Slot
 from mtee.domain.artist_index import OVERRIDE_MODES, split_credit_parts
 from mtee.domain.artists import clean_name, normalize_key
 from mtee.domain.musical_key import MusicalKey
-from mtee.domain.source_tracks import SourceTrack, SourceTrackEntry
+from mtee.domain.source_tracks import NonFileTrackError, SourceTrack, SourceTrackEntry
+from mtee.domain.tracks import TrackId
+from mtee.models.status_bar_model import StatusBarModel, StatusState, make_status_state
 from mtee.persistence.analysis_repository import AnalysisRepository
 from mtee.persistence.credit_override_repository import CreditOverrideRepository
 from mtee.persistence.database import Database
@@ -35,6 +38,7 @@ from mtee.plugins.api import (
     FileMoveResult,
     JobId,
     JobTask,
+    LibraryRoot,
     LibraryTrack,
     PlaylistEntry,
     PlaylistSnapshot,
@@ -51,7 +55,10 @@ from mtee.plugins.synced_settings import (
     SYNCED_SETTING_KEYS,
     normalize_synced_value,
 )
+from mtee.services.content_replacement import ContentReplacement
 from mtee.services.data_privacy import validate_backup
+from mtee.services.ffmpeg_runtime import FfmpegRuntime, FfmpegRuntimeError
+from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
 from mtee.services.playlist_service import PlaylistService
@@ -87,6 +94,8 @@ class PluginHost(QObject):
     uiRefreshRequested = Signal()
     dialogRequested = Signal(str, str)
     tabRequested = Signal(str, str)
+    # The track identifiers whose availability changed, or None for every track (plan 125.3).
+    availabilityChanged = Signal(object)
     _callRequested = Signal(object)
 
     def __init__(
@@ -111,6 +120,9 @@ class PluginHost(QObject):
         restore_proposed: Callable[[Path], None] | None = None,
         source_tracks: SourceTrackRepository | None = None,
         source_tracks_changed: Callable[[Sequence[str]], None] | None = None,
+        file_access: FileAccessCoordinator | None = None,
+        ffmpeg: FfmpegRuntime | None = None,
+        content_replacement: ContentReplacement | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -124,6 +136,14 @@ class PluginHost(QObject):
         self._recycle = recycle
         self._roots = roots
         self._refresh_playlists = refresh_playlists
+        # The file-access coordinator behind ``files.read_lease`` (remote plan 126.1). Without one,
+        # the lease raises CapabilityUnavailableError.
+        self._file_access = file_access
+        # The file replacement behind ``files.replace_content`` (remote plan 126.4). Without one,
+        # the call raises CapabilityUnavailableError.
+        self._content_replacement = content_replacement
+        # The pinned FFmpeg runtime behind ``ffmpeg_path()``: the core's own, never PATH.
+        self._ffmpeg = FfmpegRuntime() if ffmpeg is None else ffmpeg
         # The store capabilities of plan 125.6. Each is optional: a host built without one
         # gives its plugins a capability that raises CapabilityUnavailableError.
         self._play_log = play_log
@@ -138,6 +158,8 @@ class PluginHost(QObject):
         self._source_tracks = source_tracks
         self._source_tracks_changed = source_tracks_changed
         self._manager: PluginManager | None = None
+        # The status bar of the window (plan 125.5); set by ``attach_status_bar``.
+        self._status_bar: StatusBarModel | None = None
         # The graphical thread is the one that builds the host. Compared by identifier: asking Qt
         # for the current thread from a plain Python thread adopts that thread into Qt.
         self._graphical_thread = threading.get_ident()
@@ -151,6 +173,10 @@ class PluginHost(QObject):
         """
         self._manager = manager
 
+    def attach_status_bar(self, model: StatusBarModel) -> None:
+        """Let the status items of the plugins reach ``model``, the status bar of the window."""
+        self._status_bar = model
+
     def context_for(self, manifest: PluginManifest) -> PluginContext:
         """Return the context of one plugin."""
         plugin_id = manifest.plugin_id
@@ -161,7 +187,16 @@ class PluginHost(QObject):
             library=_Library(self._library, self._roots, self._require_graphical_thread),
             playlists=_Playlists(self._playlists, self._later_refresh_playlists),
             jobs=_Jobs(self._jobs),
-            files=_Files(self._file_moves, self._recycle, self._call_later),
+            files=_Files(
+                self._file_moves,
+                self._recycle,
+                self._call_later,
+                library=self._library,
+                file_access=self._file_access,
+                purpose=f"plugin {plugin_id}",
+                require_job_thread=self._require_job_thread,
+                replacement=self._content_replacement,
+            ),
             settings=_ScopedSettings(self._settings, plugin_id),
             base_dir=self._data_dir / PLUGIN_DATA_DIRECTORY / plugin_id,
             notify=self.notify,
@@ -170,7 +205,10 @@ class PluginHost(QObject):
             run_on_gui=lambda call: self._run_on_gui(call, log),
             open_dialog=lambda dialog_id, ref="": self._open_dialog(plugin_id, dialog_id, ref),
             open_tab=lambda kind, ref="": self._open_tab(plugin_id, kind, ref, log),
+            availability_changed=self._availability_changed,
             helper_setup=lambda: self._helper_setup(plugin_id),
+            status_item=_StatusItem(plugin_id, self._call_later, self._set_status),
+            ffmpeg_executable=lambda: _ffmpeg_executable(self._ffmpeg),
             **self._store_capabilities(plugin_id),
         )
 
@@ -231,6 +269,11 @@ class PluginHost(QObject):
     def _request_ui_refresh(self) -> None:
         self.uiRefreshRequested.emit()
 
+    def _set_status(self, plugin_id: str, state: StatusState | None) -> None:
+        """Show or hide the status item of ``plugin_id``; the graphical thread only."""
+        if self._status_bar is not None:
+            self._status_bar.set_state(plugin_id, state)
+
     def _open_dialog(self, plugin_id: str, dialog_id: str, ref: str) -> None:
         """Ask the window to open the dialog ``<plugin_id>.<dialog_id>``, from any thread."""
         self._call_later(lambda: self.dialogRequested.emit(f"{plugin_id}.{dialog_id}", ref))
@@ -241,6 +284,11 @@ class PluginHost(QObject):
             log.error("open_tab refused %r: a plugin opens only its own tab kinds.", kind)
             return
         self._call_later(lambda: self.tabRequested.emit(kind, ref))
+
+    def _availability_changed(self, track_ids: Sequence[str] | None = None) -> None:
+        """Tell the workspace that the availability of ``track_ids`` changed, from any thread."""
+        ids = None if track_ids is None else [str(track_id) for track_id in track_ids]
+        self._call_later(lambda: self.availabilityChanged.emit(ids))
 
     def _run_on_gui(self, call: Callable[[], None], log: logging.Logger) -> None:
         """Queue ``call`` for the graphical thread; a failure is logged, never raised there."""
@@ -343,6 +391,12 @@ class _Library:
             )
         return found
 
+    def roots(self) -> list[LibraryRoot]:
+        return [
+            LibraryRoot(root_id=str(root["id"]), path=Path(str(root["path"])))
+            for root in self._library.roots()
+        ]
+
     def add_watched_folder(self, path: Path) -> str:
         self._require_graphical_thread("add_watched_folder")
         return self._roots.addRoot(str(path))
@@ -432,10 +486,21 @@ class _Files:
         file_moves: FileMoveService,
         recycle: RecycleRequests,
         call_later: Callable[[Callable[[], None]], None],
+        *,
+        library: LibraryRepository,
+        file_access: FileAccessCoordinator | None,
+        purpose: str,
+        require_job_thread: Callable[[str], None],
+        replacement: ContentReplacement | None = None,
     ) -> None:
         self._file_moves = file_moves
         self._recycle = recycle
         self._call_later = call_later
+        self._library = library
+        self._file_access = file_access
+        self._purpose = purpose
+        self._require_job_thread = require_job_thread
+        self._replacement = replacement
 
     def move_track(self, track_id: str, root_id: str, relative_folder: str) -> FileMoveResult:
         folder = self._file_moves.resolve_folder(root_id, relative_folder)
@@ -447,6 +512,51 @@ class _Files:
 
     def import_file(self, source: Path, folder: Path) -> Path:
         return self._file_moves.import_file(source, folder)
+
+    def replace_content(self, track_id: str, source: Path) -> Path:
+        replacement = self._replacement
+        if replacement is None:
+            raise CapabilityUnavailableError("Replacing a track's file is not available here.")
+        self._require_job_thread("replace_content")
+        return replacement.replace(track_id, Path(source))
+
+    def read_lease(self, track_id: str) -> AbstractContextManager[Path]:
+        coordinator = self._file_access
+        if coordinator is None:
+            raise CapabilityUnavailableError("Read leases are not available in this context.")
+        self._require_job_thread("read_lease")
+        return _hold_read_lease(coordinator, self._library, track_id, self._purpose)
+
+
+@contextmanager
+def _hold_read_lease(
+    coordinator: FileAccessCoordinator,
+    library: LibraryRepository,
+    track_id: str,
+    purpose: str,
+) -> Iterator[Path]:
+    """Hold the coordinator's shared read lease of a track and yield its file.
+
+    The path is read while the lease is held, so a move (which takes the exclusive lease)
+    cannot change it in between.
+    """
+    with coordinator.acquire_read(TrackId.parse(track_id), purpose):
+        record = library.source_record(track_id)
+        if record is None:
+            if library.source_origin(track_id) is not None:
+                raise NonFileTrackError(library.non_file_refusal(track_id, "read"))
+            raise LookupError(f"Track {track_id} is not in the library.")
+        if not record.path.is_file():
+            raise FileNotFoundError(f"The file of track {track_id} is missing.")
+        yield record.path
+
+
+def _ffmpeg_executable(runtime: FfmpegRuntime) -> Path:
+    """Return the pinned ``ffmpeg`` of the runtime; a missing one is a ``FileNotFoundError``."""
+    try:
+        return runtime.executable("ffmpeg")
+    except FfmpegRuntimeError as error:
+        raise FileNotFoundError(str(error)) from error
 
 
 # ------------------------------------------------------- store access for sync (plan 125.6)
@@ -774,3 +884,35 @@ class _Snapshots:
             "Confirm it in Settings, Data & privacy."
         )
         self._call_later(lambda: propose(source))
+
+
+class _StatusItem:
+    """``PluginContext.status_item``: checks a change on the calling thread, applies it on the GUI.
+
+    A bad value raises in the plugin's thread; a good one is queued to the graphical thread,
+    where ``PluginHost`` hands it to the status bar.
+    """
+
+    def __init__(
+        self,
+        plugin_id: str,
+        call_later: Callable[[Callable[[], None]], None],
+        apply: Callable[[str, StatusState | None], None],
+    ) -> None:
+        self._plugin_id = plugin_id
+        self._call_later = call_later
+        self._apply = apply
+
+    def update(
+        self,
+        text: str,
+        tone: str = "neutral",
+        progress: float | None = None,
+        tooltip: str = "",
+        icon: str | None = None,
+    ) -> None:
+        state = make_status_state(text, tone, progress, tooltip, icon)
+        self._call_later(lambda: self._apply(self._plugin_id, state))
+
+    def clear(self) -> None:
+        self._call_later(lambda: self._apply(self._plugin_id, None))

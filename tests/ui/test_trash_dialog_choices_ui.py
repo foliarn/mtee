@@ -8,7 +8,7 @@ is the reference: its texts, its single action button and its height must not ch
 from __future__ import annotations
 
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,10 +23,12 @@ from tests.helpers.ui_plugin import (
     window_of,
     workspace_of,
 )
+from tests.plugins.sample.track_source import SOURCE_KEY
 from tests.plugins.test_contract import SAMPLE
 from tests.ui.track_list_fixtures import add_folder_tracks
 
 from mtee.app import _Runtime, _shutdown
+from mtee.domain.recycling import RecycleOutcome
 from mtee.models.trash_model import TrashModel
 from mtee.services.jobs import JobContext
 
@@ -100,7 +102,13 @@ class _Source:
             },
         ]
 
-    def run_delete_choice(self, key: str, track_ids: Sequence[str], job: JobContext) -> str:
+    def run_delete_choice(
+        self,
+        key: str,
+        track_ids: Sequence[str],
+        job: JobContext,
+        recycle: Callable[[Sequence[str]], RecycleOutcome],
+    ) -> str:
         self.runs.append((key, threading.get_ident()))
         return "Done."
 
@@ -191,5 +199,67 @@ def test_a_replacing_choice_takes_the_core_button_and_a_danger_choice_is_red(
         assert [key for key, _thread in source.runs] == ["alpha.safe"]
         assert _trash(runtime).state == "result"
         assert Path(tmp_path / "audio" / "track-000.wav").is_file()  # no choice moved the file
+    finally:
+        _shutdown(runtime)
+
+
+def test_cancel_closes_the_confirmation_and_runs_nothing(qapp, tmp_path: Path) -> None:
+    runtime = start_app(tmp_path / "data")
+    try:
+        _root, track_ids = add_folder_tracks(runtime, tmp_path / "audio", 1)
+        window = _open_confirmation(runtime, track_ids)
+        dialog = window.findChild(QObject, "trashDialog")
+        assert dialog is not None
+        [cancel] = _shown(window, "trashCancel")
+        assert cancel.property("text") == "Cancel"
+
+        click(window, cancel)
+        settle(runtime)
+
+        assert dialog.property("visible") is False  # closed, as Escape closes it
+        assert _trash(runtime).state == "confirm" and _trash(runtime).results == []
+        assert Path(tmp_path / "audio" / "track-000.wav").is_file()  # nothing was recycled
+    finally:
+        _shutdown(runtime)
+
+
+def test_a_track_without_a_file_is_named_by_its_title_not_its_identifier(
+    qapp, tmp_path: Path
+) -> None:
+    runtime = start_app(tmp_path / "data", (SAMPLE.folder,), (SAMPLE.plugin_id,))
+    try:
+        records = cast(Any, runtime.plugins).plugins
+        record = next(item for item in records if item.plugin_id == SAMPLE.plugin_id)
+        served = cast(Any, record.service).provide_tracks(b"not really audio", 3_000_000)
+        track_id = served[SOURCE_KEY]
+        window = window_of(runtime)
+
+        _trash(runtime).request_recycle([track_id])
+        settle(runtime)
+
+        # The sample's track has no file: the row names it by artist and title, never by its id.
+        [result] = cast(list[dict[str, Any]], _trash(runtime).results)
+        assert result["status"] == "conflict"
+        assert result["source"] == "Sample artist - Served over HTTP"
+        texts = _dialog_texts(window)
+        assert "CONFLICT  Sample artist - Served over HTTP" in texts
+        assert not any(track_id in text for text in texts)
+    finally:
+        _shutdown(runtime)
+
+
+def test_the_recycle_bin_dialog_is_centred_over_the_window(qapp, tmp_path: Path) -> None:
+    runtime = start_app(tmp_path / "data")
+    try:
+        _root, track_ids = add_folder_tracks(runtime, tmp_path / "audio", 1)
+        window = _open_confirmation(runtime, track_ids)
+        dialog = window.findChild(QObject, "trashDialog")
+        assert dialog is not None
+        x, y = float(dialog.property("x")), float(dialog.property("y"))
+        width, height = float(dialog.property("width")), float(dialog.property("height"))
+
+        # Centred like the other dialogs of the core, not on the 0 x 0 loader at the corner.
+        assert abs(x + width / 2 - window.width() / 2) <= 1
+        assert abs(y + height / 2 - window.height() / 2) <= 1
     finally:
         _shutdown(runtime)

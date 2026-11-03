@@ -108,6 +108,7 @@ Item {
             width: parent.width
             text: header.info.trackCount + (header.info.trackCount === 1 ? " track" : " tracks")
                 + (header.fromText.length > 0 ? "  ·  from " + header.fromText : "")
+                + ((header.trackModel.hiddenCount || 0) > 0 ? "  ·  " + header.trackModel.hiddenCount + " hidden" : "")
             elide: Text.ElideRight
             color: Theme.textSecondary
             font.family: Theme.fontFamily

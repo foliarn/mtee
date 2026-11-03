@@ -13,7 +13,7 @@ import wave
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 from tests.helpers.ui_plugin import (
@@ -472,5 +472,44 @@ def test_the_sample_opens_its_dialog_in_a_core_popup_and_closes_it(qapp, tmp_pat
         click(window, need_item(window, "sampleDialogClose"))
         settle(runtime)
         assert find_item(window, "sampleDialog") is None
+    finally:
+        _shutdown(runtime)
+
+
+def _menu_entry(window: QQuickWindow, name: str) -> dict[str, Any] | None:
+    """The ``text`` and ``hint`` of a menu entry (a QObject, not an item) below the window.
+
+    The properties are read here: the wrapper of an entry is gone once the helper returns.
+    """
+    pending: list[QQuickItem] = [window.contentItem()]
+    while pending:
+        item = pending.pop()
+        found = item.findChildren(QObject, name)
+        if found:
+            entry = found[0]
+            return {"text": entry.property("text"), "hint": entry.property("hint")}
+        pending.extend(item.childItems())
+    return None
+
+
+def test_the_column_picker_names_the_sample_plugin_once(qapp, tmp_path: Path) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        add_folder_tracks(runtime, tmp_path / "audio", 2)
+        window = window_of(runtime)
+        settle(runtime)
+        click(window, need_item(window, ACTIVITY))
+        settle(runtime)
+        click(window, need_item(window, "pluginRow_all"))
+        settle(runtime)
+
+        click(window, need_item(window, "chooseColumnsButton"))
+        QTest.qWait(80)
+        entry = _menu_entry(window, f"columnOption_{SAMPLE_ID}.status")
+        assert entry is not None, "the sample column is not in the open picker"
+        assert entry["text"] == "Sample status"
+        # The title already ends with "plugin": it is shown once, not as "Sample plugin plugin".
+        assert entry["hint"] == "Sample plugin"
+        QTest.keyClick(window, Qt.Key.Key_Escape)
     finally:
         _shutdown(runtime)

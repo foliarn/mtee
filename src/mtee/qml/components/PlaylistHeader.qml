@@ -29,8 +29,11 @@ Item {
     readonly property string pluginMeta: pluginUi !== null && !pluginTab
         ? pluginUi.playlistMeta(tab.ref, pluginUi.revision) : ""
     readonly property string baseMeta: header.details.metaText || header.details.summary || ""
-    readonly property string metaText: pluginMeta.length > 0
-        ? (baseMeta.length > 0 ? baseMeta + " · " + pluginMeta : pluginMeta) : baseMeta
+    // "· N hidden" when the track filter leaves tracks out of this list (plan 125.3).
+    readonly property string hiddenText: (trackModel.hiddenCount || 0) > 0
+        ? trackModel.hiddenCount + " hidden" : ""
+    readonly property string metaText: [baseMeta, pluginMeta, hiddenText]
+        .filter(part => part.length > 0).join(" · ")
     // 24 above the cover, the cover, 24, the Play row, 24 below.
     implicitHeight: 24 + coverSize + 24 + playRow + 24
 
