@@ -45,6 +45,8 @@ Rectangle {
             delegate: ActivityButton {
                 required property var modelData
                 activity: modelData.id; icon: modelData.icon; tip: modelData.tip
+                // The count the plugin declared (its conflicts, say), read again with its revision.
+                badge: bar.workspace.pluginUi.activityBadge(modelData.id, bar.workspace.pluginUi.revision)
             }
         }
         ActivityButton {

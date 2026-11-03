@@ -957,12 +957,19 @@ class TabRequest:
 
 @dataclass(frozen=True, slots=True)
 class PaneAction:
-    """An icon button in the header of a sidebar pane or section."""
+    """A button in the header of a sidebar pane or section.
+
+    It is an icon button, or with ``label`` a small text button (ghost) that shows the label;
+    ``tip`` is its tooltip either way. ``visible`` is read when the plugin calls ``refresh_ui``
+    and at the registration: a button whose function returns ``False``, or raises, is not drawn.
+    """
 
     action_id: str
     tip: str
     icon: str
     run: Callable[[], None]
+    label: str = ""
+    visible: Callable[[], bool] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -972,7 +979,14 @@ class SidebarSection(Contribution):
     ``activity`` is ``"playlists"`` (below the local playlists), ``"explorer"``, or the
     ``activity_id`` of a ``PluginActivity`` of the same plugin. ``model`` is a
     ``PluginRowsModel`` the plugin keeps up to date. ``activate`` receives the ``id`` of the
-    row the user clicked and answers which tab to open, or ``None`` for none.
+    row the user clicked (an item, or the name of a group row) and answers which tab to open,
+    or ``None`` for none. A click on the chevron of a group row only folds it; ``on_fold(row_id,
+    expanded)`` is then called on the graphical thread, so that the plugin can remember it.
+
+    ``count`` is drawn as a badge next to the title (hidden when 0) and is read when the plugin
+    calls ``refresh_ui``. ``expanded`` is the state of the section the first time it is shown:
+    ``True`` (the default), ``False``, or a function read at that moment. Then the user's choice
+    is kept.
     """
 
     section_id: str
@@ -981,6 +995,9 @@ class SidebarSection(Contribution):
     model: QAbstractItemModel
     actions: tuple[PaneAction, ...] = ()
     activate: Callable[[str], TabRequest | None] | None = None
+    on_fold: Callable[[str, bool], None] | None = None
+    count: Callable[[], int] | None = None
+    expanded: bool | Callable[[], bool] = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -989,7 +1006,9 @@ class PluginActivity(Contribution):
 
     The pane shows ``title`` with ``actions`` in its header, then the ``SidebarSection`` of
     the plugin that name this activity. ``foot`` is an optional ``PluginRowsModel`` of
-    ``{"text", "tone"}`` rows drawn at the bottom of the pane.
+    ``{"text", "tone"}`` rows drawn at the bottom of the pane. ``badge`` is drawn on the
+    activity bar button like the badge of Tasks (hidden when 0) and is read when the plugin
+    calls ``refresh_ui``.
     """
 
     activity_id: str
@@ -997,6 +1016,7 @@ class PluginActivity(Contribution):
     icon: str
     actions: tuple[PaneAction, ...] = ()
     foot: QAbstractItemModel | None = None
+    badge: Callable[[], int] | None = None
 
 
 @dataclass(frozen=True, slots=True)

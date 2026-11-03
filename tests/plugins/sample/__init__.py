@@ -132,8 +132,10 @@ class Service:
                 {"id": "all", "name": "All samples", "icon": "music", "badge": 2},
                 {"id": "group", "name": "Groups", "kind": "group"},
                 {"id": "missing", "name": "Missing only", "depth": 1},
+                {"id": "broken", "name": "Broken sample", "icon": "alert", "tone": "warning"},
             ]
         )
+        self._archive = PluginRowsModel([{"id": "old", "name": "Old sample"}])
         self._waiting = PluginRowsModel(
             [
                 {
@@ -224,6 +226,38 @@ class Service:
         """The status bar item was clicked; runs on the graphical thread."""
         EVENTS.append("status click")
 
+    def _refresh(self) -> None:
+        """The Refresh button: the counts and button visibilities are read again by the core."""
+        EVENTS.append("refresh")
+        self._context.refresh_ui()
+
+    def _list_activated(self, row_id: str) -> TabRequest | None:
+        """A click on the name of a row of the lists section; runs on the graphical thread."""
+        EVENTS.append(f"activate {row_id}")
+        if row_id in {"group", "broken"}:
+            return None
+        return TabRequest(LIST_KIND, row_id)
+
+    @staticmethod
+    def _folded(row_id: str, expanded: bool) -> None:
+        """A chevron of a group row was clicked; runs on the graphical thread."""
+        EVENTS.append(f"fold {row_id} {'expanded' if expanded else 'folded'}")
+
+    def _has_tracks(self) -> bool:
+        """The import is offered only once the library has tracks; read on refresh_ui."""
+        return bool(self._context.library.track_ids())
+
+    def _missing_count(self) -> int:
+        """The badge of the lists section: the items without a local file; read on refresh_ui."""
+        cursor = self._context.database.connection().execute(
+            "SELECT COUNT(*) FROM sample_items WHERE state = 'missing'"
+        )
+        return int(cursor.fetchone()[0])
+
+    def _waiting_count(self) -> int:
+        """The badge of the activity: the rows waiting for the user; read on refresh_ui."""
+        return len(self._waiting.rows())
+
     @staticmethod
     def _offer_delete(track_ids: Sequence[str]) -> list[DeleteChoice]:
         """Add one choice to the delete confirmation. Runs on the graphical thread."""
@@ -243,10 +277,13 @@ class Service:
         EVENTS.append(f"delete {request.choice_id} {','.join(request.track_ids)}")
         return f"Logged {len(request.track_ids)} track(s)."
 
-    @staticmethod
-    def _scanned(root: Path) -> None:
-        """Called on the graphical thread after a library scan finished."""
+    def _scanned(self, root: Path) -> None:
+        """Called on the graphical thread after a library scan finished.
+
+        The import button depends on the library, so the plugin asks for its counts again.
+        """
         EVENTS.append(f"scanned {root.name}")
+        self._context.refresh_ui()
 
     def _import(self) -> None:
         """Bring a copy of the first library track in as a new file, through the core."""
@@ -418,25 +455,38 @@ class Service:
                 "Sample",
                 "music",
                 actions=(
+                    PaneAction("refresh", "Refresh the samples", "repeat", self._refresh),
                     PaneAction(
-                        "refresh", "Refresh the samples", "repeat", lambda: EVENTS.append("refresh")
+                        "import",
+                        "Import a sample file",
+                        "arrow-down",
+                        self._import,
+                        label="Import",
+                        visible=self._has_tracks,
                     ),
-                    PaneAction("import", "Import a sample file", "arrow-down", self._import),
                     PaneAction(
                         "playlist", "Make a sample playlist", "playlists", self._make_playlist
                     ),
                     PaneAction("note", "Open the sample dialog", "info", self._open_dialog),
                 ),
                 foot=self._foot,
+                badge=self._waiting_count,
             ),
             SidebarSection(
                 "lists",
                 "Sample lists",
                 "main",
                 self._lists,
-                activate=lambda row_id: (
-                    None if row_id == "group" else TabRequest(LIST_KIND, row_id)
-                ),
+                activate=self._list_activated,
+                on_fold=self._folded,
+                count=self._missing_count,
+            ),
+            SidebarSection(
+                "archive",
+                "Sample archive",
+                "main",
+                self._archive,
+                expanded=False,
             ),
             TabKind(
                 LIST_KIND,

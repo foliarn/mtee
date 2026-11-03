@@ -17,6 +17,7 @@ from mtee.plugins.api import (
     Contribution,
     DeleteChoices,
     LibraryScanned,
+    PaneAction,
     PlaylistMeta,
     PluginActivity,
     PluginDialog,
@@ -130,10 +131,20 @@ def _check_activity(activity: PluginActivity) -> None:
     _need_text("activity", activity.activity_id, activity.title, "title")
     _need_text("activity", activity.activity_id, activity.icon, "icon")
     for action in activity.actions:
-        _need_identifier("pane action", action.action_id)
-        _need_callable("pane action", action.action_id, action.run)
+        _check_pane_action(action)
     if activity.foot is not None and not isinstance(activity.foot, QAbstractItemModel):
         raise ValueError(f"The foot of activity {activity.activity_id} is not a Qt model.")
+    if activity.badge is not None:
+        _need_callable("activity badge", activity.activity_id, activity.badge)
+
+
+def _check_pane_action(action: PaneAction) -> None:
+    _need_identifier("pane action", action.action_id)
+    _need_callable("pane action", action.action_id, action.run)
+    if not isinstance(action.label, str):
+        raise ValueError(f"The pane action {action.action_id} has a label that is not text.")
+    if action.visible is not None:
+        _need_callable("pane action visibility", action.action_id, action.visible)
 
 
 def _check_section(section: SidebarSection, own_activities: set[str]) -> None:
@@ -147,10 +158,18 @@ def _check_section(section: SidebarSection, own_activities: set[str]) -> None:
     if not isinstance(section.model, QAbstractItemModel):
         raise ValueError(f"The model of section {section.section_id} is not a Qt model.")
     for action in section.actions:
-        _need_identifier("pane action", action.action_id)
-        _need_callable("pane action", action.action_id, action.run)
+        _check_pane_action(action)
     if section.activate is not None:
         _need_callable("sidebar section", section.section_id, section.activate)
+    if section.on_fold is not None:
+        _need_callable("sidebar section", section.section_id, section.on_fold)
+    if section.count is not None:
+        _need_callable("section count", section.section_id, section.count)
+    if not isinstance(section.expanded, bool) and not callable(section.expanded):
+        raise ValueError(
+            f"The section {section.section_id} has an expanded value that is neither a bool "
+            "nor a function."
+        )
 
 
 def _check_waiting(group: WaitingItems) -> None:

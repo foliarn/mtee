@@ -412,16 +412,28 @@ A contribution is data. The core draws it with its own components and colours; a
 names a core QML type in it. Icons are icon names of the core (`music`, `repeat`,
 `arrow-down`...). Every identifier is lowercase snake_case and unique within its kind.
 
-- `PluginActivity(activity_id, title, icon, actions=(), foot=None)`: a button in the activity
-  bar and a sidebar pane. `actions` are `PaneAction(action_id, tip, icon, run)` buttons in the
-  pane header. `foot` is a `PluginRowsModel` of `{"text", "tone"}` rows (`tone`: `secondary`,
-  `muted` or `warning`) drawn at the bottom. The id may not be a core activity name.
-- `SidebarSection(section_id, title, activity, model, actions=(), activate=None)`: a
-  collapsible section. `activity` is `"playlists"` (below the local playlists), `"explorer"`
-  or the `activity_id` of a `PluginActivity` of the same plugin. `model` is a
-  `PluginRowsModel` the plugin keeps up to date; a row has `id` and `name`, and optionally
+- `PluginActivity(activity_id, title, icon, actions=(), foot=None, badge=None)`: a button in the
+  activity bar and a sidebar pane. `actions` are `PaneAction(action_id, tip, icon, run, label="",
+  visible=None)` buttons in the pane header: with a `label` they are small ghost text buttons
+  instead of icon buttons, and `visible()` decides whether a button is drawn. `foot` is a
+  `PluginRowsModel` of `{"text", "tone"}` rows (`tone`: `secondary`, `muted` or `warning`) drawn at
+  the bottom. `badge()` returns the number drawn on the activity bar button like the badge of
+  Tasks (hidden at 0). `badge`, `visible` are read when the plugin calls `refresh_ui()` and at
+  registration; a function that raises counts as 0, or as hidden. The id may not be a core
+  activity name.
+- `SidebarSection(section_id, title, activity, model, actions=(), activate=None, on_fold=None,
+  count=None, expanded=True)`: a collapsible section. `activity` is `"playlists"` (below the local
+  playlists), `"explorer"` or the `activity_id` of a `PluginActivity` of the same plugin. `model` is
+  a `PluginRowsModel` the plugin keeps up to date; a row has `id` and `name`, and optionally
   `depth`, `kind` (`item` or `group`), `expanded`, `icon`, `tone`, `badge` and `count`.
-  `activate(row_id)` returns a `TabRequest(kind, ref)` or `None`.
+  `activate(row_id)` runs when the user clicks an item, or the name of a group row, and returns a
+  `TabRequest(kind, ref)` or `None`. The chevron of a group row only folds it: `on_fold(row_id,
+  expanded)` is then called on the graphical thread, so that the plugin can remember the state.
+  `count()` gives a badge drawn next to the section title (hidden at 0), read with `refresh_ui()`.
+  `expanded` is the state of the section the first time it is shown: `True`, `False`, or a function
+  read at that moment; after that the user's choice is kept.
+- A row with `tone="warning"` is drawn in the warning colour, its icon and its text and count
+  included; `secondary` colours only the icon.
 - `TabKind(kind, title_fn, content, header=None, backend=None, icon="playlists")`: an editor tab
   kind named `<plugin_id>.<name>`. `title_fn(ref)` gives the tab title. `content` is either a
   function `ref -> [TrackListRow]`, which the core shows with its own track list (search, sort,

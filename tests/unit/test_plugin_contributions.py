@@ -59,6 +59,11 @@ def _noop() -> None:
     return None
 
 
+def _bad(value: object) -> Any:
+    """A value of the wrong type, for the checks that refuse it (the type checker allows it)."""
+    return value
+
+
 # ----------------------------------------------------------------------------- the checks
 
 
@@ -93,6 +98,35 @@ def test_valid_contributions_pass(qapp, tmp_path: Path) -> None:
         (lambda: [PluginActivity("tasks", "T", "music")], "used by MTEE itself"),
         (lambda: [PluginActivity("Main", "T", "music")], "lowercase snake_case"),
         (lambda: [PluginActivity("main", "", "music")], "no title"),
+        (lambda: [PluginActivity("main", "T", "music", badge=5)], "not callable"),  # type: ignore[arg-type]
+        (
+            lambda: [
+                PluginActivity(
+                    "main", "T", "music", (PaneAction("go", "Go", "r", _noop, label=_bad(3)),)
+                )
+            ],
+            "label that is not text",
+        ),
+        (
+            lambda: [
+                PluginActivity(
+                    "main", "T", "music", (PaneAction("go", "Go", "r", _noop, visible=_bad("x")),)
+                )
+            ],
+            "not callable",
+        ),
+        (
+            lambda: [SidebarSection("s", "S", "playlists", PluginRowsModel(), count=3)],  # type: ignore[arg-type]
+            "not callable",
+        ),
+        (
+            lambda: [SidebarSection("s", "S", "playlists", PluginRowsModel(), on_fold="fold")],  # type: ignore[arg-type]
+            "not callable",
+        ),
+        (
+            lambda: [SidebarSection("s", "S", "playlists", PluginRowsModel(), expanded="yes")],  # type: ignore[arg-type]
+            "neither a bool",
+        ),
         (lambda: [SidebarSection("s", "S", "tasks", PluginRowsModel())], "neither Explorer"),
         (lambda: [SidebarSection("s", "S", "playlists", object())], "not a Qt model"),  # type: ignore[arg-type]
         (lambda: [TabAction("a", "pl.unknown", "A", _run)], "neither playlist nor"),
@@ -695,3 +729,180 @@ def test_rows_say_which_list_they_belong_to() -> None:
 
     assert seen == [("playlist", "p-1")]
     assert rows[0]["tabKind"] == "playlist" and rows[0]["tabRef"] == "p-1"
+
+
+# ------------------------------------------------- the sidebar fields (counts, text, fold)
+
+
+def test_the_optional_sidebar_fields_default_to_the_old_behaviour() -> None:
+    action = PaneAction("go", "Go", "repeat", _noop)
+    section = SidebarSection("s", "S", "playlists", PluginRowsModel())
+    activity = PluginActivity("main", "Pl", "music")
+
+    assert action.label == "" and action.visible is None
+    assert section.on_fold is None and section.count is None and section.expanded is True
+    assert activity.badge is None
+
+
+def test_the_optional_sidebar_fields_are_accepted_when_valid(qapp) -> None:
+    model = PluginRowsModel()
+    check_contributions(
+        "pl",
+        [
+            PluginActivity(
+                "main",
+                "Pl",
+                "music",
+                (PaneAction("text", "Text", "check", _noop, label="Apply", visible=lambda: True),),
+                badge=lambda: 2,
+            ),
+            SidebarSection(
+                "lists",
+                "Lists",
+                "main",
+                model,
+                on_fold=lambda row_id, expanded: None,
+                count=lambda: 3,
+                expanded=lambda: False,
+            ),
+            SidebarSection("side", "Side", "main", model, expanded=False),
+        ],
+    )
+
+
+def test_the_counts_badges_and_visibilities_are_read_on_registration_and_refresh(qapp) -> None:
+    state = {"count": 1, "shown": True}
+    ui, _ = _ui(
+        [
+            PluginActivity(
+                "main",
+                "Pl",
+                "music",
+                (
+                    PaneAction(
+                        "apply",
+                        "Apply",
+                        "check",
+                        _noop,
+                        label="Apply",
+                        visible=lambda: state["shown"],
+                    ),
+                ),
+                badge=lambda: state["count"],
+            ),
+            SidebarSection(
+                "lists",
+                "Lists",
+                "main",
+                PluginRowsModel(),
+                count=lambda: state["count"],
+                actions=(PaneAction("sync", "Sync", "repeat", _noop, visible=lambda: False),),
+            ),
+        ]
+    )
+
+    assert ui.activityBadge("pl.main", ui.revision) == 1
+    assert ui.sectionCount("pl.lists", ui.revision) == 1
+    assert ui.actionShown("activity:pl.main", "apply", ui.revision) is True
+    assert ui.actionShown("section:pl.lists", "sync", ui.revision) is False
+
+    state.update(count=0, shown=False)
+    # Nothing is read again until the plugin calls refresh_ui.
+    assert ui.activityBadge("pl.main", ui.revision) == 1
+    ui.refresh()
+    assert ui.activityBadge("pl.main", ui.revision) == 0
+    assert ui.sectionCount("pl.lists", ui.revision) == 0
+    assert ui.actionShown("activity:pl.main", "apply", ui.revision) is False
+
+
+def test_a_button_without_visibility_is_shown_and_a_failing_one_is_hidden(qapp) -> None:
+    def explodes() -> bool:
+        raise RuntimeError("no data")
+
+    ui, notices = _ui(
+        [
+            PluginActivity(
+                "main",
+                "Pl",
+                "music",
+                (
+                    PaneAction("plain", "Plain", "repeat", _noop),
+                    PaneAction("broken", "Broken", "repeat", _noop, visible=explodes),
+                ),
+                badge=lambda: int(1 / 0),  # a failing count is 0
+            ),
+        ]
+    )
+
+    assert ui.actionShown("activity:pl.main", "plain", ui.revision) is True
+    assert ui.actionShown("activity:pl.main", "broken", ui.revision) is False
+    assert ui.activityBadge("pl.main", ui.revision) == 0
+    assert len(notices) == 2 and all("pl" in notice for notice in notices)
+
+
+def test_the_label_of_a_pane_action_is_read_by_the_activity_info(qapp) -> None:
+    ui, _ = _ui(
+        [
+            PluginActivity(
+                "main",
+                "Pl",
+                "music",
+                (PaneAction("apply", "Apply", "check", _noop, label="Apply"),),
+            ),
+        ]
+    )
+
+    info = ui.activityInfo("pl.main")
+    assert info["actions"] == [{"id": "apply", "tip": "Apply", "icon": "check", "label": "Apply"}]
+
+
+def test_a_group_name_click_calls_activate_and_a_chevron_calls_on_fold(qapp) -> None:
+    opened: list[str] = []
+    folded: list[tuple[str, bool]] = []
+
+    def activate(row_id: str) -> TabRequest | None:
+        opened.append(row_id)
+        return TabRequest("pl.list", row_id)
+
+    ui, _ = _ui(
+        [
+            _kind(),
+            SidebarSection(
+                "lists",
+                "Lists",
+                "main",
+                PluginRowsModel(),
+                activate=activate,
+                on_fold=lambda row_id, expanded: folded.append((row_id, expanded)),
+            ),
+            PluginActivity("main", "Pl", "music"),
+        ]
+    )
+
+    ui.activateRow("pl.lists", "group")
+    ui.foldRow("pl.lists", "group", False)
+    ui.foldRow("pl.lists", "group", True)
+    assert opened == ["group"]
+    assert folded == [("group", False), ("group", True)]
+
+
+def test_a_section_starts_by_its_expanded_value_and_a_failing_one_starts_expanded(qapp) -> None:
+    def explodes() -> bool:
+        raise RuntimeError("no library")
+
+    ui, notices = _ui(
+        [
+            PluginActivity("main", "Pl", "music"),
+            SidebarSection("a", "A", "main", PluginRowsModel(), expanded=False),
+            SidebarSection("b", "B", "main", PluginRowsModel(), expanded=lambda: False),
+            SidebarSection("c", "C", "main", PluginRowsModel(), expanded=explodes),
+            SidebarSection("d", "D", "main", PluginRowsModel()),
+        ]
+    )
+
+    assert ui.sectionStartsExpanded("pl.a") is False
+    assert ui.sectionStartsExpanded("pl.b") is False
+    assert ui.sectionStartsExpanded("pl.c") is True
+    assert ui.sectionStartsExpanded("pl.d") is True
+    assert ui.sectionStartsExpanded("pl.missing") is True
+    assert len(notices) == 1

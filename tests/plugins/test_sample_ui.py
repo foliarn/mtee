@@ -13,7 +13,7 @@ import wave
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QObject, QPointF, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 from tests.helpers.ui_plugin import (
@@ -511,5 +511,145 @@ def test_the_column_picker_names_the_sample_plugin_once(qapp, tmp_path: Path) ->
         # The title already ends with "plugin": it is shown once, not as "Sample plugin plugin".
         assert entry["hint"] == "Sample plugin"
         QTest.keyClick(window, Qt.Key.Key_Escape)
+    finally:
+        _shutdown(runtime)
+
+
+# ------------------------------------------- the sidebar fields: text, counts, fold, warning
+
+
+def _drawn(item: QQuickItem | None) -> bool:
+    """Whether an item and every parent of it is visible, as the eye sees it."""
+    current = item
+    while current is not None:
+        if not current.isVisible():
+            return False
+        current = current.parentItem()
+    return item is not None
+
+
+def _click_at(window: QQuickWindow, item: QQuickItem, x: float, y: float) -> None:
+    """Click a point given in the item's own coordinates, with the left mouse button."""
+    point = item.mapToScene(QPointF(x, y)).toPoint()
+    QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
+    QTest.qWait(30)
+
+
+def _text_of(item: QQuickItem) -> str:
+    """The text of an item, or of its first child that has one."""
+    if isinstance(item.property("text"), str):
+        return str(item.property("text"))
+    return next(
+        str(child.property("text")) for child in item.childItems() if child.property("text")
+    )
+
+
+def test_a_text_action_is_drawn_with_its_label_and_hidden_until_the_library_has_tracks(
+    qapp, tmp_path: Path
+) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        window = window_of(runtime)
+        settle(runtime)
+        click(window, need_item(window, ACTIVITY))
+        settle(runtime)
+        # An empty library: the Import text button is not drawn, nor its icon-button twin.
+        assert not _drawn(find_item(window, "pluginPaneLabelAction_import"))
+        assert not _drawn(find_item(window, "pluginPaneAction_import"))
+        assert _drawn(find_item(window, "pluginPaneAction_refresh"))
+
+        # Once the library has tracks, the plugin asks for its counts again (its Refresh button).
+        add_folder_tracks(runtime, tmp_path / "audio", 2)
+        click(window, need_item(window, "pluginPaneAction_refresh"))
+        settle(runtime)
+        text_button = find_item(window, "pluginPaneLabelAction_import")
+        assert _drawn(text_button)
+        assert text_button is not None and text_button.property("text") == "Import"
+        assert not _drawn(find_item(window, "pluginPaneAction_import"))
+    finally:
+        _shutdown(runtime)
+
+
+def test_the_sample_draws_its_section_count_activity_badge_and_warning_row(
+    qapp, tmp_path: Path
+) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        window = window_of(runtime)
+        settle(runtime)
+        click(window, need_item(window, ACTIVITY))
+        settle(runtime)
+
+        # The activity badge is the number of waiting rows (two in the sample).
+        assert need_item(window, ACTIVITY).property("badge") == 2
+
+        # The section count is the number of items without a local file.
+        missing = (
+            runtime.database.connection()
+            .execute("SELECT COUNT(*) FROM sample_items WHERE state = 'missing'")
+            .fetchone()[0]
+        )
+        count = need_item(window, f"pluginSectionCount_{SAMPLE_ID}.lists")
+        assert _drawn(count)
+        assert _text_of(count) == str(missing)
+
+        # A warning row: its name is drawn in the warning colour (Theme.warning, #FFB020).
+        broken = need_item(window, "pluginRow_broken")
+        name = next(
+            child for child in broken.childItems() if child.property("text") == "Broken sample"
+        )
+        assert name.property("color").name().upper() == "#FFB020"
+        assert _drawn(name)
+    finally:
+        _shutdown(runtime)
+
+
+def test_a_group_name_click_activates_and_its_chevron_only_folds(qapp, tmp_path: Path) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        window = window_of(runtime)
+        settle(runtime)
+        module = plugin_module(SAMPLE_ID)
+        assert module is not None
+        click(window, need_item(window, ACTIVITY))
+        settle(runtime)
+        group = need_item(window, "pluginRow_group")
+
+        # The name of the group calls activate; no tab opens for it.
+        name = next(child for child in group.childItems() if child.property("text") == "Groups")
+        name_x = name.x() + 2
+        _click_at(window, group, name_x, group.height() / 2)
+        settle(runtime)
+        assert module.EVENTS[-1] == "activate group"
+        assert _drawn(find_item(window, "pluginRow_missing"))
+
+        # The chevron folds the group and tells the plugin; the child row goes away.
+        _click_at(window, group, 10, group.height() / 2)
+        settle(runtime)
+        assert module.EVENTS[-1] == "fold group folded"
+        assert module.EVENTS[-2] == "activate group"
+        assert not _drawn(find_item(window, "pluginRow_missing"))
+    finally:
+        _shutdown(runtime)
+
+
+def test_a_section_that_starts_collapsed_is_drawn_folded_until_its_header_is_clicked(
+    qapp, tmp_path: Path
+) -> None:
+    runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
+    try:
+        window = window_of(runtime)
+        settle(runtime)
+        click(window, need_item(window, ACTIVITY))
+        settle(runtime)
+
+        assert "SAMPLE ARCHIVE" in [text.upper() for text in visible_texts(window)]
+        assert find_item(window, "pluginRow_old") is None
+
+        section = need_item(window, f"pluginSection_{SAMPLE_ID}.archive")
+        header = section.childItems()[0]
+        _click_at(window, header, 60, header.height() / 2)
+        settle(runtime)
+        assert _drawn(find_item(window, "pluginRow_old"))
     finally:
         _shutdown(runtime)
