@@ -85,6 +85,7 @@ from mtee.services.player_service import PlayerService
 from mtee.services.playlist_exchange import PlaylistExchange
 from mtee.services.playlist_service import PlaylistService
 from mtee.services.profile_service import PROFILE_DIRECTORY_NAME, ProfileService
+from mtee.services.track_identity import TrackIdentity
 from mtee.services.trash_service import TrashService, TrashServiceError
 
 __all__ = ["EXIT_OK", "create_application", "main", "run"]
@@ -347,6 +348,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
         workspace.attach_trash_model(trash_model)
         file_move_service = FileMoveService(database, library, file_access)
         content_replacement = ContentReplacement(database, library, file_access, trash_model)
+        track_identity = TrackIdentity(database, library, file_access)
         workspace.attach_file_move_model(FileMoveModel(file_move_service, jobs))
         # Plugins load last, once every core service they can use exists. The Plugins activity
         # is always offered, so the host, the manager and its view exist in every run; without an
@@ -389,6 +391,10 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
             ),
             file_access=file_access,
             content_replacement=content_replacement,
+            track_identity=track_identity,
+            track_files_changed=lambda track_ids: _refresh_after_track_files(
+                player_service, artist_index, playlists_model, workspace, track_ids
+            ),
         )
         workspace.attach_plugin_host(plugin_host)
         plugin_manager = PluginManager(plugin_preferences, notify=plugin_host.notify)
@@ -528,6 +534,21 @@ def _refresh_after_source_tracks(
         player.refresh_track(track_id)
     artist_index.refresh()
     playlists_model.refresh()
+
+
+def _refresh_after_track_files(
+    player: PlayerService,
+    artist_index: ArtistIndexService,
+    playlists_model: PlaylistsModel,
+    workspace: WorkspaceModel,
+    track_ids: Sequence[str],
+) -> None:
+    """Read the views again after a plugin replaced, attached or adopted the file of tracks."""
+    for track_id in track_ids:
+        player.refresh_track(track_id)
+    artist_index.refresh()
+    playlists_model.refresh()
+    workspace.refresh_after_track_files()
 
 
 def _apply_synced_settings(

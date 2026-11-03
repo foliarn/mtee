@@ -139,7 +139,7 @@ core is reachable from it.
 | `library` | `track_ids()`, `tracks(ids)` (`LibraryTrack`: id, path, title, artists, album, `duration_us`, `readable`, `isrc`), `roots()` (`LibraryRoot`: `root_id`, `path`), `add_watched_folder(path)` and `rescan(path)`. The last two on the graphical thread only. See "Library roots, read leases and ffmpeg". |
 | `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids, expected_revision=None)` (returns the new revision), `entries(playlist_id)`, `read(playlist_id)`, `revision(playlist_id)`, `name(playlist_id)` (`None` when it is gone) and `exists(playlist_id)`, through the core playlist service. See "Store access for sync". |
 | `jobs` | `submit(task, label=..., visible=...)` and `cancel(job_id)` on the core job service. |
-| `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)`, `replace_content(track_id, source)` (optional capability, see below) and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. `read_lease(track_id)` is the one read access: a context manager that yields the path under a read lease. See "Library roots, read leases and ffmpeg" and below. |
+| `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)`, `replace_content(track_id, source)` and `attach_file(track_id, source, folder)` (optional capabilities, see below) and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. `read_lease(track_id)` is the one read access: a context manager that yields the path under a read lease. See "Library roots, read leases and ffmpeg" and below. |
 | `ffmpeg_path()` | The core's pinned `ffmpeg` executable, never one found on `PATH`. See "Library roots, read leases and ffmpeg". |
 | `settings` | A key-value store scoped to the plugin: `get`, `set`, `get_json`, `set_json`, `delete`. Keys live under `plugins.<id>.` in the settings. |
 | `base_dir`, `data_dir` | `<data-dir>/plugin-data/<id>/`. `data_dir` creates the folder when first read; use it for tokens and caches. It is outside the plugins folder, so an update or an uninstall keeps it. |
@@ -150,7 +150,7 @@ core is reachable from it.
 | `open_dialog(dialog_id, ref)` | Opens one of the plugin's `PluginDialog` as a modal popup over the window. Any thread. `ref` is handed to the dialog's QML. |
 | `open_tab(kind, ref)` | Opens, or focuses when it is already open, a tab of one of the plugin's own `TabKind` (`kind` starts with `<plugin_id>.`, another is refused and logged). Any thread; the tab opens on the graphical thread. |
 | `play_log`, `track_data`, `synced_settings`, `database_snapshot` | The optional store capabilities for sync, see "Store access for sync". A context built without them raises `CapabilityUnavailableError` at the first call. |
-| `track_sources` | Stores the tracks the plugin provides without a file (`upsert`, `remove`, `list`), see "Track sources". Same error when absent. |
+| `track_sources` | Stores the tracks the plugin provides without a file (`upsert`, `remove`, `list`, and the optional `adopt`), see "Track sources". Same error when absent. |
 | `availability_changed` | `availability_changed(track_ids)`: asks the core to read `TrackAvailability` again for those tracks, or for every track with `None`, see "Track availability". Any thread. |
 | `status_item` | `update(text, tone, progress, tooltip, icon)` and `clear()`: the plugin's item of the status bar, see "Status item". Any thread. Without a `StatusItem` declaration the calls change nothing visible. |
 
@@ -178,9 +178,19 @@ replacement, up to 10 seconds. The call raises `NonFileTrackError` for a track w
 `LookupError` for an unknown track, `FileNotFoundError` when the track's file or `source` is
 missing, and `ValueError` when `source` is not a regular file or lies inside a library folder.
 MTEE cannot take a file back out of the Recycle Bin: when the replacement fails after the old file
-went there, the readable error says where the old file is and that `source` is untouched. Job
-thread only (`RuntimeError` on the graphical thread); `CapabilityUnavailableError` without the
-capability.
+went there, the readable error says where the old file is and that `source` is untouched. Once the
+file is in place the views read the track again, as after a scan. Job thread only (`RuntimeError`
+on the graphical thread); `CapabilityUnavailableError` without the capability.
+
+`files.attach_file(track_id, source, folder) -> Path` (an optional capability, `API_VERSION` stays 1)
+gives a source track of the plugin (see "Track sources") its local file. `source` is moved into
+`folder`, a folder of the library, under the same `track_id`: a taken name gets the next free
+`name (2).ext`, a file on another volume goes through a hidden `.<name>.part` file, and `folder` is
+created when missing. The file is read again for its tags and recorded as a new revision, and the
+plugin's source row of the track is removed. On failure `source` is back where it was and the track
+stays a source track. It holds the write lease of the track, is for the job thread only, and raises
+`ValueError` when the track is not a source track of this plugin, when `source` lies in the library
+or `folder` is outside it, and `FileNotFoundError` when `source` is missing.
 
 The factory returns a `PluginService` with two methods: `contributions()`, returning a list of
 contributions, and `unload()`, which releases threads and files and leaves the data.
@@ -290,6 +300,21 @@ and on nothing else, from any thread:
   key and a track already removed are ignored. `upsert` brings a removed track back under its id.
 - `list(available_only=False) -> [SourceTrackEntry]` returns the plugin's tracks, removed ones
   included, with `track_id`, `track` and `available`.
+- `adopt(track_id, entry) -> track_id` (optional capability, `API_VERSION` stays 1) makes an existing
+  library track without a file a source track of the plugin, under its own `track_id`; see the next
+  paragraph.
+
+**Keeping a track's identity.** A plugin that frees the disk space of a track, or downloads it again,
+keeps the same `track_id` on both sides, so the playlists, the play log and the analysis still refer
+to it. After the file of a library track has left the library (it was sent to the Recycle Bin), the
+plugin calls `adopt(track_id, entry)` with the key the track gets: the track's file locations are
+forgotten, its `tracks` row, playlist entries, play log rows and analysis stay, and the track now
+shows as a source track. It raises `ValueError` while the track still has a file or a library folder
+still lists it, when it belongs to another plugin, or when the key is taken by another track. The
+reverse is `files.attach_file` (see the `files` row of the table in section 6): a downloaded copy goes
+into a library folder under the same `track_id` and the source row is removed. A key that was attached is no longer
+a source key: a later `upsert` of that key gives a new `track_id`, so the plugin must not store it
+again as a source track. Both calls refresh the views of the interface, as a scan does.
 
 **What the core does with them.** The tracks are stored in the core table `plugin_source_tracks`
 (migration 030), keyed by `(plugin_id, source_key)`. They are not in `track_locations` or
@@ -308,7 +333,8 @@ track is provided by X and has no file on this computer, so it cannot be moved")
 operation: tag edit and undo, move, Recycle Bin, analysis, "Show in Explorer", playlist export (it
 exports the entry as a name only), `files.move_track` and `files.recycle`. A plugin that wants the
 audio on disk downloads it itself and imports it with `files.import_file`; the new file is then a
-normal library track with another `track_id`.
+normal library track with another `track_id`. To keep the same `track_id`, it attaches the copy with
+`files.attach_file` instead (see "Keeping a track's identity").
 
 **Playing them.** The `TrackSource` contribution has two functions:
 
