@@ -98,6 +98,8 @@ All notable changes to MTEE are listed here. The format follows
   provides without a file by its artist and title, not by its identifier.
 - The column picker shows a plugin named "... plugin" once ("Sample plugin", not "Sample plugin
   plugin").
+- MTEE no longer crashes now and then while closing: a cover still being loaded could read the
+  database after it was closed.
 
 ## [0.1.0] - 2026-10-15
 

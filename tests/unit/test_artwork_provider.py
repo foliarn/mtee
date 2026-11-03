@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import struct
+import threading
+import time
 import wave
 import zlib
 from pathlib import Path
@@ -65,3 +67,60 @@ def test_provider_returns_requested_size_and_does_not_upscale_source(tmp_path: P
 
     assert (image.width(), image.height()) == (256, 102)
     assert (requested.width(), requested.height()) == (256, 102)
+
+
+class _SlowLibrary:
+    """A library whose read of a track stays in progress until the test lets it end."""
+
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.finished = False
+
+    def artwork_source(self, track_id: str) -> None:
+        self.entered.set()
+        self.release.wait(5)
+        self.finished = True
+        return None
+
+
+class _ClosedLibrary:
+    """A library that must not be read: the database behind it is closed."""
+
+    def artwork_source(self, track_id: str) -> None:
+        raise AssertionError("the library was read after the provider was closed")
+
+
+def test_close_waits_for_a_library_read_in_progress() -> None:
+    track_id = "01234567-89ab-cdef-0123-456789abcdef"
+    library = _SlowLibrary()
+    provider = ArtworkProvider(library)  # type: ignore[arg-type]
+    reader = threading.Thread(
+        target=provider.requestImage, args=(f"{track_id}/0", QSize(), QSize())
+    )
+    reader.start()
+    assert library.entered.wait(5)
+
+    closer = threading.Thread(target=provider.close)
+    closer.start()
+    time.sleep(0.2)
+    # The read still runs, so close must still wait for it.
+    assert closer.is_alive()
+    library.release.set()
+    closer.join(5)
+    reader.join(5)
+
+    assert not closer.is_alive()
+    assert library.finished
+
+
+def test_a_request_after_close_gives_a_placeholder_without_the_library() -> None:
+    track_id = "01234567-89ab-cdef-0123-456789abcdef"
+    provider = ArtworkProvider(_ClosedLibrary())  # type: ignore[arg-type]
+    provider.close()
+
+    requested = QSize()
+    image = provider.requestImage(f"{track_id}/0/64", requested, QSize())
+
+    assert not image.isNull()
+    assert (requested.width(), requested.height()) == (image.width(), image.height())

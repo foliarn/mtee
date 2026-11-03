@@ -624,6 +624,9 @@ def _shutdown(runtime: _Runtime) -> None:
         runtime.plugins.unload_all()
     runtime.jobs.begin_shutdown()
     runtime.frame.detach()
+    # Qt may still ask for artwork: the provider stops reading the database before it closes.
+    if runtime.artwork_provider is not None:
+        runtime.artwork_provider.close()
     _shutdown_services(runtime.database, runtime.jobs, runtime.player_service)
 
 
