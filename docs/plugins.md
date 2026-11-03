@@ -137,7 +137,7 @@ core is reachable from it.
 | `plugin_id` | The plugin's id. |
 | `database` | The shared `Database`. Use only your own tables. Each thread has its own connection. |
 | `library` | `track_ids()`, `tracks(ids)` (`LibraryTrack`: id, path, title, artists, album, `duration_us`, `readable`, `isrc`), `roots()` (`LibraryRoot`: `root_id`, `path`), `add_watched_folder(path)` and `rescan(path)`. The last two on the graphical thread only. See "Library roots, read leases and ffmpeg". |
-| `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids, expected_revision=None)` (returns the new revision), `entries(playlist_id)`, `read(playlist_id)`, `revision(playlist_id)`, `name(playlist_id)` (`None` when it is gone) and `exists(playlist_id)`, through the core playlist service. See "Store access for sync". |
+| `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids, expected_revision=None)` (returns the new revision), `rename(playlist_id, name, expected_revision=None)` (returns the new revision), `entries(playlist_id)`, `read(playlist_id)`, `revision(playlist_id)`, `name(playlist_id)` (`None` when it is gone), `exists(playlist_id)` and `list()` (`PlaylistInfo` of every local playlist), through the core playlist service. See "Store access for sync". |
 | `jobs` | `submit(task, label=..., visible=...)` and `cancel(job_id)` on the core job service. |
 | `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)`, `replace_content(track_id, source)` and `attach_file(track_id, source, folder)` (optional capabilities, see below) and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. `read_lease(track_id)` is the one read access: a context manager that yields the path under a read lease. See "Library roots, read leases and ffmpeg" and below. |
 | `ffmpeg_path()` | The core's pinned `ffmpeg` executable, never one found on `PATH`. See "Library roots, read leases and ffmpeg". |
@@ -249,6 +249,12 @@ gets all of them; the Plugins view shows nothing more for them.
   `replace_entries(id, track_ids, expected_revision)` raises `StaleRevisionError` (`expected`,
   `actual`) when the playlist moved on, in the same transaction as the write; without
   `expected_revision` it replaces unconditionally. Any thread.
+  `list()` returns `PlaylistInfo(playlist_id, name, revision, entry_count)` for every local
+  playlist, folders excluded; it reads the stored playlists and changes nothing. `rename(id, name,
+  expected_revision)` renames a playlist as the interface does (the name is stripped and must be 1
+  to 240 characters, `ValueError` otherwise) and returns the new revision; with `expected_revision`
+  it raises `StaleRevisionError` in the same transaction, without it the rename is unconditional.
+  Both run on any thread.
 - **`track_data`** (`TrackDataAccess`). `read(track_id)` returns `TrackData`: `analysis` (tempo,
   key, edit flags, algorithm version, date), `loudness` (LUFS, sample peak, version) and
   `corrections` (the choices on the artist credits of the track, `one_artist` or `split`). The
@@ -258,6 +264,14 @@ gets all of them; the Plugins view shows nothing more for them.
   person edited here keeps its value. A correction is accepted only for a credit the track holds;
   corrections are added or changed, never removed. Audio files and tags are never touched.
   `LookupError` for an unknown track, `ValueError` for an invalid value. Any thread.
+  `changed_since(cursor, limit)` lists the tracks whose analysis, loudness or corrections changed
+  after `cursor`, and the cursor to keep. The core logs each write of `track_analysis` and
+  `credit_overrides` in a change log (`track_data_changes`, migration 031, written by triggers in
+  the same transaction). `cursor` is text, `None` for the first call; `limit` bounds the log records
+  read per call, and a correction names every track that holds its credit, so one call can return
+  more tracks than `limit`. The batch lists each track once, in the order of its first change, and
+  an unchanged track is never listed. A cursor the core did not give, such as one from before a
+  restore of the database, raises `ValueError`: start again from `None`. Any thread.
 - **`synced_settings`** (`SyncedSettings`). The core decides which settings may travel:
   `mtee.plugins.synced_settings.SYNCED_SETTINGS` (rule and exclusions are written there). Today:
   `playback/normalization`, `profile/display_name`, `playlists/columns`, `plugins.enabled`. `keys`

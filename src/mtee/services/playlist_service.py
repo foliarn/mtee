@@ -136,6 +136,37 @@ class PlaylistService:
             self.repository.replace_entries(identity, entries, playlist["version"])
             return int(playlist["revision"]) + 1
 
+    def summaries(self) -> list[tuple[str, str, int, int]]:
+        """Return ``(identity, name, revision, entry count)`` of every local playlist, in order."""
+        return [
+            (
+                str(row["playlist_id"]),
+                str(row["name"]),
+                int(row["revision"]),
+                int(row["count"]),
+            )
+            for row in self.repository.playlists()
+        ]
+
+    def rename(self, identity: str, name: str, expected_revision: int | None = None) -> int:
+        """Rename a playlist as the interface does; return the revision after the change.
+
+        With ``expected_revision`` the rename is refused with ``StaleRevisionError`` when the
+        playlist is no longer at that revision; without it the rename is unconditional.
+        """
+        with self.lock:
+            if expected_revision is not None:
+                return self.repository.rename_at_revision(identity, name, expected_revision)
+            playlist = self.repository.playlist(identity)
+            self.repository.update(
+                identity,
+                name=name,
+                description=playlist["description"],
+                cover=playlist["cover_ref"],
+                version=playlist["version"],
+            )
+            return int(self.repository.playlist(identity)["revision"])
+
     def revision(self, identity: str) -> int | None:
         """Return the revision of a local playlist, or ``None`` when it does not exist."""
         try:

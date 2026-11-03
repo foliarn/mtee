@@ -74,6 +74,12 @@ All notable changes to MTEE are listed here. The format follows
   source track its local file under the same identifier. The views read the track again after
   `replace_content`, `adopt` and `attach_file` (plan 126.5). See `docs/plugins.md`, section 6 and
   "Track sources".
+- For plugin developers (`API_VERSION` stays 1): the optional capabilities
+  `playlists.list()` (every local playlist with its revision and size), `playlists.rename(id,
+  name, expected_revision)` (the interface's rename, with the revision check) and
+  `track_data.changed_since(cursor, limit)` (the tracks whose analysis, loudness or corrections
+  changed). The last one reads a change log that the database gains with migration 031, written by
+  triggers and backed up first. See `docs/plugins.md`, section 6.
 
 ### Changed
 

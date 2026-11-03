@@ -64,7 +64,7 @@ def database(tmp_path: Path) -> Database:
 
 def test_the_core_migration_creates_the_plugin_history_table(database: Database) -> None:
     assert "plugin_migrations" in _tables(database)
-    assert database.schema_version() == 30
+    assert database.schema_version() == 31
     assert (28, "plugin_migrations") in _core_history(database)
     assert _plugin_rows(database) == []
 
@@ -83,7 +83,7 @@ def test_scripts_apply_on_an_empty_database_and_are_recorded_per_plugin(
     assert database.connection().execute("SELECT label FROM sample_items").fetchone()[0] == "seed"
     # The core history and the schema version are not touched by a plugin.
     assert _core_history(database) == core_before
-    assert database.schema_version() == 30
+    assert database.schema_version() == 31
     assert database.migrate() == []
 
 
@@ -105,7 +105,7 @@ def test_a_safety_copy_is_written_before_the_first_pending_script(
 
     database.migrate_plugin("sample", migrations)
 
-    (backup,) = tmp_path.glob("mtee.sqlite3.v30.*.backup")
+    (backup,) = tmp_path.glob("mtee.sqlite3.v31.*.backup")
     with sqlite3.connect(backup) as saved:
         tables = {row[0] for row in saved.execute("SELECT name FROM sqlite_master")}
     assert "plugin_migrations" in tables
@@ -159,7 +159,7 @@ def test_a_failing_script_is_rolled_back_and_the_earlier_scripts_stay_recorded(
     assert "sample_items" in tables
     assert "sample_later" not in tables
     assert database.connection().in_transaction is False
-    assert database.schema_version() == 30
+    assert database.schema_version() == 31
 
 
 def test_a_renamed_script_refuses_the_history_and_changes_nothing(

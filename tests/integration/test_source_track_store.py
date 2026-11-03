@@ -96,8 +96,8 @@ def store(tmp_path: Path):
 def test_migration_030_creates_the_table_on_an_empty_database(tmp_path: Path) -> None:
     database = Database(tmp_path / "mtee.sqlite3")
     applied = database.migrate()
-    assert [m.version for m in applied][-1] == 30
-    assert [m.name for m in applied][-1] == "plugin_source_tracks"
+    assert {m.version: m.name for m in applied}[30] == "plugin_source_tracks"
+    assert applied[-1].version == 31
     columns = {
         str(row["name"])
         for row in database.connection().execute("PRAGMA table_info(plugin_source_tracks)")
@@ -112,7 +112,7 @@ def test_migration_030_creates_the_table_on_an_empty_database(tmp_path: Path) ->
         "revision",
         "updated_at_utc",
     }
-    assert database.schema_version() == 30
+    assert database.schema_version() == 31
     database.close()
 
 
@@ -149,8 +149,8 @@ def test_migration_030_on_a_populated_schema_29_database_keeps_the_data_and_back
 
     second = Database(path)
     applied = second.migrate()
-    assert [m.version for m in applied] == [30]
-    assert second.schema_version() == 30
+    assert [m.version for m in applied] == [30, 31]
+    assert second.schema_version() == 31
     (backup,) = path.parent.glob("mtee.sqlite3.v29.*.backup")
     assert backup.stat().st_size > 0
     # The data written before the migration is still there, and the new table starts empty.

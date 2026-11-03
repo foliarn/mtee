@@ -73,6 +73,7 @@ __all__ = [
     "PlayableSource",
     "PlaylistAccess",
     "PlaylistEntry",
+    "PlaylistInfo",
     "PlaylistMeta",
     "PlaylistSnapshot",
     "PluginActivity",
@@ -195,6 +196,16 @@ class PlaylistSnapshot:
     entries: tuple[PlaylistEntry, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PlaylistInfo:
+    """One local playlist of ``PlaylistAccess.list``: its identifier, name, revision and size."""
+
+    playlist_id: str
+    name: str
+    revision: int
+    entry_count: int
+
+
 class LibraryAccess(Protocol):
     """Read access to the library, and the scanner for the folders a plugin brings in."""
 
@@ -231,6 +242,17 @@ class LibraryAccess(Protocol):
 
 class PlaylistAccess(Protocol):
     """Local playlists, through the core playlist service."""
+
+    def rename(self, playlist_id: str, name: str, expected_revision: int | None = None) -> int:
+        """Give a local playlist a new name, as the interface does, and return its new revision.
+
+        With ``expected_revision`` the rename is refused with ``StaleRevisionError`` when the
+        playlist changed since, and nothing is written: the check and the write are one
+        transaction. Without it the rename is unconditional. The name is stripped and must be
+        between 1 and 240 characters (``ValueError`` otherwise); ``LookupError`` when the
+        playlist does not exist. Optional capability (``API_VERSION`` stays 1). Any thread.
+        """
+        ...
 
     def create(self, name: str, track_ids: Sequence[str] = ()) -> str:
         """Create a local playlist holding ``track_ids`` and return its identifier.
@@ -283,6 +305,14 @@ class PlaylistAccess(Protocol):
         The revision is read before the entries: if the playlist changes in between, the
         revision is the older one, and a later ``replace_entries`` with it is refused rather
         than overwriting the change. Any thread.
+        """
+        ...
+
+    def list(self) -> list[PlaylistInfo]:
+        """Return every local playlist, in the order the interface lists them.
+
+        Optional capability (``API_VERSION`` stays 1): it reads the stored playlists and changes
+        nothing. Any thread.
         """
         ...
 
@@ -541,6 +571,19 @@ class TrackDataAccess(Protocol):
         """
         ...
 
+    def changed_since(self, cursor: str | None, limit: int) -> tuple[list[str], str | None]:
+        """Return the tracks whose analysis, loudness or corrections changed after ``cursor``.
+
+        The change log of the core is read from its start when ``cursor`` is ``None``. Up to
+        ``limit`` log records are read per call, and the batch lists each track once, in the
+        order of its first change. A correction changes every track that holds the credit, so a
+        batch can name more tracks than ``limit``. The second value is the cursor to keep: pass it
+        to the next call; it equals ``cursor`` when nothing is newer. A cursor the core did not
+        give (for example one kept before a restore of the database) raises ``ValueError``: the
+        caller then starts from ``None``. Optional capability (``API_VERSION`` stays 1). Any thread.
+        """
+        ...
+
 
 class SettingNotSyncedError(ValueError):
     """A setting key that the core does not allow to travel between devices."""
@@ -721,6 +764,9 @@ class _UnavailableTrackData:
         raise CapabilityUnavailableError("Track data is not available in this context.")
 
     def write_corrections(self, track_id: str, corrections: Sequence[CreditCorrection]) -> None:
+        raise CapabilityUnavailableError("Track data is not available in this context.")
+
+    def changed_since(self, cursor: str | None, limit: int) -> tuple[list[str], str | None]:
         raise CapabilityUnavailableError("Track data is not available in this context.")
 
 

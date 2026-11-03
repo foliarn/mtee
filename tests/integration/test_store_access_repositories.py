@@ -16,11 +16,13 @@ from uuid import uuid4
 
 import pytest
 
+from mtee.domain.loudness import LoudnessResult
 from mtee.domain.metadata import MetadataSnapshot, TechnicalInfo
 from mtee.domain.musical_key import MusicalKey
 from mtee.domain.play_log import PlayedTrack, PlayEvent
 from mtee.domain.tracks import SourceRevision
 from mtee.persistence.analysis_repository import AnalysisRepository
+from mtee.persistence.credit_override_repository import CreditOverrideRepository
 from mtee.persistence.database import MIGRATIONS_DIR, Database
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.persistence.play_log_repository import PlayLogEvent, PlayLogRepository
@@ -93,7 +95,7 @@ def _revision_column(path: Path) -> bool:
 def test_migration_029_on_an_empty_database_gives_new_playlists_revision_one(
     database: Database,
 ) -> None:
-    assert database.schema_version() == 30
+    assert database.schema_version() == 31
     repository = PlaylistsRepository(database)
     identity = repository.create("Fresh")
     assert repository.playlist(identity)["revision"] == 1
@@ -119,8 +121,8 @@ def test_migration_029_on_a_populated_copy_starts_every_playlist_at_revision_one
 
     upgraded = Database(tmp_path / "before.sqlite3")
     try:
-        assert [migration.version for migration in upgraded.migrate()] == [29, 30]
-        assert upgraded.schema_version() == 30
+        assert [migration.version for migration in upgraded.migrate()] == [29, 30, 31]
+        assert upgraded.schema_version() == 31
         rows = upgraded.connection().execute(
             "SELECT playlist_id, version, revision FROM playlists ORDER BY playlist_id"
         )
@@ -484,3 +486,87 @@ def test_a_failing_listener_does_not_stop_the_others_or_the_write(
     assert "listener bug" in caplog.text
     with pytest.raises(ValueError):
         settings.set_many({"": "x"})
+
+
+# ------------------------------------------------------------------ migration 031 (plan 127)
+
+
+def _database_before_031(tmp_path: Path) -> Database:
+    """A database at schema 30, built from copies of the shipped scripts."""
+    scripts = tmp_path / "before-031-scripts"
+    scripts.mkdir()
+    for path in MIGRATIONS_DIR.glob("*.sql"):
+        if path.name < "031_":
+            shutil.copy(path, scripts / path.name)
+    database = Database(tmp_path / "before-031.sqlite3", migrations_dir=scripts)
+    database.migrate()
+    assert database.schema_version() == 30
+    return database
+
+
+def test_migration_031_on_an_empty_database_starts_an_empty_change_log(
+    database: Database,
+) -> None:
+    analysis = AnalysisRepository(database)
+    assert database.schema_version() == 31
+    assert analysis.latest_change() == 0
+    assert analysis.changes_after(0, 10) == []
+
+
+def test_migration_031_logs_what_is_already_stored_and_is_backed_up(tmp_path: Path) -> None:
+    old = _database_before_031(tmp_path)
+    _add_track(old, "t1")
+    _add_track(old, "t2")
+    AnalysisRepository(old).save_result("t1", bpm=120.0, key=None, source_duration_us=1)
+    CreditOverrideRepository(old).set_mode("Ann & Bob", "split")
+    old.close()
+
+    upgraded = Database(tmp_path / "before-031.sqlite3")
+    try:
+        assert [migration.version for migration in upgraded.migrate()] == [31]
+        analysis = AnalysisRepository(upgraded)
+        logged = analysis.changes_after(0, 10)
+        assert [(track, credit) for _seq, track, credit in logged] == [
+            ("t1", None),
+            (None, "ann & bob"),
+        ]
+        assert analysis.latest_change() == logged[-1][0]
+        assert upgraded.migrate() == []
+    finally:
+        upgraded.close()
+
+    backups = list(tmp_path.glob("before-031.sqlite3.v30.*.backup"))
+    assert len(backups) == 1
+    with sqlite3.connect(backups[0]) as saved:
+        tables = {row[0] for row in saved.execute("SELECT name FROM sqlite_master")}
+    assert "track_data_changes" not in tables
+
+
+def test_every_write_of_the_track_data_adds_a_row_in_its_transaction(database: Database) -> None:
+    _add_track(database, "t1")
+    analysis = AnalysisRepository(database)
+    overrides = CreditOverrideRepository(database)
+    start = analysis.latest_change()
+
+    analysis.save_result("t1", bpm=100.0, key=None, source_duration_us=1)
+    analysis.save_loudness(
+        "t1", LoudnessResult(integrated_lufs=-9.0, sample_peak_dbfs=-1.0), source_duration_us=1
+    )
+    analysis.mark_user_edited(["t1"], "bpm")
+    overrides.set_mode("Solo", "one_artist")
+    overrides.set_mode("Solo", "split")
+    overrides.remove("solo")
+
+    rows = analysis.changes_after(start, 100)
+    assert [(track, credit) for _seq, track, credit in rows] == [
+        ("t1", None),
+        ("t1", None),
+        ("t1", None),
+        (None, "solo"),
+        (None, "solo"),
+        (None, "solo"),
+    ]
+    seqs = [seq for seq, _track, _credit in rows]
+    assert seqs == sorted(set(seqs))
+    with pytest.raises(sqlite3.IntegrityError):
+        database.connection().execute("INSERT INTO track_data_changes (seq) VALUES (NULL)")

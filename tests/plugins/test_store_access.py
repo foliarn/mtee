@@ -31,6 +31,7 @@ from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins.api import (
     CapabilityUnavailableError,
     CreditCorrection,
+    PlaylistInfo,
     PlayLogEvent,
     PluginContext,
     PluginManifest,
@@ -724,3 +725,113 @@ def test_the_sample_plugin_uses_every_capability(setup: _Setup, qapp, tmp_path: 
         )
     finally:
         manager.unload_all()
+
+
+# ------------------------------------------------------------------ sync changes (plan 127)
+
+
+def test_every_local_playlist_is_listed_with_its_revision_and_size(setup: _Setup) -> None:
+    playlists = setup.context().playlists
+    first, second, third = setup.ids
+    alpha = playlists.create("Alpha", [first, second])
+    beta = playlists.create("Beta", [])
+    setup.playlists.add(beta, [third], confirm_unknown=True)  # the interface path: revision 2
+
+    listed = playlists.list()
+
+    assert all(isinstance(info, PlaylistInfo) for info in listed)
+    assert {info.playlist_id: (info.name, info.revision, info.entry_count) for info in listed} == {
+        alpha: ("Alpha", 1, 2),
+        beta: ("Beta", 2, 1),
+    }
+
+
+def test_a_rename_bumps_the_revision_and_refuses_a_stale_one(setup: _Setup, qapp) -> None:
+    playlists = setup.context().playlists
+    identity = playlists.create("Old", [setup.ids[0]])
+    entries_before = playlists.entries(identity)
+
+    assert playlists.rename(identity, "  New name  ", expected_revision=1) == 2
+    assert playlists.name(identity) == "New name" and playlists.revision(identity) == 2
+    with pytest.raises(StaleRevisionError) as refused:
+        playlists.rename(identity, "Lost", expected_revision=1)
+    assert (refused.value.expected, refused.value.actual) == (1, 2)
+    assert playlists.name(identity) == "New name" and playlists.entries(identity) == entries_before
+    assert playlists.rename(identity, "Unconditional") == 3  # without a revision, as before
+    with pytest.raises(ValueError):
+        playlists.rename(identity, "   ", expected_revision=3)
+    with pytest.raises(LookupError):
+        playlists.rename("missing", "Nobody", expected_revision=1)
+    assert playlists.revision(identity) == 3
+
+
+def _changed(data, cursor: str | None, limit: int = 10) -> tuple[set[str], str | None]:
+    tracks, following = data.changed_since(cursor, limit)
+    return set(tracks), following
+
+
+def test_a_write_of_each_layer_lists_its_track_once_and_unchanged_tracks_never(
+    setup: _Setup,
+) -> None:
+    data = setup.context().track_data
+    first, second, third = setup.ids
+    assert data.changed_since(None, 10) == ([], None)  # an empty log
+
+    data.write_analysis(first, TrackAnalysisData(bpm=120.0))
+    data.write_analysis(first, TrackAnalysisData(bpm=121.0))  # twice: listed once per batch
+    tracks, cursor = data.changed_since(None, 10)
+    assert tracks == [first] and cursor is not None
+    assert data.changed_since(cursor, 10) == ([], cursor)  # nothing newer: the cursor stays
+
+    data.write_loudness(second, TrackLoudnessData(-9.0, -0.5, loudness_version=1))
+    changed, cursor = _changed(data, cursor)
+    assert changed == {second}
+    data.write_corrections(first, [CreditCorrection("Cy", "split")])
+    changed, cursor = _changed(data, cursor)
+    assert changed == {first}  # the credit "Cy" is held by the first track only
+    assert third not in _changed(data, None)[0]
+
+
+def test_a_correction_lists_the_tracks_that_hold_the_credit_and_no_other(setup: _Setup) -> None:
+    data = setup.context().track_data
+    first, second, _third = setup.ids  # "Ann" is the whole credit of the second track only
+
+    data.write_corrections(second, [CreditCorrection("Ann", "one_artist")])
+    holders, cursor = _changed(data, None)
+    assert holders == {second}  # the first track holds "Ann & Bob", a different credit
+    setup.overrides.remove("ann")  # a choice removed on the interface path also changes them
+    assert _changed(data, cursor)[0] == {second}
+    assert first not in _changed(data, None)[0]
+
+
+def test_changes_are_paged_by_the_cursor_and_nothing_is_lost(setup: _Setup) -> None:
+    data = setup.context().track_data
+    first, second, _third = setup.ids
+    data.write_analysis(first, TrackAnalysisData(bpm=100.0))
+    data.write_loudness(second, TrackLoudnessData(-7.0, -0.1, loudness_version=1))
+    data.write_analysis(second, TrackAnalysisData(bpm=90.0))
+
+    seen: list[str] = []
+    cursor: str | None = None
+    pages = 0
+    while True:
+        tracks, following = data.changed_since(cursor, 1)  # one log record per call
+        seen.extend(tracks)
+        pages += 1
+        if following == cursor:
+            break
+        cursor = following
+    assert pages == 4 and set(seen) == {first, second}
+    assert seen == [first, second, second]  # the third record lists the second track again
+
+
+def test_a_cursor_the_core_did_not_give_is_refused(setup: _Setup) -> None:
+    data = setup.context().track_data
+    data.write_analysis(setup.ids[0], TrackAnalysisData(bpm=100.0))
+    _, cursor = data.changed_since(None, 10)
+
+    for bad in ("abc", "-1", "1.5", "", str(int(cursor or "0") + 100)):
+        with pytest.raises(ValueError):
+            data.changed_since(bad, 10)
+    with pytest.raises(ValueError):
+        data.changed_since(cursor, 0)
