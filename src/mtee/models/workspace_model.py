@@ -1709,6 +1709,18 @@ class WorkspaceModel(QObject):
             self.libraryChanged.emit()
             self._refresh_timer.start()
 
+    def refresh_after_track_files(self) -> None:
+        """Read the library views again after the file or the source of plugin tracks changed.
+
+        Same signal as a scan that changes tracks (``libraryChanged``): the folder tree, the open
+        track lists and the inspector are read again. The folders of the tracks are not known
+        here, so every tab is marked dirty. Graphical thread (the host queues the call there).
+        """
+        self._scan_coordinator.mark_dirty_library()
+        self._refresh_library()
+        self.metadataChanged.emit()
+        self._refresh_timer.start()
+
     @Slot(str, str, str, str, bool, result=QObject)
     @Slot(str, str, str, str, bool, int, result=QObject)
     def trackModelForTab(

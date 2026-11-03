@@ -8,6 +8,7 @@ mapping ``(plugin_id, source_key) -> track_id`` and the display metadata. It nev
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 
@@ -19,11 +20,44 @@ from mtee.persistence.database import Database
 __all__ = ["SourceTrackRepository"]
 
 
+def _encode(track: SourceTrack) -> str:
+    """Return the stored form of the display metadata of ``track``."""
+    return json.dumps(track.snapshot().to_dict(), ensure_ascii=False, sort_keys=True)
+
+
 class SourceTrackRepository:
     """Upsert, remove and list the tracks of one plugin; every call is idempotent."""
 
     def __init__(self, database: Database) -> None:
         self._database = database
+
+    @staticmethod
+    def insert_in_transaction(
+        connection: sqlite3.Connection, plugin_id: str, track_id: str, track: SourceTrack
+    ) -> None:
+        """Make the existing track ``track_id`` a source track of ``plugin_id`` (adoption).
+
+        The caller checks that the track has no file, that it is not a source track yet and
+        that ``track.source_key`` is free. The row is available, at revision 0.
+        """
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        connection.execute(
+            "INSERT INTO plugin_source_tracks(plugin_id,source_key,track_id,metadata_json,"
+            "album_artist,available,revision,updated_at_utc) VALUES(?,?,?,?,?,1,0,?)",
+            (
+                plugin_id,
+                track.source_key,
+                track_id,
+                _encode(track),
+                track.album_artist,
+                now,
+            ),
+        )
+
+    @staticmethod
+    def release_in_transaction(connection: sqlite3.Connection, track_id: str) -> None:
+        """Delete the source row of ``track_id``: the track gets a local file (attachment)."""
+        connection.execute("DELETE FROM plugin_source_tracks WHERE track_id=?", (track_id,))
 
     def upsert(
         self, plugin_id: str, tracks: Sequence[SourceTrack]
@@ -43,7 +77,7 @@ class SourceTrackRepository:
         changed_ids: list[str] = []
         with self._database.transaction() as connection:
             for key, track in latest.items():
-                encoded = json.dumps(track.snapshot().to_dict(), ensure_ascii=False, sort_keys=True)
+                encoded = _encode(track)
                 row = connection.execute(
                     "SELECT track_id,metadata_json,album_artist,available,revision "
                     "FROM plugin_source_tracks WHERE plugin_id=? AND source_key=?",

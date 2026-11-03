@@ -351,6 +351,22 @@ class FileOperations(Protocol):
         """
         ...
 
+    def attach_file(self, track_id: str, source: Path, folder: Path) -> Path:
+        """Give a source track of this plugin a local file: move ``source`` into ``folder``.
+
+        The track keeps its ``track_id``; the file goes into the library folder ``folder`` (created
+        when missing) under the next free name, never over another file, and is recorded with
+        its tags (a new revision). The plugin's source row of the track is removed. A file on
+        another volume goes through a hidden ``.part`` file, as in ``import_file``. On failure
+        ``source`` is back where it was and the track stays a source track. Holds the write
+        lease of the track. Job thread only (``RuntimeError`` on the graphical thread).
+        Raises ``ValueError`` when the track is not a source track of this plugin, when
+        ``source`` is not a regular file or lies in the library, or when ``folder`` is outside
+        the library; ``FileNotFoundError`` when ``source`` is missing. Optional capability
+        (``API_VERSION`` stays 1): ``CapabilityUnavailableError`` without it.
+        """
+        ...
+
     def read_lease(self, track_id: str) -> AbstractContextManager[Path]:
         """Hold the read lease of a track's file and yield its path, for the ``with`` block.
 
@@ -616,6 +632,19 @@ class TrackSourceAccess(Protocol):
         """
         ...
 
+    def adopt(self, track_id: str, entry: SourceTrack) -> str:
+        """Make an existing library track without a file a source track of this plugin.
+
+        The track keeps its ``track_id``, so playlists, the play log and the analysis still refer
+        to it; ``entry.source_key`` becomes its key. Use it after the file of the track left the
+        library (it was recycled). Returns the track id. Raises ``ValueError`` when the track does
+        not exist, still has a file on this computer (or a library folder still lists it), belongs
+        to another plugin, or when the key is taken by another track of this plugin. Calling it
+        again for the same track and key changes nothing. Any thread. Optional capability
+        (``API_VERSION`` stays 1): ``CapabilityUnavailableError`` without it.
+        """
+        ...
+
     def remove(self, source_keys: Sequence[str]) -> int:
         """Make the tracks unavailable and return how many were available.
 
@@ -716,6 +745,9 @@ class _UnavailableTrackSources:
         raise CapabilityUnavailableError("Track sources are not available in this context.")
 
     def list(self, *, available_only: bool = False) -> list[SourceTrackEntry]:
+        raise CapabilityUnavailableError("Track sources are not available in this context.")
+
+    def adopt(self, track_id: str, entry: SourceTrack) -> str:
         raise CapabilityUnavailableError("Track sources are not available in this context.")
 
 

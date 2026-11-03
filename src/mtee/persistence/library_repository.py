@@ -900,15 +900,7 @@ class LibraryRepository:
         ).fetchone()
         if conflict is not None:
             raise ValueError("A different library track already owns the destination path.")
-        memberships: list[tuple[str, str, int]] = []
-        for root in connection.execute("SELECT root_id,path,scan_generation FROM library_roots"):
-            root_path = Path(str(root["path"])).expanduser().resolve(strict=False)
-            try:
-                relative = final_path.relative_to(root_path).as_posix()
-            except ValueError:
-                continue
-            if relative and relative != ".":
-                memberships.append((str(root["root_id"]), relative, int(root["scan_generation"])))
+        memberships = _memberships(connection, final_path)
         if not memberships:
             raise ValueError("The destination is outside every registered library root.")
         updated = connection.execute(
@@ -945,6 +937,79 @@ class LibraryRepository:
                 (root_id, track_id, relative, generation)
                 for root_id, relative, generation in memberships
             ],
+        )
+
+    @staticmethod
+    def attach_location_in_transaction(
+        connection: sqlite3.Connection,
+        *,
+        track_id: str,
+        destination: Path,
+        revision: SourceRevision,
+        metadata: MetadataSnapshot,
+    ) -> None:
+        """Give a track without a file its first local location, under the same identifier.
+
+        The file is already at ``destination`` (inside a registered root). The stored location
+        is the one a scan records for a new file (generation 0). Raises ``ValueError`` when the
+        path already belongs to a library track or lies outside every root.
+        """
+        final_path = destination.resolve(strict=True)
+        file_dates = FileDates.observe(final_path)
+        destination_key = normalize_path(final_path)
+        if (
+            connection.execute(
+                "SELECT track_id FROM track_locations WHERE path_key=?", (destination_key,)
+            ).fetchone()
+            is not None
+        ):
+            raise ValueError("A library track already owns the destination path.")
+        memberships = _memberships(connection, final_path)
+        if not memberships:
+            raise ValueError("The destination is outside every registered library root.")
+        connection.execute(
+            "INSERT INTO track_locations(path_key,track_id,path,size_bytes,mtime_ns,file_id,"
+            "generation,duration_us,status,metadata_json,file_created_at_ns,file_modified_at_ns) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                destination_key,
+                track_id,
+                str(final_path),
+                revision.size_bytes,
+                revision.mtime_ns,
+                revision.file_id,
+                0,
+                metadata.technical.duration_us,
+                metadata.status,
+                json.dumps(metadata.to_dict(), ensure_ascii=False, sort_keys=True),
+                file_dates.created_at_ns,
+                file_dates.modified_at_ns,
+            ),
+        )
+        connection.execute("DELETE FROM root_tracks WHERE track_id=?", (track_id,))
+        connection.executemany(
+            "INSERT INTO root_tracks(root_id,track_id,relative_path,parent_relative_path,"
+            "seen_generation,present) VALUES(?,?,?,?,?,1)",
+            [
+                (root_id, track_id, relative, relative.rpartition("/")[0], generation)
+                for root_id, relative, generation in memberships
+            ],
+        )
+
+    @staticmethod
+    def release_location_in_transaction(connection: sqlite3.Connection, *, track_id: str) -> None:
+        """Forget the file locations of a track, so that it has no local file any more.
+
+        The ``tracks`` row, its analysis, its playlist entries and its play log stay.
+        """
+        connection.execute("DELETE FROM root_tracks WHERE track_id=?", (track_id,))
+        connection.execute("DELETE FROM track_locations WHERE track_id=?", (track_id,))
+
+    def inside_a_root(self, path: Path | str) -> bool:
+        """Return whether ``path`` lies inside one of the registered library folders."""
+        wanted = Path(normalize_path(path))
+        return any(
+            wanted.is_relative_to(Path(normalize_path(str(root["path"])))) for root in self.roots()
         )
 
     def artwork_source(self, track_id: str) -> tuple[Path, SourceRevision] | None:
@@ -996,6 +1061,20 @@ class LibraryRepository:
 def normalize_path(path: Path | str) -> str:
     """Canonical comparison key; keep the user's spelling in the stored path."""
     return os.path.normcase(str(Path(path).expanduser().resolve(strict=False)))
+
+
+def _memberships(connection: sqlite3.Connection, final_path: Path) -> list[tuple[str, str, int]]:
+    """Return ``(root_id, relative_path, scan_generation)`` for each root that lists the file."""
+    memberships: list[tuple[str, str, int]] = []
+    for root in connection.execute("SELECT root_id,path,scan_generation FROM library_roots"):
+        root_path = Path(str(root["path"])).expanduser().resolve(strict=False)
+        try:
+            relative = final_path.relative_to(root_path).as_posix()
+        except ValueError:
+            continue
+        if relative and relative != ".":
+            memberships.append((str(root["root_id"]), relative, int(root["scan_generation"])))
+    return memberships
 
 
 def _folder_filter(root_id: str, relative_folder: str) -> tuple[str, tuple[Any, ...]]:

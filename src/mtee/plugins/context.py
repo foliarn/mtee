@@ -62,6 +62,7 @@ from mtee.services.file_access import FileAccessCoordinator
 from mtee.services.file_move_service import FileMoveService
 from mtee.services.jobs import JobService
 from mtee.services.playlist_service import PlaylistService
+from mtee.services.track_identity import TrackIdentity
 
 __all__ = ["PluginHost", "RecycleRequests", "RootActions"]
 
@@ -123,6 +124,8 @@ class PluginHost(QObject):
         file_access: FileAccessCoordinator | None = None,
         ffmpeg: FfmpegRuntime | None = None,
         content_replacement: ContentReplacement | None = None,
+        track_identity: TrackIdentity | None = None,
+        track_files_changed: Callable[[Sequence[str]], None] | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -142,6 +145,12 @@ class PluginHost(QObject):
         # The file replacement behind ``files.replace_content`` (remote plan 126.4). Without one,
         # the call raises CapabilityUnavailableError.
         self._content_replacement = content_replacement
+        # Keeping a track's identity between a file and a plugin source (remote plan 126.5):
+        # behind ``track_sources.adopt`` and ``files.attach_file``. Without one they raise
+        # CapabilityUnavailableError. ``track_files_changed`` receives, on the graphical thread,
+        # the track ids whose file or source changed, so the views read them again.
+        self._track_identity = track_identity
+        self._track_files_changed = track_files_changed
         # The pinned FFmpeg runtime behind ``ffmpeg_path()``: the core's own, never PATH.
         self._ffmpeg = FfmpegRuntime() if ffmpeg is None else ffmpeg
         # The store capabilities of plan 125.6. Each is optional: a host built without one
@@ -196,6 +205,9 @@ class PluginHost(QObject):
                 purpose=f"plugin {plugin_id}",
                 require_job_thread=self._require_job_thread,
                 replacement=self._content_replacement,
+                identity=self._track_identity,
+                plugin_id=plugin_id,
+                changed=self._files_changed,
             ),
             settings=_ScopedSettings(self._settings, plugin_id),
             base_dir=self._data_dir / PLUGIN_DATA_DIRECTORY / plugin_id,
@@ -234,6 +246,8 @@ class PluginHost(QObject):
                 plugin_id,
                 self._call_later,
                 self._source_tracks_changed,
+                identity=self._track_identity,
+                files_changed=self._files_changed,
             )
         if self._play_log is not None:
             capabilities["play_log"] = _PlayLog(
@@ -289,6 +303,13 @@ class PluginHost(QObject):
         """Tell the workspace that the availability of ``track_ids`` changed, from any thread."""
         ids = None if track_ids is None else [str(track_id) for track_id in track_ids]
         self._call_later(lambda: self.availabilityChanged.emit(ids))
+
+    def _files_changed(self, track_ids: Sequence[str]) -> None:
+        """Have the views read ``track_ids`` again after their file changed; any thread."""
+        ids = tuple(str(track_id) for track_id in track_ids)
+        notify = self._track_files_changed
+        if ids and notify is not None:
+            self._call_later(lambda: notify(ids))
 
     def _run_on_gui(self, call: Callable[[], None], log: logging.Logger) -> None:
         """Queue ``call`` for the graphical thread; a failure is logged, never raised there."""
@@ -492,6 +513,9 @@ class _Files:
         purpose: str,
         require_job_thread: Callable[[str], None],
         replacement: ContentReplacement | None = None,
+        identity: TrackIdentity | None = None,
+        plugin_id: str = "",
+        changed: Callable[[Sequence[str]], None] = lambda track_ids: None,
     ) -> None:
         self._file_moves = file_moves
         self._recycle = recycle
@@ -501,6 +525,9 @@ class _Files:
         self._purpose = purpose
         self._require_job_thread = require_job_thread
         self._replacement = replacement
+        self._identity = identity
+        self._plugin_id = plugin_id
+        self._changed = changed
 
     def move_track(self, track_id: str, root_id: str, relative_folder: str) -> FileMoveResult:
         folder = self._file_moves.resolve_folder(root_id, relative_folder)
@@ -518,7 +545,20 @@ class _Files:
         if replacement is None:
             raise CapabilityUnavailableError("Replacing a track's file is not available here.")
         self._require_job_thread("replace_content")
-        return replacement.replace(track_id, Path(source))
+        try:
+            return replacement.replace(track_id, Path(source))
+        finally:
+            # Also when it fails after the old file went to the Recycle Bin: the track changed.
+            self._changed([track_id])
+
+    def attach_file(self, track_id: str, source: Path, folder: Path) -> Path:
+        identity = self._identity
+        if identity is None:
+            raise CapabilityUnavailableError("Attaching a file to a track is not available here.")
+        self._require_job_thread("attach_file")
+        path = identity.attach(self._plugin_id, track_id, Path(source), Path(folder))
+        self._changed([track_id])
+        return path
 
     def read_lease(self, track_id: str) -> AbstractContextManager[Path]:
         coordinator = self._file_access
@@ -604,11 +644,26 @@ class _TrackSources:
         plugin_id: str,
         call_later: Callable[[Callable[[], None]], None],
         changed: Callable[[Sequence[str]], None] | None,
+        *,
+        identity: TrackIdentity | None = None,
+        files_changed: Callable[[Sequence[str]], None] = lambda track_ids: None,
     ) -> None:
         self._repository = repository
         self._plugin_id = plugin_id
         self._call_later = call_later
         self._changed = changed
+        self._identity = identity
+        self._files_changed = files_changed
+
+    def adopt(self, track_id: str, entry: SourceTrack) -> str:
+        identity = self._identity
+        if identity is None:
+            raise CapabilityUnavailableError("Adopting tracks is not available in this context.")
+        if not isinstance(entry, SourceTrack):
+            raise TypeError("adopt takes a SourceTrack value.")
+        adopted = identity.adopt(self._plugin_id, track_id, entry)
+        self._files_changed([adopted])
+        return adopted
 
     def upsert(self, tracks: Sequence[SourceTrack]) -> dict[str, str]:
         for track in tracks:

@@ -68,6 +68,12 @@ All notable changes to MTEE are listed here. The format follows
   `files.replace_content(track_id, source)` puts a file in place of a track's file, keeping the
   track's identifier. The old file goes to the Recycle Bin through the trash path and journal
   (plan 126.4). See `docs/plugins.md`, section 6.
+- For plugin developers (`API_VERSION` stays 1): the optional capabilities
+  `track_sources.adopt(track_id, entry)`, which makes a library track without a file a source
+  track under the same identifier, and `files.attach_file(track_id, source, folder)`, which gives a
+  source track its local file under the same identifier. The views read the track again after
+  `replace_content`, `adopt` and `attach_file` (plan 126.5). See `docs/plugins.md`, section 6 and
+  "Track sources".
 
 ### Changed
 
