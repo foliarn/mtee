@@ -6,10 +6,23 @@ backup groups are not drawn yet. The device rows are checked on their own.
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
+import pytest
+from mtee.plugins.remote.store import (  # pyright: ignore[reportMissingImports]
+    FolderMapping,
+    RemoteStore,
+)
+from mtee.plugins.remote.ui import (  # pyright: ignore[reportMissingImports]
+    settings_backend,
+)
 from mtee.plugins.remote.ui.settings_backend import (  # pyright: ignore[reportMissingImports]
+    SettingsBackend,
     device_rows,
     last_seen_text,
 )
@@ -23,6 +36,7 @@ from tests.helpers.ui_plugin import (
     workspace_of,
 )
 from tests.plugins.remote.conftest import PLUGIN_DIR
+from tests.plugins.remote.helpers import FakeLibrary, make_context
 
 from mtee.app import _shutdown
 
@@ -146,3 +160,48 @@ def test_last_seen_text_reads_each_age() -> None:
     assert last_seen_text("2026-11-03T09:00:00Z", now) == "last seen 3 h ago"
     assert last_seen_text("2026-11-02T12:00:00Z", now) == "last seen 1 day ago"
     assert last_seen_text("not a time", now) == "last seen at an unknown time"
+
+
+def test_the_folder_editor_asks_for_a_local_subfolder_before_the_server_one() -> None:
+    """Plan 129.1: the editor has the local subfolder field, then the server subfolder field.
+
+    The folder rows only show when this computer is connected to a server, so the window test
+    cannot reach them; the editor is checked in its source, and its save in the backend below.
+    """
+    text = (PLUGIN_DIR / "remote" / "ui" / "settings.qml").read_text(encoding="utf-8")
+    assert text.index('objectName: "remoteLocalSubfolder"') < text.index(
+        'objectName: "remoteSubfolder"'
+    )
+    assert 'label: "Local subfolder"' in text
+    assert 'label: "Server subfolder"' in text
+    assert (
+        "page.backend.saveFolder(folderEntry.modelData.path, page.editRootId, "
+        "page.editLocalSubpath, page.editSubpath)" in text
+    )
+
+
+def _run_inline(
+    context: object, label: str, work: Callable[[object], Any], done: Callable[..., None], **_: Any
+) -> None:
+    """Run a job at once and call back at once: the save is then done when the call returns."""
+    done(work(None), None)
+
+
+def test_saving_a_folder_stores_its_local_subfolder_and_refuses_a_missing_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "Music"
+    (local / "baile").mkdir(parents=True)
+    notices: list[str] = []
+    library = FakeLibrary([local], [])
+    context = dataclasses.replace(make_context(tmp_path / "plugin", library), notify=notices.append)
+    monkeypatch.setattr(settings_backend, "submit", _run_inline)
+    backend = SettingsBackend(context, MagicMock(), MagicMock(), MagicMock())
+    kept = FolderMapping(str(local), "root-1", "Incoming", "baile")
+
+    backend.saveFolder(str(local), "root-1", "baile", "Incoming")
+    assert RemoteStore(context).mappings() == [kept]
+
+    backend.saveFolder(str(local), "root-1", "nowhere", "")
+    assert notices == ["The local subfolder nowhere does not exist in this watched folder."]
+    assert RemoteStore(context).mappings() == [kept], "a refused save changes nothing"

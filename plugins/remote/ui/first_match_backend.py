@@ -17,20 +17,21 @@ if TYPE_CHECKING:
     from ..first_match import MatchReport
 
 ROW_LIMIT = 200
+# The global choice for the "Tags differ" group. The first one is the default at each report.
+CHOICES: tuple[str, ...] = ("computer", "server", "later")
 
 _GROUPS: tuple[tuple[str, str], ...] = (
     ("matched", "Matched"),
     ("to_upload", "To upload"),
     ("server_only", "Server only"),
-    ("tags_differ", "Tags differ"),
+    ("tags_differ", "Same audio, different file"),
     ("not_matched", "Not matched"),
 )
 _GROUP_TEXT = {
     "matched": "The same audio on both sides. They are linked and need no transfer.",
     "to_upload": "Only on this computer. They are sent to the server.",
     "server_only": "Only on the server. They show as Server only until you download them.",
-    "tags_differ": "The same audio, with different tags on each side. They stay in Conflicts "
-    "until you choose a side.",
+    "tags_differ": "The same audio on both sides, with different tags, names or folders.",
     "not_matched": "Left out of the sync: a file MTEE cannot read, or a second copy of a track "
     "already matched.",
 }
@@ -55,7 +56,7 @@ def group_rows(result: MatchResult, opened: Callable[[str], bool]) -> list[dict[
         "matched": [
             _row(
                 pair.local.relative_path,
-                _other_path(pair.local.relative_path, pair.server.relative_path),
+                _server_note(pair.local.relative_path, pair.server.relative_path),
             )
             for pair in result.matched
         ],
@@ -64,7 +65,7 @@ def group_rows(result: MatchResult, opened: Callable[[str], bool]) -> list[dict[
         "tags_differ": [
             _row(
                 pair.local.relative_path,
-                _other_path(pair.local.relative_path, pair.server.relative_path),
+                _server_note(pair.local.relative_path, pair.server.relative_path),
             )
             for pair in result.tags_differ
         ],
@@ -98,20 +99,30 @@ def _row(name: str, note: str) -> dict[str, str]:
 
 
 def _other_path(local: str, server: str) -> str:
-    """The server's path when it differs from the local one, else an empty note."""
+    """The server's path when it differs from the local one, else an empty string."""
     return server if server != local else ""
 
 
+def _server_note(local: str, server: str) -> str:
+    """The second line of a row: where the server keeps the track, when that is not here."""
+    other = _other_path(local, server)
+    return f"On the server: {other}" if other else ""
+
+
 class FirstMatchBackend(QObject):
-    """The backend of ``ui/first_match.qml``: the report of the last match, and two actions."""
+    """The backend of ``ui/first_match.qml``: the report of the last match, the choice for
+    "Tags differ", and two actions."""
 
     changed = Signal()
+    # Its own signal: a new choice must not rebuild the groups, or the scroll position is lost.
+    choiceChanged = Signal()  # noqa: N815
 
     def __init__(self) -> None:
         super().__init__()
         self._report: MatchReport | None = None
         self._ref = ""
         self._open: dict[str, bool] = {}
+        self._choice = CHOICES[0]
         self._start: Callable[[MatchReport], None] | None = None
 
     def bind(self, start: Callable[[MatchReport], None]) -> None:
@@ -127,10 +138,16 @@ class FirstMatchBackend(QObject):
         return self._ref
 
     def show(self, report: MatchReport, ref: str) -> None:
-        """Show a new report; the groups with rows open as they are, tags differ open first."""
+        """Show a new report; the groups with rows open as they are, tags differ open first.
+
+        Each report starts again with the default choice: a choice made for one report does not
+        carry over to the next.
+        """
         self._report = report
         self._ref = ref
         self._open = {}
+        self._choice = CHOICES[0]
+        self.choiceChanged.emit()
         self.changed.emit()
 
     def _is_open(self, key: str) -> bool:
@@ -158,10 +175,27 @@ class FirstMatchBackend(QObject):
             return []
         return group_rows(self._report.result, self._is_open)
 
+    @Property(str, notify=choiceChanged)
+    def choice(self) -> str:
+        """The global choice for "Tags differ": "computer", "server" or "later"."""
+        return self._choice
+
+    def current_choice(self) -> str:
+        """The same choice, for Python callers (the controller reads it at Start sync)."""
+        return self._choice
+
     @Slot(str)
     def toggle(self, key: str) -> None:
         self._open[key] = not self._is_open(key)
         self.changed.emit()
+
+    @Slot(str)
+    def setChoice(self, key: str) -> None:  # noqa: N802
+        """Choose the side for "Tags differ"; a key that is not a choice is ignored."""
+        if key not in CHOICES or key == self._choice:
+            return
+        self._choice = key
+        self.choiceChanged.emit()
 
     @Slot()
     def startSync(self) -> None:  # noqa: N802

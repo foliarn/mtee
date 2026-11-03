@@ -5,6 +5,11 @@ does not have yet: an upload (the track has no link), a replacement (the track i
 SHA-256 is no longer the link's) or a move (linked, same SHA-256, another path on the server). It
 reads and hashes files and sends nothing. ``run_queue`` sends the pending operations in order.
 
+A held track is a track with a conflict row the person has still to decide (state ``open`` or
+``decide_later``, plan 126.6). Nothing is queued for it and ``run_queue`` does not send its pending
+rows: a track that waits for the person must never reach the server, because a track whose tags
+differ from its server copy has no link yet and would otherwise be uploaded again as a new item.
+
 Files are only read, each chunk under its own read lease; nothing here writes, moves or deletes a
 file of this computer. An upload keeps the id the server gave it in its queue row (``upload_id``
 in the payload) as soon as it is opened, so a cut upload resumes from the bytes the server holds.
@@ -31,6 +36,7 @@ from .client import ApiError, NetworkError, RemoteClient, UploadOffsetError
 from .first_match import OwnedTrack, owned_tracks
 from .hashing import hash_tracks
 from .store import (
+    CONFLICT_DECIDE_LATER,
     RemoteStore,
     ServerRow,
     insert_conflict,
@@ -89,6 +95,7 @@ class DetectReport:
     waiting: int = 0  # changed less than the idle delay ago: skipped this pass
     missing: int = 0  # the file is not on this computer
     unhashed: int = 0  # the file could not be read or hashed
+    held: int = 0  # a conflict waits for the person: nothing is queued for it (plan 126.6)
 
 
 @dataclass
@@ -157,15 +164,25 @@ def detect_changes(
     ``time.time()``) is skipped: it may still be written, or downloaded. A track with an operation
     already pending is not queued again; its payload is refreshed when its file changed. A track
     the first match left out as a second copy (``remote_excluded``) is never queued.
+
+    A held track (an open or decide-later conflict row, see ``_held_tracks``) is never queued and
+    its pending rows are left as they are: it is counted in ``report.held``. The person decides
+    which version wins first. A track with no link whose tags differ from its server copy is the
+    case this guards: queued as an upload, it would arrive as a second item with the same audio.
+    The held set is read once for the whole pass.
     """
     report = DetectReport()
     mappings = store.mappings()
     if not mappings:
         return report
     excluded = _excluded_tracks(store)
+    held = _held_tracks(store)
     settled: dict[str, tuple[OwnedTrack, dict[str, int]]] = {}
     for owned in owned_tracks(context, mappings):
         if not owned.readable or owned.track.track_id in excluded:
+            continue
+        if owned.track.track_id in held:
+            report.held += 1
             continue
         try:
             info = os.stat(owned.track.path)
@@ -215,6 +232,23 @@ def detect_changes(
 def _excluded_tracks(store: RemoteStore) -> set[str]:
     """The tracks the first match left out as second copies: they are never sent (126.4)."""
     rows = store.connection().execute("SELECT track_id FROM remote_excluded").fetchall()
+    return {str(row["track_id"]) for row in rows}
+
+
+def _held_tracks(store: RemoteStore) -> set[str]:
+    """The tracks a conflict waits for: their open or decide-later rows (one query).
+
+    A conflict that is resolved releases its track: the next pass treats it as any other track.
+    """
+    rows = (
+        store.connection()
+        .execute(
+            "SELECT DISTINCT track_id FROM remote_conflicts"
+            " WHERE state IN (?, ?) AND track_id IS NOT NULL",
+            (CONFLICT_OPEN, CONFLICT_DECIDE_LATER),
+        )
+        .fetchall()
+    )
     return {str(row["track_id"]) for row in rows}
 
 
@@ -357,12 +391,16 @@ def run_queue(
         .fetchall()
     )
     total = len(rows)
+    held = _held_tracks(store)
     for index, row in enumerate(rows):
         job.raise_if_cancelled()
         if on_progress is not None:
             on_progress(index, total)
         op = _load_op(store, str(row["op_id"]))
         if op is None:
+            continue
+        if op.track_id is not None and op.track_id in held:
+            # A track a conflict waits for keeps its pending row until the person decides.
             continue
         outcome = _send(context, store, client, op, job, chunk_bytes)
         if outcome == _SENT:

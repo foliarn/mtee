@@ -14,6 +14,7 @@ import uuid
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from mtee.plugins.api import PluginContext
@@ -38,11 +39,22 @@ def new_id() -> str:
 
 @dataclass(frozen=True)
 class FolderMapping:
-    """A watched folder of this computer and the server folder it syncs with."""
+    """A watched folder of this computer and the server folder it syncs with.
+
+    ``local_subpath`` (plan 129.1) is a subfolder of the watched folder that the mapping starts at;
+    empty means the whole watched folder. ``server_subpath`` is the same idea on the server side.
+    """
 
     local_root_path: str
     server_root_id: str
     server_subpath: str = ""
+    local_subpath: str = ""
+
+    @property
+    def local_folder(self) -> Path:
+        """The folder this mapping syncs on this computer: the watched folder or its subfolder."""
+        # Path / "" is the watched folder itself, so an empty subpath needs no branch.
+        return Path(self.local_root_path) / self.local_subpath
 
 
 @dataclass(frozen=True)
@@ -100,12 +112,15 @@ class RemoteStore:
     # -- mappings ------------------------------------------------------------------------
     def mappings(self) -> list[FolderMapping]:
         rows = self.connection().execute(
-            "SELECT local_root_path, server_root_id, server_subpath FROM remote_mappings"
-            " ORDER BY local_root_path"
+            "SELECT local_root_path, server_root_id, server_subpath, local_subpath"
+            " FROM remote_mappings ORDER BY local_root_path"
         )
         return [
             FolderMapping(
-                str(row["local_root_path"]), str(row["server_root_id"]), str(row["server_subpath"])
+                str(row["local_root_path"]),
+                str(row["server_root_id"]),
+                str(row["server_subpath"]),
+                str(row["local_subpath"]),
             )
             for row in rows.fetchall()
         ]
@@ -113,11 +128,17 @@ class RemoteStore:
     def save_mapping(self, mapping: FolderMapping) -> None:
         with self.transaction() as conn:
             conn.execute(
-                "INSERT INTO remote_mappings (local_root_path, server_root_id, server_subpath)"
-                " VALUES (?, ?, ?) ON CONFLICT (local_root_path) DO UPDATE SET"
+                "INSERT INTO remote_mappings (local_root_path, server_root_id, server_subpath,"
+                " local_subpath) VALUES (?, ?, ?, ?) ON CONFLICT (local_root_path) DO UPDATE SET"
                 " server_root_id = excluded.server_root_id,"
-                " server_subpath = excluded.server_subpath",
-                (mapping.local_root_path, mapping.server_root_id, mapping.server_subpath),
+                " server_subpath = excluded.server_subpath,"
+                " local_subpath = excluded.local_subpath",
+                (
+                    mapping.local_root_path,
+                    mapping.server_root_id,
+                    mapping.server_subpath,
+                    mapping.local_subpath,
+                ),
             )
 
     def remove_mapping(self, local_root_path: str) -> None:
@@ -176,6 +197,16 @@ def has_open_conflict(conn: sqlite3.Connection, track_id: str, item_id: str) -> 
     return row is not None
 
 
+def unresolved_conflict_id(conn: sqlite3.Connection, track_id: str, item_id: str) -> str | None:
+    """The id of the conflict of this track and item that is not resolved yet, if there is one."""
+    row = conn.execute(
+        "SELECT conflict_id FROM remote_conflicts WHERE track_id = ? AND item_id = ?"
+        " AND state <> 'resolved' ORDER BY created_at_utc LIMIT 1",
+        (track_id, item_id),
+    ).fetchone()
+    return None if row is None else str(row["conflict_id"])
+
+
 def insert_conflict(
     conn: sqlite3.Connection,
     *,
@@ -184,12 +215,14 @@ def insert_conflict(
     local: dict[str, Any],
     server: dict[str, Any],
     state: str = CONFLICT_DECIDE_LATER,
-) -> None:
+) -> str:
+    """Write a conflict row and return its id."""
+    conflict_id = new_id()
     conn.execute(
         "INSERT INTO remote_conflicts (conflict_id, track_id, item_id, local_json, server_json,"
         " created_at_utc, state) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
-            new_id(),
+            conflict_id,
             track_id,
             item_id,
             json.dumps(local, ensure_ascii=False, sort_keys=True),
@@ -198,6 +231,7 @@ def insert_conflict(
             state,
         ),
     )
+    return conflict_id
 
 
 def enqueue(

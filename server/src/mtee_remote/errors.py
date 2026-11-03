@@ -25,6 +25,7 @@ DEFAULT_STATUS: dict[str, int] = {
     "conflict": 409,
     "path_taken": 409,
     "busy": 409,
+    "splice_refused": 409,
     "quota_exceeded": 413,
     "bad_hash": 422,
     "rate_limited": 429,

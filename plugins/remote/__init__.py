@@ -73,6 +73,8 @@ class RemoteService:
             self._connection.refresh_status,
         )
         self._connection.set_open_conflicts(self._conflicts.open_count)
+        # The global choice of the first-match summary settles the same-audio pairs (plan 129.3).
+        self._first_match.set_settle(self._conflicts.settle)
         # A setting that travels, changed by the person or another plugin, is sent on the next pass.
         self._unsubscribe_settings = _watch_synced_settings(context, self._engine)
         self._conflict_backend = ConflictBackend(self._conflicts)
@@ -92,7 +94,7 @@ class RemoteService:
         self._contributions: list[Contribution] = [
             SettingsPage("remote", "Remote", PAGE_QML, backend=self._backend),
             StatusItem("connection", "cloud-off", on_click=self._open_first_conflict),
-            PluginDialog(DIALOG_ID, DIALOG_QML, backend=self._first_backend),
+            PluginDialog(DIALOG_ID, DIALOG_QML, backend=self._first_backend, width=640),
             LibraryScanned(self._on_library_scanned),
             TrackSource(open=self._server_tracks.open, cover=self._server_tracks.cover),
             TrackAvailability(status=availability_status(context, store)),

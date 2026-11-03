@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,10 +27,10 @@ from .store import (
     RemoteStore,
     ServerRow,
     enqueue,
-    has_open_conflict,
     insert_conflict,
     insert_link,
     server_item_exists,
+    unresolved_conflict_id,
     upsert_server_item,
     utc_now,
     write_log,
@@ -64,6 +64,9 @@ class SyncSummary:
     conflicts: int
     queued: int
     server_items: int
+    # Every same-audio pair that waits for a side, new or left from an earlier run: the global
+    # choice of the summary (plan 129.3) settles these.
+    waiting: tuple[str, ...] = ()
 
 
 def build_match(
@@ -169,15 +172,20 @@ def apply_match(context: PluginContext, report: MatchReport) -> SyncSummary:
                 server_path=pair.server.item_path,
             ):
                 linked += 1
+        waiting: list[str] = []
         for pair in result.tags_differ:
-            if has_open_conflict(conn, pair.local.track_id, pair.server.item_id):
+            existing = unresolved_conflict_id(conn, pair.local.track_id, pair.server.item_id)
+            if existing is not None:
+                waiting.append(existing)
                 continue
-            insert_conflict(
-                conn,
-                track_id=pair.local.track_id,
-                item_id=pair.server.item_id,
-                local=_local_view(pair.local),
-                server=_server_view(pair.server),
+            waiting.append(
+                insert_conflict(
+                    conn,
+                    track_id=pair.local.track_id,
+                    item_id=pair.server.item_id,
+                    local=_local_view(pair.local),
+                    server=_server_view(pair.server),
+                )
             )
             conflicts += 1
         for entry in result.not_matched:
@@ -214,7 +222,13 @@ def apply_match(context: PluginContext, report: MatchReport) -> SyncSummary:
             f"{linked} linked, {queued} to upload, {server_rows} server only, "
             f"{conflicts} tags to decide, {len(result.not_matched)} not matched.",
         )
-    return SyncSummary(linked=linked, conflicts=conflicts, queued=queued, server_items=server_rows)
+    return SyncSummary(
+        linked=linked,
+        conflicts=conflicts,
+        queued=queued,
+        server_items=server_rows,
+        waiting=tuple(waiting),
+    )
 
 
 def _required(value: str | None) -> str:
@@ -252,11 +266,16 @@ class OwnedTrack:
 
 
 def owned_tracks(context: PluginContext, mappings: Sequence[FolderMapping]) -> list[OwnedTrack]:
-    """Each library track under a mapping, given to the deepest mapping that holds it."""
+    """Each library track under a mapping, given to the deepest mapping that holds it.
+
+    A mapping holds the tracks of its local folder (its watched folder, or the local subfolder it
+    starts at, plan 129.1). A track outside that folder belongs to no mapping, and the ``relative``
+    path of a track is relative to the local folder of its mapping.
+    """
     ids = context.library.track_ids()
     if not ids:
         return []
-    roots = [Path(mapping.local_root_path) for mapping in mappings]
+    roots = [mapping.local_folder for mapping in mappings]
     owned: list[OwnedTrack] = []
     for track in context.library.tracks(ids):
         best: tuple[int, str] | None = None
@@ -307,7 +326,13 @@ class FirstMatchController:
         self._store = RemoteStore(context)
         self._running = False
         self._closed = False
+        # Settles the same-audio pairs with one side (plan 129.3); set once the conflicts exist.
+        self._settle: Callable[[Sequence[str], str], None] | None = None
         backend.bind(self.apply)
+
+    def set_settle(self, settle: Callable[[Sequence[str], str], None]) -> None:
+        """Give the function that settles conflicts with one side: ``settle(ids, choice)``."""
+        self._settle = settle
 
     def shutdown(self) -> None:
         self._closed = True
@@ -346,12 +371,16 @@ class FirstMatchController:
         )
 
     def apply(self, report: MatchReport) -> None:
-        """Start sync: write the result in a job, then remember that the first match is done."""
+        """Start sync: write the result in a job, then remember that the first match is done.
+
+        The choice for the same-audio pairs is read now, as the person left it in the summary.
+        """
+        choice = self._backend.current_choice()
         submit(
             self._context,
             "Starting the sync",
             lambda _job: self._write(report),
-            self._on_applied,
+            lambda summary, error: self._on_applied(summary, error, choice),
         )
 
     def _write(self, report: MatchReport) -> SyncSummary:
@@ -372,16 +401,26 @@ class FirstMatchController:
         self._backend.show(report, ref)
         self._context.open_dialog(DIALOG_ID, ref)
 
-    def _on_applied(self, summary: SyncSummary | None, error: BaseException | None) -> None:
+    def _on_applied(
+        self, summary: SyncSummary | None, error: BaseException | None, choice: str = "later"
+    ) -> None:
         if self._closed:
             return
         if error is not None or summary is None:
             self._context.notify(str(error) or type(error).__name__)
             return
         self._context.settings.set(DONE_SETTING, "true")
+        settling = choice in ("computer", "server") and bool(summary.waiting)
+        same = (
+            f"{len(summary.waiting)} with the same audio being settled"
+            if settling
+            else f"{summary.conflicts} tags to decide"
+        )
         self._context.notify(
             f"Sync set up: {summary.linked} linked, {summary.queued} to upload, "
-            f"{summary.server_items} server only, {summary.conflicts} tags to decide."
+            f"{summary.server_items} server only, {same}."
         )
         self._context.availability_changed(None)
         self._context.refresh_ui()
+        if settling and self._settle is not None:
+            self._settle(summary.waiting, choice)

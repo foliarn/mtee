@@ -49,7 +49,7 @@ async def create_upload(request: Request) -> JSONResponse:
 
     if purpose == "backup":
         # A backup has no root, path or base item: refuse those fields rather than ignore them.
-        for key in ("root_id", "relative_path", "base_item_id", "base_revision"):
+        for key in ("root_id", "relative_path", "base_item_id", "base_revision", "mode"):
             if key in body:
                 raise ApiError("bad_request", f"A backup upload takes no '{key}' field.")
         label = get_str(body, "label", max_len=uploads.BACKUP_LABEL_MAX, required=False)
@@ -74,6 +74,7 @@ async def create_upload(request: Request) -> JSONResponse:
     base_item_id = get_str(body, "base_item_id", max_len=64, required=False)
     base_revision = get_int(body, "base_revision", required=False, minimum=1)
     assert root_id is not None and relative_path is not None
+    splice = _read_splice(body)
 
     def work() -> dict[str, Any]:
         return uploads.create_upload(
@@ -88,9 +89,32 @@ async def create_upload(request: Request) -> JSONResponse:
             sha256=sha256,
             base_item_id=base_item_id,
             base_revision=base_revision,
+            splice=splice,
         )
 
     return json_ok(await anyio.to_thread.run_sync(work), 201)
+
+
+def _read_splice(body: dict[str, Any]) -> uploads.SpliceMeta | None:
+    """Read the optional tags-only mode of a create request (plan 129.2).
+
+    `mode` is "splice" or "full" (the default). A splice names the length and SHA-256 of the
+    audio payload the server already holds and how many of the bytes sent come before it.
+    """
+    mode = get_str(body, "mode", max_len=16, required=False)
+    splice_keys = ("span_length", "span_sha256", "prefix_size")
+    if mode in (None, "full"):
+        for key in splice_keys:
+            if key in body:
+                raise ApiError("bad_request", f"The field '{key}' needs mode 'splice'.")
+        return None
+    if mode != "splice":
+        raise ApiError("bad_request", "The mode must be 'full' or 'splice'.")
+    span_length = get_int(body, "span_length", minimum=0)
+    span_sha256 = get_str(body, "span_sha256", max_len=64)
+    prefix_size = get_int(body, "prefix_size", minimum=0)
+    assert span_length is not None and span_sha256 is not None and prefix_size is not None
+    return uploads.SpliceMeta(span_length, span_sha256, prefix_size)
 
 
 async def get_upload(request: Request) -> JSONResponse:

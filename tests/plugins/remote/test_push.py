@@ -27,8 +27,11 @@ from mtee.plugins.remote.push import (  # pyright: ignore[reportMissingImports]
     run_queue,
 )
 from mtee.plugins.remote.store import (  # pyright: ignore[reportMissingImports]
+    CONFLICT_DECIDE_LATER,
+    CONFLICT_OPEN,
     FolderMapping,
     RemoteStore,
+    insert_conflict,
 )
 from tests.plugins.remote.conftest import RemoteServer
 from tests.plugins.remote.helpers import (
@@ -411,3 +414,90 @@ def test_a_pass_reads_the_local_files_and_changes_none(
     assert (detected.uploads, queued.sent) == (0, 0)
     assert pending_count(push.store) == 0
     assert len(push.items()) == 2
+
+
+def hold(push: Push, track_id: str, state: str) -> None:
+    """A conflict row of the track that waits for the person, as a first match writes it."""
+    with push.store.transaction() as conn:
+        insert_conflict(
+            conn,
+            track_id=track_id,
+            item_id="item-of-the-same-audio",
+            local={"relative_path": "held.flac"},
+            server={"relative_path": "Server copy.flac"},
+            state=state,
+        )
+
+
+def test_a_track_waiting_for_an_open_first_match_conflict_is_not_uploaded(
+    push: Push, sources: dict[str, Path]
+) -> None:
+    track_id = push.add_file("held.flac", sources["short"])
+    hold(push, track_id, CONFLICT_OPEN)
+
+    detected, queued = push.run()
+
+    assert (detected.held, detected.uploads, queued.sent) == (1, 0, 0)
+    assert push.ops() == []
+    assert push.items() == []
+    assert push.link(track_id) is None
+
+
+def test_a_track_waiting_for_a_decide_later_conflict_is_not_uploaded(
+    push: Push, sources: dict[str, Path]
+) -> None:
+    track_id = push.add_file("later.flac", sources["short"])
+    hold(push, track_id, CONFLICT_DECIDE_LATER)
+
+    detected, queued = push.run()
+
+    assert (detected.held, detected.uploads, queued.sent) == (1, 0, 0)
+    assert push.ops() == []
+    assert push.items() == []
+
+
+def test_a_resolved_conflict_releases_the_track_to_the_next_pass(
+    push: Push, sources: dict[str, Path]
+) -> None:
+    track_id = push.add_file("released.flac", sources["short"])
+    hold(push, track_id, CONFLICT_DECIDE_LATER)
+    detected, queued = push.run()
+    assert (detected.held, queued.sent) == (1, 0)
+
+    with push.store.transaction() as conn:
+        conn.execute(
+            "UPDATE remote_conflicts SET state = 'resolved' WHERE track_id = ?", (track_id,)
+        )
+    detected, queued = push.run()
+
+    assert (detected.held, detected.uploads, queued.sent) == (0, 1, 1)
+    assert len(push.items()) == 1
+    assert push.link(track_id) is not None
+
+
+def test_a_held_track_keeps_its_pending_row_and_run_does_not_send_it(
+    push: Push, sources: dict[str, Path]
+) -> None:
+    track_id = push.add_file("pending.flac", sources["short"])
+    push.run()
+    push.wait_hashed()
+    before = push.link(track_id)
+    assert before is not None
+    audio = mutagen.flac.FLAC(push.path_of(track_id))
+    audio["title"] = "Edited on this computer"
+    audio.save()
+    queued_by_detection = detect_changes(
+        push.context, push.store, idle_delay_s=0, now=time.time(), job=fake_job()
+    )
+    assert queued_by_detection.replacements == 1
+    rows_before = push.ops()
+    hold(push, track_id, CONFLICT_OPEN)
+
+    detected, queued = push.run()
+
+    assert (detected.held, detected.replacements, queued.sent) == (1, 0, 0)
+    assert push.ops() == rows_before, "the pending row is neither deleted nor refreshed"
+    assert pending_count(push.store) == 1
+    item = push.client.get_item(str(before["item_id"]))
+    assert item["revision"] == before["item_revision"]
+    assert push.link(track_id) == before

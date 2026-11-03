@@ -12,11 +12,15 @@ from __future__ import annotations
 import dataclasses
 import json
 import shutil
+import subprocess
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
+import mtee.plugins.remote.conflicts as conflicts_module  # pyright: ignore[reportMissingImports]
 import pytest
+from mtee.plugins.remote.client import ApiError  # pyright: ignore[reportMissingImports]
 from mtee.plugins.remote.conflicts import (  # pyright: ignore[reportMissingImports]
     KEEP_BOTH,
     KEEP_LOCAL,
@@ -34,10 +38,20 @@ from mtee.plugins.remote.conflicts import (  # pyright: ignore[reportMissingImpo
 from mtee.plugins.remote.connection import (  # pyright: ignore[reportMissingImports]
     ConnectionManager,
 )
+from mtee.plugins.remote.first_match import (  # pyright: ignore[reportMissingImports]
+    SyncSummary,
+    apply_match,
+    build_match,
+)
+from mtee.plugins.remote.offload import format_size  # pyright: ignore[reportMissingImports]
+from mtee.plugins.remote.push import (  # pyright: ignore[reportMissingImports]
+    detect_changes,
+)
 from mtee.plugins.remote.store import (  # pyright: ignore[reportMissingImports]
     CONFLICT_DECIDE_LATER,
     insert_conflict,
 )
+from mutagen.flac import FLAC
 from tests.helpers.ui_plugin import (
     find_items,
     plugin_ui_of,
@@ -54,7 +68,13 @@ from tests.plugins.remote.devices import (
     source_files,
     wait_hashed,
 )
-from tests.plugins.remote.helpers import fake_job, sha256_of, upload_file
+from tests.plugins.remote.helpers import (
+    ThreadJobs,
+    fake_job,
+    pinned_ffmpeg,
+    sha256_of,
+    upload_file,
+)
 
 from mtee.app import _shutdown
 from mtee.persistence.database import Database
@@ -443,6 +463,329 @@ def test_an_unknown_action_for_the_kind_is_refused(
 
     with pytest.raises(ConflictError, match="does not apply"):
         work_of(computer).resolve(only_conflict(computer).conflict_id, KEEP_SERVER, fake_job())
+
+
+# -- keep this computer's version: tags only (plan 129.2) -----------------------------------------
+NEW_NAME = "Renamed/New name.flac"
+
+
+@pytest.fixture(scope="module")
+def noise(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A FLAC of white noise: it does not compress, so the audio is much bigger than its tags."""
+    path = tmp_path_factory.mktemp("conflict-noise") / "noise.flac"
+    subprocess.run(
+        [
+            str(pinned_ffmpeg()),
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anoisesrc=d=8:c=white:r=44100:a=0.5",
+            "-c:a",
+            "flac",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    return path
+
+
+def make_tags_scenario(
+    computer: Computer, local_source: Path, server_source: Path | None = None
+) -> tuple[str, dict[str, Any]]:
+    """The server holds an older copy of a file; this computer has it retagged and renamed.
+
+    The server item is ``song.flac`` (the same bytes as ``local_source``, or ``server_source``
+    when it is given); the local file gets other tags and moves to ``NEW_NAME``. The first match
+    would leave the track in Conflicts as "tags differ": that row is written here.
+    """
+    track_id = computer.add_file("song.flac", local_source)
+    if server_source is None:
+        computer.push()
+    else:
+        upload_file(computer.client, computer.root_id, "song.flac", server_source)
+    wait_hashed(computer.client, computer.root_id)
+    server_item = computer.item_at("song.flac")
+    old_path = computer.path_of(track_id)
+    tags = FLAC(old_path)
+    tags["title"] = "A title written on this computer"
+    tags["comment"] = "A long comment. " * 400
+    tags.save()
+    target = computer.local / NEW_NAME
+    target.parent.mkdir(parents=True)
+    shutil.move(old_path, target)
+    computer.library.set_path(track_id, target)
+    with computer.store.transaction() as conn:
+        conn.execute("DELETE FROM remote_links WHERE track_id = ?", (track_id,))
+        insert_conflict(
+            conn,
+            track_id=track_id,
+            item_id=str(server_item["item_id"]),
+            local={"relative_path": NEW_NAME, "sha256": sha256_of(target)},
+            server={"item_id": str(server_item["item_id"]), "sha256": server_item["sha256"]},
+            state=CONFLICT_DECIDE_LATER,
+        )
+    return track_id, server_item
+
+
+def spy_on_splice(computer: Computer, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record how each tags-only replacement ends: ``ok`` or the error code of the refusal."""
+    outcomes: list[str] = []
+    original = computer.client.replace_with_tags
+
+    def spy(**kwargs: Any) -> dict[str, Any]:
+        try:
+            result = original(**kwargs)
+        except ApiError as error:
+            outcomes.append(error.code)
+            raise
+        outcomes.append("ok")
+        return result
+
+    monkeypatch.setattr(computer.client, "replace_with_tags", spy)
+    return outcomes
+
+
+def server_bytes_sha256(computer: Computer, item_id: str, tmp_path: Path) -> str:
+    """The SHA-256 of what the server really serves for an item (a download, not its record)."""
+    item = computer.client.get_item(item_id)
+    target = tmp_path / "check" / f"{item_id}.flac"
+    target.parent.mkdir(exist_ok=True)
+    computer.client.download(item_id, target, expected_sha256=str(item["sha256"]))
+    return sha256_of(target)
+
+
+def test_keep_this_computers_sends_only_the_tags_and_renames_the_server_file(
+    computer: Computer, noise: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    track_id, server_item = make_tags_scenario(computer, noise)
+    local = computer.path_of(track_id)
+    outcomes = spy_on_splice(computer, monkeypatch)
+    sent_before = computer.client.uploaded_bytes
+
+    text = work_of(computer).resolve(only_conflict(computer).conflict_id, KEEP_LOCAL, fake_job())
+
+    assert outcomes == ["ok"]
+    sent = computer.client.uploaded_bytes - sent_before
+    assert 0 < sent < local.stat().st_size // 10
+    assert text.startswith("Sent this computer's tags to the server (")
+    assert f"instead of {format_size(local.stat().st_size)})" in text
+    assert text.endswith(f" and renamed to {NEW_NAME}.")
+    after = computer.item_at(NEW_NAME)
+    assert after["item_id"] == server_item["item_id"]
+    assert after["revision"] == server_item["revision"] + 1
+    assert after["sha256"] == sha256_of(local)
+    assert server_bytes_sha256(computer, str(after["item_id"]), tmp_path) == sha256_of(local)
+    assert [i["relative_path"] for i in computer.client.all_items(root_id=computer.root_id)] == [
+        NEW_NAME
+    ]
+    link = computer.link(track_id)
+    assert (link["item_id"], link["item_revision"], link["server_path"]) == (
+        after["item_id"],
+        after["revision"],
+        NEW_NAME,
+    )
+    assert link["local_sha256"] == sha256_of(local)
+    conflict = only_conflict(computer)
+    assert (conflict.state, conflict.local["resolved_action"]) == ("resolved", KEEP_LOCAL)
+    assert conflict.local["outcome"] == text
+
+
+def test_a_server_that_refuses_the_tags_gets_the_whole_file(
+    computer: Computer,
+    sources: dict[str, Path],
+    noise: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    track_id, server_item = make_tags_scenario(computer, noise, server_source=sources["other"])
+    local = computer.path_of(track_id)
+    # Hide the server's audio hash, so the client cannot tell beforehand that the audio differs.
+    get_item = computer.client.get_item
+    monkeypatch.setattr(
+        computer.client, "get_item", lambda item_id: {**get_item(item_id), "audio_hash": None}
+    )
+    outcomes = spy_on_splice(computer, monkeypatch)
+    sent_before = computer.client.uploaded_bytes
+
+    text = work_of(computer).resolve(only_conflict(computer).conflict_id, KEEP_LOCAL, fake_job())
+
+    assert outcomes == ["splice_refused"]
+    assert computer.client.uploaded_bytes - sent_before >= local.stat().st_size
+    assert text.startswith("The server copy is replaced by this file (revision ")
+    assert text.endswith(f" and renamed to {NEW_NAME}.")
+    after = computer.item_at(NEW_NAME)
+    assert (after["item_id"], after["sha256"]) == (server_item["item_id"], sha256_of(local))
+    assert server_bytes_sha256(computer, str(after["item_id"]), tmp_path) == sha256_of(local)
+    assert computer.link(track_id)["item_revision"] == after["revision"]
+
+
+def test_different_audio_known_on_both_sides_skips_the_tags_only_try(
+    computer: Computer,
+    sources: dict[str, Path],
+    noise: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    track_id, _ = make_tags_scenario(computer, noise, server_source=sources["other"])
+    outcomes = spy_on_splice(computer, monkeypatch)
+
+    text = work_of(computer).resolve(only_conflict(computer).conflict_id, KEEP_LOCAL, fake_job())
+
+    assert outcomes == []
+    assert text.startswith("The server copy is replaced by this file")
+    after = computer.item_at(NEW_NAME)
+    assert server_bytes_sha256(computer, str(after["item_id"]), tmp_path) == sha256_of(
+        computer.path_of(track_id)
+    )
+
+
+def test_tag_parts_that_are_too_big_send_the_whole_file(
+    computer: Computer, noise: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    track_id, _ = make_tags_scenario(computer, noise)
+    outcomes = spy_on_splice(computer, monkeypatch)
+    monkeypatch.setattr(conflicts_module, "MAX_TAG_BYTES", 10)
+
+    text = work_of(computer).resolve(only_conflict(computer).conflict_id, KEEP_LOCAL, fake_job())
+
+    assert outcomes == []
+    assert text.startswith("The server copy is replaced by this file")
+    assert computer.item_at(NEW_NAME)["sha256"] == sha256_of(computer.path_of(track_id))
+
+
+def test_a_name_taken_on_the_server_keeps_the_content_change_and_says_so(
+    computer: Computer, sources: dict[str, Path], noise: Path
+) -> None:
+    track_id, server_item = make_tags_scenario(computer, noise)
+    upload_file(computer.peer, computer.root_id, NEW_NAME, sources["other"])
+
+    text = work_of(computer).resolve(only_conflict(computer).conflict_id, KEEP_LOCAL, fake_job())
+
+    assert text.startswith("Sent this computer's tags to the server (")
+    assert f"it keeps its server name because {NEW_NAME} is taken there" in text
+    after = computer.client.get_item(str(server_item["item_id"]))
+    assert (after["relative_path"], after["sha256"]) == (
+        "song.flac",
+        sha256_of(computer.path_of(track_id)),
+    )
+    assert computer.link(track_id)["server_path"] == "song.flac"
+
+
+# -- the global choice of the first-match summary (plan 129.3) -----------------------------------
+def make_first_match_tags(
+    computer: Computer, source: Path, server_name: str, local_name: str
+) -> str:
+    """The server holds ``source`` as ``server_name``; this computer has the same audio retagged.
+
+    The local copy keeps its folder and gets the name ``local_name``. Nothing is in Conflicts yet:
+    the first match of the test writes that row.
+    """
+    upload_file(computer.client, computer.root_id, server_name, source)
+    wait_hashed(computer.client, computer.root_id)
+    track_id = computer.add_file(server_name, source)
+    old_path = computer.path_of(track_id)
+    tags = FLAC(old_path)
+    tags["title"] = "A title written on this computer"
+    tags["comment"] = "A long comment. " * 400
+    tags.save()
+    target = computer.local / local_name
+    shutil.move(old_path, target)
+    computer.library.set_path(track_id, target)
+    return track_id
+
+
+def first_match_summary(computer: Computer) -> SyncSummary:
+    """Run the match and Start sync of the first match on this computer, as the summary does."""
+    report = build_match(computer.context, computer.client, computer.store.mappings(), fake_job())
+    return apply_match(computer.context, report)
+
+
+def settling_feature(computer: Computer, jobs: ThreadJobs, notices: list[str]) -> ConflictFeature:
+    """The feature of this computer with jobs on threads, and the notices kept in ``notices``."""
+    context = dataclasses.replace(
+        computer.context, jobs=cast(Any, jobs), notify=notices.append, refresh_ui=lambda: None
+    )
+    return ConflictFeature(context, computer.store, _Link(computer), lambda: DEVICE, lambda: None)
+
+
+def test_the_summary_choice_keeps_this_computers_tags_and_renames_the_server_file(
+    computer: Computer, noise: Path, tmp_path: Path
+) -> None:
+    track_id = make_first_match_tags(computer, noise, "song.flac", "Renamed song.flac")
+    summary = first_match_summary(computer)
+    assert summary.waiting == (only_conflict(computer).conflict_id,)
+    local = computer.path_of(track_id)
+    before = computer.item_at("song.flac")
+    sent_before = computer.client.uploaded_bytes
+    jobs = ThreadJobs()
+    notices: list[str] = []
+
+    settling_feature(computer, jobs, notices).settle(summary.waiting, "computer")
+    jobs.wait()
+
+    assert jobs.errors == []
+    assert len(jobs.threads) == 1, "one job for all the waiting conflicts"
+    sent = computer.client.uploaded_bytes - sent_before
+    assert 0 < sent < local.stat().st_size // 10
+    assert notices == ["Kept this computer's version of 1 track."]
+    after = computer.item_at("Renamed song.flac")
+    assert after["relative_path"] == "Renamed song.flac"
+    assert after["item_id"] == before["item_id"]
+    assert after["revision"] == before["revision"] + 1
+    assert after["sha256"] == sha256_of(local)
+    assert server_bytes_sha256(computer, str(after["item_id"]), tmp_path) == sha256_of(local)
+    link = computer.link(track_id)
+    assert link["local_sha256"] == sha256_of(local)
+    assert only_conflict(computer).state == "resolved"
+    report = detect_changes(
+        computer.context, computer.store, idle_delay_s=0, now=time.time(), job=fake_job()
+    )
+    assert (report.uploads, report.held) == (0, 0)
+
+
+def test_a_waiting_pair_that_fails_stays_open_and_the_others_are_settled(
+    computer: Computer, sources: dict[str, Path]
+) -> None:
+    failing = make_first_match_tags(computer, sources["short"], "first.flac", "First renamed.flac")
+    settled = make_first_match_tags(
+        computer, sources["other"], "second.flac", "Second renamed.flac"
+    )
+    summary = first_match_summary(computer)
+    assert len(summary.waiting) == 2
+    by_track = {
+        found.track_id: found
+        for found in (work_of(computer).conflict(conflict_id) for conflict_id in summary.waiting)
+        if found is not None
+    }
+    # The file of the first pair is gone: its settlement cannot read it and must fail alone.
+    computer.path_of(failing).unlink()
+    jobs = ThreadJobs()
+    notices: list[str] = []
+
+    feature = settling_feature(computer, jobs, notices)
+    feature.settle(summary.waiting, "computer")
+    jobs.wait()
+
+    assert jobs.errors == []
+    assert len(notices) == 1
+    assert "Kept this computer's version of 1 track." in notices[0]
+    assert "could not be settled" in notices[0]
+    # A tags conflict from the summary is decide-later; a failure keeps that state and the reason.
+    still_open = work_of(computer).conflict(by_track[failing].conflict_id)
+    assert still_open is not None
+    assert still_open.state == CONFLICT_DECIDE_LATER
+    assert still_open.local.get("last_error")
+    feature.refresh()
+    assert by_track[failing].conflict_id in [row["id"] for row in feature.model.rows()]
+    done = work_of(computer).conflict(by_track[settled].conflict_id)
+    assert done is not None and done.state == "resolved"
+    renamed = computer.item_at("Second renamed.flac")
+    assert renamed["sha256"] == sha256_of(computer.path_of(settled))
 
 
 # -- decide later, dismiss and reopen --------------------------------------------------------

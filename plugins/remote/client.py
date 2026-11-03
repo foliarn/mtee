@@ -15,7 +15,7 @@ import os
 import socket
 import ssl
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, TypeGuard
@@ -156,6 +156,10 @@ def _object(value: Any, status: int) -> dict[str, Any]:
 # whole file on the server before it answers.
 CHUNK_TIMEOUT_S = 180.0
 COMMIT_TIMEOUT_S = 900.0
+# The tag parts of a tags-only transfer are sent in chunks of this size, and an upload that the
+# server keeps answering with another offset is given up after this many tries in a row.
+SPLICE_CHUNK_BYTES = 8 * 1024 * 1024
+_SPLICE_STALLS = 3
 
 
 class RemoteClient:
@@ -168,6 +172,14 @@ class RemoteClient:
         self._timeout = timeout
         self._open: set[http.client.HTTPConnection] = set()
         self._open_lock = threading.Lock()
+        self._sent_lock = threading.Lock()
+        self._uploaded_bytes = 0
+
+    @property
+    def uploaded_bytes(self) -> int:
+        """The upload bytes this client has sent so far (a counter for sizes and tests)."""
+        with self._sent_lock:
+            return self._uploaded_bytes
 
     def abort(self) -> None:
         """Close the connections in use, so a call waiting for the server ends at once.
@@ -409,6 +421,107 @@ class RemoteClient:
             raise ApiError(status, "bad_response", _UNREADABLE)
         return parsed
 
+    def open_splice_upload(
+        self,
+        *,
+        root_id: str,
+        relative_path: str,
+        size_bytes: int,
+        sha256: str,
+        base_item_id: str,
+        base_revision: int,
+        span_length: int,
+        span_sha256: str,
+        prefix_size: int,
+    ) -> dict[str, Any]:
+        """Open a tags-only replacement of an item (plan 129.2).
+
+        ``size_bytes`` and ``sha256`` describe the FINAL file. The server expects only the tag parts
+        (``size_bytes - span_length`` bytes, the answer's ``size_bytes``) and rebuilds the file with
+        the audio payload it already holds; it checks the payload against ``span_length`` and
+        ``span_sha256`` when the upload is committed.
+        """
+        body: dict[str, Any] = {
+            "purpose": "item",
+            "mode": "splice",
+            "root_id": root_id,
+            "relative_path": relative_path,
+            "size_bytes": size_bytes,
+            "sha256": sha256,
+            "base_item_id": base_item_id,
+            "base_revision": base_revision,
+            "span_length": span_length,
+            "span_sha256": span_sha256,
+            "prefix_size": prefix_size,
+        }
+        status, _, data = self.request("POST", "/api/v1/uploads", json=body)
+        parsed = _object(_json_body(status, data), status)
+        if not isinstance(parsed.get("upload_id"), str):
+            raise ApiError(status, "bad_response", _UNREADABLE)
+        return parsed
+
+    def replace_with_tags(
+        self,
+        *,
+        root_id: str,
+        relative_path: str,
+        size_bytes: int,
+        sha256: str,
+        base_item_id: str,
+        base_revision: int,
+        span_length: int,
+        span_sha256: str,
+        prefix: bytes,
+        suffix: bytes,
+        chunk_bytes: int = SPLICE_CHUNK_BYTES,
+        before_chunk: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        """Replace an item by sending only the bytes around the audio payload; return the new item.
+
+        The tag parts (``prefix`` + ``suffix``) go through the resumable upload, then the server
+        rebuilds the file and keeps it only when its SHA-256 is ``sha256``. A refusal raises
+        ``ApiError`` with the code ``splice_refused`` (the server discarded the upload and nothing
+        changed; the caller sends the whole file instead), a stale ``base_revision`` raises the
+        usual ``conflict``. The upload is cancelled on any failure. ``before_chunk`` runs before
+        each chunk and may raise to stop the transfer.
+        """
+        opened = self.open_splice_upload(
+            root_id=root_id,
+            relative_path=relative_path,
+            size_bytes=size_bytes,
+            sha256=sha256,
+            base_item_id=base_item_id,
+            base_revision=base_revision,
+            span_length=span_length,
+            span_sha256=span_sha256,
+            prefix_size=len(prefix),
+        )
+        upload_id = str(opened["upload_id"])
+        parts = prefix + suffix
+        try:
+            offset = 0
+            stalls = 0
+            while offset < len(parts):
+                if before_chunk is not None:
+                    before_chunk()
+                data = parts[offset : offset + chunk_bytes]
+                try:
+                    offset = self.upload_chunk(upload_id, offset, data, len(parts))
+                    stalls = 0
+                except UploadOffsetError as held:
+                    stalls = stalls + 1 if held.offset == offset else 0
+                    if stalls > _SPLICE_STALLS:
+                        raise ApiError(
+                            0, "stalled", "The server keeps refusing the bytes of this upload."
+                        ) from None
+                    offset = held.offset
+            body = self.commit_upload(upload_id)
+        except BaseException:
+            with contextlib.suppress(ApiError, NetworkError):
+                self.cancel_upload(upload_id)
+            raise
+        return _object(body.get("item"), 200)
+
     def upload_status(self, upload_id: str) -> dict[str, Any]:
         status, _, data = self.request("GET", _upload_path(upload_id))
         return _object(_json_body(status, data), status)
@@ -435,6 +548,8 @@ class RemoteClient:
             if offset is None:
                 offset = _received(self.upload_status(upload_id))
             raise UploadOffsetError(offset) from None
+        with self._sent_lock:
+            self._uploaded_bytes += len(data)
         return _received(_object(_json_body(status, body), status))
 
     def commit_upload(self, upload_id: str, relative_path: str | None = None) -> dict[str, Any]:

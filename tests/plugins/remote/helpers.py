@@ -15,8 +15,9 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -31,7 +32,7 @@ from mtee.domain.recycling import RecycleOutcome
 from mtee.persistence.database import Database, discover_migrations
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.persistence.source_track_repository import SourceTrackRepository
-from mtee.plugins.api import JobContext, LibraryRoot, LibraryTrack, PluginContext
+from mtee.plugins.api import JobContext, JobId, LibraryRoot, LibraryTrack, PluginContext
 from mtee.plugins.context import PluginHost
 from mtee.services.jobs import JobService
 
@@ -314,6 +315,47 @@ class FakeJob:
 
 def fake_job() -> JobContext:
     return cast(JobContext, FakeJob())
+
+
+class ThreadJobs:
+    """The job service of a test: each submitted job runs on its own thread; ``wait`` joins them.
+
+    A job that raises is kept in ``errors`` (the real service shows it in Tasks instead).
+    ``threads`` lists every job submitted, so a test can count the jobs a call made.
+    """
+
+    def __init__(self) -> None:
+        self.threads: list[threading.Thread] = []
+        self.errors: list[BaseException] = []
+
+    def submit(
+        self,
+        task: Callable[[JobContext], None],
+        *,
+        label: str = "Background task",
+        visible: bool = True,
+        priority: int = 0,
+        job_id: JobId | None = None,
+    ) -> JobId:
+        del label, visible, priority, job_id
+
+        def run() -> None:
+            try:
+                task(cast(JobContext, FakeJob()))
+            except BaseException as error:
+                self.errors.append(error)
+
+        thread = threading.Thread(target=run, daemon=True)
+        self.threads.append(thread)
+        thread.start()
+        return JobId.new()
+
+    def wait(self, timeout: float = 120.0) -> None:
+        """Join every job; fail when one is still running after ``timeout`` seconds."""
+        for thread in self.threads:
+            thread.join(timeout)
+            if thread.is_alive():
+                raise AssertionError("A job did not finish in time.")
 
 
 def make_context(tmp_path: Path, library: FakeLibrary) -> PluginContext:

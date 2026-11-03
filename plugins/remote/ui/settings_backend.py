@@ -42,7 +42,13 @@ from ..engine import (
 )
 from ..fetch import download_new, set_download_new
 from ..first_match import REF_COMPARE, FirstMatchController
-from ..folders import clean_subpath, folder_row, local_folders, watched_path
+from ..folders import (
+    checked_local_subpath,
+    clean_subpath,
+    folder_row,
+    local_folders,
+    watched_path,
+)
 from ..offload import format_size
 from ..records import set_travel, travel_rows
 from ..sources import set_stream_level, stream_level
@@ -576,11 +582,14 @@ class SettingsBackend(QObject):
             visible=False,
         )
 
-    @Slot(str, str, str)
-    def saveFolder(self, path: str, root_id: str, subpath: str) -> None:  # noqa: N802
-        """Link a watched folder to a server folder (and subfolder). Writes in a job."""
+    @Slot(str, str, str, str)
+    def saveFolder(  # noqa: N802
+        self, path: str, root_id: str, local_subpath: str, subpath: str
+    ) -> None:
+        """Link a watched folder, or one of its subfolders, to a server folder. Writes in a job."""
         try:
             local = watched_path(self._context, path)
+            local_cleaned = checked_local_subpath(local, local_subpath)
             cleaned = clean_subpath(subpath)
         except ValueError as error:
             self._context.notify(str(error))
@@ -588,7 +597,7 @@ class SettingsBackend(QObject):
         if not root_id:
             self._context.notify("Choose the server folder to sync with.")
             return
-        mapping = FolderMapping(local, root_id, cleaned)
+        mapping = FolderMapping(local, root_id, cleaned, local_cleaned)
         store = self._store
         submit(
             self._context,

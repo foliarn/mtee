@@ -9,6 +9,18 @@ and MTEE checks the connection every minute, with longer waits after repeated fa
 also list the devices of your account, and you can revoke another device from there. Disconnect
 signs this computer out and revokes its device on the server.
 
+The **first match** links each watched folder to a server folder (Settings > Remote > Folders). A
+mapping can start at a subfolder on either side (**Local subfolder**, **Server subfolder**), so a
+first run can be tried on one small folder before the whole library. MTEE compares the tracks by
+their audio, not by name or tags, and shows a summary before anything moves: **Matched**, **To
+upload**, **Server only**, **Same audio, different file** and **Not matched**. For the same-audio
+group one choice applies to all of them: **This computer wins** (default) gives the server's copies
+this computer's tags, names and folders; **Server wins** does the reverse; **Decide one by one**
+leaves each in Conflicts. When this computer wins and both files hold the same audio bytes, only
+the tag parts of the file are sent (FLAC, MP3, WAV, AIFF, M4A): the server rebuilds the file from
+them and its own audio, and keeps it only if its SHA-256 equals this computer's; otherwise the whole
+file is sent. A track that waits for a decision is never sent.
+
 Once the first match is done (Settings > Remote, Folders), the plugin sends this computer's changes
 to the server: new tracks, tag edits (a replacement of the same server item), renames and moves
 (the same item at its new path). Files are read only; nothing on this computer is written, moved or

@@ -518,7 +518,7 @@ def _move_linked(
     track = _track(state, str(link["track_id"]))
     if track is None:
         return
-    local = _relative_in(mapping.local_root_path, track.path)
+    local = _relative_in(str(mapping.local_folder), track.path)
     if local is None:
         _log(state, f"{item['relative_path']} is not inside its mapped folder here.", "warning")
         return
@@ -631,7 +631,7 @@ def _inside(subpath: str, relative: str) -> str | None:
 
 
 def _folder_of(mapping: FolderMapping, inside: str) -> Path:
-    return Path(mapping.local_root_path).joinpath(*PurePosixPath(inside).parts[:-1])
+    return mapping.local_folder.joinpath(*PurePosixPath(inside).parts[:-1])
 
 
 def _local_at(state: _Pass, mapping: FolderMapping, inside: str) -> LibraryTrack | None:
@@ -641,7 +641,7 @@ def _local_at(state: _Pass, mapping: FolderMapping, inside: str) -> LibraryTrack
             _key(track.path): track
             for track in state.context.library.tracks(state.context.library.track_ids())
         }
-    expected = Path(mapping.local_root_path).joinpath(*PurePosixPath(inside).parts)
+    expected = mapping.local_folder.joinpath(*PurePosixPath(inside).parts)
     return state.by_path.get(_key(expected))
 
 

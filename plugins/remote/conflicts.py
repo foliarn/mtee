@@ -43,6 +43,13 @@ from mtee.plugins.api import (
     PluginRowsModel,
     TabRequest,
 )
+from mtee.services.audio_payload import (
+    MAX_TAG_BYTES,
+    payload_span,
+    read_tag_parts,
+    span_sha256,
+    tag_bytes_size,
+)
 
 from .client import ApiError, NetworkError, RemoteClient, UploadOffsetError
 from .hashing import FileHashes, hash_tracks
@@ -536,12 +543,100 @@ class ConflictWork:
             return f"Sent this file to the server as {path}."
         hashes = self._hashes(track, job)
         if hashes.sha256 == item.get("sha256"):
-            self._relink(track, item, hashes, path)
-            return _SAME
+            # Same content already: a retry after the connection dropped between the replacement
+            # and the rename still gives the server copy this computer's name.
+            item, name_note = self._follow_local_name(client, item, path)
+            self._relink(track, item, hashes, str(item.get("relative_path") or path))
+            return _SAME if not name_note else f"The server copy was already this file{name_note}."
         # The revision is the one the server has now: a change made since the conflict fails here.
-        sent = self._upload(track, root, str(item["relative_path"]), hashes, job, base=item)
-        self._relink(track, sent, hashes, path)
-        return f"The server copy is replaced by this file (revision {sent.get('revision')})."
+        # With the same audio on both sides only the tags travel; a refusal sends the whole file.
+        spliced = self._splice(track, root, hashes, item, job)
+        if spliced is None:
+            sent = self._upload(track, root, str(item["relative_path"]), hashes, job, base=item)
+        else:
+            sent = spliced.item
+        sent, name_note = self._follow_local_name(client, sent, path)
+        self._relink(track, sent, hashes, str(sent.get("relative_path") or path))
+        if spliced is None:
+            return (
+                f"The server copy is replaced by this file (revision {sent.get('revision')})"
+                f"{name_note}."
+            )
+        return (
+            f"Sent this computer's tags to the server ({format_size(spliced.sent)} instead of "
+            f"{format_size(spliced.size)}){name_note}."
+        )
+
+    def _splice(
+        self,
+        track: LibraryTrack,
+        root: str,
+        hashes: FileHashes,
+        base: Mapping[str, Any],
+        job: JobContext,
+    ) -> _Spliced | None:
+        """Replace the server file by sending only the tag parts of this one (plan 129.2).
+
+        Returns None when the whole file has to travel: the format has no clear audio payload,
+        the tag parts are too big, both audio hashes are known and differ, or the server refused
+        (it holds other audio, so it could not rebuild the file). Any other server error is
+        raised. The server checks the payload and the SHA-256 of the result itself.
+        """
+        client = self._client()
+        local_audio = hashes.audio_hash
+        server_audio = _text_or_none(base.get("audio_hash"))
+        if local_audio is not None and server_audio is not None and local_audio != server_audio:
+            return None
+        with self._context.files.read_lease(track.track_id) as path:
+            info = os.stat(path)
+            span = payload_span(path)
+            if span is None or tag_bytes_size(path, span) > MAX_TAG_BYTES:
+                return None
+            try:
+                payload_hash = span_sha256(path, span)
+                prefix, suffix = read_tag_parts(path, span)
+            except ValueError:
+                raise ConflictError(_CHANGED) from None
+            if os.stat(path).st_mtime_ns != info.st_mtime_ns:
+                raise ConflictError(_CHANGED)
+        try:
+            item = client.replace_with_tags(
+                root_id=root,
+                relative_path=str(base["relative_path"]),
+                size_bytes=info.st_size,
+                sha256=hashes.sha256,
+                base_item_id=str(base["item_id"]),
+                base_revision=_count(base.get("revision")),
+                span_length=span.length,
+                span_sha256=payload_hash,
+                prefix=prefix,
+                suffix=suffix,
+                before_chunk=job.raise_if_cancelled,
+            )
+        except ApiError as error:
+            if error.code == "splice_refused":
+                return None
+            raise
+        return _Spliced(item, len(prefix) + len(suffix), info.st_size)
+
+    def _follow_local_name(
+        self, client: RemoteClient, item: dict[str, Any], path: str
+    ) -> tuple[dict[str, Any], str]:
+        """Move the server item to this computer's name and folder; return it and a sentence part.
+
+        The sentence part is empty when the names already match, " and renamed to <path>" after a
+        move, and says so when another file of the server holds the name (the content is already
+        this computer's, so nothing is undone).
+        """
+        if str(item.get("relative_path")) == path:
+            return item, ""
+        try:
+            moved = client.move_item(str(item["item_id"]), path)
+        except ApiError as error:
+            if error.code != "path_taken":
+                raise
+            return item, f" (it keeps its server name because {path} is taken there)"
+        return moved, f" and renamed to {path}"
 
     def _keep_server(self, conflict: Conflict, job: JobContext) -> str:
         track = self._need_track(conflict)
@@ -947,6 +1042,61 @@ class ConflictFeature(QObject):
             lambda text, error: self._resolved(conflict_id, text, error),
         )
 
+    def settle(self, conflict_ids: Sequence[str], choice: str) -> None:
+        """Settle many same-audio conflicts with one side, in one job (plan 129.3).
+
+        ``choice`` is the global choice of the first-match summary: "computer" keeps this
+        computer's version (only the tags travel when the server can rebuild the file), "server"
+        keeps the server's. Each conflict is resolved as if the person had chosen it in its tab;
+        one that fails stays open with its reason, and the others go on.
+        """
+        action = {"computer": KEEP_LOCAL, "server": KEEP_SERVER}.get(choice)
+        ids = [conflict_id for conflict_id in conflict_ids if conflict_id not in self._busy]
+        if action is None or not ids:
+            return
+        self._busy.update(ids)
+        side = "this computer's" if action == KEEP_LOCAL else "the server's"
+        submit(
+            self._context,
+            f"Keeping {side} version of {len(ids):,} tracks",
+            lambda job: self._settle_all(ids, action, job),
+            lambda counts, error: self._settled(ids, side, counts, error),
+        )
+
+    def _settle_all(self, ids: Sequence[str], action: str, job: JobContext) -> tuple[int, int]:
+        """Resolve each conflict in turn; return how many were settled and how many failed."""
+        done = failed = 0
+        for index, conflict_id in enumerate(ids):
+            job.raise_if_cancelled()
+            try:
+                self._work.resolve(conflict_id, action, job)
+                done += 1
+            except ConflictError:
+                # The reason is kept in the conflict row, which stays open in Tasks.
+                failed += 1
+            job.report_progress((index + 1) / len(ids))
+        return done, failed
+
+    def _settled(
+        self,
+        ids: Sequence[str],
+        side: str,
+        counts: tuple[int, int] | None,
+        error: BaseException | None,
+    ) -> None:
+        self._busy.difference_update(ids)
+        self._views.clear()
+        if counts is not None:
+            done, failed = counts
+            text = f"Kept {side} version of {_tracks(done)}."
+            if failed:
+                text += f" {_tracks(failed)} could not be settled: see Tasks for the reason."
+            self._context.notify(text)
+        elif error is not None and not isinstance(error, JobCancelledError):
+            self._context.notify(str(error) or type(error).__name__)
+        self.refresh()
+        self._context.refresh_ui()
+
     # -- internals -------------------------------------------------------------------------
     def _built(
         self, conflict_id: str, view: dict[str, Any] | None, error: BaseException | None
@@ -1114,15 +1264,30 @@ def _mapped_optional(
         return None
     best: tuple[int, str, str] | None = None
     for mapping in mappings:
-        relative = _relative_in(mapping.local_root_path, Path(track.path))
+        # The mapped folder may be a subfolder of the watched folder (a trial on one folder).
+        local_folder = str(mapping.local_folder)
+        relative = _relative_in(local_folder, Path(track.path))
         if relative is None:
             continue
-        depth = len(mapping.local_root_path)
+        depth = len(local_folder)
         if best is None or depth > best[0]:
             subpath = mapping.server_subpath
             server = _join(subpath, relative)
             best = (depth, mapping.server_root_id, server)
     return None if best is None else (best[1], best[2])
+
+
+def _tracks(count: int) -> str:
+    return f"{count:,} track" if count == 1 else f"{count:,} tracks"
+
+
+@dataclass(frozen=True)
+class _Spliced:
+    """A tags-only replacement that the server accepted: the item and the bytes it took."""
+
+    item: dict[str, Any]
+    sent: int  # bytes of tag parts sent
+    size: int  # size of the whole file
 
 
 def _set_link(

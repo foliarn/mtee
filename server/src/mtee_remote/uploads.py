@@ -23,11 +23,20 @@ This is the code that writes into users' music folders, so the rules are strict:
   (`part_file` is the one place that chooses it). Their commit lives in `backups.py`, which
   reuses `verify_received`. The uploads table has no column for the kind of a backup, so
   `uploads.label` holds the JSON object `{"label": ..., "kind": ...}` (`encode_backup_meta`).
+- A **splice** upload (plan 129.2, tags-only transfer) replaces an item whose audio the server
+  already holds. The client sends only the bytes around the audio payload (prefix + suffix);
+  at commit the server rebuilds the file from them and its own payload, and keeps it only if
+  the SHA-256 of the result is the declared one (`splice_refused` otherwise). For such an
+  upload `size_bytes` is the number of bytes the client sends (final size minus the payload
+  length), so chunks, resume, quota and the status route work unchanged; `sha256` is the
+  SHA-256 of the FINAL file; the payload length, its SHA-256 and the prefix size are in
+  `uploads.label` as a JSON object (`encode_splice_meta`), like the backup fields.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -36,9 +45,12 @@ import sqlite3
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, BinaryIO
+
+from mtee.services import audio_payload
 
 from mtee_remote import clock
 from mtee_remote.config import Settings
@@ -322,10 +334,13 @@ def create_upload(
     sha256: str,
     base_item_id: str | None,
     base_revision: int | None,
+    splice: SpliceMeta | None = None,
 ) -> dict[str, Any]:
     """Check an item upload request, create its empty part file and row; return the response.
 
-    Backups have their own entry point, `create_backup_upload`.
+    Backups have their own entry point, `create_backup_upload`. With `splice` (a replacement
+    only), `size_bytes` and `sha256` describe the FINAL file and the client will send
+    `size_bytes - splice.span_length` bytes: the response's `size_bytes` is that number.
     """
     check_purpose(purpose)
     if purpose != "item":
@@ -335,6 +350,17 @@ def create_upload(
         raise ApiError(
             "bad_request", "base_item_id and base_revision must be given together or not at all."
         )
+    if splice is not None:
+        if base_item_id is None:
+            raise ApiError(
+                "bad_request",
+                "A splice upload replaces an item: give base_item_id and base_revision.",
+            )
+        check_sha256(splice.span_sha256)
+        if splice.span_length > size_bytes:
+            raise ApiError("bad_request", "span_length is bigger than the size of the file.")
+        if splice.prefix_size > size_bytes - splice.span_length:
+            raise ApiError("bad_request", "prefix_size is bigger than the tag parts of the file.")
     conn = db.conn()
     root = conn.execute(
         "SELECT 1 FROM roots WHERE root_id = ? AND user_id = ?", (root_id, user_id)
@@ -368,12 +394,14 @@ def create_upload(
         purpose="item",
         root_id=root_id,
         relative_path=clean,
-        size_bytes=size_bytes,
+        size_bytes=size_bytes if splice is None else size_bytes - splice.span_length,
         sha256=sha256,
         base_item_id=base_item_id,
         base_revision=base_revision,
-        label=None,
+        label=None if splice is None else encode_splice_meta(splice),
         replaced_size=replaced_size,
+        # The server's own payload joins the part at commit: the quota counts the final file.
+        extra_bytes=0 if splice is None else splice.span_length,
     )
 
 
@@ -431,13 +459,20 @@ def _open_upload(
     base_revision: int | None,
     label: str | None,
     replaced_size: int,
+    extra_bytes: int = 0,
 ) -> dict[str, Any]:
-    """Check the quota, create the empty part file and the upload row; return the response."""
+    """Check the quota, create the empty part file and the upload row; return the response.
+
+    `extra_bytes` are bytes the commit adds to the part (the server's payload of a splice).
+    """
     conn = db.conn()
     quota = conn.execute("SELECT quota_bytes FROM users WHERE user_id = ?", (user_id,)).fetchone()[
         0
     ]
-    if quota is not None and used_bytes(conn, user_id) + size_bytes - replaced_size > quota:
+    if (
+        quota is not None
+        and used_bytes(conn, user_id) + size_bytes + extra_bytes - replaced_size > quota
+    ):
         raise ApiError("quota_exceeded", "This upload would exceed the storage quota.")
     upload_id = new_id()
     part = part_file(settings, conn, user_id, purpose, upload_id)
@@ -492,6 +527,45 @@ def decode_backup_meta(raw: str | None) -> tuple[str | None, str]:
     kind = data.get("kind")
     return (label if isinstance(label, str) else None), (
         "automatic" if kind == "automatic" else "manual"
+    )
+
+
+@dataclass(frozen=True)
+class SpliceMeta:
+    """What a splice upload promises about the file it rebuilds (see the module docstring)."""
+
+    span_length: int  # length of the audio payload the server must already hold
+    span_sha256: str  # SHA-256 of that payload
+    prefix_size: int  # how many of the received bytes come before the payload
+
+
+def encode_splice_meta(meta: SpliceMeta) -> str:
+    """The `uploads.label` of a splice upload: a JSON object with the three promises."""
+    return json.dumps(
+        {
+            "mode": "splice",
+            "span_length": meta.span_length,
+            "span_sha256": meta.span_sha256,
+            "prefix_size": meta.prefix_size,
+        },
+        separators=(",", ":"),
+    )
+
+
+def decode_splice_meta(raw: str | None) -> SpliceMeta | None:
+    """Read back the splice promises of an upload row's `label`; None for a normal upload."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("mode") != "splice":
+        return None
+    return SpliceMeta(
+        span_length=int(data["span_length"]),
+        span_sha256=str(data["span_sha256"]),
+        prefix_size=int(data["prefix_size"]),
     )
 
 
@@ -557,6 +631,8 @@ def verify_received(
 
     Shared by the item commit and the backup commit (`backups.commit_backup`). A wrong hash
     empties the part file, so the client sends the bytes again, and gives `422 bad_hash`.
+    A splice upload only gets its size checked here: its part is not the file the SHA-256
+    describes. The final SHA-256 is checked once the file is rebuilt (`_assemble_splice`).
     """
     conn = db.conn()
     row = load_upload(conn, user_id, upload_id)
@@ -568,6 +644,8 @@ def verify_received(
         raise ApiError(
             "bad_request", f"{size} of {row['size_bytes']} bytes were received; send the rest."
         )
+    if row["purpose"] == "item" and decode_splice_meta(row["label"]) is not None:
+        return row, part
     if hashing.file_sha256(part) != row["sha256"]:
         with open(part, "r+b") as handle:
             handle.truncate(0)
@@ -742,58 +820,197 @@ def _commit_replacement(
             raise ApiError(
                 "conflict", "The current file is missing on the server; scan the root first."
             )
-        trash_id = new_id()
-        stored = trash_stored_path(trash_id, PurePosixPath(relative).name)
-        trash_file = library / stored
-        trash_file.parent.mkdir(parents=True, exist_ok=True)
-        # The old file leaves its path (and any hard link it shared): the new content is a
-        # new file, so another user's linked copy is never touched.
+        splice = decode_splice_meta(upload["label"])
+        content = part
+        if splice is not None:
+            # Under the root lock: the payload that is checked is the one that is read.
+            content = _assemble_splice(db, upload, part, target, splice)
         try:
-            place_file(target, trash_file)
-        except BaseException:
-            remove_empty_dir(trash_file.parent)
-            raise
-        try:
-            place_file(part, target)
-        except BaseException:
-            undo_place(trash_file, target)
-            remove_empty_dir(trash_file.parent)
-            raise
-        try:
-            size, mtime_ns, inode = file_facts(target)
-            with db.transaction() as tx:
-                insert_trash_row(
-                    tx,
-                    trash_id=trash_id,
-                    user_id=user_id,
-                    item_id=item_id,
-                    stored_path=stored,
-                    root_id=root_id,
-                    relative_path=relative,
-                    size_bytes=int(current["size_bytes"]),
-                    device_id=device_id,
-                )
-                store.replace_item_file(
-                    tx,
-                    item_id,
-                    size_bytes=size,
-                    mtime_ns=mtime_ns,
-                    inode=inode,
-                    device_id=device_id,
-                    sha256=upload["sha256"],
-                )
-                tx.conn.execute(
-                    "UPDATE uploads SET state = 'done', received_bytes = ?, updated_at_utc = ?"
-                    " WHERE upload_id = ?",
-                    (size, now_iso(), upload_id),
-                )
-        except BaseException:
-            log.exception("Upload %s: the database step failed; undoing the file moves.", upload_id)
-            undo_place(target, part)
-            undo_place(trash_file, target)
-            remove_empty_dir(trash_file.parent)
-            raise
+            _swap_in(
+                db,
+                upload,
+                content,
+                target,
+                library=library,
+                root_id=root_id,
+                relative=relative,
+                replaced_size=int(current["size_bytes"]),
+                user_id=user_id,
+                device_id=device_id,
+            )
+        finally:
+            if content != part:
+                # A rebuilt file is moved into place on success; anything left is a leftover.
+                with contextlib.suppress(OSError):
+                    content.unlink(missing_ok=True)
+        if content != part:
+            with contextlib.suppress(OSError):
+                part.unlink(missing_ok=True)
     return item_id
+
+
+def _swap_in(
+    db: Database,
+    upload: sqlite3.Row,
+    content: Path,
+    target: Path,
+    *,
+    library: Path,
+    root_id: str,
+    relative: str,
+    replaced_size: int,
+    user_id: str,
+    device_id: str,
+) -> None:
+    """Put `content` at `target` as the item's next revision; the old file goes to the trash.
+
+    The caller holds the root lock and has checked the base revision. `content` is the part
+    file of a normal upload or the rebuilt file of a splice. On any failure the file moves
+    are undone, so `content` is back where it was and `target` is the old file again.
+    """
+    item_id: str = upload["base_item_id"]
+    upload_id: str = upload["upload_id"]
+    trash_id = new_id()
+    stored = trash_stored_path(trash_id, PurePosixPath(relative).name)
+    trash_file = library / stored
+    trash_file.parent.mkdir(parents=True, exist_ok=True)
+    # The old file leaves its path (and any hard link it shared): the new content is a
+    # new file, so another user's linked copy is never touched.
+    try:
+        place_file(target, trash_file)
+    except BaseException:
+        remove_empty_dir(trash_file.parent)
+        raise
+    try:
+        place_file(content, target)
+    except BaseException:
+        undo_place(trash_file, target)
+        remove_empty_dir(trash_file.parent)
+        raise
+    try:
+        size, mtime_ns, inode = file_facts(target)
+        with db.transaction() as tx:
+            insert_trash_row(
+                tx,
+                trash_id=trash_id,
+                user_id=user_id,
+                item_id=item_id,
+                stored_path=stored,
+                root_id=root_id,
+                relative_path=relative,
+                size_bytes=replaced_size,
+                device_id=device_id,
+            )
+            store.replace_item_file(
+                tx,
+                item_id,
+                size_bytes=size,
+                mtime_ns=mtime_ns,
+                inode=inode,
+                device_id=device_id,
+                sha256=upload["sha256"],
+            )
+            tx.conn.execute(
+                "UPDATE uploads SET state = 'done', received_bytes = ?, updated_at_utc = ?"
+                " WHERE upload_id = ?",
+                (size, now_iso(), upload_id),
+            )
+    except BaseException:
+        log.exception("Upload %s: the database step failed; undoing the file moves.", upload_id)
+        undo_place(target, content)
+        undo_place(trash_file, target)
+        remove_empty_dir(trash_file.parent)
+        raise
+
+
+_COPY_BLOCK = 1024 * 1024
+
+
+def _copy_exactly(source: BinaryIO, out: BinaryIO, digest: Any, count: int) -> None:
+    """Copy `count` bytes from `source` to `out` in 1 MiB blocks, hashing them as they go."""
+    remaining = count
+    while remaining > 0:
+        block = source.read(min(_COPY_BLOCK, remaining))
+        if not block:
+            raise EOFError("a source file is shorter than expected")
+        out.write(block)
+        digest.update(block)
+        remaining -= len(block)
+
+
+def _refuse_splice(db: Database, upload_id: str, *leftovers: Path, reason: str) -> ApiError:
+    """Discard a refused splice upload (files removed, upload cancelled); build its error.
+
+    The client then sends the whole file in a normal upload. Nothing in the library changed.
+    """
+    for leftover in leftovers:
+        with contextlib.suppress(OSError):
+            leftover.unlink(missing_ok=True)
+    _set_state(db, upload_id, "cancelled")
+    return ApiError(
+        "splice_refused",
+        f"The tags-only transfer was refused: {reason} Send the whole file instead.",
+    )
+
+
+def _assemble_splice(
+    db: Database,
+    upload: sqlite3.Row,
+    part: Path,
+    current: Path,
+    splice: SpliceMeta,
+) -> Path:
+    """Rebuild the final file of a splice: part[:prefix] + the stored payload + part[prefix:].
+
+    The stored file must have the payload the client promised (same length and SHA-256, found
+    by `audio_payload.payload_span`); the rebuilt file must have the declared size and SHA-256.
+    The file is written next to the part file in the library's `.mtee-tmp` (same disk) and
+    never replaces anything: the caller places it. Any mismatch discards the upload and
+    answers `409 splice_refused`.
+    """
+    upload_id: str = upload["upload_id"]
+    span = retry_busy(partial(audio_payload.payload_span, current))
+    if span is None:
+        raise _refuse_splice(
+            db, upload_id, part, reason="the file on the server has no audio part I can find."
+        )
+    if span.length != splice.span_length:
+        raise _refuse_splice(
+            db, upload_id, part, reason="the audio on the server has a different length."
+        )
+    if retry_busy(partial(audio_payload.span_sha256, current, span)) != splice.span_sha256:
+        raise _refuse_splice(db, upload_id, part, reason="the audio on the server is different.")
+    assembled = part.with_name(f"{upload_id}.assembled")
+    received_size = int(upload["size_bytes"])
+    digest = hashlib.sha256()
+    try:
+        with (
+            open(part, "rb") as received,
+            open(current, "rb") as stored,
+            open(assembled, "xb") as out,
+        ):
+            _copy_exactly(received, out, digest, splice.prefix_size)
+            stored.seek(span.offset)
+            _copy_exactly(stored, out, digest, span.length)
+            _copy_exactly(received, out, digest, received_size - splice.prefix_size)
+            out.flush()
+            os.fsync(out.fileno())
+            final_size = out.tell()
+    except EOFError:
+        raise _refuse_splice(
+            db, upload_id, part, assembled, reason="the received bytes are too short."
+        ) from None
+    except BaseException:
+        with contextlib.suppress(OSError):
+            assembled.unlink(missing_ok=True)
+        raise
+    if final_size != received_size + splice.span_length:
+        raise _refuse_splice(db, upload_id, part, assembled, reason="the file has the wrong size.")
+    if digest.hexdigest() != upload["sha256"]:
+        raise _refuse_splice(
+            db, upload_id, part, assembled, reason="the rebuilt file does not have the SHA-256."
+        )
+    return assembled
 
 
 def undo_place(src: Path, dst: Path) -> None:

@@ -22,7 +22,6 @@ import json
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from mtee.plugins.api import (
@@ -265,7 +264,7 @@ def _metadata(text: str | None) -> dict[str, Any] | None:
 
 
 def _local_name(mapping: FolderMapping) -> str:
-    return Path(mapping.local_root_path).name or _UNNAMED
+    return mapping.local_folder.name or _UNNAMED
 
 
 def _segments(text: str) -> tuple[str, ...]:

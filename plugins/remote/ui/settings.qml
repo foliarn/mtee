@@ -25,6 +25,7 @@ Column {
     // The folder being linked (its path), and the choice made in its editor.
     property string editingPath: ""
     property string editRootId: ""
+    property string editLocalSubpath: ""
     property string editSubpath: ""
 
     objectName: "remoteSettingsPage"
@@ -41,6 +42,7 @@ Column {
     function openEditor(row) {
         page.editingPath = row.path
         page.editRootId = row.mapped ? row.rootId : ""
+        page.editLocalSubpath = row.mapped ? row.localSubpath : ""
         page.editSubpath = row.mapped ? row.subpath : ""
     }
 
@@ -711,8 +713,17 @@ Column {
                 }
 
                 FieldRow {
+                    objectName: "remoteLocalSubfolder"
+                    label: "Local subfolder"
+                    description: "Optional. A folder inside this watched folder, for example baile. Empty syncs the whole folder. It must exist."
+                    placeholder: "Whole folder"
+                    value: page.editLocalSubpath
+                    onEdited: (text) => page.editLocalSubpath = text
+                }
+
+                FieldRow {
                     objectName: "remoteSubfolder"
-                    label: "Subfolder"
+                    label: "Server subfolder"
                     description: "Optional. A folder inside the server folder, for example Incoming. Empty links the whole folder."
                     placeholder: "Whole folder"
                     value: page.editSubpath
@@ -728,7 +739,7 @@ Column {
                         kind: "primary"
                         enabledAction: !page.busy && page.editRootId !== ""
                         onClicked: {
-                            page.backend.saveFolder(folderEntry.modelData.path, page.editRootId, page.editSubpath)
+                            page.backend.saveFolder(folderEntry.modelData.path, page.editRootId, page.editLocalSubpath, page.editSubpath)
                             page.editingPath = ""
                         }
                     }
