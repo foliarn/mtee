@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from mtee_remote import commands_library, commands_users
+from mtee_remote import commands_admin, commands_library, commands_users
 from mtee_remote.app import create_app
 from mtee_remote.config import Settings
 
@@ -62,6 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--user", required=True, metavar="NAME")
     p.add_argument("--root", default=None, metavar="NAME")
     p.set_defaults(func=commands_library.scan)
+
+    commands_admin.add_parsers(commands)
 
     return parser
 
