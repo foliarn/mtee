@@ -13,6 +13,10 @@ from the plugin's own tables:
 
 The header has Sync now (a pass of the engine) and Fetch (``SyncEngine.fetch_now``).
 
+The pane is a tool window of the left dock (MTEE 0.3.0). Its foot says where the sync stands: the
+connection (the status icon of the header shows its text only on hover), then the mode and what
+waits. An offline or failed connection is in the warning tone.
+
 The counts are read by the core on ``refresh_ui``: the Changes section counts the operations to send
 and the blocked ones, the Conflicts section counts the open conflicts, and the activity badge is the
 open conflicts plus the blocked operations. Apply is a text button, drawn in Manual mode only. The
@@ -24,7 +28,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from mtee.plugins.api import (
     Contribution,
@@ -57,6 +61,15 @@ PROBLEM_STATES = ("blocked", "failed")
 WARNING_LEVELS = ("warning", "error")
 VERBS = {"upload": "Upload", "replace": "Replace", "move": "Move"}
 UP_TO_DATE = "Everything is up to date"
+NOT_CONNECTED_FOOT = ("Not connected.", "Connect in Settings > Remote.")
+WARNING_STATES = ("offline", "error")
+
+
+class ActivityLink(SyncLink, Protocol):
+    """The connection as the pane reads it: the engine's link, and the sentence of its state."""
+
+    @property
+    def state_text(self) -> str: ...
 
 
 class RemoteActivity:
@@ -68,7 +81,7 @@ class RemoteActivity:
         store: RemoteStore,
         engine: SyncEngine,
         conflicts: ConflictFeature,
-        link: SyncLink,
+        link: ActivityLink,
     ) -> None:
         self._context = context
         self._store = store
@@ -81,6 +94,7 @@ class RemoteActivity:
             BACKUPS_ID: PluginRowsModel(),
             LOG_ID: PluginRowsModel(),
         }
+        self._foot = PluginRowsModel()
         self._backups: list[dict[str, Any]] = []
         self._backups_read_at: datetime | None = None
         self._reading_backups = False
@@ -98,6 +112,7 @@ class RemoteActivity:
                     PaneAction("sync", "Sync now", "repeat", self._engine.request_pass),
                     PaneAction("fetch", "Fetch", "arrow-down", self._engine.fetch_now),
                 ),
+                foot=self._foot,
                 badge=self._attention,
             ),
             SidebarSection(
@@ -132,6 +147,10 @@ class RemoteActivity:
     def model(self, section_id: str) -> PluginRowsModel:
         return self._models[section_id]
 
+    @property
+    def foot(self) -> PluginRowsModel:
+        return self._foot
+
     def refresh(self) -> None:
         """Read the four sections again; a backup list older than ten minutes is read again too."""
         conn = self._store.connection()
@@ -139,6 +158,7 @@ class RemoteActivity:
         self._models[CONFLICTS_ID].replace(self._conflict_rows())
         self._models[BACKUPS_ID].replace(self._backup_rows())
         self._models[LOG_ID].replace(self._log_rows(conn))
+        self._foot.replace(self._foot_rows())
         self._read_backups_if_due()
         # A move from pending to blocked keeps the queue count and changes the badge: compare all.
         state = (self._queued(), self._conflicts.open_count(), self._blocked(), self._is_manual())
@@ -193,7 +213,7 @@ class RemoteActivity:
             .fetchall()
         )
         if not found:
-            return [{"id": "up_to_date", "name": UP_TO_DATE}]
+            return [{"id": "up_to_date", "name": UP_TO_DATE, "icon": "check", "tone": "secondary"}]
         titles = self._titles([row["track_id"] for row in found if row["track_id"]])
         rows: list[dict[str, Any]] = []
         for row in found:
@@ -204,6 +224,24 @@ class RemoteActivity:
                 entry.update(tone="warning", icon="alert", count=str(row["state"]))
             rows.append(entry)
         return rows
+
+    def _foot_rows(self) -> list[dict[str, Any]]:
+        """The connection line, then the mode and what waits (the foot of the pane).
+
+        Not connected, the foot says where to connect instead of the mode. The lines stay short:
+        the dock is 220 px wide at least, and a longer line is elided.
+        """
+        state = self._link.state
+        if state == "disconnected":
+            return [{"text": text, "tone": "muted"} for text in NOT_CONNECTED_FOOT]
+        tone = "warning" if state in WARNING_STATES else "secondary"
+        connection = {"text": self._link.state_text or state.capitalize(), "tone": tone}
+        queued = self._queued()
+        if self._is_manual():
+            mode = f"Manual sync · {queued:,} to apply" if queued else "Manual sync"
+        else:
+            mode = f"Auto sync · {queued:,} to send" if queued else "Auto sync"
+        return [connection, {"text": mode, "tone": "muted"}]
 
     def _titles(self, track_ids: Sequence[str]) -> dict[str, str]:
         ids = list(dict.fromkeys(track_ids))

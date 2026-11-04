@@ -64,6 +64,9 @@ def test_the_remote_activity_button_draws_its_sections(qapp: object, tmp_path: P
         for section in SECTIONS:
             assert find_item(window, f"pluginSection_remote.{section}") is not None, section
         assert "Everything is up to date" in texts
+        # The foot of the tool window says where the sync stands (the header icon only on hover).
+        assert "Not connected." in texts
+        assert "Connect in Settings > Remote." in texts
         assert find_item(window, "pluginPaneAction_sync") is not None
         assert find_item(window, "pluginPaneAction_fetch") is not None
         # Auto is the default: Apply is not drawn, and the empty sections show no count.

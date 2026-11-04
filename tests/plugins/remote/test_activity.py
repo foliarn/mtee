@@ -66,10 +66,19 @@ class FakeEngine(QObject):
         self.calls.append("apply")
 
 
+UP_TO_DATE_ROW = {
+    "id": "up_to_date",
+    "name": "Everything is up to date",
+    "icon": "check",
+    "tone": "secondary",
+}
+
+
 class FakeLink:
     """The connection as the pane sees it; offline, so no backup list is read."""
 
     state = "offline"
+    state_text = "The server cannot be reached."
 
     def client(self) -> None:
         return None
@@ -147,7 +156,7 @@ def test_the_activity_and_its_four_sections_are_contributed(harness: Harness) ->
 
 
 def test_an_empty_plugin_says_everything_is_up_to_date(harness: Harness) -> None:
-    assert harness.rows(CHANGES_ID) == [{"id": "up_to_date", "name": "Everything is up to date"}]
+    assert harness.rows(CHANGES_ID) == [UP_TO_DATE_ROW]
     assert harness.rows(CONFLICTS_ID) == []
     assert harness.rows(BACKUPS_ID) == []
     assert harness.rows(LOG_ID) == []
@@ -173,7 +182,7 @@ def test_a_done_queue_entry_is_not_listed(harness: Harness) -> None:
     with harness.store.transaction() as conn:
         conn.execute("UPDATE remote_queue SET state = 'done'")
 
-    assert harness.rows(CHANGES_ID) == [{"id": "up_to_date", "name": "Everything is up to date"}]
+    assert harness.rows(CHANGES_ID) == [UP_TO_DATE_ROW]
 
 
 def test_a_conflict_row_names_the_track_and_its_reason_and_opens_its_tab(harness: Harness) -> None:
@@ -326,3 +335,48 @@ def test_refresh_asks_the_core_again_only_when_a_count_or_the_mode_changed(
     set_sync_mode(context, MANUAL)
     view.refresh()
     assert calls == [1, 1, 1, 1]
+
+
+def test_the_foot_says_the_connection_then_the_mode_and_what_waits(harness: Harness) -> None:
+    activity = next(item for item in harness.contributions if isinstance(item, PluginActivity))
+    assert activity.foot is harness.view.foot
+    harness.view.refresh()
+    assert harness.view.foot.rows() == [
+        {"text": "The server cannot be reached.", "tone": "warning"},
+        {"text": "Auto sync", "tone": "muted"},
+    ]
+
+    with harness.store.transaction() as conn:
+        enqueue(conn, kind="upload", track_id="t1", item_id=None)
+    set_sync_mode(harness.context, MANUAL)
+    harness.view.refresh()
+    assert harness.view.foot.rows()[1] == {
+        "text": "Manual sync · 1 to apply",
+        "tone": "muted",
+    }
+
+
+@pytest.mark.parametrize(
+    ("state", "text", "expected"),
+    [
+        ("connected", "Connected. Server 0.3.0.", ("Connected. Server 0.3.0.", "secondary")),
+        (
+            "disconnected",
+            "Not connected.",
+            ("Not connected.", "muted"),
+        ),
+        ("error", "The password was refused.", ("The password was refused.", "warning")),
+    ],
+)
+def test_the_connection_line_follows_the_state(
+    harness: Harness, state: str, text: str, expected: tuple[str, str]
+) -> None:
+    link = FakeLink()
+    link.state = state
+    link.state_text = text
+    view = RemoteActivity(harness.context, harness.store, harness.engine, harness.conflicts, link)
+    view.refresh()
+    first = view.foot.rows()[0]
+    assert (first["text"], first["tone"]) == expected
+    if state == "disconnected":
+        assert view.foot.rows()[1] == {"text": "Connect in Settings > Remote.", "tone": "muted"}
