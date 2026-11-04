@@ -42,7 +42,7 @@ from mtee.plugins.api import (
 from .backups import backup_rows
 from .conflicts import MORE_ID, ConflictFeature
 from .engine import CONNECTED, MANUAL, SyncEngine, SyncLink, sync_mode
-from .push import BLOCKED, PENDING
+from .push import BLOCKED, PENDING, failed_count
 from .store import RemoteStore
 from .tasks import submit
 
@@ -101,7 +101,7 @@ class RemoteActivity:
         self._backups_read_at: datetime | None = None
         self._reading_backups = False
         # The values the core showed on its last refresh; a change asks for a new one.
-        self._shown: tuple[int, int, int, bool] | None = None
+        self._shown: tuple[int, int, int, bool, bool] | None = None
 
     def contributions(self) -> Sequence[Contribution]:
         """The activity and its four sections, as the plugin's factory returns them."""
@@ -130,6 +130,14 @@ class RemoteActivity:
                         self._engine.apply_pending,
                         label="Apply",
                         visible=self._is_manual,
+                    ),
+                    PaneAction(
+                        "retry",
+                        "Send the failed changes again",
+                        "repeat",
+                        self._engine.retry_failed,
+                        label="Retry",
+                        visible=self._has_failed,
                     ),
                 ),
                 count=self._queued,
@@ -163,7 +171,13 @@ class RemoteActivity:
         self._foot.replace(self._foot_rows())
         self._read_backups_if_due()
         # A move from pending to blocked keeps the queue count and changes the badge: compare all.
-        state = (self._queued(), self._conflicts.open_count(), self._blocked(), self._is_manual())
+        state = (
+            self._queued(),
+            self._conflicts.open_count(),
+            self._blocked(),
+            self._is_manual(),
+            self._has_failed(),
+        )
         if state != self._shown:
             self._shown = state
             self._context.refresh_ui()
@@ -192,6 +206,9 @@ class RemoteActivity:
             .fetchone()
         )
         return int(row["n"])
+
+    def _has_failed(self) -> bool:
+        return failed_count(self._store) > 0
 
     def _is_manual(self) -> bool:
         return sync_mode(self._context) == MANUAL

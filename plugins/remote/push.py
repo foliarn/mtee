@@ -412,6 +412,34 @@ def _move_payload(local: _Local, link: sqlite3.Row) -> dict[str, Any]:
 
 
 # -- the run -------------------------------------------------------------------------------
+def retry_failed(store: RemoteStore) -> int:
+    """Put the failed operations back in the queue; return how many.
+
+    A failed operation (a full quota, a file that could not be read) is never sent again by
+    itself, and while it is there its track is not queued again either: the person asks for it
+    (Retry in the Changes section). The attempts are kept; the error is cleared.
+    """
+    with store.transaction() as conn:
+        cursor = conn.execute(
+            "UPDATE remote_queue SET state = ?, last_error = NULL, updated_at_utc = ?"
+            " WHERE state = ?",
+            (PENDING, utc_now(), FAILED),
+        )
+        count = cursor.rowcount
+        if count:
+            write_log(conn, f"{count} failed operations are queued again.")
+    return count
+
+
+def failed_count(store: RemoteStore) -> int:
+    row = (
+        store.connection()
+        .execute("SELECT COUNT(*) AS n FROM remote_queue WHERE state = ?", (FAILED,))
+        .fetchone()
+    )
+    return int(row["n"])
+
+
 def run_queue(
     context: PluginContext,
     store: RemoteStore,

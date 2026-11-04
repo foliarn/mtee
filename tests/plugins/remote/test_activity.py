@@ -34,6 +34,7 @@ from mtee.plugins.remote.engine import (  # pyright: ignore[reportMissingImports
     MANUAL,
     set_sync_mode,
 )
+from mtee.plugins.remote.push import retry_failed  # pyright: ignore[reportMissingImports]
 from mtee.plugins.remote.store import (  # pyright: ignore[reportMissingImports]
     CONFLICT_OPEN,
     RemoteStore,
@@ -70,6 +71,9 @@ class FakeEngine(QObject):
 
     def apply_pending(self) -> None:
         self.calls.append("apply")
+
+    def retry_failed(self) -> None:
+        self.calls.append("retry")
 
 
 UP_TO_DATE_ROW = {
@@ -464,3 +468,41 @@ def test_the_changes_show_the_problems_first_and_count_the_rest(harness: Harness
     assert len(rows) == SHOWN_CHANGES + 1
     assert rows[0]["tone"] == "warning", "a failed operation is listed first"
     assert rows[-1] == {"id": MORE_CHANGES_ID, "name": "10 more changes"}
+
+
+def test_retry_is_drawn_while_an_operation_failed_and_calls_the_engine(harness: Harness) -> None:
+    retry = _action(harness.contributions, "retry")
+    assert retry.label == "Retry"
+    assert retry.visible is not None and retry.visible() is False
+    with harness.store.transaction() as conn:
+        enqueue(conn, kind="upload", track_id="t1", item_id=None)
+        conn.execute("UPDATE remote_queue SET state = 'failed'")
+    assert retry.visible() is True
+
+    retry.run()
+
+    assert harness.engine.calls == ["retry"]
+
+
+def test_retry_failed_queues_the_failed_operations_again(harness: Harness) -> None:
+    with harness.store.transaction() as conn:
+        enqueue(conn, kind="upload", track_id="t1", item_id=None)
+        enqueue(conn, kind="upload", track_id="t2", item_id=None)
+        conn.execute(
+            "UPDATE remote_queue SET state = 'failed', attempts = 2, last_error = 'Quota full.'"
+            " WHERE track_id = 't1'"
+        )
+
+    assert retry_failed(harness.store) == 1
+
+    rows = {
+        row["track_id"]: dict(row)
+        for row in harness.store.connection().execute(
+            "SELECT track_id, state, attempts, last_error FROM remote_queue"
+        )
+    }
+    assert rows["t1"] == {"track_id": "t1", "state": "pending", "attempts": 2, "last_error": None}
+    assert rows["t2"]["state"] == "pending"
+    log = harness.store.connection().execute("SELECT text FROM remote_log").fetchall()
+    assert [row["text"] for row in log] == ["1 failed operations are queued again."]
+    assert retry_failed(harness.store) == 0

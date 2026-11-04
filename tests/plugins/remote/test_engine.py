@@ -196,3 +196,26 @@ def test_no_pass_runs_before_the_first_match(qtbot: QtBot, device: Device) -> No
     assert not device.engine.busy
     assert device.items() == []
     assert device.notices == ["Finish the first match first, in Settings > Remote."]
+
+
+def test_a_failed_operation_waits_until_retry_sends_it(qtbot: QtBot, device: Device) -> None:
+    set_sync_mode(device.context, MANUAL)
+    device.add_file()
+    device.engine.request_pass()
+    wait_idle(qtbot, device.engine)
+    with device.store.transaction() as conn:
+        conn.execute("UPDATE remote_queue SET state = 'failed', last_error = 'Quota full.'")
+
+    # A failed operation is never sent by itself, and holds its track out of the queue.
+    device.engine.apply_pending()
+    wait_idle(qtbot, device.engine)
+    assert device.items() == []
+
+    device.engine.retry_failed()
+    wait_idle(qtbot, device.engine)
+
+    assert len(device.items()) == 1, "Retry sends at once, in Manual mode too"
+    states = [
+        row["state"] for row in device.store.connection().execute("SELECT state FROM remote_queue")
+    ]
+    assert states == ["done"]

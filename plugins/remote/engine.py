@@ -30,7 +30,14 @@ from .client import NetworkError, RemoteClient
 from .fetch import FetchResult, fetch_once, link_pending_imports
 from .first_match import DONE_SETTING
 from .pull import AutoPull
-from .push import DetectReport, QueueReport, detect_changes, pending_count, run_queue
+from .push import (
+    DetectReport,
+    QueueReport,
+    detect_changes,
+    pending_count,
+    retry_failed,
+    run_queue,
+)
 from .records import push_records
 from .sources import refresh_server_only
 from .store import RemoteStore
@@ -193,6 +200,15 @@ class SyncEngine(QObject):
             self._context.notify("Finish the first match first, in Settings > Remote.")
             return
         self._start(send=True)
+
+    def retry_failed(self) -> None:
+        """Queue the failed operations again and send them now (the Retry button)."""
+        count = retry_failed(self._store)
+        self.changed.emit()
+        if count and self._link.state == CONNECTED and self._first_match_done():
+            self._start(send=True)
+        elif count:
+            self._context.notify("Queued again; they are sent once the server is connected.")
 
     def apply_auto_pull(self) -> None:
         """Start the pull loop when Auto pull is on and the device is connected; else stop it."""
