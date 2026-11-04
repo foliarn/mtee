@@ -11,6 +11,7 @@ Nothing else runs until the plugin is switched on and MTEE restarts.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,7 +32,7 @@ from mtee.plugins.api import (
 )
 
 from .activity import RemoteActivity
-from .availability import availability_column, availability_status
+from .availability import AvailabilityAnswers, availability_column, availability_status
 from .conflicts import LIST_TAB_KIND, TAB_KIND, ConflictFeature
 from .connection import ConnectionManager
 from .engine import SyncEngine
@@ -56,6 +57,12 @@ class RemoteService:
     """What the factory returns: the contributions, and the release of the connection."""
 
     def __init__(self, context: PluginContext) -> None:
+        # The answers of the availability are reused until the plugin says they changed: every
+        # part of the plugin gets the context whose availability_changed forgets them first.
+        self._answers = AvailabilityAnswers()
+        context = dataclasses.replace(
+            context, availability_changed=self._answers.wrap(context.availability_changed)
+        )
         self._context = context
         self._connection = ConnectionManager(context)
         self._first_backend = FirstMatchBackend()
@@ -105,8 +112,8 @@ class RemoteService:
                 "maintenance", lambda _job: context.run_on_gui(self._engine.maintain_if_due)
             ),
             TrackSource(open=self._server_tracks.open, cover=self._server_tracks.cover),
-            TrackAvailability(status=availability_status(context, store)),
-            availability_column(context, store),
+            TrackAvailability(status=availability_status(context, store, self._answers)),
+            availability_column(context, store, self._answers),
             offload.delete_choices(),
             *offload.track_actions(),
             WaitingItems(
