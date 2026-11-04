@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QObject, QPoint, QPointF, Qt
+from PySide6.QtCore import QCoreApplication, QObject, QPoint, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 from tests.ui.artists_support import stop as stop_runtime
@@ -101,7 +101,7 @@ def _visible_texts(item: QQuickItem) -> str:
 
 def _active_tab(workspace: WorkspaceModel) -> str:
     typed = cast(Any, workspace)
-    return str(typed.groups[typed.activeGroup]["active"])
+    return str(typed.activeTabId)
 
 
 def _wait_until(predicate: Callable[[], bool], timeout_ms: int = 10_000) -> bool:
@@ -256,18 +256,19 @@ def test_track_without_credits_has_no_artist_link(island) -> None:
     assert _active_tab(workspace) == before
 
 
-def test_heart_stays_clear_of_the_centre_at_a_narrow_width(island) -> None:
+def test_below_760_px_like_moves_into_the_more_menu(island) -> None:
     runtime, root, tracks, _artists = island
     root.resize(720, 800)
     try:
         _play(runtime, root, tracks["root"], tracks["Bravo"])
         _pump(60)
         heart = _find(root, "playerIslandLike")
-        previous = _find(root, "previousButton")
-        assert heart is not None and heart.isVisible()
-        assert previous is not None
-        heart_right = heart.mapToScene(QPointF(heart.width(), 0)).x()
-        transport_left = previous.mapToScene(QPointF(0, 0)).x()
-        assert heart_right <= transport_left
+        more = _find(root, "playerMoreButton")
+        assert heart is not None and not heart.isVisible()
+        assert more is not None and more.isVisible()
+        _click(cast(QQuickWindow, root), more)
+        _pump(60)
+        like_row = _find(root, "playerMoreLike")
+        assert like_row is not None and like_row.isVisible()
     finally:
         root.resize(1440, 900)

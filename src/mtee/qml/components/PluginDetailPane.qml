@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Mtee
 
-// The detail tab of a plugin (tab kind "plugin", ref = plugin id), built like the Settings tab:
+// The detail tab of a plugin (tab kind "plugin", ref = plugin id or Marketplace key "id@address"), built like the Settings tab:
 // the heading, then Status (installed), the install or update action, Details, About and Remove
 // (installed). The row comes from workspace.pluginsView.detail(id) and is read again at each change
 // of the view. Nothing here touches a file: the switch, the actions and the removal are slots.
@@ -36,7 +36,8 @@ Rectangle {
         const found = view && detail.pluginId.length > 0 ? view.detail(detail.pluginId) : ({})
         let entry = found
         if (found.status !== undefined && view) {
-            const listed = view.marketplace.find(item => item.id === detail.pluginId)
+            // An installed plugin's offer is the Marketplace entry named by its offerKey.
+            const listed = view.marketplace.find(item => item.key === found.offerKey)
             entry = listed === undefined ? ({}) : listed
         }
         detail.row = found
@@ -47,10 +48,12 @@ Rectangle {
         const view = detail.pluginsView
         if (!view)
             return
-        if (detail.updateAvailable || detail.offer.state === "update")
-            view.update(detail.pluginId)
-        else if (detail.offer.state === "install")
-            view.install(detail.pluginId)
+        if (detail.updateAvailable || detail.offer.state === "update") {
+            const key = detail.installed && detail.row.offerKey ? detail.row.offerKey : detail.pluginId
+            view.update(key)
+        } else if (detail.offer.state === "install") {
+            view.install(detail.offer.key || detail.pluginId)
+        }
     }
 
     Component.onCompleted: refresh()
@@ -63,6 +66,8 @@ Rectangle {
     }
 
     Flickable {
+        id: detailFlick
+        WheelScrollHandler { flickable: detailFlick }
         anchors.fill: parent
         contentHeight: content.implicitHeight + 48 + detail.bottomInset
         clip: true
@@ -101,6 +106,19 @@ Rectangle {
                 font.pixelSize: Theme.fontSizeSecondary
             }
 
+            // The Marketplace list a plugin that is not installed comes from.
+            Text {
+                objectName: "pluginDetailFrom"
+                width: parent.width
+                topPadding: 2
+                visible: !detail.missing && !detail.installed && (detail.row.sourceTitle || "").length > 0
+                text: "From " + (detail.row.sourceTitle || "")
+                elide: Text.ElideRight
+                color: Theme.textMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
             Text {
                 objectName: "pluginDetailGone"
                 width: parent.width
@@ -126,7 +144,7 @@ Rectangle {
                     label: "Switched on"
                     description: "Changes apply after MTEE restarts."
                     checked: detail.row.enabled === true
-                    onToggled: (on) => { if (detail.pluginsView) detail.pluginsView.setEnabled(detail.pluginId, on) }
+                    onToggled: (on) => { if (detail.pluginsView) detail.pluginsView.setEnabled(detail.row.id, on) }
                 }
 
                 InfoRow {
@@ -242,7 +260,7 @@ Rectangle {
                     description: "The plugin goes to the Recycle Bin. Its data stays."
                     actionText: "Uninstall"
                     danger: true
-                    onAction: { if (detail.pluginsView) detail.pluginsView.uninstall(detail.pluginId) }
+                    onAction: { if (detail.pluginsView) detail.pluginsView.uninstall(detail.row.id) }
                 }
             }
 

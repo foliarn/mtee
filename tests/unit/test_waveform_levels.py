@@ -65,6 +65,7 @@ def test_invalid_arguments_are_refused() -> None:
         bar_levels(_points([1]), 4, 0)
 
 
+@pytest.mark.slow
 def test_computing_levels_for_a_full_waveform_is_fast() -> None:
     import time
 

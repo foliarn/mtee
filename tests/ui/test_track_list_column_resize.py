@@ -182,9 +182,15 @@ def test_the_border_follows_the_pointer_and_the_title_keeps_its_width(
         )
         assert abs(_cell_span(window, "artist")[0] - artist_left) <= 1
         assert abs(_cell_span(window, "title")[1] - title_right) <= 1
-        # The title now owns the width it had, so the layout does not jump back.
-        qtbot.waitUntil(lambda: _stored_width(workspace, "title") > 0, timeout=5_000)
-        assert abs(_stored_width(workspace, "title") - (title_right - title_left)) <= 1
+        # The title keeps its drawn width and stays automatic: the drag moves only the border.
+        assert (
+            abs(
+                (title_right - title_left)
+                - (_cell_span(window, "title")[1] - _cell_span(window, "title")[0])
+            )
+            <= 1
+        )
+        assert _stored_width(workspace, "title") == 0
     finally:
         _shutdown(runtime)
         application.quit()
@@ -203,8 +209,9 @@ def test_the_border_can_be_taken_in_the_gap_before_the_next_column(
         assert handle is not None
         before = _stored_width(workspace, "artist")
 
-        # One pixel before the next column starts: the far side of the border.
-        grab = QPoint(round(next_left) - 1, _center(handle).y())
+        # The grab zone is 8 px centred on the border, which sits half a gap before the next column.
+        # Three pixels right of the border centre is still inside it.
+        grab = QPoint(round(next_left) - 5, _center(handle).y())
         QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=grab)
         for step in range(1, 5):
             QTest.mouseMove(window, QPoint(grab.x() + 10 * step, grab.y()), 10)
@@ -214,6 +221,86 @@ def test_the_border_can_be_taken_in_the_gap_before_the_next_column(
         qtbot.waitUntil(
             lambda: abs(_stored_width(workspace, "artist") - (before + 40)) <= 3, timeout=5_000
         )
+    finally:
+        _shutdown(runtime)
+        application.quit()
+
+
+_HEADER_KEYS = (
+    "title",
+    "artist",
+    "album",
+    "genre",
+    "bpm",
+    "key",
+    "duration",
+    "format",
+    "filename",
+    "bitrate",
+    "fileCreatedAt",
+    "fileModifiedAt",
+    "playCount",
+    "lastPlayed",
+)
+
+
+def _drawn_headers(window: QQuickWindow) -> list[tuple[str, float, float]]:
+    drawn = []
+    for key in _HEADER_KEYS:
+        cell = _find(window, f"columnHeader_{key}")
+        if cell is not None and cell.isVisible():
+            left, right = _cell_span(window, key)
+            drawn.append((key, left, right))
+    return drawn
+
+
+def test_no_column_passes_the_right_edge_while_a_border_is_dragged(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    application, runtime, window, _workspace = _started(qtbot, tmp_path, monkeypatch, 3)
+    try:
+        qtbot.waitUntil(
+            lambda: _find(window, "columnResizeHandle_artist") is not None, timeout=10_000
+        )
+        handle = _find(window, "columnResizeHandle_artist")
+        viewport = _find(window, "tableViewport")
+        assert handle is not None and viewport is not None
+
+        start = _center(handle)
+        QTest.mousePress(window, Qt.MouseButton.LeftButton, pos=start)
+        # Far to the right: the artist border would run past the window without the hard limit.
+        for step in range(1, 16):
+            QTest.mouseMove(window, QPoint(start.x() + 40 * step, start.y()), 10)
+            QTest.qWait(20)
+        edge = viewport.mapToScene(QPointF(viewport.width(), 0)).x()
+        drawn = _drawn_headers(window)
+        assert len(drawn) >= 2
+        for key, _left, right in drawn:
+            assert right <= edge + 1, (key, right, edge)
+        QTest.mouseRelease(
+            window, Qt.MouseButton.LeftButton, pos=QPoint(start.x() + 600, start.y())
+        )
+    finally:
+        _shutdown(runtime)
+        application.quit()
+
+
+def test_a_double_click_on_a_border_resets_its_column_to_the_default_width(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    application, runtime, window, workspace = _started(qtbot, tmp_path, monkeypatch, 3)
+    try:
+        qtbot.waitUntil(
+            lambda: _find(window, "columnResizeHandle_artist") is not None, timeout=10_000
+        )
+        handle = _find(window, "columnResizeHandle_artist")
+        assert handle is not None
+        workspace.resizeColumn(workspace.activeTabId, "artist", 300)
+        QTest.qWait(300)
+        assert _stored_width(workspace, "artist") == 300
+
+        QTest.mouseDClick(window, Qt.MouseButton.LeftButton, pos=_center(handle))
+        qtbot.waitUntil(lambda: _stored_width(workspace, "artist") == 150, timeout=5_000)
     finally:
         _shutdown(runtime)
         application.quit()

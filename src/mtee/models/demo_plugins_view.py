@@ -11,9 +11,12 @@ from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from mtee.models.plugin_list import plugin_list_rows
+
 __all__ = ["DemoPluginsView"]
 
 _NOT_IN_DEMO = "Plugins are not installed or downloaded in the demo."
+_DEMO_SOURCE = "foliarn/mtee-plugins"
 
 _INSTALLED: tuple[dict[str, Any], ...] = (
     {
@@ -161,6 +164,18 @@ class DemoPluginsView(QObject):
         return [dict(row) for row in self._installed if self._matches(row)]
 
     @Property(list, notify=changed)
+    def plugins(self) -> list[dict[str, Any]]:
+        """The one list, built as the real view builds it (plan 132.6)."""
+        installed = [dict(row) for row in self._installed if self._matches(row)]
+        market = [
+            {**row, "key": f"{row['id']}@{_DEMO_SOURCE}"}
+            for row in _MARKETPLACE
+            if self._matches(row)
+        ]
+        listed = {str(row["id"]) for row in _MARKETPLACE}
+        return plugin_list_rows(installed, market, listed)
+
+    @Property(list, notify=changed)
     def marketplace(self) -> list[dict[str, Any]]:
         return [dict(row) for row in _MARKETPLACE if self._matches(row)]
 
@@ -279,7 +294,8 @@ class DemoPluginsView(QObject):
         fields = (row["title"], row["description"], row.get("author", ""))
         return any(query in str(field).casefold() for field in fields)
 
-    def _title_of(self, plugin_id: str) -> str:
+    def _title_of(self, key: str) -> str:
+        plugin_id = key.partition("@")[0]
         for row in (*self._installed, *_MARKETPLACE):
             if row["id"] == plugin_id:
                 return str(row["title"])

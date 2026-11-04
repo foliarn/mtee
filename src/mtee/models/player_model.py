@@ -21,7 +21,7 @@ _SEEK_END_GUARD_US = 200_000
 
 
 class PlayerModel(QObject):
-    """One model shared by the island, queue and fullscreen player."""
+    """One model shared by the player bar, queue and fullscreen player."""
 
     playbackChanged = Signal()
     positionChanged = Signal()

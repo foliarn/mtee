@@ -54,6 +54,8 @@ Item {
     }
 
     Flickable {
+        id: sectionsFlick
+        WheelScrollHandler { flickable: sectionsFlick }
         anchors.top: header.bottom
         anchors.left: parent.left
         anchors.right: parent.right

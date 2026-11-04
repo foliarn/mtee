@@ -3,23 +3,36 @@ import QtQuick.Controls.Basic
 import Mtee
 import "../views"
 
-// Tab strip and content of one editor group, as in VS Code: the active tab of
-// the focused group carries a primary line on top.
-Rectangle {
+// One centre window (plan 131.7): a rounded WindowSurface with its tab strip and content, as in VS
+// Code. The focused window's tab strip shows it; a click anywhere inside focuses it, and the
+// press still reaches the content. Tabs reorder and move between windows on their strip. A tab or an
+// Explorer folder dropped on an edge of the window splits it (P3); a drop in the middle adds the tab.
+WindowSurface {
     id: group
 
     required property var workspace
+    property string groupId: ""
     property int groupIndex: 0
     property var groupData: ({ "tabs": [], "active": "" })
     property int groupCount: 1
     property bool singleGroup: false
     property int bottomInset: 0
-    readonly property bool focused: workspace.activeGroup === groupIndex
+    // The focused window is told by its tab strip only; the surface draws no outline.
+    readonly property bool isActiveWindow: workspace.activeGroup === groupId
     readonly property var activeTab: {
         for (const tab of groupData.tabs)
             if (tab.id === groupData.active)
                 return tab
         return null
+    }
+    // The zones this window offers: a split must leave both windows above their minimum size.
+    readonly property var allowedZones: {
+        const zones = ["center"]
+        if (group.width >= 2 * Theme.minCenterWindowWidth + Theme.windowGap)
+            zones.push("left", "right")
+        if (group.height >= 2 * Theme.minCenterWindowHeight + Theme.windowGap)
+            zones.push("top", "bottom")
+        return zones
     }
 
     objectName: "editorGroup" + groupIndex
@@ -30,161 +43,72 @@ Rectangle {
             content.item.selectAll()
     }
 
-    Rectangle {
+    // A tab or a folder dropped on this window: an edge splits it, the middle takes the tab.
+    function dropOn(zone, payload) {
+        if (!payload)
+            return
+        if (payload.type === "folder") {
+            group.workspace.openFolderAt(String(payload.folderId), group.groupId, zone)
+            return
+        }
+        if (payload.type !== "tab")
+            return
+        if (zone === "center") {
+            if (payload.groupId !== group.groupId)
+                group.workspace.moveTab(payload.groupId, payload.tabId, group.groupId,
+                    group.groupData.tabs.length)
+            return
+        }
+        group.workspace.splitWithTab(group.groupId, zone, payload.groupId, payload.tabId)
+    }
+
+    // Below the single-window width only the focused window is drawn: this strip's switcher lists the
+    // other windows, each by the title of its active tab (plan 131.9).
+    readonly property bool switcherOffered: singleGroup && groupCount > 1
+    readonly property var otherWindows: {
+        const entries = []
+        for (const other of workspace.groups) {
+            if (other.id === groupId)
+                continue
+            const active = other.tabs.find(tab => tab.id === other.active)
+            entries.push({ "id": other.id, "title": active ? active.title : "Empty window" })
+        }
+        return entries
+    }
+
+    // An entry of the menu of a tab: the close entries, and a split moves the tab into a new
+    // window on that side (the same split as a drop on an edge).
+    function runTabAction(tabId, action) {
+        const edges = { "splitRight": "right", "splitLeft": "left", "splitUp": "top", "splitDown": "bottom" }
+        if (action === "close")
+            group.workspace.closeTab(group.groupId, tabId)
+        else if (action === "others" || action === "all" || action === "left" || action === "right")
+            group.workspace.closeTabs(group.groupId, action, tabId)
+        else if (edges[action] !== undefined)
+            group.workspace.splitWithTab(group.groupId, edges[action], group.groupId, tabId)
+    }
+
+    TabStrip {
         id: strip
         width: parent.width
-        height: Theme.tabHeight
-        color: Theme.sidebar
-
-        ListView {
-            id: tabs
-            anchors.left: parent.left
-            anchors.right: actions.left
-            height: parent.height
-            orientation: ListView.Horizontal
-            boundsBehavior: Flickable.StopAtBounds
-            clip: true
-            model: group.groupData.tabs
-            MouseArea {
-                parent: tabs
-                x: Math.min(tabs.width, Math.max(0, tabs.contentWidth - tabs.contentX))
-                width: Math.max(0, tabs.width - x)
-                height: tabs.height
-                z: 10
-                acceptedButtons: Qt.LeftButton
-                onClicked: group.workspace.clearSelection(group.groupIndex)
-            }
-
-            delegate: Rectangle {
-                id: tab
-
-                required property var modelData
-                readonly property bool isActive: modelData.id === group.groupData.active
-
-                width: Math.min(220, tabRow.implicitWidth + 44)
-                height: Theme.tabHeight
-                color: isActive ? Theme.editor : tabMouse.containsMouse ? Theme.chrome : "transparent"
-
-                Rectangle {
-                    visible: tab.isActive
-                    width: parent.width
-                    height: 1
-                    color: group.focused ? Theme.primary : Theme.textMuted
-                }
-
-                Rectangle {
-                    anchors.right: parent.right
-                    width: 1
-                    height: parent.height
-                    color: Theme.chrome
-                }
-
-                MouseArea {
-                    id: tabMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                    onClicked: (event) => {
-                        if (event.button === Qt.MiddleButton)
-                            group.workspace.closeTab(group.groupIndex, tab.modelData.id)
-                        else
-                            group.workspace.activateTab(group.groupIndex, tab.modelData.id)
-                    }
-                    onDoubleClicked: (event) => {
-                        if (event.button === Qt.LeftButton && tab.modelData.preview
-                                && typeof group.workspace.keepTab === "function")
-                            group.workspace.keepTab(group.groupIndex, tab.modelData.id)
-                    }
-                }
-
-                Row {
-                    id: tabRow
-                    x: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 6
-
-                    Icon {
-                        anchors.verticalCenter: parent.verticalCenter
-                        name: tab.modelData.kind === "folder" ? "folder"
-                            : tab.modelData.kind === "playlist" ? "playlists"
-                            : tab.modelData.kind === "convert" ? "convert"
-                            : tab.modelData.kind === "tasks" ? "tasks"
-                            : tab.modelData.kind === "artists" || tab.modelData.kind === "artist" ? "artists"
-                            : tab.modelData.kind === "profile" ? "profile"
-                            : tab.modelData.kind === "settings" ? "settings"
-                            : tab.modelData.kind === "plugin" ? "plugins"
-                            : tab.modelData.icon || "settings"
-                        size: 15
-                        color: tab.isActive ? Theme.primary : Theme.textMuted
-                    }
-
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: Math.min(implicitWidth, 150)
-                        text: tab.modelData.title
-                        font.italic: tab.modelData.preview === true
-                        elide: Text.ElideRight
-                        color: tab.isActive ? Theme.textPrimary : Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSecondary
-                    }
-                }
-
-                IconButton {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 6
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 20
-                    height: 20
-                    visible: tab.isActive || tabMouse.containsMouse || hovered
-                    icon: "close"
-                    iconSize: 14
-                    tip: "Close"
-                    onClicked: group.workspace.closeTab(group.groupIndex, tab.modelData.id)
-                }
-            }
+        groupId: group.groupId
+        tabs: group.groupData.tabs
+        activeId: group.groupData.active
+        focused: group.isActiveWindow
+        switcher: group.switcherOffered
+        switcherEntries: group.otherWindows
+        onSwitcherChosen: (windowId) => group.workspace.focusGroup(windowId)
+        onTabClicked: (tabId) => group.workspace.activateTab(group.groupId, tabId)
+        onTabClosed: (tabId) => group.workspace.closeTab(group.groupId, tabId)
+        onTabKept: (tabId) => {
+            if (typeof group.workspace.keepTab === "function")
+                group.workspace.keepTab(group.groupId, tabId)
         }
-
-        Row {
-            id: actions
-            anchors.right: parent.right
-            anchors.rightMargin: 6
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-
-            Repeater {
-                model: group.singleGroup && group.groupCount > 1 ? group.groupCount : 0
-                delegate: TextButton {
-                    required property int index
-                    implicitHeight: 24
-                    kind: index === group.workspace.activeGroup ? "neutral" : "ghost"
-                    text: "Group " + (index + 1)
-                    onClicked: group.workspace.setActiveGroup(index)
-                }
-            }
-
-            IconButton {
-                width: 28
-                height: 28
-                icon: "split"
-                iconSize: 16
-                active: group.groupCount > 1
-                tip: group.groupCount > 1 ? "Join editor groups (Ctrl+\\)" : "Split editor (Ctrl+\\)"
-                onClicked: group.workspace.toggleSplit()
-            }
-
-            IconButton {
-                objectName: "toggleRightPanel"
-                visible: group.groupIndex === group.groupCount - 1
-                width: 28
-                height: 28
-                icon: "panel-right"
-                iconSize: 16
-                active: group.workspace.rightPanelVisible
-                tip: group.workspace.rightPanelVisible ? "Hide side panel" : "Show side panel"
-                onClicked: group.workspace.toggleRightPanel(group.workspace.rightPanelTab)
-            }
-        }
+        onTabAction: (tabId, action) => group.runTabAction(tabId, action)
+        onEmptyClicked: group.workspace.clearSelection(group.groupId)
+        onTabMoved: (tabId, toIndex) => group.workspace.moveTab(group.groupId, tabId, group.groupId, toIndex)
+        onTabDropped: (payload, toIndex) => group.workspace.moveTab(payload.groupId, payload.tabId,
+            group.groupId, toIndex)
     }
 
     Loader {
@@ -204,12 +128,24 @@ Rectangle {
             : listComponent
     }
 
+    // Drop zones over the content: they show while a tab or a folder is dragged over the window.
+    DropZoneOverlay {
+        id: zones
+        objectName: "windowDropZones"
+        anchors.top: strip.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        allowed: group.allowedZones
+        onDropped: (zone, payload) => group.dropOn(zone, payload)
+    }
+
     Component {
         id: listComponent
         TrackListView {
             workspace: group.workspace
             tab: group.activeTab
-            groupIndex: group.groupIndex
+            groupId: group.groupId
             bottomInset: group.bottomInset
         }
     }
@@ -255,8 +191,12 @@ Rectangle {
             }
             Component.onCompleted: load()
             onKindChanged: load()
-            // The page follows the tab that is active in this group.
-            onLoaded: item.tab = Qt.binding(() => group.activeTab)
+            // The page follows the tab that is active in this group. The window id is set after the
+            // load, so a page that does not declare it gets no warning about an unknown property.
+            onLoaded: {
+                item.tab = Qt.binding(() => group.activeTab)
+                item.groupId = group.groupId
+            }
         }
     }
 
@@ -280,7 +220,7 @@ Rectangle {
         id: settingsComponent
         SettingsView {
             workspace: group.workspace
-            groupIndex: group.groupIndex
+            groupId: group.groupId
             bottomInset: group.bottomInset
         }
     }
@@ -299,15 +239,21 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
-                onClicked: group.workspace.clearSelection(group.groupIndex)
+                onClicked: group.workspace.clearSelection(group.groupId)
             }
         }
     }
 
-    Rectangle {
-        visible: group.groupIndex > 0 && !group.singleGroup
-        width: 1
-        height: parent.height
-        color: Theme.separator
+    // Any click inside the window focuses it. The press is passed on, so the content still gets it.
+    MouseArea {
+        objectName: "windowFocusArea"
+        anchors.fill: parent
+        z: 500
+        acceptedButtons: Qt.LeftButton
+        propagateComposedEvents: true
+        onPressed: (mouse) => {
+            group.workspace.focusGroup(group.groupId)
+            mouse.accepted = false
+        }
     }
 }

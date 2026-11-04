@@ -1,4 +1,4 @@
-"""The Tasks pane lists tag conflicts and its small buttons replace or dismiss them."""
+"""The notifications bell lists tag conflicts and its buttons replace or dismiss them."""
 
 from __future__ import annotations
 
@@ -27,9 +27,10 @@ def _settle(seconds: float = 0.3) -> None:
         time.sleep(0.02)
 
 
-def _open_tasks(workspace: WorkspaceModel) -> None:
-    workspace.setActivity("tasks")
-    workspace.setSidebarVisible(True)
+def _open_bell(window: QQuickWindow) -> None:
+    """Open the notifications bell (plan 134.4), where the tag conflicts are listed."""
+    _click(window, _items(window.contentItem(), "notificationButton")[0])
+    _settle()
 
 
 def test_the_replace_button_fixes_the_tags_of_a_conflicting_file(qapp, tmp_path: Path) -> None:
@@ -50,8 +51,8 @@ def test_the_replace_button_fixes_the_tags_of_a_conflicting_file(qapp, tmp_path:
         workspace.analyzeTracks([track_id], False)
 
         _wait_for(window, lambda: conflicts.count == 1)
-        assert "Open Tasks" in cast(str, workspace.message)
-        _open_tasks(workspace)
+        assert "notifications bell" in cast(str, workspace.message)
+        _open_bell(window)
         _wait_for(window, lambda: bool(_items(window.contentItem(), "tagConflictRow")))
         header = _first(window.contentItem(), "tagConflictsHeader")
         assert header.isVisible()
@@ -94,7 +95,7 @@ def test_dismissing_and_a_failed_replacement_are_shown_in_the_list(qapp, tmp_pat
                     (TagConflictEntry("key", ("KEY", "INITIALKEY"), "8A"),),
                 )
             )
-        _open_tasks(workspace)
+        _open_bell(window)
         _wait_for(window, lambda: len(_items(window.contentItem(), "tagConflictRow")) == 2)
 
         # A file that is not in the library cannot be written: the row says why.

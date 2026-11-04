@@ -35,7 +35,7 @@ def test_browsing_folders_reuses_one_preview_tab(qapp, tmp_path: Path) -> None:
     workspace.openFolder(f"folder:{ROOT}/c")
     assert _tabs(workspace) == [(f"folder:{ROOT}/c", True)]
 
-    workspace.keepTab(0, f"folder:{ROOT}/c")
+    workspace.keepTab("g1", f"folder:{ROOT}/c")
     workspace.openFolder(f"folder:{ROOT}/d")
     workspace.openFolder(f"folder:{ROOT}/e")
     assert _tabs(workspace) == [(f"folder:{ROOT}/c", False), (f"folder:{ROOT}/e", True)]

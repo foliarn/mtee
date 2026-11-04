@@ -4,6 +4,7 @@ import QtQuick.Controls.Basic
 ToolTip {
     id: tip
 
+
     delay: 600
     timeout: 6000
     padding: 6
@@ -20,5 +21,6 @@ ToolTip {
         color: Theme.surface
         border.width: 1
         border.color: Theme.separator
+        radius: Theme.radius
     }
 }

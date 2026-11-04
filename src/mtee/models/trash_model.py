@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Sequence
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from mtee.domain.job_summaries import fixed, recorded, recycled_summary
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.recycling import RecycleFailure, RecycleOutcome
 from mtee.domain.tracks import SourceRevision, TrackId
@@ -72,6 +73,7 @@ class TrashModel(QObject):
     interruptedReady = Signal(object)
     tracksRecycled = Signal(object)
     choiceFinished = Signal(int, bool, str, str)
+    folderRecycled = Signal(object)
 
     def __init__(
         self,
@@ -104,6 +106,8 @@ class TrashModel(QObject):
         # Choices that plugins add to the confirmation (plan 125.4); empty without a plugin.
         self._choice_source: DeleteChoiceSource | None = None
         self._choice_groups: list[dict[str, Any]] = []
+        # The folder a confirmation asks about (plan 132.2); None for tracks.
+        self._folder: dict[str, Any] | None = None
         self.choiceFinished.connect(self._on_choice_finished)
         self.resultsReady.connect(self._on_results_ready)
         self.preparationReady.connect(self._on_preparation_ready)
@@ -117,7 +121,12 @@ class TrashModel(QObject):
             def inspect_interrupted(_context: JobContext) -> None:
                 self.interruptedReady.emit(self._journal.interrupted())
 
-            self._jobs.submit(inspect_interrupted, label="Inspect recycle history", visible=False)
+            self._jobs.submit(
+                inspect_interrupted,
+                label="Inspect recycle history",
+                visible=False,
+                summary=fixed("Recycle history inspected"),
+            )
         except RuntimeError:
             pass
 
@@ -139,7 +148,14 @@ class TrashModel(QObject):
 
     @Property(bool, notify=changed)
     def canConfirm(self) -> bool:
-        return self._state == "confirm" and bool(self._requested_ids)
+        return self._state == "confirm" and (bool(self._requested_ids) or self._folder is not None)
+
+    @Property(str, notify=changed)
+    def folderSummary(self) -> str:
+        """The summary of the folder a confirmation asks about; empty for tracks."""
+        if self._state != "confirm" or self._folder is None:
+            return ""
+        return str(self._folder.get("summary", ""))
 
     @Property(bool, notify=changed)
     def canStopPlaybackAndContinue(self) -> bool:
@@ -255,6 +271,8 @@ class TrashModel(QObject):
         self._choice_groups = []
         self.changed.emit()
 
+        sentences: list[str] = []
+
         def task(context: JobContext) -> None:
             def recycle(requested: Sequence[str]) -> RecycleOutcome:
                 return self._recycle_confirmed(requested, confirmed, context)
@@ -273,10 +291,13 @@ class TrashModel(QObject):
                 )
                 self.choiceFinished.emit(generation, False, title, reason)
                 raise
+            sentences.append(sentence)
             self.choiceFinished.emit(generation, True, title, sentence)
 
         try:
-            self._active_job_id = str(self._jobs.submit(task, label=title))
+            self._active_job_id = str(
+                self._jobs.submit(task, label=title, summary=recorded(sentences))
+            )
         except RuntimeError as error:
             self._active_job_id = ""
             self._state = "result"
@@ -378,6 +399,7 @@ class TrashModel(QObject):
         ids = list(dict.fromkeys(str(value) for value in raw_track_ids if str(value)))
         if not ids:
             return
+        self._folder = None
         self._generation += 1
         generation = self._generation
         self._requested_ids = ids
@@ -438,7 +460,13 @@ class TrashModel(QObject):
                 raise
 
         try:
-            self._active_job_id = str(self._jobs.submit(prepare, label="Prepare recycle operation"))
+            self._active_job_id = str(
+                self._jobs.submit(
+                    prepare,
+                    label="Prepare recycle operation",
+                    summary=fixed("Recycle operation prepared"),
+                )
+            )
         except RuntimeError as error:
             self._active_job_id = ""
             self._state = "result"
@@ -447,6 +475,12 @@ class TrashModel(QObject):
 
     @Slot()
     def confirm(self) -> None:
+        if self._folder is not None:
+            if self.canConfirm:
+                self._busy_ids.clear()
+                self._retry_prefix = []
+                self._submit_folder()
+            return
         if not self.canConfirm or not self._candidates:
             return
         self._busy_ids.clear()
@@ -497,6 +531,226 @@ class TrashModel(QObject):
         self._message = "Stopping after the current Shell operation…"
         self.changed.emit()
 
+    def request_recycle_folder(self, root_id: str, relative: str) -> None:
+        """Ask to move a whole folder of a source to the Recycle Bin (plan 132.2).
+
+        The folder is confirmed like tracks, with its track and sub-folder count. Its tracks are
+        journaled and marked recycled as a single Shell operation (``_recycle_folder_locked``).
+        """
+        if self._state in {"preparing", "running"}:
+            return
+        root = next((item for item in self._library.roots() if item["id"] == root_id), None)
+        if root is None or not relative:
+            self._state = "result"
+            self._message = "A source is removed from the library, not moved to the Recycle Bin."
+            self._results = []
+            self.dialogRequested.emit()
+            self.changed.emit()
+            return
+        name = relative.rpartition("/")[2]
+        parent_relative = relative.rpartition("/")[0]
+        folder: dict[str, Any] = {
+            "rootId": root_id,
+            "relative": relative,
+            "parentRelative": parent_relative,
+            "name": name,
+            "path": str(Path(str(root["path"])) / relative),
+            "summary": "",
+        }
+        self._folder = folder
+        self._requested_ids = [f"folder:{root_id}/{relative}"]
+        self._candidates = ()
+        self._retry_prefix = []
+        self._results = []
+        self._choice_groups = []
+        self._busy_ids.clear()
+        self._generation += 1
+        generation = self._generation
+        self._state = "preparing"
+        self._message = f"Preparing folder “{name}” for confirmation…"
+        self.changed.emit()
+
+        def prepare(context: JobContext) -> None:
+            try:
+                candidates: list[_Candidate] = []
+                for track_id in self._library.track_ids_in_tree(root_id, relative):
+                    context.raise_if_cancelled()
+                    source = self._library.source_record(track_id)
+                    row = self._library.track(track_id)
+                    if source is None or source.status != "readable" or not row:
+                        continue
+                    track_folder = str(row.get("relativePath", "")).rpartition("/")[0]
+                    candidates.append(
+                        _Candidate(track_id, source.path, source.revision, root_id, track_folder)
+                    )
+                tracks, subfolders = self._library.folder_tracks_and_subfolders(root_id, relative)
+                folder["summary"] = (
+                    f"Folder “{name}”: {tracks} track(s), {subfolders} sub-folder(s). "
+                    "Every other file inside it goes too."
+                )
+                self.preparationReady.emit(generation, candidates, [])
+            except JobCancelledError:
+                self.preparationFailed.emit(generation, "Folder preparation was cancelled.", False)
+                raise
+            except Exception as error:
+                self.preparationFailed.emit(
+                    generation, f"Could not prepare the folder: {error}", True
+                )
+                raise
+
+        try:
+            self._active_job_id = str(
+                self._jobs.submit(
+                    prepare,
+                    label="Prepare folder recycle",
+                    summary=fixed("Folder recycle prepared"),
+                )
+            )
+        except RuntimeError as error:
+            self._active_job_id = ""
+            self._folder = None
+            self._state = "result"
+            self._message = str(error)
+            self.changed.emit()
+
+    def _submit_folder(self) -> None:
+        folder = self._folder
+        if folder is None:
+            return
+        candidates = list(self._candidates)
+        self._generation += 1
+        generation = self._generation
+        self._state = "running"
+        self._message = f"Moving folder “{folder['name']}” to the Windows Recycle Bin…"
+        self._new_result_start = 0
+        self.changed.emit()
+
+        def task(context: JobContext) -> None:
+            results: list[dict[str, Any]] = []
+            try:
+                results = self._recycle_folder_locked(folder, candidates, context)
+            finally:
+                self.resultsReady.emit(generation, results)
+            if not folder.get("moved"):
+                raise _TrashBatchError("The folder could not be moved to the Recycle Bin safely.")
+
+        try:
+            self._active_job_id = str(
+                self._jobs.submit(
+                    task,
+                    label="Move folder to Recycle Bin",
+                    summary=fixed("Folder moved to the Recycle Bin"),
+                )
+            )
+        except RuntimeError as error:
+            self._active_job_id = ""
+            self._state = "result"
+            self._message = str(error)
+        self.changed.emit()
+
+    def _recycle_folder_locked(
+        self,
+        folder: dict[str, Any],
+        candidates: list[_Candidate],
+        context: JobContext,
+    ) -> list[dict[str, Any]]:
+        """Recycle one folder as one Shell operation; job thread, returns one row per track.
+
+        Every track is journaled first. The revisions and the write leases of all of them are
+        checked before the folder goes; a busy or changed file refuses the whole folder. Each
+        track is then journaled as recycled with the folder's item identity and marked recycled
+        in the library, and the folder is hidden from the tree.
+        """
+        folder_path = Path(str(folder["path"]))
+        root_id = str(folder["rootId"])
+        relative = str(folder["relative"])
+        operations: list[tuple[_Candidate, str]] = []
+        for candidate in candidates:
+            operation_id = str(uuid.uuid4())
+            self._journal.prepare(
+                operation_id, candidate.track_id, str(candidate.path), candidate.revision
+            )
+            operations.append((candidate, operation_id))
+
+        def finish_all(
+            journal_status: str, row_status: str, message: str, identity: str = ""
+        ) -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            for candidate, operation_id in operations:
+                try:
+                    self._journal.finish(
+                        operation_id, journal_status, message, recycle_item_identity=identity
+                    )
+                except Exception:
+                    _LOGGER.exception("The folder recycle journal could not be updated.")
+                rows.append(
+                    {
+                        **self._row_base(candidate, operation_id),
+                        "status": row_status,
+                        "message": message,
+                        "recycleItemIdentity": identity,
+                    }
+                )
+            return rows
+
+        if not folder_path.is_dir() or folder_path.is_symlink():
+            return finish_all("failed", "failed", "The folder is no longer on disk.")
+        for candidate in candidates:
+            current = self._library.source_record(candidate.track_id)
+            try:
+                observed: SourceRevision | None = SourceRevision.observe(
+                    candidate.path, generation=candidate.revision.generation
+                )
+            except OSError:
+                observed = None
+            if (
+                current is None
+                or observed is None
+                or not candidate.revision.matches(current.revision)
+                or not candidate.revision.matches(observed)
+            ):
+                return finish_all(
+                    "conflict", "conflict", "A file of the folder changed after confirmation."
+                )
+        busy_message = "A file of the folder is in use. Stop playback, then retry the folder."
+        try:
+            with ExitStack() as leases:
+                for candidate in candidates:
+                    leases.enter_context(
+                        self._file_access.acquire(
+                            TrackId.parse(candidate.track_id),
+                            "recycle folder",
+                            timeout_seconds=0,
+                        )
+                    )
+                context.raise_if_cancelled()
+                try:
+                    identity = self._service.recycle_folder(folder_path)
+                except Exception as error:
+                    return finish_all("failed", "failed", f"{type(error).__name__}: {error}")
+                folder["moved"] = True
+                rows = finish_all(
+                    "recycled",
+                    "recycled",
+                    "Moved with its folder to the Windows Recycle Bin.",
+                    identity,
+                )
+                for candidate, _operation_id in operations:
+                    try:
+                        self._library.mark_recycled(candidate.track_id, candidate.revision)
+                    except Exception:
+                        _LOGGER.exception("A recycled track could not be marked in the library.")
+                try:
+                    self._library.forget_folder(root_id, relative)
+                except Exception:
+                    _LOGGER.exception("A recycled folder could not be hidden in the library.")
+                return rows
+        except FileAccessTimeoutError:
+            return finish_all("failed", "busy", busy_message)
+        except JobCancelledError:
+            finish_all("failed", "failed", "Cancelled before the folder reached the Recycle Bin.")
+            raise
+
     def _submit(self, candidates: list[_Candidate], initial_results: list[dict[str, Any]]) -> None:
         self._generation += 1
         generation = self._generation
@@ -532,7 +786,11 @@ class TrashModel(QObject):
                 raise _TrashBatchError("One or more files could not be recycled safely.")
 
         try:
-            self._active_job_id = str(self._jobs.submit(task, label="Move audio to Recycle Bin"))
+            self._active_job_id = str(
+                self._jobs.submit(
+                    task, label="Move audio to Recycle Bin", summary=recycled_summary()
+                )
+            )
         except RuntimeError as error:
             self._active_job_id = ""
             self._state = "result"
@@ -544,6 +802,16 @@ class TrashModel(QObject):
         if generation != self._generation or not isinstance(candidates, list):
             return
         self._active_job_id = ""
+        if self._folder is not None:
+            # A folder is always confirmed, even without a track: its files go with it.
+            self._candidates = tuple(item for item in candidates if isinstance(item, _Candidate))
+            self._results = []
+            self._choice_groups = []
+            self._state = "confirm"
+            self._message = "Review the folder, then confirm moving it to the Windows Recycle Bin."
+            self.dialogRequested.emit()
+            self.changed.emit()
+            return
         self._candidates = tuple(item for item in candidates if isinstance(item, _Candidate))
         self._results = (
             [dict(item) for item in failures if isinstance(item, dict)]
@@ -610,7 +878,12 @@ class TrashModel(QObject):
             self._journal.acknowledge(operation_ids)
 
         with suppress(RuntimeError):
-            self._jobs.submit(acknowledge, label="Acknowledge recycle history", visible=False)
+            self._jobs.submit(
+                acknowledge,
+                label="Acknowledge recycle history",
+                visible=False,
+                summary=fixed("Recycle history acknowledged"),
+            )
 
     def _recycle_one(
         self, candidate: _Candidate, operation_id: str, context: JobContext
@@ -753,6 +1026,7 @@ class TrashModel(QObject):
         if recycled:
             self.tracksRecycled.emit(recycled)
         self._state = "result"
+        folder, self._folder = self._folder, None
         if self._busy_ids:
             self._message = "Stop playback and retry the files that are still in use."
         else:
@@ -762,6 +1036,17 @@ class TrashModel(QObject):
                 f"Recycled {count} file(s). {failed} need attention."
                 if failed
                 else f"Recycled {count} file(s) to the Windows Recycle Bin."
+            )
+        if folder is not None and folder.get("moved"):
+            if not self._busy_ids:
+                self._message = f"Moved folder “{folder['name']}” to the Windows Recycle Bin."
+            self.folderRecycled.emit(
+                {
+                    "rootId": folder["rootId"],
+                    "relative": folder["relative"],
+                    "parentRelative": folder["parentRelative"],
+                    "name": folder["name"],
+                }
             )
         self.changed.emit()
 

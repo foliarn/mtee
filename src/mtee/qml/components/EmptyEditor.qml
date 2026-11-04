@@ -27,7 +27,6 @@ Rectangle {
             Repeater {
                 model: [
                     "Show Explorer", "Ctrl+Shift+E",
-                    "Split editor", "Ctrl+\\",
                     "Edit info", "Ctrl+I",
                     "Open Settings", "Ctrl+,"
                 ]

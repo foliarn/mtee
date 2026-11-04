@@ -1,5 +1,6 @@
 import QtQuick
 import Mtee
+import "columns.js" as Columns
 
 // Track data stays separate from the trailing row actions.
 Rectangle {
@@ -9,7 +10,7 @@ Rectangle {
     required property var track
     required property var columns
     required property var workspace
-    property int groupIndex: 0
+    property string groupId: ""
     property bool selected: false
     readonly property string localId: track.trackId !== undefined ? track.trackId : track.id
     readonly property bool available: track.available !== false
@@ -18,6 +19,7 @@ Rectangle {
     property string dragSource: ""
     property int dragVersion: -1
     property bool dragCanAdd: false
+    property int dragModifiers: 0
     property bool dragPrepared: false
     property bool dragCancelled: false
     property string dragEntryId: track.entryId || ""
@@ -52,9 +54,11 @@ Rectangle {
         acceptedButtons: Qt.LeftButton
         enabled: row.available || row.dragEntryId.length > 0
         onTranslationChanged: {
+            row.dragModifiers = centroid.modifiers
             if (active) row.dragMoved(centroid.position.x + hitArea.x, centroid.position.y + hitArea.y)
         }
         onActiveChanged: {
+            row.dragModifiers = centroid.modifiers
             if (active) {
                 row.dragCancelled = false
                 row.dragStarted()
@@ -75,11 +79,7 @@ Rectangle {
     // Neighbour rows that are selected too; they share one block frame.
     property bool selectedAbove: false
     property bool selectedBelow: false
-    // Right edge of the visible table, in row coordinates; the table can scroll under it.
-    property real viewportRight: width
-    readonly property real frameRight: Math.min(row.width - row.columns.padding, row.viewportRight - row.columns.padding)
-    // Where the trailing actions sit when the table fits: right after the last column.
-    readonly property real actionsNaturalX: rowCells.x + rowCells.width + row.columns.gap + row.columns.slack
+    readonly property real frameRight: row.width - row.columns.padding
     readonly property bool hovered: mouse.containsMouse || rowHover.hovered
         || playButton.hovered || infoButton.hovered || addButton.hovered
     signal pressed(var event)
@@ -97,8 +97,7 @@ Rectangle {
     color: "transparent"
     Accessible.name: row.track.title + (row.track.artist.length > 0 ? " — " + row.track.artist : "")
 
-    // Highlight and focus frame span the table columns, not the whole viewport,
-    // and stop at the visible edge when the table scrolls sideways.
+    // Highlight and focus frame span the table columns, not the whole viewport.
     Rectangle {
         x: row.columns.padding
         width: row.frameRight - row.columns.padding
@@ -236,10 +235,12 @@ Rectangle {
                 height: row.height
                 opacity: row.available || pluginCell !== null ? 1 : 0.55
 
+                // A plugin cell is text: its badge sits at the left of the column (U19).
                 Rectangle {
                     id: pluginBadge
                     objectName: "pluginBadge_" + field.columnKey
                     visible: field.pluginCell !== null
+                    anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     readonly property string tone: field.pluginCell ? field.pluginCell.tone : "neutral"
                     // The outline of a neutral badge, the tone colour otherwise, on a 14 % tint.
@@ -301,18 +302,23 @@ Rectangle {
                     }
                 }
 
+                // The Key badge stays at the left of its column when the column widens (U19).
                 KeyBadge {
+                    objectName: "cell_" + field.columnKey
                     visible: field.columnKey === "key"
-                    anchors.centerIn: parent
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
                     key: row.track.key
                     camelot: row.track.keyCamelot !== undefined ? row.track.keyCamelot : row.track.key
                 }
 
+                // Text is anchored left, numbers right (U19); the same rule as the header titles.
                 Text {
+                    objectName: "cell_" + field.columnKey
                     visible: field.columnKey !== "title" && field.columnKey !== "key" && field.pluginCell === null
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width
-                    horizontalAlignment: field.columnKey === "bpm" || field.columnKey === "duration"
+                    horizontalAlignment: Columns.isNumeric(field.columnKey)
                         ? Text.AlignRight : Text.AlignLeft
                     text: field.displayText.length > 0 ? field.displayText : "—"
                     elide: Text.ElideRight
@@ -327,19 +333,14 @@ Rectangle {
         }
     }
 
-    // Trailing actions stay at the visible right edge while the columns scroll beneath them.
+    // The action cell is part of the layout: its place comes from columns.js (plan 133.2), never
+    // over a column.
     Item {
         id: actionsBox
-        x: Math.min(row.actionsNaturalX, row.viewportRight - row.columns.padding - row.columns.actions)
+        objectName: "trackActions"
+        x: row.columns.actionsX
         width: row.columns.actions
         height: row.height
-
-        // Opaque backing only while the buttons sit over scrolled columns.
-        Rectangle {
-            anchors.fill: parent
-            visible: actionsBox.x < row.actionsNaturalX
-            color: row.selected ? Theme.selection : row.hovered ? Theme.surface : Theme.background
-        }
 
         Row {
             width: parent.width

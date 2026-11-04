@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -27,7 +27,7 @@ class ArtistIndexEffects:
     """Outcome of an artist index rebuild on currently open workspace tabs."""
 
     opened_artist: tuple[str, str] | None
-    stale_tabs: list[tuple[int, str]]
+    stale_tabs: list[tuple[str, str]]
     retitled_tabs: list[tuple[str, str]]
     reloaded_tab_ids: list[str]
 
@@ -37,7 +37,7 @@ def decide_artist_index_effects(
     previous_index: ArtistIndex | None,
     new_index: ArtistIndex,
     pending_choice: tuple[str, frozenset[str]] | None,
-    groups: list[dict[str, Any]],
+    groups: Mapping[str, dict[str, Any]],
     tab_states: dict[str, dict[str, Any]],
     is_plugin_artist: Callable[[str], bool],
 ) -> ArtistIndexEffects:
@@ -57,11 +57,11 @@ def decide_artist_index_effects(
                 opened = (entry.key, entry.name)
                 break
 
-    stale: list[tuple[int, str]] = []
+    stale: list[tuple[str, str]] = []
     retitled: list[tuple[str, str]] = []
     reloaded: list[str] = []
 
-    for group_index, group in enumerate(groups):
+    for group_id, group in groups.items():
         for tab_id in group.get("tabs", []):
             if not tab_id.startswith("artist:"):
                 continue
@@ -69,7 +69,7 @@ def decide_artist_index_effects(
             entry = new_index.entry(key)
             if entry is None:
                 if not is_plugin_artist(key):
-                    stale.append((group_index, tab_id))
+                    stale.append((group_id, tab_id))
                 continue
             state = tab_states.get(tab_id, {})
             if state.get("title") != entry.name:

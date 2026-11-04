@@ -258,9 +258,14 @@ class PluginUiModel(QObject):
 
     @Property(list, notify=changed)
     def activities(self) -> list[dict[str, str]]:
-        """The activity-bar buttons of the plugins: ``id``, ``tip`` and ``icon``."""
+        """The bar buttons of the plugins: ``id``, ``tip``, ``icon`` and ``side``."""
         return [
-            {"id": key, "tip": owned.item.title, "icon": owned.item.icon}
+            {
+                "id": key,
+                "tip": owned.item.title,
+                "icon": owned.item.icon,
+                "side": owned.item.side,
+            }
             for key, owned in self._activities.items()
         ]
 
@@ -614,7 +619,7 @@ class PluginUiModel(QObject):
 
     @Property(int, notify=waitingChanged)
     def waitingCount(self) -> int:
-        """How many items wait for the user in all groups: they count in the Tasks badge."""
+        """How many items wait for the user in all groups: they count in the bell badge."""
         return self._waiting_count
 
     @Property(list, notify=changed)

@@ -12,11 +12,11 @@ Rectangle {
 
     objectName: "settingsView"
     required property var workspace
-    property int groupIndex: 0
+    property string groupId: ""
     property int bottomInset: 0
     // The page shown for this group. A method call is not a tracked binding, so the value is
     // read again whenever the workspace layout changes (a page was chosen).
-    property string page: workspace.settingsPageForGroup(groupIndex)
+    property string page: workspace.settingsPageForGroup(groupId)
     readonly property var analysis: workspace.analysisSettings
     readonly property var playback: workspace.playbackSettings
     // The Settings pages of the running plugins follow the core pages, before About.
@@ -28,7 +28,8 @@ Rectangle {
             { "key": "playback", "label": "Playback" },
             { "key": "analysis", "label": "Analysis" },
             { "key": "shortcuts", "label": "Keyboard shortcuts" },
-            { "key": "privacy", "label": "Data & privacy" }
+            { "key": "privacy", "label": "Data & privacy" },
+            { "key": "plugins", "label": "Plugins" }
         ]
         for (const page of pluginPages)
             pages.push(page)
@@ -63,7 +64,7 @@ Rectangle {
 
     Connections {
         target: settings.workspace
-        function onLayoutChanged() { settings.page = settings.workspace.settingsPageForGroup(settings.groupIndex) }
+        function onLayoutChanged() { settings.page = settings.workspace.settingsPageForGroup(settings.groupId) }
     }
 
     Connections {
@@ -75,6 +76,7 @@ Rectangle {
     }
 
     Flickable {
+        WheelScrollHandler { flickable: settingsFlick }
         id: settingsFlick
         anchors.fill: parent
         contentHeight: content.implicitHeight + 48 + settings.bottomInset
@@ -90,8 +92,6 @@ Rectangle {
 
             Item { width: 1; height: 30 }
 
-            SectionLabel { text: "Preferences" }
-
             Text {
                 text: "Settings"
                 color: Theme.textPrimary
@@ -104,8 +104,8 @@ Rectangle {
             Flickable {
                 id: tabFlick
                 objectName: "settingsTabs"
-                // With plugin pages the tabs may not fit the 720 px column: the strip takes the page width.
-                width: settings.pluginPages.length > 0 ? settings.width - 48 : content.width
+                // The tabs may not fit the 720 px column (Plugins is the last core page): the strip takes the page width.
+                width: settings.width - 48
                 height: Theme.tabHeight
                 contentWidth: tabRow.width
                 contentHeight: Theme.tabHeight
@@ -123,6 +123,7 @@ Rectangle {
                         delegate: Item {
                             id: tabItem
                             required property var modelData
+                            required property int index
                             readonly property bool current: settings.page === modelData.key
 
                             objectName: "settingsTab_" + modelData.key
@@ -131,7 +132,9 @@ Rectangle {
 
                             Text {
                                 id: tabLabel
-                                anchors.centerIn: parent
+                                anchors.verticalCenter: parent.verticalCenter
+                                // The first tab starts on the heading's left edge; the others keep a 12 px gap.
+                                x: tabItem.index === 0 ? 0 : 12
                                 text: tabItem.modelData.label.toUpperCase()
                                 color: tabItem.current || tabMouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
                                 font.family: Theme.fontFamily
@@ -154,7 +157,7 @@ Rectangle {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: settings.workspace.setSettingsPageForGroup(settings.groupIndex, tabItem.modelData.key)
+                                onClicked: settings.workspace.setSettingsPageForGroup(settings.groupId, tabItem.modelData.key)
                             }
                         }
                     }
@@ -300,22 +303,12 @@ Rectangle {
                 }
             }
 
-            // Playback: the player island and the loudness normalization (plan 116).
+            // Playback: the loudness normalization (plan 116). The player bar has no setting (plan 131.8).
             Column {
                 objectName: "playbackSettings"
                 width: content.width
                 visible: settings.page === "playback"
                 spacing: 8
-
-                Group { title: "Player" }
-
-                ToggleRow {
-                    objectName: "islandSetting"
-                    label: "Show player island"
-                    description: "Floating player at the bottom of the editor while a track is loaded. Also in View › Player island."
-                    checked: settings.workspace.islandEnabled
-                    onToggled: (checked) => settings.workspace.setIslandEnabled(checked)
-                }
 
                 Group { title: "Loudness" }
 
@@ -432,7 +425,7 @@ Rectangle {
                     width: parent.width
                     topPadding: 12
                     bottomPadding: 12
-                    text: "Read-only list of the shortcuts MTEE handles. Shortcuts that depend on a selection work only while that selection exists."
+                    text: "Read-only list of the shortcuts MTEE handles, grouped by what they do. Shortcuts that depend on a selection work only while that selection exists. While a text field has the focus, the window shortcuts are off, except F11, Ctrl+W and Ctrl+Z."
                     wrapMode: Text.WordWrap
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
@@ -441,24 +434,40 @@ Rectangle {
 
                 Repeater {
                     model: [
+                        { "header": "Playback" },
                         { "action": "Play or pause the loaded track", "keys": "Space" },
                         { "action": "Play the selected track", "keys": "Enter or double-click" },
+                        { "action": "Previous or next track", "keys": "Ctrl+Left / Ctrl+Right" },
+                        { "action": "Fullscreen player (Esc leaves it)", "keys": "F11" },
+                        { "action": "Fullscreen: next or previous page", "keys": "Down / Up, PgDown / PgUp" },
+                        { "header": "Windows" },
+                        { "action": "Show or hide the left dock", "keys": "Ctrl+B" },
+                        { "action": "Show or hide the right dock", "keys": "Ctrl+Alt+B" },
+                        { "action": "Show the Explorer", "keys": "Ctrl+Shift+E" },
+                        { "action": "Left bar windows in bar order: Explorer, Playlists, Artists, Convert, Plugins", "keys": "Alt+1 to Alt+5" },
+                        { "action": "Show or hide the Info panel", "keys": "Ctrl+I" },
+                        { "action": "Show or hide the Queue", "keys": "Alt+Q" },
+                        { "action": "Show or hide the History", "keys": "Alt+H" },
+                        { "action": "Open Settings", "keys": "Ctrl+," },
+                        { "action": "Split the focused window right or down with its active tab", "keys": "Ctrl+\\ / Ctrl+Shift+\\" },
+                        { "action": "Focus centre window 1 to 9, in reading order", "keys": "Ctrl+1 to Ctrl+9" },
+                        { "action": "Next or previous tab of the focused window", "keys": "Ctrl+Tab / Ctrl+Shift+Tab" },
+                        { "action": "Move the active tab to the window on that side", "keys": "Ctrl+Alt+Arrow" },
+                        { "action": "Close the active tab", "keys": "Ctrl+W" },
+                        { "action": "Close the focused window", "keys": "Ctrl+Shift+W" },
+                        { "action": "Resize the focused dock by 24 px", "keys": "Ctrl+Shift+Left / Right" },
+                        { "action": "Close a floating dock or a popover", "keys": "Esc" },
+                        { "header": "Navigation" },
+                        { "action": "Back and forward in the history", "keys": "Alt+Left / Alt+Right" },
                         { "action": "Move the selection up or down (Shift extends it)", "keys": "Up / Down" },
                         { "action": "Select all tracks in the list", "keys": "Ctrl+A" },
                         { "action": "Clear the selection", "keys": "Esc" },
-                        { "action": "Show or hide the info panel", "keys": "Ctrl+I" },
+                        { "header": "Editing" },
                         { "action": "Save the tag changes in the info panel", "keys": "Ctrl+S" },
                         { "action": "Undo the last save", "keys": "Ctrl+Z" },
-                        { "action": "Show the Explorer", "keys": "Ctrl+Shift+E" },
-                        { "action": "Show or hide the sidebar", "keys": "Ctrl+B" },
-                        { "action": "Split the editor", "keys": "Ctrl+\\" },
-                        { "action": "Open Settings", "keys": "Ctrl+," },
-                        { "action": "Close the active tab", "keys": "Ctrl+W" },
-                        { "action": "Next or previous track", "keys": "Ctrl+Right / Ctrl+Left" },
-                        { "action": "Fullscreen player", "keys": "F11 (Esc leaves it)" },
-                        { "action": "Fullscreen: next or previous page", "keys": "Down / Up, PgDown / PgUp" },
-                        { "action": "Move the selected files to the Recycle Bin", "keys": "Del (Explorer only)" }
+                        { "action": "Move the selected files to the Recycle Bin (Explorer only)", "keys": "Del" }
                     ]
+
 
                     delegate: Item {
                         id: shortcutRow
@@ -466,7 +475,14 @@ Rectangle {
                         width: content.width
                         height: 36
 
+                        SectionLabel {
+                            visible: shortcutRow.modelData.header !== undefined
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: shortcutRow.modelData.header !== undefined ? shortcutRow.modelData.header : ""
+                        }
+
                         Text {
+                            visible: shortcutRow.modelData.header === undefined
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width - keysBadge.width - 24
                             elide: Text.ElideRight
@@ -478,6 +494,7 @@ Rectangle {
 
                         Rectangle {
                             id: keysBadge
+                            visible: shortcutRow.modelData.header === undefined
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             width: keysText.implicitWidth + 16
@@ -581,6 +598,187 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     text: "Data actions are not available in the demo."
                     color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+            }
+
+            // Plugins: the marketplace lists the Plugins view reads (workspace.pluginsView).
+            Column {
+                id: pluginsPage
+                objectName: "pluginsSettings"
+                width: content.width
+                visible: settings.page === "plugins"
+                spacing: 8
+                readonly property var view: settings.workspace.pluginsView ? settings.workspace.pluginsView : null
+
+                function addCurrent() {
+                    if (pluginsPage.view && pluginsPage.view.addMarketplace(addInput.text) === true)
+                        addInput.text = ""
+                }
+
+                Group { title: "Marketplaces" }
+
+                Text {
+                    width: parent.width
+                    topPadding: 8
+                    wrapMode: Text.WordWrap
+                    text: "Where the Plugins view finds plugins to install. Add a GitHub repository (owner/repo) or the https address of an index.json. Plugins from lists other than the official one are not reviewed by MTEE: add only lists you trust."
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Repeater {
+                    model: pluginsPage.view ? pluginsPage.view.marketplaces : []
+
+                    delegate: Item {
+                        id: listRow
+                        required property var modelData
+                        required property int index
+                        width: pluginsPage.width
+                        height: 52
+
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: listRemove.visible ? listRemove.left : listSwitch.left
+                            anchors.rightMargin: 24
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+
+                            Row {
+                                spacing: 8
+
+                                Text {
+                                    text: listRow.modelData.title
+                                    elide: Text.ElideRight
+                                    color: Theme.textPrimary
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeBody
+                                }
+
+                                Text {
+                                    objectName: "marketplaceOfficial_" + listRow.index
+                                    visible: listRow.modelData.official === true
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "Official"
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeCaption
+                                }
+                            }
+
+                            Text {
+                                width: parent.width
+                                visible: text.length > 0
+                                text: listRow.modelData.stateText || ""
+                                elide: Text.ElideRight
+                                color: Theme.textSecondary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSmall
+                            }
+                        }
+
+                        TextButton {
+                            id: listRemove
+                            objectName: "removeMarketplace_" + listRow.index
+                            visible: listRow.modelData.official !== true
+                            anchors.right: listSwitch.left
+                            anchors.rightMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            implicitHeight: 28
+                            kind: "ghost"
+                            text: "Remove"
+                            onClicked: if (pluginsPage.view) pluginsPage.view.removeMarketplace(listRow.modelData.address)
+                        }
+
+                        ToggleSwitch {
+                            id: listSwitch
+                            objectName: "marketplaceSwitch_" + listRow.index
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            checked: listRow.modelData.enabled === true
+                            onToggled: (on) => { if (pluginsPage.view) pluginsPage.view.setMarketplaceEnabled(listRow.modelData.address, on) }
+                        }
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: Theme.separator
+                        }
+                    }
+                }
+
+                Item { width: parent.width; height: 16 }
+
+                Item {
+                    width: parent.width
+                    height: 32
+
+                    Rectangle {
+                        id: addBox
+                        anchors.left: parent.left
+                        anchors.right: addButton.left
+                        anchors.rightMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 32
+                        color: addInput.activeFocus ? Theme.editor : Theme.chrome
+                        border.width: 1
+                        border.color: addInput.activeFocus ? Theme.focus : Theme.separator
+
+                        TextInput {
+                            id: addInput
+                            objectName: "marketplaceAddress"
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: Theme.textPrimary
+                            selectionColor: Theme.primary
+                            selectedTextColor: Theme.textOnColor
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSecondary
+                            selectByMouse: true
+                            clip: true
+                            readOnly: pluginsPage.view === null
+                            onTextEdited: if (pluginsPage.view) pluginsPage.view.clearMarketplaceAddError()
+                            Keys.onReturnPressed: pluginsPage.addCurrent()
+                            Keys.onEnterPressed: pluginsPage.addCurrent()
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: addInput.text.length === 0
+                                text: "owner/repo or https://…/index.json"
+                                color: Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSecondary
+                            }
+                        }
+                    }
+
+                    TextButton {
+                        id: addButton
+                        objectName: "addMarketplace"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        implicitHeight: 32
+                        kind: "neutral"
+                        text: "Add"
+                        enabledAction: pluginsPage.view !== null
+                        onClicked: pluginsPage.addCurrent()
+                    }
+                }
+
+                Text {
+                    objectName: "marketplaceAddError"
+                    width: parent.width
+                    topPadding: 8
+                    visible: text.length > 0
+                    wrapMode: Text.WordWrap
+                    text: pluginsPage.view ? pluginsPage.view.marketplaceAddError : ""
+                    color: Theme.danger
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSmall
                 }

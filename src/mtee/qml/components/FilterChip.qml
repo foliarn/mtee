@@ -11,6 +11,7 @@ Rectangle {
 
     implicitWidth: label.implicitWidth + 24
     implicitHeight: 26
+    radius: Theme.radius
     color: chip.checked ? Qt.rgba(0.776, 1, 0.102, 0.12) : hit.containsMouse ? Theme.surface : "transparent"
     border.width: 1
     border.color: chip.checked ? Theme.primary : Theme.separator
@@ -24,6 +25,7 @@ Rectangle {
         color: "transparent"
         border.width: 1
         border.color: Theme.focus
+        radius: Theme.radius + 2
         visible: chip.activeFocus
     }
 

@@ -14,6 +14,13 @@ manager, Genre Manager) are not ported yet and still use the legacy switch, see 
   `Mtee` QML module for its QML files).
 - **Manifest**: `manifest.py` of a plugin. It declares the plugin and is read before the plugin
   is enabled.
+- **Tool window**: a window opened from a button of a bar (the left or the right one of the
+  frame). It is shown in the dock of its side, which holds one or two windows stacked. The
+  Explorer, Playlists, Info and the plugin windows are tool windows. A plugin window is a
+  `PluginActivity`.
+- **Center window**: a window of the centre of the frame, with its own tab strip. Tabs open in a
+  center window; a plugin tab is one of them.
+- **Status item**: the small icon a plugin shows in the header of the window (see "Status item").
 
 ## 2. Layout of a plugin
 
@@ -138,7 +145,7 @@ core is reachable from it.
 | `database` | The shared `Database`. Use only your own tables. Each thread has its own connection. |
 | `library` | `track_ids()`, `tracks(ids)` (`LibraryTrack`: id, path, title, artists, album, `duration_us`, `readable`, `isrc`), `roots()` (`LibraryRoot`: `root_id`, `path`), `add_watched_folder(path)` and `rescan(path)`. The last two on the graphical thread only. See "Library roots, read leases and ffmpeg". |
 | `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids, expected_revision=None)` (returns the new revision), `rename(playlist_id, name, expected_revision=None)` (returns the new revision), `entries(playlist_id)`, `read(playlist_id)`, `revision(playlist_id)`, `name(playlist_id)` (`None` when it is gone), `exists(playlist_id)` and `list()` (`PlaylistInfo` of every local playlist), through the core playlist service. See "Store access for sync". |
-| `jobs` | `submit(task, label=..., visible=...)` and `cancel(job_id)` on the core job service. |
+| `jobs` | `submit(task, label=..., visible=..., summary=None)` and `cancel(job_id)` on the core job service. `summary(status)` (optional, `API_VERSION` stays 1) returns the one sentence the job ends with, for example `"Plugin Hello installed"` or `"12 files checked, 1 error"`. The core calls it once on the graphical thread when the job ends, with the terminal `JobStatus` (`completed`, `total`, `failure_total`, `state`, `error`); it may raise, and then the core writes the generic sentence (`<label>: done`, `<label>: 3 of 120 failed`, `<label>: cancelled`). Keep it cheap and free of Qt calls. A hidden job (`visible=False`) never notifies. |
 | `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)`, `replace_content(track_id, source)` and `attach_file(track_id, source, folder)` (optional capabilities, see below) and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. `read_lease(track_id)` is the one read access: a context manager that yields the path under a read lease. See "Library roots, read leases and ffmpeg" and below. |
 | `ffmpeg_path()` | The core's pinned `ffmpeg` executable, never one found on `PATH`. See "Library roots, read leases and ffmpeg". |
 | `settings` | A key-value store scoped to the plugin: `get`, `set`, `get_json`, `set_json`, `delete`. Keys live under `plugins.<id>.` in the settings. |
@@ -412,13 +419,15 @@ A contribution is data. The core draws it with its own components and colours; a
 names a core QML type in it. Icons are icon names of the core (`music`, `repeat`,
 `arrow-down`...). Every identifier is lowercase snake_case and unique within its kind.
 
-- `PluginActivity(activity_id, title, icon, actions=(), foot=None, badge=None)`: a button in the
-  activity bar and a sidebar pane. `actions` are `PaneAction(action_id, tip, icon, run, label="",
-  visible=None)` buttons in the pane header: with a `label` they are small ghost text buttons
-  instead of icon buttons, and `visible()` decides whether a button is drawn. `foot` is a
+- `PluginActivity(activity_id, title, icon, actions=(), foot=None, badge=None, side="left")`: a
+  tool window. Its button is in the left or right bar (`side` is `"left"`, the default, or
+  `"right"`; any other value is refused), and its pane opens in the dock of that side. A click on
+  the button shows the window in the dock; Shift+click stacks it under the window already shown.
+  The pane keeps its own header and sections. `actions` are `PaneAction(action_id, tip, icon, run,
+  label="", visible=None)` buttons in the pane header: with a `label` they are small ghost text
+  buttons instead of icon buttons, and `visible()` decides whether a button is drawn. `foot` is a
   `PluginRowsModel` of `{"text", "tone"}` rows (`tone`: `secondary`, `muted` or `warning`) drawn at
-  the bottom. `badge()` returns the number drawn on the activity bar button like the badge of
-  Tasks (hidden at 0). `badge`, `visible` are read when the plugin calls `refresh_ui()` and at
+  the bottom. `badge()` returns the number drawn on the bar button (hidden at 0). `badge`, `visible` are read when the plugin calls `refresh_ui()` and at
   registration; a function that raises counts as 0, or as hidden. The id may not be a core
   activity name.
 - `SidebarSection(section_id, title, activity, model, actions=(), activate=None, on_fold=None,
@@ -432,6 +441,9 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   `count()` gives a badge drawn next to the section title (hidden at 0), read with `refresh_ui()`.
   `expanded` is the state of the section the first time it is shown: `True`, `False`, or a function
   read at that moment; after that the user's choice is kept.
+- The rows of a `SidebarSection` are drawn as `NavItem` rows (plan 132.4): `regular` (52 px, the
+  cover-like tile on the left, 2 px corners) in the Playlists list, `compact` (28 px) in a tree.
+  The tile is the letter of the row's name when the row has no icon.
 - A row with `tone="warning"` is drawn in the warning colour, its icon and its text and count
   included; `secondary` colours only the icon.
 - `TabKind(kind, title_fn, content, header=None, backend=None, icon="playlists")`: an editor tab
@@ -461,8 +473,14 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   `run_action(row)`. `default_visible_for` lists the tab kinds (`"playlist"` or a
   `TabKind.kind`) where the column is shown until the user hides it. Plugin columns are not
   offered in Explorer folder lists.
+  A `TrackColumn` cell is left aligned, like the text columns. A column that does not fit the
+  window width is not drawn for that width (it leaves from the right, and Title and Artist always
+  stay): it takes no room and is marked "not enough room" in the column menu, but it stays
+  checked and comes back when the window is wider. The plugin does not set this; it is computed.
 - `TrackAction(action_id, label, group, run, enabled_fn=None)`: an entry of the track context
-  menu, in a captioned group named `group` before "File actions". `enabled_fn(rows)` decides
+  menu, in a captioned group named `group`. The groups of plugins sit after the edit group
+  (Analyze, Edit info, Convert) and before the file group (Open in Windows Explorer, Rename file,
+  Delete file), so a plugin never adds to the file group. `enabled_fn(rows)` decides
   whether it shows for the selected rows; `run(rows)` usually submits a job. A row is a
   dictionary with `id`, `trackId`, `title`, `artist`, `album`, `available`, `data` (a plugin row
   only), `tabKind` and `tabRef` (the list the row is shown in: `"playlist"` and the playlist
@@ -471,17 +489,17 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   after Plugins and before About. `content` is a QML file.
 - `StartupTask(task_id, run)`: submitted as a hidden job once the plugin is registered. `run`
   is a job task.
-- `WaitingItems(section_id, title, model, run, dismiss)`: a group of the Tasks pane and page for
-  work that waits for the user, for example a track to choose a match for. It is drawn like the
+- `WaitingItems(section_id, title, model, run, dismiss)`: a group of the notifications bell
+  drop-down ("Waiting for you", plan 134.4), for work that waits for the user, for example a
+  track to choose a match for. It is drawn like the
   tag conflicts: a heading `title (count)`, then one entry per row of `model`: the item, what is
-  needed, a small ghost button with the label of the row and a dismiss cross. The page shows
-  each entry on a card, as it does for jobs. `model` is a `PluginRowsModel` the plugin keeps up
+  needed, a small ghost button with the label of the row and a dismiss cross. `model` is a `PluginRowsModel` the plugin keeps up
   to date; a row has `id`, `title`, `subtitle` and `action` (the button label, `Open` when
   missing). `run(row_id)` answers the button and returns a `TabRequest` or `None`;
   `dismiss(row_id)` answers the cross, and the plugin removes the row. Both run on the graphical
   thread. A group with no row is not drawn, nothing is drawn for a plugin that is off, and the
-  rows of all groups count in the badge of the Tasks activity, with the running jobs and the
-  tag conflicts.
+  rows of all groups count in the badge of the notifications bell in the header, with the unread
+  notifications and the tag conflicts. The contract is unchanged: no field was added.
 - `PluginDialog(dialog_id, content, backend=None, width=480)`: a modal dialog, opened with
   `context.open_dialog(dialog_id, ref)`. `content` is a QML file. The core draws the popup
   (surface, border, radius 8, 20 px padding, centred, closed by Escape or a click outside) at
@@ -530,7 +548,7 @@ to it with `DeleteChoices(offer, run)`:
   `danger` draws the button with the core's red style, for a choice MTEE cannot undo. A choice
   with an empty id or label, or a second one with the same id, is ignored.
 - `run(request) -> str | None` runs when the user presses a choice, on a job thread submitted with
-  the job service: it shows in Tasks, and `request.job` can be checked for cancellation (the
+  the job service: it shows in the header strip and in the Tasks window, and `request.job` can be checked for cancellation (the
   dialog shows the Cancel button while it runs). It returns a short sentence that tells what was
   done (`None` shows "Done."), or raises: an exception with `readable = True` is shown as its
   message alone, any other as `ClassName: message`, and the job ends Failed. The dialog then shows
@@ -606,7 +624,7 @@ says where each track is, and draws its badge.
 
 ### Status item
 
-An optional capability (`API_VERSION` stays 1) for a plugin that shows a short state at the bottom of
+An optional capability (`API_VERSION` stays 1) for a plugin that shows a short state in the header of
 the window, for example whether a server is reached, or a sync in progress.
 
 - `StatusItem(item_id, icon, on_click=None)`: the declaration. `item_id` is lowercase snake_case, and
@@ -618,11 +636,13 @@ the window, for example whether a server is reached, or a sync in progress.
 - Both calls may come from any thread; the change is queued to the graphical thread. A bad value (a
   tone that is not one of the three, a progress outside 0 to 1, a text that is not a string) raises
   `ValueError` or `TypeError` in the calling thread, and nothing is shown.
-- The item appears at the first `update`. Items are shown in plugin load order. The strip under the
-  player bar is drawn only while at least one item is shown; without any, the window keeps its full
-  height.
+- The item appears at the first `update`. Items are shown in plugin load order, as small icons on the
+  right of the header (plan 131.5): the icon is 16 px and tinted by the tone, `progress` is a 2 px line
+  under it, and the text and the tooltip are shown on hover. Without any item the header keeps the same
+  height. Below 640 px of window width the icons leave the header: each item is listed in the
+  hamburger menu instead, by its text, and runs the same click (plan 131.9).
 - `on_click()` runs on the graphical thread when the user clicks the item, for example to open a
-  plugin activity or dialog. Without `on_click` the item is plain text. A failing `on_click` is
+  plugin activity or dialog. Without `on_click` the item is only informative. A failing `on_click` is
   logged and announced once; the application goes on.
 
 ### QML of a plugin
@@ -634,8 +654,11 @@ Architecture); it talks to its `backend`, a `QObject` it created, and the core n
 a plugin QML type when it loads. The core loads each file by URL with a `Loader` and sets properties
 after loading, so every binding must work while a property is still unset:
 
-- a **tab file** (`TabKind.content` as a `Path`) receives `workspace`, `tab`, `groupIndex`,
-  `bottomInset` and `backend`;
+- a **tab file** (`TabKind.content` as a `Path`) receives `workspace`, `tab`, `groupId`,
+  `groupIndex`, `bottomInset` and `backend`. `groupId` is the identifier of the center window that
+  shows the tab (`g1`, `g2`...); it stays the same when windows are split, moved or closed. Use it
+  to name a window. `groupIndex` is the position of the window in reading order at the time it was
+  set: it changes when a window before it is closed, so do not keep it;
 - a **dialog file** receives `workspace`, `backend`, `ref` and `dialog` (see `PluginDialog`);
 - a **Settings page file** receives `workspace` and `backend`. Its root fills the width of the
   page.
@@ -654,6 +677,27 @@ Components of `Mtee` for a Settings page, all taking the width of their parent:
 | `CodeBadge` | `text`: a short code. |
 | `DangerButton` | `text`, `enabledAction`, `clicked()`. |
 
+Components of `Mtee` to draw windows, lists, menus and dialogs (UI rework, plan 130). They use
+the tokens of `Theme` (`frameSize`, `windowGap`, `radiusWindow` 8, `radiusControl` 6,
+`radiusChip` 4, `radiusCover` 2, `windowSurface`):
+
+| Component | Properties, signals and use |
+| --- | --- |
+| `WindowSurface` | A rounded window. `focused` (accent outline), `padding`, `cornerColor` (the colour behind the window, `Theme.chrome` by default). Children go into its clipped content area. |
+| `SplitHandle` | The hit area across the gap between two windows. `orientation` (`Qt.Horizontal`: windows side by side), `dragged(delta)` (pixels since the press), `released()`, `doubleClicked()`. It draws only on hover or drag. |
+| `Popover` | A drop-down under `anchorItem`, closed by Esc or a click outside, kept 8 px inside the window. `alignRight`, `bodyWidth`, `maxHeight`; children are its content. |
+| `HeaderButton` | A `Theme.frameSize` square icon button. `icon`, `badge` (a count), `active`, `tip`, `enabledAction`, `clicked()`. |
+| `TagChip` | A small label. `text`, `tone` (`neutral`, `primary`, `warning`). |
+| `CycleButton` | A ghost icon button stepping through `options` (`[{key, label, icon}]`). `currentKey`, `chosen(key)`. |
+| `SearchField` | An icon that unfolds a field; Esc clears and folds. `text`, `placeholder`, `open`, `edited(text)`. |
+| `ConfirmDialog` | A modal question. `title`, `text`, `buttons` (`[{key, label, kind}]`, kind `primary`, `ghost` or `danger`), `answered(key)` (`"cancel"` for Esc); children are extra content. |
+| `InlineEdit` | A field that replaces a label to rename it. `begin(text)`, `keepExtension`, `committed(text)`, `cancelled()`. |
+| `NavItem` | One sidebar row. `size` (`compact` 28 px or `regular` 52 px), `leading` (a cover URL, one letter or an icon name), `title`, `subtitle`, `tag`, `tagTone`, `depth`, `expandable`, `expanded`, `selected`, `renaming`, `dropTarget`; `clicked(modifiers)`, `doubleClicked()`, `contextRequested(x, y)`, `chevronClicked()`, `renamed(text)`. `trailing: [...]` adds items at the right end. |
+| `NavList` | A list of `NavItem` rows from an array or `ListModel` of `{id, title, ...}`. Click, Ctrl+click and Shift+click select by row id across depths: `selectedIds`, `anchorId`, `selectionUpdated()`, `activated(rowId)`, `rowContextRequested(rowId, x, y)`, `rowDragStarted(ids)`. |
+| `TabStrip` | The tab strip of a center window. `tabs` (`[{id, title, kind, icon, preview}]`), `activeId`, `groupId`, `focused`, `switcher`, `switcherEntries`; `tabClicked`, `tabClosed`, `tabKept`, `tabMoved(tabId, index)`, `tabDropped(payload, index)`, `switcherChosen`. A tab drag carries `{type: "tab", groupId, tabId}` with the drag key `mtee-tab`. `trailing: [...]` adds buttons at the right end. |
+| `DropZoneOverlay` | Placed over a center window: draws the left, right, top, bottom or center drop zone while a `mtee-tab` or `mtee-folder` drag is over it and emits `dropped(zone, payload)`. The pure function `zoneAt` is in `dropzones.js`. |
+| `ActionMenu` | A menu built from `groups` (`[{id, items: [{id, label, hint, icon, enabled, visible, danger, submenu}]}]`) with one separator between non-empty groups; `triggered(id)`. |
+
 `Mtee` also offers the controls of the core (`TextButton`, `IconButton`, `ToggleSwitch`,
 `FilterChip`, `CheckLine`, `Icon`, menus and others, listed in `src/mtee/qml/Mtee/qmldir`).
 The sample plugin's `settings.qml` shows the rows in use.
@@ -666,7 +710,7 @@ The sample plugin's `settings.qml` shows the rows in use.
 - A plugin that produces new files reports them as derived outputs through the core, so they
   are tracked and can be found again.
 - Long work runs as a job through `context.jobs`, with a state, a progress value, a way to
-  cancel and a readable error. Tasks shows an exception as `ClassName: message`; an exception
+  cancel and a readable error. The Tasks window shows an exception as `ClassName: message`; an exception
   with the class attribute `readable = True` is shown as its message alone, so write that
   message as a sentence that names the cause and where to fix it. An optional `code` attribute
   (a string) is kept as the error code of the job.
@@ -853,20 +897,28 @@ only when a compatible package is higher. The maintainer's steps are in
 
 ## 13. Where the user installs and manages plugins
 
-The Plugins view is the activity of the left bar with the plugin icon. It is always there.
+The Plugins view is the tool window at the foot of the left bar, with the plugin icon. It is always there.
 
-- **Installed** lists each plugin with its status: `Running`, `Disabled`, `Failed` (with the
-  reason) or `Restart needed`. The switch saves the choice; a change applies after a restart,
-  and the view offers **Restart now**. **Uninstall** sends the plugin folder to the Recycle Bin
-  without a prompt; the plugin's data stays in `<data-dir>/plugin-data/<id>/`.
-- **Marketplace** lists the plugins of the plugin list. It is read when the view shows it, and
-  again on **Check again**. Install and Update download the package, check its SHA-256 against the
-  list, and then show the same warning as a local file.
+- **One list** (plan 132.6): the installed plugins and the Marketplace plugins are one list, and
+  each plugin is in it once, even when it is installed and listed by a marketplace (or by two
+  marketplaces). The order: installed plugins that a marketplace lists, by name; then installed
+  plugins that no marketplace lists, by name; then the Marketplace plugins that are not installed,
+  by name. The search field filters this list. A click opens the plugin's detail tab.
+- **Tags** (P8): a row shows its tag under the name only when the plugin is installed. `Running`
+  (accent), `Failed` (warning colour; the reason is on the detail page) or `Installed` for the other
+  installed plugins, including a disabled one. A plugin that is not installed has no tag; its
+  detail page offers Install or Update. The switch on the detail page saves the choice; a change
+  applies after a restart, and the footer of the view offers **Restart now**. **Uninstall** sends
+  the plugin folder to the Recycle Bin without a prompt; the plugin's data stays in
+  `<data-dir>/plugin-data/<id>/`.
+- **Marketplace** lists the plugins of the plugin list in the same list. It is read when the view
+  shows it, and again on **Check again**. Install and Update download the package, check its
+  SHA-256 against the list, and then show the same warning as a local file.
 - **Install from file** takes a `.mteeplugin` file. The warning names the plugin, its author,
   version and size, and says that a plugin runs with full access to the computer. Install only
   plugins you trust.
 - **Open plugins folder** opens `<data-dir>/plugins/` in Explorer.
 
 A plugin's own Settings page (for example Accounts) stays in Settings. Each plugin's detail page
-opens in an editor tab (tab kind `plugin`). Installs, downloads and uninstalls run as jobs in Tasks,
-with progress and Cancel.
+opens in an editor tab (tab kind `plugin`). Installs, downloads and uninstalls run as jobs: they show in the header
+progress strip and in the Tasks window, with progress and Cancel.

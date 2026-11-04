@@ -15,10 +15,13 @@ Rectangle {
     property string tip: ""
     property bool enabledAction: true
     readonly property bool hovered: mouse.containsMouse
+    // The modifiers of the last click (Shift opens a tool window below), set before ``clicked``.
+    property int lastModifiers: 0
     signal clicked()
 
     implicitWidth: 32
     implicitHeight: 32
+    radius: Theme.radius
     color: hoverBackground && mouse.containsMouse && enabledAction
         ? (mouse.pressed ? Theme.selection : Theme.surface) : "transparent"
     opacity: enabledAction ? 1.0 : 0.4
@@ -48,7 +51,11 @@ Rectangle {
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton
         cursorShape: control.enabledAction ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: if (control.enabledAction) control.clicked()
+        onClicked: (mouse) => {
+            control.lastModifiers = mouse.modifiers
+            if (control.enabledAction)
+                control.clicked()
+        }
     }
 
     HoverTip {

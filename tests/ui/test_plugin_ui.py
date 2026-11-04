@@ -86,7 +86,7 @@ def test_without_a_plugin_folder_nothing_is_added(qapp, tmp_path: Path) -> None:
         assert cast(Any, workspace).pluginsView.property("installed") == []
         workspace.openSettings()
         _settle(runtime)
-        assert _find(window, "settingsTab_plugins") is None
+        assert _find(window, "settingsTab_plugins") is not None  # the core tab always exists
         assert _find(window, "settingsTab_about") is not None
         assert _find(window, "activity-ui_probe.main") is None
         assert _find(window, "pluginSections") is not None  # the empty footer takes no space
@@ -204,9 +204,9 @@ def test_a_waiting_item_of_the_plugin_shows_on_the_tasks_page_and_follows_its_an
         workspace = _workspace(runtime)
         window = _window(runtime)
         assert module is not None
-        workspace.openTasks()
+        _click(window, cast(QQuickItem, _find(window, "notificationButton")))
         _settle(runtime)
-        group = _find(window, "waitingGroup")
+        group = _find(window, "bellWaitingGroup")
         assert group is not None and group.isVisible()
         texts = _texts(window)
         assert "Waiting for you (1)" in texts and "Probe one" in texts and "Needs a pick" in texts
@@ -215,9 +215,9 @@ def test_a_waiting_item_of_the_plugin_shows_on_the_tasks_page_and_follows_its_an
         _click(window, cast(QQuickItem, _find(window, "answerWaiting")))
         _settle(runtime)
         assert "answer w1" in module.EVENTS
-        assert cast(Any, workspace).groups[workspace.activeGroup]["active"] == f"{LIST_KIND}:alpha"
-        # The cross dismisses it; the plugin empties its model and the group goes away.
-        workspace.openTasks()
+        assert cast(Any, workspace).activeTabId == f"{LIST_KIND}:alpha"
+        # The cross dismisses it; the plugin empties its model and the group goes away. The
+        # popover is still open: a click on the bell would close it (feedback 136).
         _settle(runtime)
         _click(window, cast(QQuickItem, _find(window, "dismissWaiting")))
         _settle(runtime)
@@ -328,14 +328,14 @@ def test_a_plugin_opens_its_own_tab_with_open_tab_and_adds_to_a_playlist_meta_li
         thread.start()
         thread.join()
         _settle(runtime)
-        active = cast(Any, workspace).groups[workspace.activeGroup]["active"]
+        active = cast(Any, workspace).activeTabId
         assert active == f"{LIST_KIND}:beta"
         plugin.service.context.open_tab(LIST_KIND, "alpha")  # type: ignore[union-attr]
         plugin.service.context.open_tab(LIST_KIND, "beta")  # type: ignore[union-attr]
         _settle(runtime)
         tabs = [tab["id"] for group in workspace.groups_snapshot() for tab in group["tabs"]]
         assert tabs.count(f"{LIST_KIND}:beta") == 1  # focused, not opened twice
-        assert cast(Any, workspace).groups[workspace.activeGroup]["active"] == f"{LIST_KIND}:beta"
+        assert cast(Any, workspace).activeTabId == f"{LIST_KIND}:beta"
 
         # The meta line of a local playlist carries the phrase of the plugin.
         model = cast(Any, workspace).playlistModel
@@ -413,11 +413,15 @@ def test_the_context_menu_shows_the_plugin_group_for_the_selected_rows(
         # In the open window: a row without a file hides what needs one, and offers the group.
         menu_labels = _open_menu_labels(window, 2)
         assert "Play" not in menu_labels and "Analyze" not in menu_labels
-        assert "File actions" not in menu_labels
+        assert "Move up" not in menu_labels and "Move down" not in menu_labels
+        assert "Delete file…" not in menu_labels and "Rename file…" not in menu_labels
         assert "PROBE" in menu_labels and "Link to a local track" in menu_labels
         local_labels = _open_menu_labels(window, 1)
-        assert "Play" in local_labels and "Add to playlist…" in local_labels
-        assert local_labels.index("PROBE") < local_labels.index("File actions")
+        assert "Play" not in local_labels and "Add to playlist…" in local_labels
+        # The plugin group sits after the edit group and before the file group.
+        assert local_labels.index("Edit info") < local_labels.index("PROBE")
+        assert local_labels.index("PROBE") < local_labels.index("Open in Windows Explorer")
+        assert local_labels[-3:] == ["Open in Windows Explorer", "Rename file…", "Delete file…"]
     finally:
         _shutdown(runtime)
 

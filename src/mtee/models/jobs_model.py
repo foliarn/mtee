@@ -25,6 +25,7 @@ from PySide6.QtCore import (
 
 from mtee.domain.jobs import JobId, JobState, JobStatus, remaining_seconds
 from mtee.services.jobs import JobService, UnknownJobError
+from mtee.services.platform.shell_reveal import WindowsShellReveal
 
 __all__ = ["JobRole", "JobsListModel", "label_for_status", "outcome_for_status"]
 
@@ -52,6 +53,7 @@ class JobRole(IntEnum):
     FINISHED_RANK = int(Qt.ItemDataRole.UserRole) + 18
     OUTCOME = int(Qt.ItemDataRole.UserRole) + 19
     GROUP = int(Qt.ItemDataRole.UserRole) + 20
+    SUMMARY = int(Qt.ItemDataRole.UserRole) + 21
 
 
 _STATE_LABELS = {
@@ -138,6 +140,7 @@ class JobsListModel(QAbstractListModel):
             int(JobRole.FINISHED_RANK): QByteArray(b"finishedRank"),
             int(JobRole.OUTCOME): QByteArray(b"outcome"),
             int(JobRole.GROUP): QByteArray(b"group"),
+            int(JobRole.SUMMARY): QByteArray(b"summary"),
         }
 
     def data(
@@ -192,6 +195,8 @@ class JobsListModel(QAbstractListModel):
                 return outcome_for_status(status)
             case JobRole.GROUP:
                 return _group(status, time.time())
+            case JobRole.SUMMARY:
+                return status.summary
             case _:
                 return None
 
@@ -229,6 +234,65 @@ class JobsListModel(QAbstractListModel):
     def _count_group(self, group: str) -> int:
         now = time.time()
         return sum(_group(status, now) == group for status in self._statuses)
+
+    @Slot(result=list)
+    def runningJobs(self) -> list[dict[str, object]]:
+        """The jobs that run now, most recently started first, as the header strip reads them.
+
+        Each entry carries the keys the task rows use (``jobId``, ``label``, ``progress``,
+        ``completed``, ``total``, ``detail``, ``elapsedSeconds``, ``remainingSeconds``,
+        ``canCancel``, ...); a missing count is ``-1``.
+        """
+        now = time.time()
+        running = [status for status in self._statuses if status.state is JobState.RUNNING]
+        running.sort(key=lambda status: status.started_at or 0.0, reverse=True)
+        return [
+            {
+                "jobId": str(status.job_id),
+                "label": status.label,
+                "jobState": status.state.value,
+                "outcome": outcome_for_status(status),
+                "stateLabel": label_for_status(status),
+                "progress": status.progress,
+                "completed": -1 if status.completed is None else status.completed,
+                "total": -1 if status.total is None else status.total,
+                "detail": status.detail,
+                "elapsedSeconds": _elapsed(status),
+                "remainingSeconds": _remaining_or_minus_one(status, now),
+                "errorMessage": "",
+                "failureCount": 0,
+                "failures": [],
+                "canCancel": True,
+            }
+            for status in running
+        ]
+
+    @Slot(result=list)
+    def taskList(self) -> list[dict[str, object]]:
+        """The session tasks of the Tasks window: unfinished first (latest start first), then the
+        finished ones, newest first. Each row is the task dictionary of ``taskDetail``."""
+        now = time.time()
+        active = [status for status in self._statuses if not status.is_terminal]
+        active.sort(key=lambda status: status.started_at or 0.0, reverse=True)
+        finished = [status for status in self._statuses if status.is_terminal]
+        return [_task_dict(status, now) for status in [*active, *finished]]
+
+    @Slot(str, result=dict)
+    def taskDetail(self, job_id: str) -> dict[str, object]:
+        """The full record of one session task, or an empty map when it is gone."""
+        parsed = _parse_job_id(job_id)
+        row = self._rows_by_id.get(parsed) if parsed is not None else None
+        if row is None:
+            return {}
+        return _task_dict(self._statuses[row], time.time())
+
+    @Slot(str)
+    def showInFolder(self, path: str) -> None:
+        """Select a failed item's file in Explorer when its name is an existing file path."""
+        try:
+            WindowsShellReveal().reveal(path)
+        except (OSError, ValueError):
+            return
 
     @Slot(str)
     def cancel(self, job_id: str) -> None:
@@ -324,8 +388,55 @@ def _group(status: JobStatus, now: float) -> str:
     return "done"
 
 
+def _remaining_or_minus_one(status: JobStatus, now: float) -> float:
+    left = remaining_seconds(status, now)
+    return -1.0 if left is None else left
+
+
 def _elapsed(status: JobStatus) -> float:
     if status.started_at is None:
         return 0.0
     end = status.finished_at if status.finished_at is not None else time.time()
     return max(0.0, end - status.started_at)
+
+
+def _parse_job_id(job_id: str) -> JobId | None:
+    try:
+        return JobId.parse(job_id)
+    except ValueError:
+        return None
+
+
+def _task_dict(status: JobStatus, now: float) -> dict[str, object]:
+    """One task of the Tasks window: the keys the task rows and the record read."""
+    outcome = outcome_for_status(status)
+    if not status.is_terminal:
+        tone = "primary"
+    elif outcome in ("partial", "failed", "interrupted"):
+        tone = "warning"
+    else:
+        tone = "neutral"
+    return {
+        "jobId": str(status.job_id),
+        "label": status.label,
+        "title": status.label,
+        "subtitle": status.summary or status.detail,
+        "tag": label_for_status(status),
+        "tagTone": tone,
+        "jobState": status.state.value,
+        "outcome": outcome,
+        "stateLabel": label_for_status(status),
+        "progress": status.progress,
+        "completed": -1 if status.completed is None else status.completed,
+        "total": -1 if status.total is None else status.total,
+        "detail": status.detail,
+        "summary": status.summary,
+        "startedAt": status.started_at or 0.0,
+        "finishedAt": status.finished_at or 0.0,
+        "elapsedSeconds": _elapsed(status),
+        "remainingSeconds": _remaining_or_minus_one(status, now),
+        "errorMessage": status.error.message if status.error else "",
+        "failures": [{"name": item.name, "message": item.message} for item in status.failures],
+        "failureCount": max(status.failure_total, len(status.failures)),
+        "canCancel": status.state in (JobState.QUEUED, JobState.RUNNING),
+    }

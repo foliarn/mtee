@@ -20,6 +20,7 @@ from PySide6.QtCore import (
 
 from mtee.domain.column_widths import clamp_column_width
 from mtee.domain.durations import format_playlist_meta
+from mtee.domain.job_summaries import fixed
 from mtee.domain.jobs import JobCancelledError, JobId, JobStatus
 from mtee.domain.playlists import LIKED_PLAYLIST_ID, PLAYLIST_COLUMNS, is_plugin_column_key
 from mtee.persistence.settings_repository import SettingsRepository
@@ -33,17 +34,25 @@ from mtee.services.profile_service import (
     normalize_display_name,
 )
 
+# The settings key of the Liked tracks cover (a file name in playlist-covers, or empty). Liked
+# tracks is not a playlist row, so its cover is kept here (plan 132.4).
+LIKED_COVER_KEY = "playlists/liked-cover"
+
 
 class PlaylistsModel(QObject):
     changed = Signal()
     noticeRaised = Signal(str)
     playlistCreated = Signal(str)
+    # A folder was created at once with a default name: its id, so the row can be renamed inline.
+    folderCreated = Signal(str)
     playlistDeleted = Signal(str)
     uiRequested = Signal(str, str, list)
     importReady = Signal()
     importResolved = Signal()
     libraryImported = Signal()
     coverChanged = Signal(str)
+    # identity, rows, shuffled: the rows of a playlist to play, read by the job.
+    playRequested = Signal(str, list, bool)
     resultReady = Signal(object, object, object)
 
     def __init__(
@@ -60,12 +69,15 @@ class PlaylistsModel(QObject):
         self.settings = settings
         self.jobs = jobs
         self.data_dir = data_dir
+        self._loaded = False
         self._playlists: list[dict[str, Any]] = []
         self._folders: list[dict[str, Any]] = []
         self._memberships: dict[str, list[str]] = {}
         self._liked: list[str] = []
         self._liked_aliases: set[str] = set()
-        self._expanded: set[str] = set()
+        # The folders that are open. Kept here: a snapshot read from the settings could be older
+        # than a fold made meanwhile and fold the folder back (plan 132.4).
+        self._expanded: set[str] = set(settings.get_json("playlists/expanded", []))
         self._creator = "MTEE"
         self._liked_detail: dict[str, Any] = {}
         self._columns: dict[str, Any] = self.default_columns()
@@ -97,6 +109,11 @@ class PlaylistsModel(QObject):
             },
         }
 
+    @property
+    def loaded(self) -> bool:
+        """Whether the playlists were read at least once (a missing playlist is then missing)."""
+        return self._loaded
+
     @Property(list, notify=changed)
     def playlists(self) -> list[dict[str, Any]]:
         return self._playlists
@@ -110,7 +127,8 @@ class PlaylistsModel(QObject):
                 "kind": "playlist",
                 "depth": 0,
                 "cover": -1,
-                "coverUrl": "",
+                "coverUrl": self._liked_detail.get("coverUrl", ""),
+                # Without a cover of its own, Liked tracks shows its heart, never a mosaic.
                 "covers": [],
                 "summary": f"{len(self._liked)} tracks",
                 "pinned": False,
@@ -168,7 +186,7 @@ class PlaylistsModel(QObject):
             return self._liked_detail or {
                 "id": identity,
                 "name": "Liked tracks",
-                "description": "Your saved tracks",
+                "description": "",
                 "summary": "0 tracks",
                 "trackCount": 0,
                 "metaText": "0 tracks",
@@ -222,19 +240,23 @@ class PlaylistsModel(QObject):
             )
         liked_rows = self.service.rows(LIKED_PLAYLIST_ID)
         liked_seconds = sum(int(r.get("seconds", 0)) for r in liked_rows)
+        liked_cover = str(self.settings.get(LIKED_COVER_KEY, "") or "")
         liked_detail = {
             "id": LIKED_PLAYLIST_ID,
             "name": "Liked tracks",
-            "description": "Your saved tracks",
+            "description": "",
             "summary": f"{len(liked_rows)} tracks · {liked_seconds // 60}:{liked_seconds % 60:02d}",
             "trackCount": len(liked_rows),
             "metaText": format_playlist_meta(len(liked_rows), liked_seconds),
-            "coverUrl": "",
-            "covers": [r["coverUrl"] for r in liked_rows if r["coverUrl"]][:4],
+            "coverUrl": QUrl.fromLocalFile(
+                str(self.data_dir / "playlist-covers" / liked_cover)
+            ).toString()
+            if liked_cover
+            else "",
+            "covers": [],
         }
         return {
             "likedDetail": liked_detail,
-            "expanded": self.settings.get_json("playlists/expanded", []),
             "playlists": playlists,
             "folders": folders,
             "liked": self.repository.liked_ids(),
@@ -286,7 +308,22 @@ class PlaylistsModel(QObject):
         if self._current_job or not self._pending or not self.jobs.accepting:
             return
         task, label, visible = self._pending.popleft()
-        self._current_job = str(self.jobs.submit(task, label=label, visible=visible))
+        self._current_job = str(
+            self.jobs.submit(
+                task,
+                label=label,
+                visible=visible,
+                summary=fixed(
+                    {
+                        "Export playlist": "Playlist exported",
+                        "Import playlist": "Playlist imported",
+                        "Save imported playlist": "Imported playlist saved",
+                        "Resume playlist import": "Playlist import resumed",
+                        "Update playlists": "Playlists updated",
+                    }.get(label, "Playlist task done")
+                ),
+            )
+        )
 
     @Slot(object)
     def _on_job_updated(self, status: object) -> None:
@@ -316,13 +353,13 @@ class PlaylistsModel(QObject):
             return
         if not isinstance(state, dict):
             return
+        self._loaded = True
         self._playlists = state["playlists"]
         self._folders = state["folders"]
         self._memberships = state["memberships"]
         self._liked = state["liked"]
         self._liked_aliases = set(state["likedAliases"])
         self._liked_detail = state["likedDetail"]
-        self._expanded = set(state["expanded"])
         self._creator = state["creator"]
         self._columns = state["columns"]
         self._pending_imports = state.get("pendingImports", [])
@@ -343,12 +380,22 @@ class PlaylistsModel(QObject):
             elif result["event"] == "created":
                 self._import_committing = False
                 self.playlistCreated.emit(str(result["value"]))
+            elif result["event"] == "folderCreated":
+                self.folderCreated.emit(str(result["value"]))
             elif result["event"] == "cover":
                 self.coverChanged.emit(str(result["value"]))
             elif result["event"] == "located":
                 self.libraryImported.emit()
             elif result["event"] == "deleted":
                 self.playlistDeleted.emit(str(result["value"]))
+            elif result["event"] == "folderDeleted":
+                for identity in result["value"]:
+                    self.playlistDeleted.emit(str(identity))
+            elif result["event"] == "play":
+                value = result["value"]
+                self.playRequested.emit(
+                    value["identity"], list(value["rows"]), bool(value["shuffled"])
+                )
 
     @Slot(str)
     def toggleFolder(self, identity: str) -> None:
@@ -437,6 +484,10 @@ class PlaylistsModel(QObject):
                 reference = copy_cover(
                     Path(QUrl(url).toLocalFile()), self.data_dir / "playlist-covers"
                 )
+            if identity == LIKED_PLAYLIST_ID:
+                # Liked tracks has no playlist row; its cover is an app-owned file as well.
+                self.settings.set(LIKED_COVER_KEY, reference)
+                return
             playlist = self.repository.playlist(identity)
             self.repository.update(
                 identity,
@@ -468,6 +519,17 @@ class PlaylistsModel(QObject):
             value = dict(self._columns)
             value["widths"] = dict(value["widths"]) | {key: clamp_column_width(key, width)}
             self.setColumns(value)
+
+    @Slot(dict)
+    def resizeColumns(self, widths: dict) -> None:
+        """Save several widths in one write: a border drag moves two columns at once (plan 135)."""
+        value = dict(self._columns)
+        merged = dict(value["widths"])
+        for key, width in widths.items():
+            if key in PLAYLIST_COLUMNS or is_plugin_column_key(key):
+                merged[key] = clamp_column_width(key, int(width))
+        value["widths"] = merged
+        self.setColumns(value)
 
     @Slot(str, int)
     def moveColumn(self, key: str, offset: int) -> None:
@@ -511,13 +573,57 @@ class PlaylistsModel(QObject):
     def createFolder(self, name: str, parent: str) -> None:
         self.run(lambda _c: self.repository.create_folder(name, parent))
 
+    @Slot(str)
+    def createUntitledFolder(self, parent: str) -> None:
+        """Create "Untitled folder NN" at once; the pane then starts renaming it inline."""
+        if parent:
+            self._expanded.add(parent)
+        self.run(lambda _c: self.repository.create_folder(None, parent), event="folderCreated")
+
     @Slot(str, str)
     def renameFolder(self, identity: str, name: str) -> None:
         self.run(lambda _c: self.repository.rename_folder(identity, name))
 
-    @Slot(str)
-    def deleteFolder(self, identity: str) -> None:
-        self.run(lambda _c: self.repository.delete_folder(identity))
+    @Slot(str, bool)
+    def deleteFolder(self, identity: str, keep_contents: bool) -> None:
+        """Delete a folder; ``keep_contents`` moves its playlists and subfolders up one level."""
+        self.run(
+            lambda _c: self.repository.delete_folder(identity, keep_contents=keep_contents),
+            event="folderDeleted",
+        )
+
+    @Slot(str, result=dict)
+    def folderSummary(self, identity: str) -> dict[str, Any]:
+        """What a folder holds: direct subfolders and playlists, and every playlist below it."""
+        subtree = {identity}
+        grew = True
+        while grew:
+            grew = False
+            for folder in self._folders:
+                if folder["parent_id"] in subtree and folder["folder_id"] not in subtree:
+                    subtree.add(folder["folder_id"])
+                    grew = True
+        folders = [f for f in self._folders if (f["parent_id"] or "") == identity]
+        playlists = [p for p in self._playlists if p["folder"] == identity]
+        below = sum(1 for p in self._playlists if p["folder"] in subtree)
+        return {
+            "folders": len(folders),
+            "playlists": len(playlists),
+            "allPlaylists": below,
+            "empty": not folders and not playlists,
+        }
+
+    @Slot(str, bool)
+    def play(self, identity: str, shuffled: bool) -> None:
+        """Read the rows of a playlist off the interface thread, then ask the workspace to play."""
+        self.run(
+            lambda _c: {
+                "identity": identity,
+                "rows": self.service.rows(identity),
+                "shuffled": shuffled,
+            },
+            event="play",
+        )
 
     @Slot(str, str, bool, str)
     def move(self, identity: str, folder: str, is_folder: bool, before: str) -> None:

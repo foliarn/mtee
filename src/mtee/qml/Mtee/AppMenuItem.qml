@@ -7,6 +7,8 @@ MenuItem {
 
     property string hint: ""
     property bool mark: false
+    property bool danger: false
+    property string iconName: ""
 
     implicitWidth: 252
     implicitHeight: 28
@@ -28,10 +30,10 @@ MenuItem {
         Icon {
             x: 8
             anchors.verticalCenter: parent.verticalCenter
-            visible: item.mark
-            name: "check"
+            visible: item.mark || item.iconName.length > 0
+            name: item.mark ? "check" : item.iconName
             size: 14
-            color: Theme.primary
+            color: item.mark ? Theme.primary : Theme.textSecondary
         }
 
         Text {
@@ -40,7 +42,7 @@ MenuItem {
             width: parent.width - x - hintText.implicitWidth - 24
             text: item.text
             elide: Text.ElideRight
-            color: item.enabled ? Theme.textPrimary : Theme.textMuted
+            color: !item.enabled ? Theme.textMuted : item.danger ? Theme.danger : Theme.textPrimary
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSecondary
         }
@@ -60,6 +62,9 @@ MenuItem {
     background: Rectangle {
         implicitWidth: 252
         implicitHeight: 28
+        x: 4
+        width: parent.width - 8
+        radius: Theme.radiusChip
         color: item.highlighted && item.enabled ? Theme.selection : "transparent"
     }
 }

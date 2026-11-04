@@ -7,14 +7,14 @@ collection of audio files. It is written in Python 3.12 with PySide6 and QML, ha
 Electron or WebView, and targets Windows first. Everything runs locally: the library is
 read from your own folders, and your data stays in a local database.
 
-> **Status:** version 0.1.0, first public release. Windows is the supported platform.
+> **Status:** version 0.3.0. Windows is the supported platform.
 
 ## Screenshots
 
 _Screenshots to be added: explorer, player with waveform, metadata editor, artists view,
 listening statistics._
 
-## Features in 0.1.0
+## Features
 
 - **Library explorer.** Browse folders and tracks, sort and choose columns, search, and
   follow the artists and albums of your collection.

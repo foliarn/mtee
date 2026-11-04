@@ -41,8 +41,11 @@ def test_menu_creation_count_and_title_edit(qapp, qtbot, tmp_path: Path, monkeyp
     playlists = cast(PlaylistsModel, workspace.playlistModel)
     try:
         workspace.setActivity("playlists")
+        # The pane is laid out a little after the activity change; a click before that misses.
+        qtbot.waitUntil(lambda: _visible(root, "playlistsPlusButton"), timeout=5000)
+        QTest.qWait(200)
         _click(root, "playlistsPlusButton")
-        qtbot.waitUntil(lambda: _visible(root, "newPlaylistMenuItem"))
+        qtbot.waitUntil(lambda: _visible(root, "newPlaylistMenuItem"), timeout=5000)
         resume = root.findChild(QObject, "resumeImportMenuItem")
         assert resume is not None
         assert not resume.property("visible") and resume.property("height") == 0
@@ -50,8 +53,9 @@ def test_menu_creation_count_and_title_edit(qapp, qtbot, tmp_path: Path, monkeyp
         second = _find(root, "newFolderMenuItem")
         third = _find(root, "importPlaylistMenuItem")
         assert first is not None and second is not None and third is not None
-        assert abs(second.y() - first.y() - first.height()) < 1
-        assert abs(third.y() - second.y() - second.height()) < 1
+        # The popup lays its entries out a few frames after it opens.
+        qtbot.waitUntil(lambda: abs(second.y() - first.y() - first.height()) < 1, timeout=5000)
+        qtbot.waitUntil(lambda: abs(third.y() - second.y() - second.height()) < 1, timeout=5000)
         _click(root, "newPlaylistMenuItem")
         qtbot.waitUntil(lambda: len(playlists._playlists) == 1, timeout=5000)
         identity = playlists._playlists[0]["id"]

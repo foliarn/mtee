@@ -21,7 +21,12 @@ from PySide6.QtCore import (
     Slot,
 )
 
-from mtee.domain.artist_index import album_track_order
+from mtee.domain.artist_index import (
+    ARTIST_SORT_KEYS,
+    DEFAULT_ARTIST_SORT,
+    album_track_order,
+)
+from mtee.domain.job_summaries import fixed
 from mtee.models.track_list_model import TrackListModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.artist_index_service import ArtistIndexService
@@ -37,16 +42,24 @@ class ArtistListModel(QAbstractListModel):
     """The artists of the library, filtered by a search text, one row per artist.
 
     A row is ``{"key", "name", "trackCount"}``. ``key`` is the stable identity used to open
-    the artist page.
+    the artist page. The order is one of ``ARTIST_SORT_KEYS`` (plan 132.5); the owner saves the
+    choice when ``sortChanged`` is emitted.
     """
 
     countChanged = Signal()
     filterChanged = Signal()
+    sortChanged = Signal()
 
-    def __init__(self, service: ArtistIndexService, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        service: ArtistIndexService,
+        parent: QObject | None = None,
+        sort_mode: str = DEFAULT_ARTIST_SORT,
+    ) -> None:
         super().__init__(parent)
         self._service = service
         self._filter = ""
+        self._sort = sort_mode if sort_mode in ARTIST_SORT_KEYS else DEFAULT_ARTIST_SORT
         self._rows: list[dict[str, Any]] = []
         service.indexChanged.connect(self._reload)
         self._reload()
@@ -90,6 +103,20 @@ class ArtistListModel(QAbstractListModel):
         self.filterChanged.emit()
         self._reload()
 
+    @Property(str, notify=sortChanged)
+    def sortMode(self) -> str:
+        """The order of the list: name, nameDesc, mostTracks or fewestTracks."""
+        return self._sort
+
+    @Slot(str)
+    def setSortMode(self, key: str) -> None:
+        """Choose the order; an unknown key is ignored."""
+        if key not in ARTIST_SORT_KEYS or key == self._sort:
+            return
+        self._sort = key
+        self.sortChanged.emit()
+        self._reload()
+
     @Slot(str, result=int)
     def rowForKey(self, key: str) -> int:
         for row, item in enumerate(self._rows):
@@ -104,10 +131,23 @@ class ArtistListModel(QAbstractListModel):
             for artist in self._service.artists()
             if not needle or needle in artist.name.casefold()
         ]
+        rows = _sorted_rows(rows, self._sort)
         self.beginResetModel()
         self._rows = rows
         self.endResetModel()
         self.countChanged.emit()
+
+
+def _sorted_rows(rows: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    """The rows in the order of ``mode``; names are compared without case, ties by key."""
+    by_name = sorted(rows, key=lambda row: (str(row["name"]).casefold(), str(row["key"])))
+    if mode == "nameDesc":
+        return list(reversed(by_name))
+    if mode == "mostTracks":
+        return sorted(by_name, key=lambda row: -int(row["trackCount"]))
+    if mode == "fewestTracks":
+        return sorted(by_name, key=lambda row: int(row["trackCount"]))
+    return by_name
 
 
 class ArtistPageModel(QObject):
@@ -211,7 +251,12 @@ class ArtistPageModel(QObject):
             self._loaded.emit(rows, generation)
 
         with suppress(RuntimeError):
-            self._jobs.submit(load, label="Load artist tracks", visible=False)
+            self._jobs.submit(
+                load,
+                label="Load artist tracks",
+                visible=False,
+                summary=fixed("Artist tracks loaded"),
+            )
 
     def _on_loaded(self, rows: object, generation: int) -> None:
         if generation == self._generation and isinstance(rows, list):

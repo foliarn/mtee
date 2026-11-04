@@ -16,6 +16,7 @@ Rectangle {
 
     implicitWidth: content.implicitWidth + 28
     implicitHeight: 32
+    radius: Theme.radius
     color: kind === "primary" ? (mouse.containsMouse ? Theme.primaryHover : Theme.primary)
         : kind === "secondary" ? Theme.secondary
         : kind === "neutral" ? (mouse.containsMouse ? Theme.selection : Theme.surface)
@@ -31,6 +32,7 @@ Rectangle {
         color: "transparent"
         border.width: 1
         border.color: Theme.focus
+        radius: Theme.radius + 2
         visible: control.activeFocus
     }
 

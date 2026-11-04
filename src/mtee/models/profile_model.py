@@ -13,6 +13,7 @@ from PySide6.QtCore import Property, QObject, QSize, QUrl, Signal, Slot
 from PySide6.QtGui import QImage
 from PySide6.QtQuick import QQuickImageProvider
 
+from mtee.domain.job_summaries import fixed
 from mtee.services.jobs import JobContext, JobService
 from mtee.services.profile_service import ProfileService
 
@@ -110,7 +111,12 @@ class ProfileModel(QObject):
                 return
             self._avatarReady.emit("")
 
-        self._jobs.submit(task, label="Copy profile picture", visible=False)
+        self._jobs.submit(
+            task,
+            label="Copy profile picture",
+            visible=False,
+            summary=fixed("Profile picture copied"),
+        )
 
     @Slot()
     def clearAvatar(self) -> None:

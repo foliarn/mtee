@@ -25,7 +25,7 @@ Popup {
         target: typeof menu.workspace.playlistModel !== "undefined" ? menu.workspace.playlistModel : null
         function onPlaylistCreated() { menu.close() }
     }
-    background: Rectangle { color: Theme.surface; radius: 8; border.color: Theme.separator }
+    background: Rectangle { color: Theme.surface; radius: Theme.radiusWindow; border.color: Theme.separator }
     function popup(anchor, offsetX, offsetY) {
         localIds = typeof workspace.localTrackIds === "function" ? workspace.localTrackIds(trackIds) : trackIds
         const overlay = Overlay.overlay
@@ -52,7 +52,7 @@ Popup {
             placeholderText: "Search playlists"
             color: Theme.textPrimary; placeholderTextColor: Theme.textMuted
             font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSecondary
-            background: Rectangle { color: Theme.chrome; radius: 5; border.color: search.activeFocus ? Theme.focus : Theme.separator }
+            background: Rectangle { color: Theme.chrome; radius: Theme.radius; border.color: search.activeFocus ? Theme.focus : Theme.separator }
             Icon { x: 9; anchors.verticalCenter: parent.verticalCenter; name: "search"; size: 14; color: Theme.textMuted }
         }
         Item {
@@ -70,6 +70,7 @@ Popup {
             MouseArea { id: createHit; anchors.fill: parent; hoverEnabled: true; onClicked: menu.workspace.addToNewPlaylist(menu.trackIds) }
         }
         ListView {
+            WheelScrollHandler { flickable: list }
             id: list
             anchors.top: create.bottom; anchors.topMargin: 6
             anchors.bottom: parent.bottom

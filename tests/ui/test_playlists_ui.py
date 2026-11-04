@@ -189,7 +189,7 @@ def test_create_add_like_search_visible_playback_and_reload(
         while not row.objectName().startswith("trackRow_"):
             row = row.parentItem()
             assert row is not None
-        target_item = _find(root, "playlistNode_" + target)
+        target_item = _find(root, "navRow_" + target)
         assert target_item is not None
         start = row.mapToScene(row.boundingRect().center())
         end = target_item.mapToScene(target_item.boundingRect().center())
@@ -201,7 +201,7 @@ def test_create_add_like_search_visible_playback_and_reload(
             QTest.mouseMove(root, QPoint(round(point.x()), round(point.y())), 10)
         preview = _find(root, "trackDragPreview")
         assert preview is not None and preview.isVisible()
-        assert target_item.property("trackDropActive") is True
+        assert target_item.property("dropTarget") is True
         QTest.mouseRelease(
             root, Qt.MouseButton.LeftButton, pos=QPoint(round(end.x()), round(end.y()))
         )
@@ -216,7 +216,8 @@ def test_create_add_like_search_visible_playback_and_reload(
         entries = model.track_ids_snapshot()
         list_view = _find(root, "trackRowsList")
         assert list_view is not None
-        list_view.setProperty("contentY", 0)
+        # The top of the list is its origin: the playlist header is the first row (plan 133.6).
+        cast(Any, QMetaObject.invokeMethod)(list_view, "positionViewAtBeginning")
         QTest.mouseMove(root, QPoint(700, 300))
         # PySide accepts str here; the generated stub declares bytes only.
         assert cast(Any, QMetaObject.invokeMethod)(list_view, "forceLayout")

@@ -96,7 +96,9 @@ def test_files_are_dragged_from_the_list_and_from_the_sidebar(qapp, tmp_path: Pa
         assert not (music / "Sets" / "one.wav").exists()
 
         # 2. Several files from the list: the preview keeps its two-line layout.
-        QTest.qWait(500)
+        # The tree reloads the root branch after the move; wait for the folder row to be back.
+        QTest.qWait(100)
+        _wait_for(window, lambda: any(_row_id(row) == other for row in _rows(window)))
         workspace.selectTrack(owners["two.wav"], "single", [])
         workspace.selectTrack(three, "toggle", [owners["two.wav"], three])
         rows = [_find(window, f"trackRow_{index}") for index in (1, 2)]
@@ -106,6 +108,8 @@ def test_files_are_dragged_from_the_list_and_from_the_sidebar(qapp, tmp_path: Pa
         assert preview is not None and preview.property("count") == 2
         assert preview.height() == 72
         QTest.keyClick(window, Qt.Key.Key_Escape)
+        # The tree may rebuild its rows while the drag is cancelled: wait for the folder row.
+        _wait_for(window, lambda: any(_row_id(row) == other for row in _rows(window)))
         QTest.mouseRelease(
             window, Qt.MouseButton.LeftButton, pos=_center(_explorer_row(window, other))
         )

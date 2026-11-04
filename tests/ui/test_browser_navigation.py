@@ -61,7 +61,7 @@ def test_live_window_indexes_and_navigates_a_nested_folder(qapp, qtbot, tmp_path
         assert model.trackIds == [track_id]
         workspace.selectTrack(track_id)
         assert workspace.selected_ids_snapshot() == [track_id]
-        workspace.setActiveGroup(0)
+        workspace.focusGroup("g1")
         qapp.processEvents()
     finally:
         _shutdown(runtime)

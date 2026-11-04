@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import cast
 
+import pytest
 from PySide6.QtCore import Q_ARG
 from PySide6.QtQuick import QQuickWindow
 from tests.ui.test_player_views import _find, _UiPlayerBackend
@@ -15,6 +16,7 @@ from mtee.app import _build_runtime, _shutdown, create_application
 from mtee.cli import AppOptions
 
 
+@pytest.mark.slow
 def test_prepare_drag_over_six_hundred_selected_rows_is_fast(
     qapp, qtbot, tmp_path: Path, monkeypatch
 ) -> None:

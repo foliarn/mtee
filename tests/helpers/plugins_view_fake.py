@@ -15,8 +15,29 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.models import demo_workspace
 from mtee.models.demo_plugins_view import _INSTALLED, _MARKETPLACE
+from mtee.models.plugin_list import plugin_list_rows
 
 __all__ = ["FakePluginsView", "use_fake_view"]
+
+OFFICIAL = "foliarn/mtee-plugins"
+
+
+def _market_row(row: dict[str, Any], address: str = OFFICIAL) -> dict[str, Any]:
+    """A Marketplace row with its key and source, as the real view gives it."""
+    copy = dict(row)
+    copy.setdefault("key", f"{row['id']}@{address}")
+    copy.setdefault("source", address)
+    copy.setdefault("sourceTitle", "Official" if address == OFFICIAL else address)
+    copy.setdefault("duplicate", False)
+    return copy
+
+
+def _installed_row(row: dict[str, Any], market: list[dict[str, Any]]) -> dict[str, Any]:
+    """An installed row with the key of the Marketplace row that updates it."""
+    copy = dict(row)
+    offer = next((item["key"] for item in market if item["id"] == row["id"]), "")
+    copy.setdefault("offerKey", offer)
+    return copy
 
 
 class FakePluginsView(QObject):
@@ -34,10 +55,17 @@ class FakePluginsView(QObject):
         marketplace: Iterable[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(parent)
-        self._installed = [dict(row) for row in (_INSTALLED if installed is None else installed)]
         self._marketplace = [
-            dict(row) for row in (_MARKETPLACE if marketplace is None else marketplace)
+            _market_row(row) for row in (_MARKETPLACE if marketplace is None else marketplace)
         ]
+        self._installed = [
+            _installed_row(row, self._marketplace)
+            for row in (_INSTALLED if installed is None else installed)
+        ]
+        self._sources: list[dict[str, Any]] = [
+            {"address": OFFICIAL, "title": OFFICIAL, "official": True, "enabled": True}
+        ]
+        self._add_error = ""
         self._state = "ready"
         self._error = ""
         self._search = ""
@@ -53,6 +81,14 @@ class FakePluginsView(QObject):
         return [dict(row) for row in self._installed if self._matches(row)]
 
     @Property(list, notify=changed)
+    def plugins(self) -> list[dict[str, Any]]:
+        """The one list, built as the real view builds it (plan 132.6)."""
+        installed = [dict(row) for row in self._installed if self._matches(row)]
+        market = [dict(row) for row in self._marketplace if self._matches(row)]
+        listed = {str(row["id"]) for row in self._marketplace}
+        return plugin_list_rows(installed, market, listed)
+
+    @Property(list, notify=changed)
     def marketplace(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self._marketplace if self._matches(row)]
 
@@ -63,6 +99,14 @@ class FakePluginsView(QObject):
     @Property(str, notify=changed)
     def marketplaceError(self) -> str:
         return self._error
+
+    @Property(list, notify=changed)
+    def marketplaces(self) -> list[dict[str, Any]]:
+        return [dict(source) for source in self._sources]
+
+    @Property(str, notify=changed)
+    def marketplaceAddError(self) -> str:
+        return self._add_error
 
     @Property(str, notify=changed)
     def lastCheckedText(self) -> str:
@@ -107,11 +151,45 @@ class FakePluginsView(QObject):
             self.detailRequested.emit(plugin_id, title)
 
     @Slot(str, result=dict)
-    def detail(self, plugin_id: str) -> dict[str, Any]:
-        for row in (*self._installed, *self._marketplace):
-            if row["id"] == plugin_id:
-                return dict(row)
-        return {}
+    def detail(self, key: str) -> dict[str, Any]:
+        row = self._find(key)
+        return dict(row) if row is not None else {}
+
+    @Slot(str, result=bool)
+    def addMarketplace(self, text: str) -> bool:
+        self.calls.append(("addMarketplace", text))
+        address = text.strip()
+        if not address or any(source["address"] == address for source in self._sources):
+            self._add_error = "This marketplace is already in the list."
+            self.changed.emit()
+            return False
+        self._sources.append(
+            {"address": address, "title": address, "official": False, "enabled": True}
+        )
+        self._add_error = ""
+        self.changed.emit()
+        return True
+
+    @Slot(str)
+    def removeMarketplace(self, address: str) -> None:
+        self.calls.append(("removeMarketplace", address))
+        if address != OFFICIAL:
+            self._sources = [source for source in self._sources if source["address"] != address]
+            self.changed.emit()
+
+    @Slot(str, bool)
+    def setMarketplaceEnabled(self, address: str, enabled: bool) -> None:
+        self.calls.append(("setMarketplaceEnabled", address, bool(enabled)))
+        for source in self._sources:
+            if source["address"] == address:
+                source["enabled"] = bool(enabled)
+        self.changed.emit()
+
+    @Slot()
+    def clearMarketplaceAddError(self) -> None:
+        self.calls.append(("clearMarketplaceAddError",))
+        self._add_error = ""
+        self.changed.emit()
 
     @Slot(str, bool)
     def setEnabled(self, plugin_id: str, enabled: bool) -> None:
@@ -212,11 +290,19 @@ class FakePluginsView(QObject):
         fields = (row["title"], row["description"], row.get("author", ""))
         return any(query in str(field).casefold() for field in fields)
 
-    def _title_of(self, plugin_id: str) -> str:
-        for row in (*self._installed, *self._marketplace):
+    def _title_of(self, key: str) -> str:
+        row = self._find(key)
+        return str(row["title"]) if row is not None else ""
+
+    def _find(self, key: str) -> dict[str, Any] | None:
+        """The row of a plugin id or key: the installed row of an id, else a Marketplace row."""
+        plugin_id, _, address = key.partition("@")
+        for row in self._installed:
             if row["id"] == plugin_id:
-                return str(row["title"])
-        return ""
+                return row
+        if address:
+            return next((row for row in self._marketplace if row["key"] == key), None)
+        return next((row for row in self._marketplace if row["id"] == plugin_id), None)
 
 
 def use_fake_view(monkeypatch: Any) -> None:

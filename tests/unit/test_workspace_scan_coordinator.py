@@ -15,12 +15,12 @@ from mtee.models.workspace_scan_coordinator import (
 def test_compute_folder_watch_targets() -> None:
     r1 = "00000000-0000-0000-0000-000000000001"
     r2 = "00000000-0000-0000-0000-000000000002"
-    groups = [
-        {"active": f"folder:{r1}/album1"},
-        {"active": "playlist:p1"},
-        {"active": f"folder:{r2}"},
-        {"active": "invalid_folder_id"},
-    ]
+    groups = {
+        "g1": {"active": f"folder:{r1}/album1"},
+        "g2": {"active": "playlist:p1"},
+        "g3": {"active": f"folder:{r2}"},
+        "g4": {"active": "invalid_folder_id"},
+    }
     roots = {
         r1: {"path": "C:/music/r1"},
         r2: {"path": "C:/music/r2"},

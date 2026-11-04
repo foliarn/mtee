@@ -82,6 +82,7 @@ Rectangle {
             event.accepted = true
         }
         background: Rectangle {
+            radius: Theme.radius
             color: Theme.surface
             border.width: 1
             border.color: searchField.activeFocus ? Theme.focus : Theme.separator
@@ -132,6 +133,7 @@ Rectangle {
                 font.pixelSize: Theme.fontSizeSmall
                 onTextEdited: page.catalog.setMinTracks(text.length > 0 ? parseInt(text) : 0)
                 background: Rectangle {
+                    radius: Theme.radius
                     color: Theme.surface
                     border.width: 1
                     border.color: minTracksField.activeFocus ? Theme.focus : Theme.separator

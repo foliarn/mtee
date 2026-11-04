@@ -38,6 +38,7 @@ __all__ = [
     "DOWNLOADS_FOLDER",
     "INDEX_URL",
     "MAX_INDEX_BYTES",
+    "OFFICIAL_ADDRESS",
     "MarketplaceCancelledError",
     "MarketplaceEntry",
     "MarketplaceError",
@@ -47,6 +48,8 @@ __all__ = [
     "compatible_version",
     "download",
     "fetch_index",
+    "index_url",
+    "normalize_address",
     "parse_index",
 ]
 
@@ -55,12 +58,18 @@ _LOGGER = logging.getLogger(__name__)
 # The raw index.json of the Marketplace repository (foliarn/mtee-plugins, default branch).
 # The repository is created by the maintainer. This URL is the single place to change.
 INDEX_URL = "https://raw.githubusercontent.com/foliarn/mtee-plugins/main/index.json"
+# The official list, as it is named in Settings > Plugins > Marketplaces. It cannot be removed.
+OFFICIAL_ADDRESS = "foliarn/mtee-plugins"
 INDEX_SCHEMA = 1
 MAX_INDEX_BYTES = 2 * 1024 * 1024
 DOWNLOADS_FOLDER = ".downloads"
 _CHUNK_BYTES = 64 * 1024
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _UNREADABLE = "The plugin list could not be read"
+_GITHUB_REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+")
+_GITHUB_PAGE = re.compile(
+    r"https://github\.com/([A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+?)(?:\.git)?/?"
+)
 
 Opener = Callable[..., Any]
 ProgressCallback = Callable[[int, int], None]
@@ -69,7 +78,7 @@ ProgressCallback = Callable[[int, int], None]
 class MarketplaceError(RuntimeError):
     """The Marketplace cannot be read or a download is refused; the message is one sentence."""
 
-    # Shown in Tasks as its message alone (see docs/plugins.md, the readable attribute).
+    # Shown in the Tasks window as its message alone (see docs/plugins.md, the readable attribute).
     readable = True
 
 
@@ -228,6 +237,38 @@ def _version(item: Any, where: str) -> MarketplaceVersion:
         size=size,
         released=_field(item, "released", str, where),
     )
+
+
+def normalize_address(text: str) -> str:
+    """Return the address of a marketplace as it is kept: ``owner/repo`` or an https URL.
+
+    A GitHub page address (``https://github.com/owner/repo``) becomes ``owner/repo``. Raise
+    ``MarketplaceError`` with one sentence for anything else.
+    """
+    address = text.strip()
+    page = _GITHUB_PAGE.fullmatch(address)
+    if page is not None:
+        return page.group(1)
+    if _GITHUB_REPO.fullmatch(address):
+        return address
+    parsed = urllib.parse.urlsplit(address)
+    if parsed.scheme == "https" and parsed.netloc and " " not in address:
+        return address
+    raise MarketplaceError(
+        "Enter a GitHub repository as owner/repo, or an https address of an index.json."
+    )
+
+
+def index_url(address: str) -> str:
+    """Return the URL of the ``index.json`` of a marketplace address.
+
+    ``owner/repo`` is the ``index.json`` at the root of the repository's default branch.
+    """
+    if address == OFFICIAL_ADDRESS:
+        return INDEX_URL
+    if _GITHUB_REPO.fullmatch(address):
+        return f"https://raw.githubusercontent.com/{address}/HEAD/index.json"
+    return address
 
 
 def fetch_index(

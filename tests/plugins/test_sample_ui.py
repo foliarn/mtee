@@ -368,7 +368,7 @@ def _button_of(row: QQuickItem, name: str) -> QQuickItem:
     return cast(QQuickItem, find_child(row, name))
 
 
-def test_the_sample_waiting_items_are_drawn_in_the_tasks_pane_and_page(
+def test_the_sample_waiting_items_are_drawn_in_the_bell_and_answered_there(
     qapp, tmp_path: Path
 ) -> None:
     runtime = start_app(tmp_path / "data", (FOLDER,), (SAMPLE_ID,))
@@ -379,22 +379,25 @@ def test_the_sample_waiting_items_are_drawn_in_the_tasks_pane_and_page(
         assert module is not None
         settle(runtime)
 
-        # The pane: a titled group with a count, a row per item, the label the plugin gave
-        # (or "Open"), and the count in the badge of the Tasks activity.
-        workspace.setActivity("tasks")
+        # The bell drop-down: a titled group with a count, a row per item, the label the plugin
+        # gave (or "Open"), and the count in the bell badge (plan 134.4).
+        assert "2" in _texts_under(need_item(window, "notificationBell"))
+        click(window, need_item(window, "notificationButton"))
         settle(runtime)
-        group = [item for item in find_items(window, "waitingGroup") if _inside(item, "tasksPane")]
-        assert len(group) == 1 and group[0].isVisible()
+        group = [item for item in find_items(window, "bellWaitingGroup") if item.isVisible()]
+        assert len(group) == 1
         texts = visible_texts(window)
         assert "Waiting for you (2)" in texts
         assert "Two Step Theory" in texts and "Skank Rhythm" in texts
         assert "Pick a match: 2 candidates." in texts
-        assert "No background tasks in this session." not in texts
-        rows = _rows_in(window, "tasksPane")
+        rows = [
+            item
+            for item in find_items(window, "taskChoiceRow")
+            if _inside(item, "waitingSection") and item.isVisible()
+        ]
         assert len(rows) == 2
         labels = sorted(str(_button_of(row, "answerWaiting").property("text")) for row in rows)
         assert labels == ["Open", "Pick…"]
-        assert "2" in _texts_under(need_item(window, "activity-tasks"))
 
         # The primary button asks the plugin, which names the tab to open.
         pick = next(
@@ -403,36 +406,40 @@ def test_the_sample_waiting_items_are_drawn_in_the_tasks_pane_and_page(
         click(window, _button_of(pick, "answerWaiting"))
         settle(runtime)
         assert "pick w1" in module.EVENTS
-        active = cast(Any, workspace).groups[workspace.activeGroup]["active"]
+        active = cast(Any, workspace).activeTabId
         assert active == f"{SAMPLE_KIND}:missing"
 
-        # The page lists the same items as cards; the cross dismisses through the plugin.
-        workspace.openTasks()
+        # The cross dismisses through the plugin; the bell keeps the item that still waits. The
+        # popover is still open: a click on the bell would close it (feedback 136).
         settle(runtime)
-        page_rows = _rows_in(window, "tasksView")
-        assert len(page_rows) == 2
+        rows = [
+            item
+            for item in find_items(window, "taskChoiceRow")
+            if _inside(item, "waitingSection") and item.isVisible()
+        ]
         cross = next(
-            _button_of(row, "dismissWaiting")
-            for row in page_rows
-            if "Skank Rhythm" in _texts_under(row)
+            _button_of(row, "dismissWaiting") for row in rows if "Skank Rhythm" in _texts_under(row)
         )
         click(window, cross)
         settle(runtime)
         assert "dismiss w2" in module.EVENTS
-        assert len(_rows_in(window, "tasksView")) == 1 and len(_rows_in(window, "tasksPane")) == 1
         assert "Waiting for you (1)" in visible_texts(window)
-        assert "1" in _texts_under(need_item(window, "activity-tasks"))
+        assert "1" in _texts_under(need_item(window, "notificationBell"))
 
-        # Nothing left: the group is hidden and the empty message comes back.
-        last = _rows_in(window, "tasksPane")[0]
-        click(window, _button_of(last, "dismissWaiting"))
+        # The item that still waits has its own button; dismissing it empties the group.
+        rows = [
+            item
+            for item in find_items(window, "taskChoiceRow")
+            if _inside(item, "waitingSection") and item.isVisible()
+        ]
+        assert len(rows) == 1
+        assert "Two Step Theory" in _texts_under(rows[0])
+        click(window, _button_of(rows[0], "dismissWaiting"))
         settle(runtime)
         assert "dismiss w1" in module.EVENTS
-        assert not any(item.isVisible() for item in find_items(window, "waitingGroup"))
-        texts = visible_texts(window)
-        assert "No background tasks in this session." in texts
-        assert not any(text.startswith("Waiting for you") for text in texts)
-        assert "1" not in _texts_under(need_item(window, "activity-tasks"))
+        assert not any(item.isVisible() for item in find_items(window, "bellWaitingGroup"))
+        assert not any(text.startswith("Waiting for you") for text in visible_texts(window))
+        assert "1" not in _texts_under(need_item(window, "notificationBell"))
     finally:
         _shutdown(runtime)
 
@@ -440,13 +447,12 @@ def test_the_sample_waiting_items_are_drawn_in_the_tasks_pane_and_page(
 def test_a_sample_that_is_off_shows_no_waiting_group(qapp, tmp_path: Path) -> None:
     runtime = start_app(tmp_path / "data", (FOLDER,))
     try:
-        workspace = workspace_of(runtime)
         window = window_of(runtime)
-        workspace.setActivity("tasks")
-        workspace.openTasks()
         settle(runtime)
-        assert not any(item.isVisible() for item in find_items(window, "waitingGroup"))
-        assert find_items(window, "taskChoiceRow") == []
+        click(window, need_item(window, "notificationButton"))
+        settle(runtime)
+        assert not any(item.isVisible() for item in find_items(window, "bellWaitingGroup"))
+        assert not any(item.isVisible() for item in find_items(window, "taskChoiceRow"))
         assert not any(text.startswith("Waiting for you") for text in visible_texts(window))
     finally:
         _shutdown(runtime)
@@ -516,6 +522,17 @@ def test_the_column_picker_names_the_sample_plugin_once(qapp, tmp_path: Path) ->
 
 
 # ------------------------------------------- the sidebar fields: text, counts, fold, warning
+
+
+def _text_item(item: QQuickItem, text: str) -> QQuickItem | None:
+    """The item under ``item`` (itself included) that draws ``text``."""
+    pending = [item]
+    while pending:
+        current = pending.pop(0)
+        if current.property("text") == text:
+            return current
+        pending.extend(current.childItems())
+    return None
 
 
 def _drawn(item: QQuickItem | None) -> bool:
@@ -595,9 +612,8 @@ def test_the_sample_draws_its_section_count_activity_badge_and_warning_row(
 
         # A warning row: its name is drawn in the warning colour (Theme.warning, #FFB020).
         broken = need_item(window, "pluginRow_broken")
-        name = next(
-            child for child in broken.childItems() if child.property("text") == "Broken sample"
-        )
+        name = _text_item(broken, "Broken sample")
+        assert name is not None
         assert name.property("color").name().upper() == "#FFB020"
         assert _drawn(name)
     finally:
@@ -616,18 +632,24 @@ def test_a_group_name_click_activates_and_its_chevron_only_folds(qapp, tmp_path:
         group = need_item(window, "pluginRow_group")
 
         # The name of the group calls activate; no tab opens for it.
-        name = next(child for child in group.childItems() if child.property("text") == "Groups")
-        name_x = name.x() + 2
+        name = _text_item(group, "Groups")
+        assert name is not None
+        name_x = name.mapToItem(group, 0, 0).x() + 2
         _click_at(window, group, name_x, group.height() / 2)
         settle(runtime)
-        assert module.EVENTS[-1] == "activate group"
+        # The startup step may hand its "gui" and "startup" events over late: only the group
+        # events count here.
+        events = [event for event in module.EVENTS if event not in ("gui", "startup")]
+        assert events[-1] == "activate group"
         assert _drawn(find_item(window, "pluginRow_missing"))
 
         # The chevron folds the group and tells the plugin; the child row goes away.
-        _click_at(window, group, 10, group.height() / 2)
+        # The chevron box of a group row sits after its 12 px inset, 14 px wide.
+        _click_at(window, group, 19, group.height() / 2)
         settle(runtime)
-        assert module.EVENTS[-1] == "fold group folded"
-        assert module.EVENTS[-2] == "activate group"
+        events = [event for event in module.EVENTS if event not in ("gui", "startup")]
+        assert events[-1] == "fold group folded"
+        assert events[-2] == "activate group"
         assert not _drawn(find_item(window, "pluginRow_missing"))
     finally:
         _shutdown(runtime)

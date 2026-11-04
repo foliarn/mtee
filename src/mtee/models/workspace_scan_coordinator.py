@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,20 +18,20 @@ __all__ = [
 
 
 def compute_folder_watch_targets(
-    groups: list[dict[str, Any]],
+    groups: Mapping[str, dict[str, Any]],
     roots_by_id: dict[str, Any],
 ) -> tuple[dict[str, tuple[str, str]], list[str], set[tuple[str, str]]]:
     """Compute watch targets mapping, watch paths list, and active folder tabs.
 
     Args:
-        groups: List of workspace split groups containing active tab IDs.
+        groups: The workspace groups by id, each with its active tab ID.
         roots_by_id: Dictionary mapping root_id to root data (containing 'path').
 
     Returns:
         (targets_by_normcase_path, paths_to_watch, active_folder_tabs)
     """
     active: set[tuple[str, str]] = set()
-    for group in groups:
+    for group in groups.values():
         tab_id = str(group.get("active", ""))
         if not tab_id.startswith("folder:"):
             continue
@@ -184,6 +185,28 @@ class WorkspaceScanCoordinator:
     def record_scan_job(self, root_id: str, job_id: str) -> None:
         """Associate a root scan with its submitted JobId."""
         self.jobs_by_root[root_id] = job_id
+
+    def forget_root(self, root_id: str) -> list[str]:
+        """Drop the scan and refresh state of a removed root; return the job ids to cancel."""
+        jobs: list[str] = []
+        job = self.jobs_by_root.pop(root_id, "")
+        if job:
+            jobs.append(job)
+        request = self.requests.pop(root_id, None)
+        if request is not None:
+            self.quiet_requests.discard(request)
+        self.scan_counts.pop(root_id, None)
+        self.dirty_root_ids.discard(root_id)
+        for key in [key for key in self.folder_refresh_jobs if key[0] == root_id]:
+            jobs.append(self.folder_refresh_jobs.pop(key))
+        for table in (self.folder_refresh_unstable,):
+            for key in [key for key in table if key[0] == root_id]:
+                table.pop(key, None)
+        self.folder_refresh_pending = {
+            key for key in self.folder_refresh_pending if key[0] != root_id
+        }
+        self.active_folder_tabs = {key for key in self.active_folder_tabs if key[0] != root_id}
+        return jobs
 
     def is_scan_active(self, root_id: str) -> bool:
         """Return True if a scan job is currently active for root_id."""

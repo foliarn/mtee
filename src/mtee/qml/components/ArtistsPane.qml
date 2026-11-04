@@ -13,7 +13,7 @@ Item {
         const groups = pane.workspace.groups
         if (groups.length === 0)
             return ""
-        const active = groups[pane.workspace.activeGroup].active
+        const active = pane.workspace.activeTabId
         return active.indexOf("artist:") === 0 ? active.slice("artist:".length) : ""
     }
 
@@ -95,6 +95,23 @@ Item {
         font.pixelSize: Theme.fontSizeCaption
     }
 
+    // The order of the list, on the count line (plan 132.5); the choice is saved with the workspace.
+    CycleButton {
+        objectName: "artistSort"
+        labelled: true
+        anchors.verticalCenter: countLine.verticalCenter
+        anchors.right: parent.right
+        anchors.rightMargin: 10
+        options: [
+            {key: "name", label: "A–Z"},
+            {key: "nameDesc", label: "Z–A"},
+            {key: "mostTracks", label: "Most tracks"},
+            {key: "fewestTracks", label: "Fewest tracks"}
+        ]
+        currentKey: pane.artists ? pane.artists.sortMode : "name"
+        onChosen: (key) => pane.artists.setSortMode(key)
+    }
+
     Text {
         objectName: "artistsEmpty"
         anchors.top: countLine.bottom
@@ -112,6 +129,7 @@ Item {
     }
 
     ListView {
+        WheelScrollHandler { flickable: artistList }
         id: artistList
         objectName: "artistList"
         anchors.top: countLine.bottom

@@ -340,9 +340,16 @@ class PlaylistsRepository:
             else:
                 connection.execute("DELETE FROM liked_tracks WHERE track_id=?", (track_id,))
 
-    def create_folder(self, name: str, parent: str = "") -> str:
+    def create_folder(self, name: str | None, parent: str = "") -> str:
+        """Create a folder; without a name it is "Untitled folder NN", the first free NN."""
         identity = str(uuid4())
         with self.database.transaction() as connection:
+            if name is None:
+                taken = {row[0] for row in connection.execute("SELECT name FROM playlist_folders")}
+                number = 1
+                while f"Untitled folder {number:02d}" in taken:
+                    number += 1
+                name = f"Untitled folder {number:02d}"
             connection.execute(
                 "INSERT INTO playlist_folders(folder_id,parent_id,name,ordinal) "
                 "VALUES(?,?,?,(SELECT COALESCE(MAX(ordinal),-1)+1 FROM playlist_folders))",
@@ -357,15 +364,98 @@ class PlaylistsRepository:
                 (playlist_name(name), identity),
             )
 
-    def delete_folder(self, identity: str) -> None:
+    def delete_folder(self, identity: str, *, keep_contents: bool) -> list[str]:
+        """Delete a folder; return the ids of the playlists that were deleted.
+
+        With ``keep_contents`` the subfolders and playlists move up one level, to the parent of the
+        folder, and keep their order; nothing is deleted and the list is empty. Without it the
+        folder, its subfolders and every playlist inside them are deleted.
+        """
         with self.database.transaction() as connection:
-            if connection.execute(
-                "SELECT 1 FROM playlist_folders WHERE parent_id=? UNION ALL "
-                "SELECT 1 FROM playlists WHERE folder_id=? LIMIT 1",
-                (identity, identity),
-            ).fetchone():
-                raise ValueError("Move all playlists and subfolders before deleting this folder.")
+            row = connection.execute(
+                "SELECT parent_id FROM playlist_folders WHERE folder_id=?", (identity,)
+            ).fetchone()
+            if row is None:
+                raise LookupError("This folder no longer exists.")
+            parent = row[0] or None
+            if not keep_contents:
+                subtree = self._subtree_ids(connection, identity)
+                marks = ",".join("?" * len(subtree))
+                deleted = [
+                    r[0]
+                    for r in connection.execute(
+                        f"SELECT playlist_id FROM playlists WHERE folder_id IN ({marks})", subtree
+                    )
+                ]
+                connection.execute(f"DELETE FROM playlists WHERE folder_id IN ({marks})", subtree)
+                # The foreign keys restrict a parent delete, so the deepest folders go first.
+                for folder_id in subtree:
+                    connection.execute(
+                        "DELETE FROM playlist_folders WHERE folder_id=?", (folder_id,)
+                    )
+                return deleted
+            # The subfolders take the place of the folder among its siblings, in their own order.
+            siblings = [
+                r[0]
+                for r in connection.execute(
+                    "SELECT folder_id FROM playlist_folders WHERE parent_id IS ? "
+                    "ORDER BY ordinal,folder_id",
+                    (parent,),
+                )
+            ]
+            children = [
+                r[0]
+                for r in connection.execute(
+                    "SELECT folder_id FROM playlist_folders WHERE parent_id=? "
+                    "ORDER BY ordinal,folder_id",
+                    (identity,),
+                )
+            ]
+            order: list[str] = []
+            for sibling in siblings:
+                order.extend(children if sibling == identity else [sibling])
+            connection.execute(
+                "UPDATE playlist_folders SET parent_id=?,version=version+1 WHERE parent_id=?",
+                (parent, identity),
+            )
+            # The playlists go after the ones the parent already holds, in their own order.
+            moved = [
+                r[0]
+                for r in connection.execute(
+                    "SELECT playlist_id FROM playlists WHERE folder_id=? "
+                    "ORDER BY ordinal,playlist_id",
+                    (identity,),
+                )
+            ]
+            base = connection.execute(
+                "SELECT COALESCE(MAX(ordinal),-1)+1 FROM playlists"
+            ).fetchone()[0]
+            for index, playlist_id in enumerate(moved):
+                connection.execute(
+                    "UPDATE playlists SET folder_id=?,ordinal=?,version=version+1,"
+                    "revision=revision+1,updated_at_utc=? WHERE playlist_id=?",
+                    (parent, base + index, _now(), playlist_id),
+                )
             connection.execute("DELETE FROM playlist_folders WHERE folder_id=?", (identity,))
+            connection.executemany(
+                "UPDATE playlist_folders SET ordinal=? WHERE folder_id=?",
+                [(index, folder_id) for index, folder_id in enumerate(order)],
+            )
+            return []
+
+    @staticmethod
+    def _subtree_ids(connection: Any, identity: str) -> list[str]:
+        """The folder and every folder below it, the deepest first."""
+        return [
+            r[0]
+            for r in connection.execute(
+                "WITH RECURSIVE sub(id, depth) AS (SELECT ?,0 UNION ALL "
+                "SELECT f.folder_id, sub.depth+1 FROM playlist_folders f "
+                "JOIN sub ON f.parent_id=sub.id) "
+                "SELECT id FROM sub ORDER BY depth DESC",
+                (identity,),
+            )
+        ]
 
     def move(
         self, identity: str, folder: str, *, is_folder: bool = False, before: str = ""

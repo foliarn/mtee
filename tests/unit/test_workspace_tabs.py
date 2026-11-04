@@ -5,10 +5,8 @@ from __future__ import annotations
 from mtee.models.workspace_tabs import (
     build_groups_snapshot,
     close_tab_in_group,
-    create_split_group,
     is_tab_in_any_group,
     keep_tab_state,
-    merge_group_tabs_on_close,
     open_special_tab,
     place_tab,
     purge_forgotten_tab_state,
@@ -16,19 +14,20 @@ from mtee.models.workspace_tabs import (
 
 
 def test_build_groups_snapshot() -> None:
-    groups = [
-        {"tabs": ["tab-1", "tab-2"], "active": "tab-1"},
-    ]
+    groups = {
+        "g1": {"tabs": ["tab-1", "tab-2"], "active": "tab-1"},
+    }
     tab_states = {
         "tab-1": {"title": "Folder 1", "view": "list"},
         "tab-2": {"title": "Folder 2", "view": "artwork"},
     }
     group_tab_states = {
-        (0, "tab-1"): {"searchQuery": "test"},
+        ("g1", "tab-1"): {"searchQuery": "test"},
     }
 
-    snapshot = build_groups_snapshot(groups, tab_states, group_tab_states)
+    snapshot = build_groups_snapshot(["g1"], groups, tab_states, group_tab_states)
     assert len(snapshot) == 1
+    assert snapshot[0]["id"] == "g1"
     assert snapshot[0]["active"] == "tab-1"
     assert len(snapshot[0]["tabs"]) == 2
     assert snapshot[0]["tabs"][0]["searchQuery"] == "test"
@@ -57,31 +56,32 @@ def test_place_tab_preview_replacement() -> None:
 
 
 def test_close_tab_in_group() -> None:
-    groups = [
-        {"tabs": ["t1", "t2", "t3"], "active": "t2"},
-    ]
-    closed, new_active = close_tab_in_group(groups, 0, "t2")
+    groups = {
+        "g1": {"tabs": ["t1", "t2", "t3"], "active": "t2"},
+    }
+    closed, new_active = close_tab_in_group(groups, "g1", "t2")
     assert closed is True
     assert new_active == "t3"
-    assert groups[0]["tabs"] == ["t1", "t3"]
+    assert groups["g1"]["tabs"] == ["t1", "t3"]
 
     # Close last tab
-    closed, new_active = close_tab_in_group(groups, 0, "t3")
+    closed, new_active = close_tab_in_group(groups, "g1", "t3")
     assert closed is True
     assert new_active == "t1"
 
     # Close only tab
-    closed, new_active = close_tab_in_group(groups, 0, "t1")
+    closed, new_active = close_tab_in_group(groups, "g1", "t1")
     assert closed is True
     assert new_active == ""
-    assert groups[0]["tabs"] == []
+    assert groups["g1"]["tabs"] == []
+    assert close_tab_in_group(groups, "g9", "t1") == (False, "")
 
 
 def test_is_tab_in_any_group() -> None:
-    groups = [
-        {"tabs": ["t1", "t2"]},
-        {"tabs": ["t3"]},
-    ]
+    groups = {
+        "g1": {"tabs": ["t1", "t2"]},
+        "g2": {"tabs": ["t3"]},
+    }
     assert is_tab_in_any_group(groups, "t1") is True
     assert is_tab_in_any_group(groups, "t3") is True
     assert is_tab_in_any_group(groups, "t4") is False
@@ -98,17 +98,6 @@ def test_open_special_tab() -> None:
     assert state["title"] == "Settings"
 
 
-def test_create_split_and_merge() -> None:
-    split = create_split_group("t1")
-    assert split["tabs"] == ["t1"]
-    assert split["active"] == "t1"
-
-    group0 = {"tabs": ["t1"], "active": "t1"}
-    group1 = {"tabs": ["t1", "t2", "t3"], "active": "t2"}
-    merge_group_tabs_on_close(group0, group1)
-    assert group0["tabs"] == ["t1", "t2", "t3"]
-
-
 def test_keep_tab_state() -> None:
     state = {"preview": True, "title": "Test"}
     assert keep_tab_state(state) is True
@@ -118,13 +107,14 @@ def test_keep_tab_state() -> None:
 
 def test_purge_forgotten_tab_state() -> None:
     tab_states = {"t1": {}, "t2": {}}
-    group_tab_states = {(0, "t1"): {}, (1, "t2"): {}}
-    selection = {(0, "t1"): ["a"], (0, "t2"): ["b"]}
-    anchor = {(0, "t1"): "a", (0, "t2"): "b"}
+    group_tab_states = {("g1", "t1"): {}, ("g2", "t2"): {}}
+    selection = {("g1", "t1"): ["a"], ("g1", "t2"): ["b"]}
+    anchor = {("g1", "t1"): "a", ("g1", "t2"): "b"}
 
     purge_forgotten_tab_state("t1", tab_states, group_tab_states, selection, anchor)
     assert "t1" not in tab_states
-    assert (0, "t1") not in group_tab_states
-    assert (0, "t1") not in selection
-    assert (0, "t1") not in anchor
+    assert ("g1", "t1") not in group_tab_states
+    assert ("g1", "t1") not in selection
+    assert ("g1", "t1") not in anchor
+    assert ("g1", "t2") in selection
     assert "t2" in tab_states

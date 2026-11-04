@@ -3,7 +3,7 @@ import Mtee
 
 // One item that waits for the user, listed like a tag conflict (TaskConflictRow): the item,
 // what is needed, one small button to answer and one cross to dismiss. The wording comes from
-// the caller (a plugin's WaitingItems). Shared by the Tasks pane and page.
+// the caller (a plugin's WaitingItems). Shared by the notifications bell.
 Column {
     id: choiceRow
 

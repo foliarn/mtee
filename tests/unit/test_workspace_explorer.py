@@ -127,7 +127,7 @@ def test_explorer_track_coordinator_lifecycle() -> None:
         root_id="r1",
         relative="Rock",
         tab_id="folder:r1/Rock",
-        group_index=0,
+        group_id="g1",
         play=True,
         rows_generation=1,
     )
@@ -139,14 +139,18 @@ def test_explorer_track_coordinator_lifecycle() -> None:
     assert coord.pending == pending
 
     # Check context is current
-    groups = [{"active": "folder:r1/Rock"}]
-    assert coord.is_context_current(pending, active_group=0, groups=groups) is True
-    assert coord.is_context_current(pending, active_group=1, groups=groups) is False
+    groups = {"g1": {"active": "folder:r1/Rock"}}
+    assert coord.is_context_current(pending, active_group="g1", groups=groups) is True
+    assert coord.is_context_current(pending, active_group="g2", groups=groups) is False
 
     # Check ignore request for duplicate select
     coord.record_job("job-123")
-    assert coord.should_ignore_request("t1", "folder:r1/Rock", active_group=0, play=False) is True
-    assert coord.should_ignore_request("t1", "folder:r1/Rock", active_group=0, play=True) is False
+    assert (
+        coord.should_ignore_request("t1", "folder:r1/Rock", active_group="g1", play=False) is True
+    )
+    assert (
+        coord.should_ignore_request("t1", "folder:r1/Rock", active_group="g1", play=True) is False
+    )
 
     # Matching ready check
     assert coord.is_matching_ready(coord.activation_generation) is False

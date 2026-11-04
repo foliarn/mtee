@@ -70,6 +70,7 @@ Item {
         width: header.coverSize; height: width
         source: header.details.coverUrl || ""
         covers: header.details.covers || []
+        heart: header.tab.ref === "liked"
         layer.enabled: true
         layer.effect: MultiEffect {
             maskEnabled: true

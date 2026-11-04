@@ -75,9 +75,8 @@ def test_profile_opens_a_tab_and_is_not_an_activity() -> None:
     assert "profile" not in ACTIVITIES
 
     workspace.openProfile()
-    group = workspace.groups[workspace.activeGroup]
-    assert group["active"] == "profile:"
-    assert "profile:" in [tab["id"] for tab in group["tabs"]]
+    assert workspace.activeTabId == "profile:"
+    assert "profile:" in [tab["id"] for tab in workspace.groups[0]["tabs"]]
 
 
 def test_tabs_open_close_and_split_like_an_editor() -> None:
@@ -86,11 +85,11 @@ def test_tabs_open_close_and_split_like_an_editor() -> None:
     workspace.openFolder("techno")
     assert workspace.groups[0]["active"] == "folder:techno"
 
-    workspace.toggleSplit()
+    workspace.openFolderAt("techno", "g1", "right")
     assert len(workspace.groups) == 2
-    assert workspace.activeGroup == 1
+    assert workspace.activeGroup == "g2"
 
-    workspace.closeTab(1, "folder:techno")
+    workspace.closeTab("g2", "folder:techno")
     assert len(workspace.groups) == 1
 
     workspace.openSettings()
@@ -218,16 +217,13 @@ def test_add_to_playlist_toggles_membership() -> None:
     assert workspace.playlists[-1]["count"] == 2
 
 
-def test_fullscreen_and_island_switches() -> None:
+def test_fullscreen_and_activity_switches() -> None:
     workspace = _workspace("explorer")
 
     workspace.setFullscreen(True)
     assert workspace.fullscreen is True
     workspace.setActivity("playlists")
     assert workspace.fullscreen is False
-
-    workspace.setIslandEnabled(False)
-    assert workspace.islandEnabled is False
 
 
 def test_info_and_queue_share_the_right_panel() -> None:

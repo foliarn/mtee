@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import time
 import wave
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QCoreApplication, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QObject, QPoint, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 
@@ -56,7 +57,21 @@ def _find(root: QQuickWindow, name: str) -> QQuickItem | None:
         if item.objectName() == name:
             return item
         pending.extend(item.childItems())
-    return None
+    # Menus are Popups: their items are not in the window's item tree, only in the QObject tree.
+    found = root.findChild(QObject, name)
+    return found if isinstance(found, QQuickItem) else None
+
+
+def _wait_visible(root: QQuickWindow, name: str, seconds: float = 5.0) -> QQuickItem:
+    """Pump events until the menu entry is laid out and visible (menus open a moment later)."""
+    deadline = time.monotonic() + seconds
+    item = _find(root, name)
+    while (item is None or not item.isVisible()) and time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+        QTest.qWait(20)
+        item = _find(root, name)
+    assert item is not None and item.isVisible(), f"{name} is not visible"
+    return item
 
 
 def _write_wav(path: Path) -> None:
@@ -94,6 +109,9 @@ def test_column_menu_updates_a_real_live_header(qapp, tmp_path: Path, monkeypatc
     assert runtime is not None
     root = runtime.engine.rootObjects()[0]
     assert isinstance(root, QQuickWindow)
+    # The header with the chooser needs the desktop width; at the default size another part of
+    # the page covers the button.
+    root.resize(1440, 900)
     workspace = runtime.workspace
     assert isinstance(workspace, WorkspaceModel)
     assert runtime.jobs.wait_for_done(5_000)
@@ -108,8 +126,7 @@ def test_column_menu_updates_a_real_live_header(qapp, tmp_path: Path, monkeypatc
     QTest.mouseClick(root, Qt.MouseButton.LeftButton, pos=point)
     QCoreApplication.processEvents()
     QTest.qWait(50)
-    option = _find(root, "columnOption_album")
-    assert option is not None and option.isVisible()
+    option = _wait_visible(root, "columnOption_album")
     option_point = option.mapToScene(option.boundingRect().center()).toPoint()
     QTest.mouseClick(root, Qt.MouseButton.LeftButton, pos=option_point)
     QCoreApplication.processEvents()
@@ -123,8 +140,7 @@ def test_column_menu_updates_a_real_live_header(qapp, tmp_path: Path, monkeypatc
         QTest.mouseClick(root, Qt.MouseButton.LeftButton, pos=point)
         QCoreApplication.processEvents()
         QTest.qWait(50)
-        option = _find(root, "columnOption_album")
-        assert option is not None and option.isVisible()
+        option = _wait_visible(root, "columnOption_album")
         option_point = option.mapToScene(option.boundingRect().center()).toPoint()
         QTest.mouseClick(root, Qt.MouseButton.LeftButton, pos=option_point)
         QCoreApplication.processEvents()
@@ -165,6 +181,8 @@ def test_dragging_a_header_over_another_moves_the_column(qapp, tmp_path: Path, m
     assert isinstance(workspace, WorkspaceModel)
     assert runtime.jobs.wait_for_done(5_000)
     try:
+        # Wide enough for every default column: a narrower table hides the rightmost ones.
+        root.resize(1440, 900)
         workspace.openFolder(f"root:{root_record['id']}")
         QCoreApplication.processEvents()
         QTest.qWait(200)

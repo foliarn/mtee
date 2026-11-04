@@ -119,21 +119,17 @@ def test_folder_cycles_deletion_copy_and_source_preservation(collection) -> None
     child = repository.create_folder("Child", parent)
     with pytest.raises(ValueError):
         repository.move(parent, child, is_folder=True)
-    with pytest.raises(ValueError):
-        repository.delete_folder(parent)
     playlist = repository.create("Original", child)
     service.add(playlist, [ids[0]])
     copy = repository.duplicate(playlist)
     assert repository.entries(copy)[0]["entry_id"] != repository.entries(playlist)[0]["entry_id"]
     assert repository.entries(copy)[0]["track_id"] == ids[0]
-    with pytest.raises(ValueError):
-        repository.delete_folder(child)
     source = Path(library.track(ids[0])["path"])
     before = source.read_bytes()
     repository.delete(playlist)
     repository.delete(copy)
-    repository.delete_folder(child)
-    repository.delete_folder(parent)
+    assert repository.delete_folder(child, keep_contents=True) == []
+    assert repository.delete_folder(parent, keep_contents=False) == []
     assert source.read_bytes() == before
 
 

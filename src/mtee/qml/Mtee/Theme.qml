@@ -54,23 +54,36 @@ QtObject {
     readonly property int fontSizeTitle: 18
     readonly property int fontSizeHeading: 28
 
-    readonly property int radius: 0
-    readonly property int badgeRadius: 2
+    // UI rework (plan 130): frame, windows and rounded controls.
+    readonly property color windowSurface: editor
+    readonly property int frameSize: 40
+    readonly property int windowGap: 5
+    readonly property int radiusWindow: 8
+    readonly property int radiusControl: 6
+    readonly property int radiusChip: 4
+    readonly property int radiusCover: 2
+    // Below overlayDockWidth an open dock floats over the centre; below singleWindowWidth the centre
+    // shows only its focused window (see AppFrame). The header hides Back and Forward below the latter.
+    readonly property int overlayDockWidth: 1100
+    readonly property int singleWindowWidth: 760
+    readonly property int minWindowWidth: 560
+    readonly property int minWindowHeight: 420
+    readonly property int minCenterWindowWidth: 320
+    readonly property int minCenterWindowHeight: 200
+    readonly property int leftDockMin: 220
+
+    readonly property int radius: radiusControl
+    readonly property int badgeRadius: radiusChip
     readonly property int spacingSmall: 6
     readonly property int spacing: 12
     readonly property int spacingLarge: 20
 
-    readonly property int titleBarHeight: 32
     readonly property int windowButtonWidth: 46
-    readonly property int activityBarWidth: 48
-    readonly property int sidebarWidth: 240
-    readonly property int rightPanelWidth: 320
     readonly property int tabHeight: 36
     readonly property int rowHeight: 56
     readonly property int coverSize: 40
-    readonly property int islandHeight: 92
+    readonly property int playerBarHeight: 92
     readonly property int islandMargin: 16
-    readonly property int islandMaxWidth: 960
     readonly property int treeRowHeight: 24
 
     // Fullscreen player (plan 100): values fixed at the mock-up review.
@@ -123,6 +136,6 @@ QtObject {
     readonly property int fsCompactRow: 180
 
     // Width thresholds of the reduced layouts.
-    readonly property int compactSidebarWidth: 1160
-    readonly property int singleGroupWidth: 930
+    // Below this width the header's plugin status icons move into the hamburger menu (plan 131.9).
+    readonly property int headerStatusWidth: 640
 }

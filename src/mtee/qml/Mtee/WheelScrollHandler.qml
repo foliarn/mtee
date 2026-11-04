@@ -7,6 +7,8 @@ Item {
     property real wheelTargetY: flickable.contentY
     // Multiplier of the distance of a wheel notch; long flat lists raise it.
     property real speed: 1.25
+    // Every list and page scrolls three times the distance of the system's wheel setting.
+    readonly property real notchFactor: 3
 
     WheelHandler {
         parent: handler.flickable
@@ -22,7 +24,8 @@ Item {
 
             const lines = Application.styleHints.wheelScrollLines
             const pixelsPerNotch = lines > 0 ? lines * 24 : handler.flickable.height
-            const distance = event.angleDelta.y / 120 * pixelsPerNotch * handler.speed
+            const distance = event.angleDelta.y / 120 * pixelsPerNotch
+                * handler.notchFactor * handler.speed
             const minimum = handler.flickable.originY
             const maximum = Math.max(minimum, handler.flickable.originY
                 + handler.flickable.contentHeight - handler.flickable.height)

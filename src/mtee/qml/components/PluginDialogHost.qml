@@ -48,7 +48,7 @@ Item {
         focus: true
         padding: 20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         onClosed: loader.source = ""
 
         contentItem: Loader {

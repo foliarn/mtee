@@ -43,7 +43,8 @@ def test_a_conflict_is_listed_with_readable_roles(qapp) -> None:
     summary = model.data(index, TagConflictRole.SUMMARY)
     assert summary == "Key: KEY, INITIALKEY → 8A\nBPM: BPM, TEMPO → 126"
     assert notices == [
-        "1 track with tags stored under several names. Open Tasks to replace the old values."
+        "1 track with tags stored under several names. "
+        "Open the notifications bell to replace the old values."
     ]
     assert model.data(index, Qt.ItemDataRole.DisplayRole) == "one.flac"
 

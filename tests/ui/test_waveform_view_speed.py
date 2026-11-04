@@ -11,6 +11,7 @@ import random
 import struct
 import time
 
+import pytest
 from PySide6.QtCore import Property, QByteArray, QObject, QUrl, Signal, Slot, qInstallMessageHandler
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickWindow
@@ -99,6 +100,7 @@ def _window(engine: QQmlEngine, name: str) -> QQuickWindow:
     return window
 
 
+@pytest.mark.slow
 def test_the_first_paint_of_a_full_waveform_is_immediate(qapp) -> None:
     engine = QQmlEngine()
     engine.addImportPath(str(qml_dir()))

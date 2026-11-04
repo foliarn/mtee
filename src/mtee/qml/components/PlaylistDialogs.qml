@@ -21,7 +21,7 @@ Item {
         if (mode === "import") { importer.open(); return }
         if (mode === "locate") {
             const groups = workspace.groups
-            locatePlaylist = groups[workspace.activeGroup].active.split(":")[1]
+            locatePlaylist = workspace.activeTabId.split(":")[1]
             locator.open(); return
         }
         if (mode === "resume") { resumes.open(); return }
@@ -91,14 +91,14 @@ Item {
         x: (parent.width - width) / 2; y: Math.max(16, (parent.height - height) / 2)
         modal: true; focus: true; padding: 20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Column {
             id: fields
             spacing: 16
             Text {
-                text: dialogs.action === "create" ? "New playlist" : dialogs.action === "folder" ? "New folder"
+                text: dialogs.action === "create" ? "New playlist"
                     : dialogs.action === "edit" ? "Edit playlist" : dialogs.action === "export" ? "Export playlist"
-                    : dialogs.action.indexOf("delete") === 0 ? "Delete " + (dialogs.action === "deleteFolder" ? "folder" : "playlist") + "?"
+                    : dialogs.action.indexOf("delete") === 0 ? "Delete playlist?"
                     : dialogs.action === "renameFolder" ? "Rename folder" : "Move to folder"
                 color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 24; font.weight: Font.Bold
             }
@@ -106,10 +106,10 @@ Item {
                 id: name
                 objectName: "playlistNameInput"
                 width: parent.width; height: 40
-                visible: ["create", "folder", "edit", "renameFolder"].indexOf(dialogs.action) >= 0
+                visible: ["create", "edit", "renameFolder"].indexOf(dialogs.action) >= 0
                 placeholderText: "Name"; color: Theme.textPrimary; placeholderTextColor: Theme.textMuted
                 font.family: Theme.fontFamily; font.pixelSize: 16
-                background: Rectangle { color: Theme.editor; border.color: name.activeFocus ? Theme.focus : Theme.separator }
+                background: Rectangle { radius: Theme.radius; color: Theme.editor; border.color: name.activeFocus ? Theme.focus : Theme.separator }
             }
             TextArea {
                 id: description
@@ -118,7 +118,7 @@ Item {
                 placeholderText: "Description"; color: Theme.textPrimary
                 font.family: Theme.fontFamily; font.pixelSize: 15
                 wrapMode: TextEdit.Wrap
-                background: Rectangle { color: Theme.editor; border.color: description.activeFocus ? Theme.focus : Theme.separator }
+                background: Rectangle { radius: Theme.radius; color: Theme.editor; border.color: description.activeFocus ? Theme.focus : Theme.separator }
             }
             Row {
                 visible: dialogs.action === "edit"
@@ -133,13 +133,12 @@ Item {
                 model: [{id: "", name: "Playlists (root)"}].concat(Array.from(dialogs.model.folders))
                 textRole: "name"
                 contentItem: Text { text: chooser.displayText; color: Theme.textPrimary; font.family: Theme.fontFamily; verticalAlignment: Text.AlignVCenter; leftPadding: 12 }
-                background: Rectangle { color: Theme.editor; border.color: Theme.separator }
+                background: Rectangle { radius: Theme.radius; color: Theme.editor; border.color: Theme.separator }
             }
             Text {
                 width: parent.width
                 visible: dialogs.action.indexOf("delete") === 0 || dialogs.action === "export"
-                text: dialogs.action === "deleteFolder" ? "The folder must contain no playlists or subfolders."
-                    : dialogs.action === "delete" ? "Your audio files stay in the library."
+                text: dialogs.action === "delete" ? "Your audio files stay in the library."
                     : "Choose a lightweight backup or include exact copies of available audio files. Missing tracks keep their positions."
                 wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 15
             }
@@ -159,11 +158,9 @@ Item {
                     visible: dialogs.action !== "export"
                     onClicked: {
                         if (dialogs.action === "create") dialogs.model.create(name.text, dialogs.identity, dialogs.tracks)
-                        else if (dialogs.action === "folder") dialogs.model.createFolder(name.text, dialogs.identity)
                         else if (dialogs.action === "edit") dialogs.model.edit(dialogs.identity, name.text, description.text, dialogs.version)
                         else if (dialogs.action === "renameFolder") dialogs.model.renameFolder(dialogs.identity, name.text)
                         else if (dialogs.action === "delete") dialogs.model.delete(dialogs.identity)
-                        else if (dialogs.action === "deleteFolder") dialogs.model.deleteFolder(dialogs.identity)
                         else dialogs.model.move(dialogs.identity, chooser.model[chooser.currentIndex].id, dialogs.action === "moveFolder", "")
                         form.close()
                     }
@@ -176,7 +173,7 @@ Item {
         parent: Overlay.overlay; width: 440; height: 190
         x: (parent.width - width) / 2; y: (parent.height - height) / 2
         modal: true; focus: true; padding: 20
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Column {
             spacing: 16
             Text { width: parent.width; text: "Incomplete song tags"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 22 }
@@ -195,10 +192,12 @@ Item {
         width: Math.min(740, parent.width - 48); height: Math.min(600, parent.height - 48)
         x: (parent.width - width) / 2; y: (parent.height - height) / 2
         modal: true; focus: true; padding: 20
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Item {
             Text { id: importTitle; text: "Import " + (dialogs.model.importPreview.name || "playlist"); color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 24 }
             ListView {
+                id: importList
+                WheelScrollHandler { flickable: importList }
                 anchors.top: importTitle.bottom; anchors.topMargin: 20
                 anchors.bottom: importActions.top; anchors.bottomMargin: 16
                 width: parent.width; clip: true
@@ -236,11 +235,13 @@ Item {
         parent: Overlay.overlay; width: Math.min(600, parent.width - 40); height: Math.min(460, parent.height - 40)
         x: (parent.width - width) / 2; y: (parent.height - height) / 2
         modal: true; focus: true; padding: 20
-        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: 8 }
+        background: Rectangle { color: Theme.surface; border.color: Theme.separator; radius: Theme.radiusWindow }
         contentItem: Column {
             spacing: 16
             Text { text: "Resume playlist import"; color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 24 }
             ListView {
+                id: resumeList
+                WheelScrollHandler { flickable: resumeList }
                 width: parent.width; height: resumes.height - 120; clip: true
                 model: dialogs.model.pendingImports
                 ScrollBar.vertical: ThinScrollBar {}

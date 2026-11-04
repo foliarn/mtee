@@ -182,3 +182,72 @@ def test_unknown_or_escaping_folders_are_refused(lib: _Library) -> None:
         lib.service.resolve_folder("00000000-0000-0000-0000-000000000000", "")
     with pytest.raises(FileMoveError):
         lib.service.resolve_folder(lib.root_id, "missing")
+
+
+def test_rename_changes_the_name_keeps_the_extension_and_the_identity(lib: _Library) -> None:
+    track_id = lib.add_track("sub/a.wav")
+    result = lib.service.rename(track_id, "Better name")
+    assert result.status == "moved"
+    assert not (lib.music / "sub" / "a.wav").exists()
+    assert (lib.music / "sub" / "Better name.wav").is_file()
+    record = lib.library.source_record(track_id)
+    assert record is not None
+    assert record.path == (lib.music / "sub" / "Better name.wav").resolve()
+    assert lib.library.path_owner(lib.music / "sub" / "Better name.wav") == track_id
+    assert lib.library.track_folder(track_id) == (lib.root_id, "sub")
+
+
+def test_rename_refuses_an_existing_name_and_changes_nothing(lib: _Library) -> None:
+    first = lib.add_track("a.wav")
+    lib.add_track("b.wav")
+    before = (lib.music / "a.wav").read_bytes()
+    result = lib.service.rename(first, "b")
+    assert result.status == "conflict"
+    assert "already exists" in result.message
+    assert (lib.music / "a.wav").read_bytes() == before
+    assert (lib.music / "b.wav").is_file()
+    record = lib.library.source_record(first)
+    assert record is not None and record.path == (lib.music / "a.wav").resolve()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "   ",
+        "a/b",
+        "a\b",
+        "a:b",
+        "what?",
+        "star*",
+        'q"q',
+        "x|y",
+        "dot.",
+        "CON",
+        "nul.txt",
+        "lpt1",
+    ],
+)
+def test_rename_refuses_bad_names(lib: _Library, name: str) -> None:
+    track_id = lib.add_track("a.wav")
+    result = lib.service.rename(track_id, name)
+    assert result.status == "failed"
+    assert result.message
+    assert (lib.music / "a.wav").is_file()
+
+
+def test_rename_to_the_same_name_is_unchanged_and_a_case_change_is_allowed(lib: _Library) -> None:
+    track_id = lib.add_track("a.wav")
+    assert lib.service.rename(track_id, "a").status == "unchanged"
+    result = lib.service.rename(track_id, "A")
+    assert result.status == "moved"
+    assert [item.name for item in lib.music.iterdir() if item.is_file()] == ["A.wav"]
+
+
+def test_rename_a_file_that_changed_since_the_scan_is_refused(lib: _Library) -> None:
+    track_id = lib.add_track("a.wav")
+    with (lib.music / "a.wav").open("ab") as handle:
+        handle.write(b"\x00\x00")
+    result = lib.service.rename(track_id, "later")
+    assert result.status == "conflict"
+    assert (lib.music / "a.wav").is_file()

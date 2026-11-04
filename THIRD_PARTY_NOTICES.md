@@ -75,7 +75,7 @@ texts themselves.
 
 | Package | Locked version | Announced licence | Role |
 |---|---|---|---|
-| mtee (this repository, `src/mtee`) | 0.1.0 | GPL-3.0-or-later | Qt-free modules `mtee.domain.metadata` and `mtee.services.metadata_reader`; installed without PySide6 |
+| mtee (this repository, `src/mtee`) | 0.3.0 | GPL-3.0-or-later | Qt-free modules `mtee.domain.metadata` and `mtee.services.metadata_reader`; installed without PySide6 |
 | starlette | 1.10.0 | BSD-3-Clause | HTTP framework |
 | uvicorn | 0.54.0 | BSD-3-Clause | HTTP server |
 | anyio | 4.15.1 | MIT | Async runtime layer of Starlette |

@@ -16,6 +16,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 from mtee.domain.analysis import AnalysisSettings, TrackAnalysis, format_bpm
 from mtee.domain.artist_index import split_artist_credit
 from mtee.domain.artists import dedupe_names, normalize_key
+from mtee.domain.job_summaries import fixed, saved_summary
 from mtee.domain.metadata import MetadataSnapshot
 from mtee.domain.metadata_edit import (
     EDITABLE_METADATA_FIELDS,
@@ -148,7 +149,12 @@ class MetadataEditorModel(QObject):
         self.recoveryChecked.connect(self._on_recovery_checked)
         self.inspectionFinished.connect(self._on_inspection_finished)
         self.valuesLoaded.connect(self._on_values_loaded)
-        self._jobs.submit(self._inspect_recovery, label="Inspect metadata recovery", visible=False)
+        self._jobs.submit(
+            self._inspect_recovery,
+            label="Inspect metadata recovery",
+            visible=False,
+            summary=fixed("Recovery inspected"),
+        )
         if player is not None:
             player.trackAccessReleased.connect(self._on_track_access_released)
 
@@ -228,7 +234,10 @@ class MetadataEditorModel(QObject):
             self.inspectionFinished.emit(request_id, results)
 
         self._inspection_job_id = self._jobs.submit(
-            inspect, label="Prepare metadata view", visible=False
+            inspect,
+            label="Prepare metadata view",
+            visible=False,
+            summary=fixed("Metadata view prepared"),
         )
         self.changed.emit()
 
@@ -638,7 +647,12 @@ class MetadataEditorModel(QObject):
                 )
 
             with suppress(RuntimeError):
-                self._jobs.submit(load, label="Load tag values", visible=False)
+                self._jobs.submit(
+                    load,
+                    label="Load tag values",
+                    visible=False,
+                    summary=fixed("Tag values loaded"),
+                )
         needle = query.strip().casefold()
         return [
             value
@@ -877,7 +891,7 @@ class MetadataEditorModel(QObject):
 
         self._active = _EditBatch(batch_id, draft_id, "", None, (), ())
         self._undo_batch_operations[batch_id] = operation_ids
-        self._jobs.submit(run, label="Undo metadata edit")
+        self._jobs.submit(run, label="Undo metadata edit", summary=fixed("Metadata edit undone"))
 
     @Slot()
     def undoSave(self) -> None:
@@ -960,7 +974,7 @@ class MetadataEditorModel(QObject):
                     break
             self.batchFinished.emit(batch.batch_id, results)
 
-        self._jobs.submit(run, label="Save metadata")
+        self._jobs.submit(run, label="Save metadata", summary=saved_summary())
 
     @Slot(str, object)
     def _on_batch_finished(self, batch_id: str, raw_results: object) -> None:

@@ -6,7 +6,7 @@ import "../components"
 
 // Fullscreen player (plan 100): one rounded card tinted by the cover, with the track,
 // its waveform, Play, like / playlist / more actions and the cover. It follows the
-// playing track, not the selection; the floating island stays visible above it.
+// playing track, not the selection; the player bar stays visible below it.
 Rectangle {
     id: player
 
@@ -26,7 +26,7 @@ Rectangle {
     readonly property real sideMargin: Math.max(48, width * 0.06)
     readonly property real cardWidth: Math.min(Theme.fsCardMaxWidth, width - 2 * sideMargin)
     readonly property bool coverVisible: cardWidth >= Theme.fsCoverHideWidth
-    // The extra height is capped so the card never runs into the island.
+    // The extra height is capped so the card never runs into the player bar.
     readonly property real baseInner: identity.implicitHeight + Theme.waveHeight + Theme.fsPlaySize + 40
     readonly property real extraHeight: Math.max(0, Math.min(Theme.fsCardExtra,
         height - reserve - Theme.fsTopBlock - 8 - (baseInner + 2 * Theme.fsCardPadding)))
@@ -402,7 +402,10 @@ Rectangle {
                     iconColor: player.onCardIcon
                     hoverColor: player.onCard
                     tip: "More"
-                    onClicked: moreMenu.popup(moreButton, 0, -moreMenu.implicitHeight)
+                    onClicked: {
+                        moreMenu.prepare(true)
+                        moreMenu.popup(moreButton, 0, -moreMenu.implicitHeight)
+                    }
                 }
             }
             // Square cover with rounded corners; not clickable.
@@ -598,11 +601,17 @@ Rectangle {
         playlistMenu.popup(anchor, 0, -playlistMenu.height)
     }
 
-    PlayingTrackMenu {
+    // The "..." menu acts on the playing track, never on the current selection.
+    TrackMenu {
         id: moreMenu
+        objectName: "playingTrackMenu"
         workspace: player.workspace
         trackId: player.playback.playingId
+        trackIds: [player.playback.playingId]
         source: player.playback.playingSource
+        listKind: "playing"
+        showAddToQueue: false
+        externalPlaylistChooser: true
         onAddToPlaylistRequested: player.openPlaylistMenu(moreButton)
     }
 

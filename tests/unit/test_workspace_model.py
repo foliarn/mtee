@@ -25,6 +25,14 @@ def _write_wav(path: Path) -> None:
         handle.writeframes(b"\x00\x00" * 8)
 
 
+def _split_right(workspace: WorkspaceModel) -> str:
+    """Put a second tab of the focused window in a new window on its right; return its id."""
+    group = workspace.activeGroup
+    workspace.openTasks()
+    workspace.splitWithTab(group, "right", group, "tasks:")
+    return str(workspace.activeGroup)
+
+
 def test_clear_selection_is_scoped_to_group_and_persisted(qapp, tmp_path: Path) -> None:
     database = Database(tmp_path / "selection.sqlite3")
     database.migrate()
@@ -34,19 +42,19 @@ def test_clear_selection_is_scoped_to_group_and_persisted(qapp, tmp_path: Path) 
     workspace = WorkspaceModel(library=library, session=session, jobs=jobs)
     workspace.openSettings()
     workspace.selectTrack("first", "single", [])
-    workspace.toggleSplit()
-    workspace.setActiveGroup(1)
+    second = _split_right(workspace)
+    workspace.focusGroup(second)
     workspace.selectTrack("second", "single", [])
     workspace.clearSelection()
     assert workspace.selectedIds == []
-    workspace.setActiveGroup(0)
+    workspace.focusGroup("g1")
     assert workspace.selectedIds == ["first"]
-    workspace.clearSelection(0)
+    workspace.clearSelection("g1")
     assert workspace.selectedIds == []
     workspace.flush_session()
     restored = WorkspaceModel(library=library, session=session, jobs=jobs)
     assert restored.selectedIds == []
-    restored.setActiveGroup(1)
+    restored.focusGroup(second)
     assert restored.selectedIds == []
     jobs.shutdown(1_000)
     database.close()
@@ -85,11 +93,14 @@ def test_same_tab_keeps_distinct_filtered_models_per_group(qapp, qtbot, tmp_path
     tab_id = f"folder:{root['id']}/"
     workspace.openFolder(tab_id)
     workspace.setSearch(tab_id, "first")
-    workspace.toggleSplit()
-    workspace.setActiveGroup(1)
+    workspace.openFolderAt(tab_id, "g1", "right")
     workspace.setSearch(tab_id, "second")
-    first_model = workspace.trackModelForTab(tab_id, "folder", f"{root['id']}/", "index", True, 0)
-    second_model = workspace.trackModelForTab(tab_id, "folder", f"{root['id']}/", "index", True, 1)
+    first_model = workspace.trackModelForTab(
+        tab_id, "folder", f"{root['id']}/", "index", True, "g1"
+    )
+    second_model = workspace.trackModelForTab(
+        tab_id, "folder", f"{root['id']}/", "index", True, "g2"
+    )
     qtbot.waitUntil(lambda: first_model.trackIds == [first_id])
     qtbot.waitUntil(lambda: second_model.trackIds == [second_id])
     assert first_model is not second_model
@@ -117,14 +128,15 @@ def test_page_history_replays_settings_and_forks_per_group(qapp, tmp_path: Path)
     workspace.openSettings()
     workspace.setSettingsPage("general")
     assert not workspace.canNavigateForward
-    workspace.toggleSplit()
-    workspace.setActiveGroup(1)
-    workspace.openTasks()
+    second = _split_right(workspace)
+    workspace.focusGroup(second)
+    workspace.openSettings()
     workspace.navigateBack()
-    assert workspace.groups_snapshot()[1]["active"] == "settings:"
-    workspace.setActiveGroup(0)
+    assert workspace.groups_snapshot()[1]["active"] == "tasks:"
+    workspace.focusGroup("g1")
     assert workspace.groups_snapshot()[0]["active"] == "settings:"
-    workspace.closeTab(0, "settings:")
+    workspace.openTasks()
+    workspace.closeTab("g1", "settings:")
     workspace.navigateBack()
     assert workspace.groups_snapshot()[0]["active"] == "settings:"
     assert any(tab["id"] == "settings:" for tab in workspace.groups_snapshot()[0]["tabs"])
@@ -164,18 +176,17 @@ def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, qtbot, tmp_
     jobs = JobService(qapp, max_thread_count=1)
 
     workspace = WorkspaceModel(library=library, session=session, jobs=jobs)
-    assert workspace.islandEnabled
     workspace.openFolder(f"root:{root['id']}")
     workspace.selectTrack(first_id)
-    workspace.toggleSplit()
-    workspace.setActiveGroup(1)
+    workspace.openFolderAt(f"root:{root['id']}", "g1", "right")
+    workspace.focusGroup("g2")
     assert workspace.selected_ids_snapshot() == []
     workspace.selectTrack(second_id)
     assert workspace.selected_ids_snapshot() == [second_id]
-    workspace.setActiveGroup(0)
+    workspace.focusGroup("g1")
     assert workspace.selected_ids_snapshot() == [first_id]
 
-    workspace.setActiveGroup(1)
+    workspace.focusGroup("g2")
     group_state = workspace.groups_snapshot()[1]
     tab = group_state["tabs"][0]
     track_model = workspace.trackModelForTab(tab["id"], tab["kind"], tab["ref"], "index", True)
@@ -198,15 +209,12 @@ def test_navigation_keeps_each_panel_selection_and_restores_it(qapp, qtbot, tmp_
     assert restored.selected_ids_snapshot() == [second_id]
     assert "duration" not in columns["hidden"]
     assert "bitrate" not in columns["hidden"]
-    assert restored.islandEnabled
-    restored.setIslandEnabled(False)
     restored.flush_session()
     reopened = WorkspaceModel(library=library, session=session, jobs=jobs)
-    assert not reopened.islandEnabled
     reopened.flush_session()
     assert columns["widths"]["genre"] == 155
     assert columns["order"].index("genre") == columns["order"].index("album") - 1
-    restored.setActiveGroup(0)
+    restored.focusGroup("g1")
     assert restored.selected_ids_snapshot() == [first_id]
     jobs.shutdown()
     database.close()
@@ -221,13 +229,13 @@ def test_invalid_session_is_replaced_with_safe_layout_and_diagnostic(qapp, tmp_p
         connection.execute(
             "INSERT INTO workspace_state(workspace_id,value_json,updated_at_utc) "
             "VALUES('main',?, '2026-01-01T00:00:00+00:00')",
-            (json.dumps({"version": 1, "roots": [], "groups": [], "activeGroup": "broken"}),),
+            (json.dumps({"version": 2, "roots": [], "groups": [], "activeGroup": "broken"}),),
         )
     jobs = JobService(qapp)
     workspace = WorkspaceModel(library=library, session=session, jobs=jobs)
 
     assert session.load_recovered
-    assert workspace.groups_snapshot() == [{"tabs": [], "active": ""}]
+    assert workspace.groups_snapshot() == [{"id": "g1", "tabs": [], "active": ""}]
     assert "safe default layout" in workspace._message
     jobs.shutdown(1_000)
     database.close()

@@ -15,6 +15,7 @@ from typing import Any
 
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 
+from mtee.domain.job_summaries import recorded
 from mtee.persistence.database import Database
 from mtee.persistence.play_log_repository import PlayLogRepository
 from mtee.services.data_privacy import (
@@ -169,17 +170,22 @@ class DataPrivacyModel(QObject):
         self._busy = True
         self.changed.emit()
 
+        texts: list[str] = []
+
         def task(context: JobContext) -> None:
             del context
             try:
                 message = action()
             except Exception as error:
                 # Any failure must release the busy flag; the reason is shown to the user.
-                self._taskDone.emit("", _readable(error))
+                reason = _readable(error)
+                texts.append(reason)
+                self._taskDone.emit("", reason)
                 return
+            texts.append(message)
             self._taskDone.emit(message, "")
 
-        self._jobs.submit(task, label=label, visible=True)
+        self._jobs.submit(task, label=label, visible=True, summary=recorded(texts))
 
     @Slot(str, str)
     def _on_task_done(self, message: str, error: str) -> None:

@@ -172,7 +172,7 @@ def test_play_follows_the_player_state_not_the_hover(qapp, tmp_path) -> None:
         assert icon.property("name") == "pause"
 
 
-def test_the_more_menu_has_six_entries_and_targets_the_playing_track(qapp, tmp_path) -> None:
+def test_the_more_menu_is_the_track_menu_of_the_playing_track(qapp, tmp_path) -> None:
     with _demo(qapp, tmp_path) as (root, workspace):
         workspace.setFullscreen(True)
         QCoreApplication.processEvents()
@@ -182,24 +182,17 @@ def test_the_more_menu_has_six_entries_and_targets_the_playing_track(qapp, tmp_p
         labels = [
             str(_find(root, name).property("text"))  # type: ignore[union-attr]
             for name in (
-                "playingEditInfo",
-                "playingAddToPlaylist",
-                "playingAnalyze",
-                "playingShowInExplorer",
+                "addToPlaylistAction",
+                "action_showInFolder",
+                "analyzeAction",
+                "action_editInfo",
             )
         ]
-        assert labels == [
-            "Edit info",
-            "Add to playlist…",
-            "Analyze",
-            "Show in Explorer",
-        ]
-        # The Convert entry belongs to the conversion plugin: it exists but stays hidden.
-        convert_item = _find(root, "playingConvert")
-        assert convert_item is not None
-        assert convert_item.property("visible") is False
-        menu = cast(QObject, _find(root, "playingEditInfo")).parent()
-        assert menu.property("trackId") == playing
+        assert labels == ["Add to playlist…", "Show in folder", "Analyze", "Edit info"]
+        # The Convert entry belongs to the conversion plugin: it is not offered without it.
+        assert _find(root, "action_convert") is None
+        # The menu acts on the playing track: Edit info (next test) opens it, not the selection.
+        assert playing
 
 
 def test_edit_info_selects_the_playing_track_and_opens_info(qapp, tmp_path) -> None:
@@ -209,7 +202,7 @@ def test_edit_info_selects_the_playing_track_and_opens_info(qapp, tmp_path) -> N
         playing = workspace.playingId
         playing_before = playing
         _click(cast(QQuickWindow, root), "fullscreenMore")
-        item = _find(root, "playingEditInfo")
+        item = _find(root, "action_editInfo")
         assert item is not None
         _invoke_method(item, "triggered")
         QCoreApplication.processEvents()
@@ -369,7 +362,7 @@ def test_without_a_track_fullscreen_only_says_to_play_one(
         assert empty.property("text") == "Play a track"
         assert not _visible(window, "fullscreenCard")
         assert _visible(window, "exitFullscreen")
-        assert not _visible(window, "playerIsland")
+        assert _visible(window, "playerIsland")  # the player bar stays in the footer
 
 
 def test_edit_info_in_the_real_workspace_replaces_the_selection_in_the_source(
@@ -719,7 +712,7 @@ def test_the_row_menu_removes_only_that_occurrence_and_never_the_current_one(
         qtbot.wait(50)
         remove = _find(window, "queueRemove")
         assert remove is None or not remove.isVisible()  # nothing to remove on the playing row
-        assert _visible(window, "queueEditInfo")
+        assert _visible(window, "action_editInfo")
         QTest.keyClick(window, Qt.Key.Key_Escape)  # closes the menu first
         qtbot.wait(50)
 
@@ -744,9 +737,9 @@ def test_the_row_menu_goes_to_the_source_and_opens_info(qapp, qtbot, tmp_path, m
         assert row is not None
         QTest.mouseClick(window, Qt.MouseButton.RightButton, pos=_center(row, dx=120))
         qtbot.wait(50)
-        goto = _find(window, "queueGoTo")
-        assert goto is not None and goto.property("text") == "Go to folder"
-        edit = _find(window, "queueEditInfo")
+        goto = _find(window, "action_showInFolder")
+        assert goto is not None and goto.property("text") == "Show in folder"
+        edit = _find(window, "action_editInfo")
         assert edit is not None
         _invoke_method(edit, "triggered")
         assert not workspace.fullscreen
