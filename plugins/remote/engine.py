@@ -24,6 +24,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from mtee.domain.jobs import JobCancelledError
 from mtee.plugins.api import JobContext, JobId, PluginContext
 
+from . import maintenance
 from .backups import is_due, run_automatic
 from .client import NetworkError, RemoteClient
 from .fetch import FetchResult, fetch_once, link_pending_imports
@@ -147,7 +148,9 @@ class SyncEngine(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(PASS_INTERVAL_MS)
         self._timer.timeout.connect(self.request_pass)
+        self._timer.timeout.connect(self.maintain_if_due)
         self._timer.start()
+        self._maintaining = False
 
     @property
     def busy(self) -> bool:
@@ -313,6 +316,25 @@ class SyncEngine(QObject):
             self._again = False
             self._again_send = False
             self._start(send)
+
+    def maintain_if_due(self) -> None:
+        """Trim the queue, the log and the hash cache once a day, in a hidden job."""
+        if self._closed or self._maintaining or not maintenance.is_due(self._context):
+            return
+        self._maintaining = True
+        submit(
+            self._context,
+            "Tidying the MTEE Remote tables",
+            lambda job: maintenance.run(self._context, self._store, job),
+            self._on_maintained,
+            visible=False,
+        )
+
+    def _on_maintained(self, result: object, error: BaseException | None) -> None:
+        del result
+        self._maintaining = False
+        if error is not None and not isinstance(error, JobCancelledError):
+            self._context.log.warning("The housekeeping of the Remote tables failed: %s", error)
 
     def _maybe_backup(self) -> None:
         """Make the automatic backup when the schedule says it is due (plan 126.8), in a job.

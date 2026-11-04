@@ -22,6 +22,7 @@ from mtee.plugins.api import (
     PluginDialog,
     PluginService,
     SettingsPage,
+    StartupTask,
     StatusItem,
     TabKind,
     TrackAvailability,
@@ -96,6 +97,10 @@ class RemoteService:
             StatusItem("connection", "cloud-off", on_click=self._open_first_conflict),
             PluginDialog(DIALOG_ID, DIALOG_QML, backend=self._first_backend, width=640),
             LibraryScanned(self._on_library_scanned),
+            # The housekeeping of the tables at start; the engine repeats it once a day.
+            StartupTask(
+                "maintenance", lambda _job: context.run_on_gui(self._engine.maintain_if_due)
+            ),
             TrackSource(open=self._server_tracks.open, cover=self._server_tracks.cover),
             TrackAvailability(status=availability_status(context, store)),
             availability_column(context, store),
