@@ -13,9 +13,12 @@ its device on the server.
 Where things are (MTEE 0.3.0):
 
 - **Remote** window, the cloud button of the left bar (Alt+4 when it is the fourth window): the
-  changes waiting to be sent (Apply in Manual mode), the open conflicts, the newest backups and the
-  activity log, with **Sync now** and **Fetch** in its header. Its foot says whether this computer
-  is connected and what waits. The button carries the number of conflicts and blocked changes.
+  changes waiting to be sent (Apply in Manual mode, **Retry** when one failed), the open conflicts,
+  the newest backups and the activity log, with **Sync now** and **Fetch** in its header. Its foot
+  says whether this computer is connected and what waits. The button carries the number of
+  conflicts and blocked changes. Changes and Conflicts list 50 rows (failed and blocked changes
+  first), then one row for the rest; for the conflicts it opens **Remote conflicts**, a tab that
+  lists every one of them.
 - **Explorer > Server**: the folders of the server, each opening its tracks in a tab.
 - **Settings > Remote**: the connection, the devices, the sync, playback and backup choices, the
   settings that travel and the folder links.
@@ -117,6 +120,9 @@ bell until a change on either side reopens it.
 - The table `remote_conflicts` of the database: one row per conflict, its state (open, decide later,
   resolved), the kind and both versions as JSON, and after a choice the action and the sentence
   that says what was done. The conflict is never deleted; it stays as the record of the choice.
+- Housekeeping, at start and once a day: the operations sent more than 7 days ago, the activity
+  log beyond its newest 1,000 lines, and the cached hashes of files that left the library are
+  deleted. Nothing else is.
 - `<data-dir>/plugin-data/remote/incoming` (downloads on their way into a folder) and
   `<data-dir>/plugin-data/remote/cache` (the originals of server-only tracks, kept while they play,
   checked by SHA-256 and removed least recently used above the size setting). Both hold copies
@@ -140,16 +146,19 @@ bell until a change on either side reopens it.
   computer no longer holds a token for; revoke it from the device list.
 - A second copy of audio that the first match left out as a duplicate is never sent. A copy added
   later is not a duplicate of anything known, so it is sent as a new item.
-- Server-only tracks are not in the Explorer. Playing one streams it from the server at the level
-  of Settings > Remote > Playback (Original by default), and keeps a verified copy of the original
-  in the cache for the next play and for offline play; a lossy level is not kept. Their cover is
-  read from the server once and kept.
+- Server-only tracks are not in the Explorer. Playing one at the Original level (Settings > Remote
+  > Playback) first downloads it for up to 1.5 s: on a fast network it then plays from the cache,
+  so it crosses the network once. Otherwise it streams, and the copy goes on in the background
+  from the bytes already received. The copy is checked by its SHA-256 once, and kept for the next
+  play and for offline play; a lossy level streams and is not kept. Their cover is read from the
+  server once and kept.
 - A link made by a fetch or by a download is kept, but the playlists that held a server-only track
   keep pointing to it; they do not move to the local file.
 - Availability is read from the hash cache: a file changed a moment ago shows as synced until the
   next pass hashes it.
-- A failed operation (for example a full quota) is not retried by itself. A blocked one (a path
-  taken, a stale revision) waits in Conflicts until you choose.
+- A failed operation (for example a full quota) is not retried by itself: **Retry** in the Changes
+  section sends the failed ones again. A blocked one (a path taken, a stale revision) waits in
+  Conflicts until you choose.
 - **Keep both** and **Use another name** upload this file under the new name; the server's own copy
   keeps its name. This computer keeps the path it has, so the push does not send a move back.
 - **Keep this computer's** on a server copy that changed since the conflict was read is refused by

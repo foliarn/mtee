@@ -11,6 +11,14 @@ All notable changes to MTEE are listed here. The format follows
   The Remote window shows the connection and what waits in its foot. Settings > Remote uses the
   shared rows and asks in a dialog before revoking a device or deleting a backup. The conflict
   tab's Close button works again in split windows.
+- MTEE Remote plugin: faster on large libraries. A sync pass no longer slows down with each sync
+  or holds the database while it checks unchanged files, the counts of the header and bell read
+  one number instead of every conflict, and long lists stop at 50 rows, with a "Remote conflicts"
+  tab listing every conflict. A cached server track no longer re-checks its whole file at each
+  play, and on a fast network a first play downloads the original once instead of twice. Files
+  are hashed three at a time, the connection to the server is kept between requests, and old
+  sync records are trimmed once a day. Failed changes can be sent again with Retry in the Remote
+  window. The plugin's database gains three indexes (migration 007).
 
 ## [0.3.0] - 2026-11-04 - GUI Update
 
