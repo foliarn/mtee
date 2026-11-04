@@ -64,7 +64,7 @@ class RemoteService:
         store = RemoteStore(context)
         self._server_tracks = ServerTracks(context, store, self._connection)
         offload = OffloadService(context, store, self._connection)
-        # The conflicts (plan 126.6): the Tasks group, their tab, and the status item's count.
+        # The conflicts (plan 126.6): the bell group, their tab, and the status item's count.
         self._conflicts = ConflictFeature(
             context,
             store,

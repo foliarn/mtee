@@ -320,13 +320,16 @@ def fake_job() -> JobContext:
 class ThreadJobs:
     """The job service of a test: each submitted job runs on its own thread; ``wait`` joins them.
 
-    A job that raises is kept in ``errors`` (the real service shows it in Tasks instead).
-    ``threads`` lists every job submitted, so a test can count the jobs a call made.
+    A job that raises is kept in ``errors`` (the real service shows it in the Tasks window).
+    ``threads`` lists every job submitted, so a test can count the jobs a call made. ``summaries``
+    keeps the summary function of each job, and ``sentences`` reads them once the jobs ended, as
+    the notifications of the header would.
     """
 
     def __init__(self) -> None:
         self.threads: list[threading.Thread] = []
         self.errors: list[BaseException] = []
+        self.summaries: list[Callable[[Any], str]] = []
 
     def submit(
         self,
@@ -336,8 +339,11 @@ class ThreadJobs:
         visible: bool = True,
         priority: int = 0,
         job_id: JobId | None = None,
+        summary: Callable[[Any], str] | None = None,
     ) -> JobId:
         del label, visible, priority, job_id
+        if summary is not None:
+            self.summaries.append(summary)
 
         def run() -> None:
             try:
@@ -356,6 +362,10 @@ class ThreadJobs:
             thread.join(timeout)
             if thread.is_alive():
                 raise AssertionError("A job did not finish in time.")
+
+    def sentences(self) -> list[str]:
+        """The sentence of each job that has a summary, as the core writes it when the job ends."""
+        return [summary(None) for summary in self.summaries]
 
 
 def make_context(tmp_path: Path, library: FakeLibrary) -> PluginContext:

@@ -373,6 +373,7 @@ class SettingsBackend(QObject):
             "Backing up the database to MTEE Remote",
             lambda job: make_backup(context, client, job, kind=MANUAL),
             self._on_backed_up,
+            summary=lambda _backup: "The database backup is on the server.",
         )
 
     @Slot()
@@ -402,6 +403,7 @@ class SettingsBackend(QObject):
             "Preparing the restore of a backup",
             lambda job: restore(context, client, job, backup_id),
             self._on_restored,
+            summary=lambda _path: "Backup downloaded and checked. Confirm the restore in Settings.",
         )
 
     @Slot(str)
@@ -444,18 +446,16 @@ class SettingsBackend(QObject):
         self.refreshBackups()
 
     def _on_backed_up(self, _result: object, error: BaseException | None) -> None:
+        # The job ends with its sentence, or the readable error, in the notifications.
+        del error
         self._backing_up = False
-        if error is not None:
-            self._context.notify(str(error) or type(error).__name__)
-        else:
-            self._context.notify("The database backup is on the server.")
         self.changed.emit()
         self.refreshBackups()
 
     def _on_restored(self, _result: Path | None, error: BaseException | None) -> None:
-        # On success MTEE's Settings > Data & privacy asks the person to confirm the restore.
-        if error is not None:
-            self._context.notify(str(error) or type(error).__name__)
+        # On success MTEE's Settings > Data & privacy asks the person to confirm the restore; a
+        # failure ends the job with its readable sentence.
+        del error
 
     def _after_backup_write(self, error: BaseException | None) -> None:
         if error is not None:

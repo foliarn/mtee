@@ -69,6 +69,32 @@ class SyncSummary:
     waiting: tuple[str, ...] = ()
 
 
+def matched_sentence(report: MatchReport) -> str:
+    """The sentence the match job ends with; the summary dialog opens next."""
+    return (
+        f"Compared {report.local_total:,} tracks of this computer with "
+        f"{report.server_total:,} on the server."
+    )
+
+
+def sync_set_up_sentence(summary: SyncSummary, choice: str) -> str:
+    """The sentence Start sync ends with: what was linked, queued, and what waits for a side."""
+    same = (
+        f"{len(summary.waiting)} with the same audio being settled"
+        if _settles(choice, summary)
+        else f"{summary.conflicts} tags to decide"
+    )
+    return (
+        f"Sync set up: {summary.linked} linked, {summary.queued} to upload, "
+        f"{summary.server_items} server only, {same}."
+    )
+
+
+def _settles(choice: str, summary: SyncSummary) -> bool:
+    """Whether the choice of the summary settles the same-audio pairs on its own."""
+    return choice in ("computer", "server") and bool(summary.waiting)
+
+
 def build_match(
     context: PluginContext,
     client: RemoteClient,
@@ -368,6 +394,7 @@ class FirstMatchController:
             "Matching with the server",
             lambda job: build_match(self._context, client, mappings, job),
             lambda report, error: self._on_matched(ref, report, error),
+            summary=matched_sentence,
         )
 
     def apply(self, report: MatchReport) -> None:
@@ -381,6 +408,7 @@ class FirstMatchController:
             "Starting the sync",
             lambda _job: self._write(report),
             lambda summary, error: self._on_applied(summary, error, choice),
+            summary=lambda summary: sync_set_up_sentence(summary, choice),
         )
 
     def _write(self, report: MatchReport) -> SyncSummary:
@@ -395,8 +423,8 @@ class FirstMatchController:
         self._running = False
         if self._closed:
             return
+        # A failure ends the job with its readable sentence in the notifications.
         if error is not None or report is None:
-            self._context.notify(str(error) or type(error).__name__)
             return
         self._backend.show(report, ref)
         self._context.open_dialog(DIALOG_ID, ref)
@@ -406,20 +434,11 @@ class FirstMatchController:
     ) -> None:
         if self._closed:
             return
+        # The job ends with ``sync_set_up_sentence``, or the readable sentence of its error.
         if error is not None or summary is None:
-            self._context.notify(str(error) or type(error).__name__)
             return
         self._context.settings.set(DONE_SETTING, "true")
-        settling = choice in ("computer", "server") and bool(summary.waiting)
-        same = (
-            f"{len(summary.waiting)} with the same audio being settled"
-            if settling
-            else f"{summary.conflicts} tags to decide"
-        )
-        self._context.notify(
-            f"Sync set up: {summary.linked} linked, {summary.queued} to upload, "
-            f"{summary.server_items} server only, {same}."
-        )
+        settling = _settles(choice, summary)
         self._context.availability_changed(None)
         self._context.refresh_ui()
         if settling and self._settle is not None:

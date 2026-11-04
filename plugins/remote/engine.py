@@ -104,6 +104,26 @@ class PassResult:
     queued: QueueReport | None
 
 
+def pass_sentence(result: PassResult) -> str:
+    """The sentence a visible pass ends with: what was sent, and what still waits."""
+    queued = result.queued
+    if queued is None:
+        return "Changes of this computer queued for MTEE Remote."
+    parts = [f"{_count(queued.sent, 'change')} sent to MTEE Remote"]
+    if queued.blocked:
+        parts.append(f"{queued.blocked} blocked")
+    if queued.failed:
+        parts.append(f"{queued.failed} failed")
+    sentence = ", ".join(parts)
+    if queued.stopped:
+        sentence += f"; the server could not be reached, {queued.pending} still wait"
+    return sentence + "."
+
+
+def _count(value: int, noun: str) -> str:
+    return f"{value:,} {noun}" if value == 1 else f"{value:,} {noun}s"
+
+
 class SyncEngine(QObject):
     """Runs the push passes. ``changed`` tells the Settings page that the queue or state moved."""
 
@@ -208,6 +228,7 @@ class SyncEngine(QObject):
             "Fetching changes from MTEE Remote",
             lambda job: fetch_once(self._context, self._store, client, job),
             self._on_fetched,
+            summary=FetchResult.summary,
         )
 
     def shutdown(self) -> None:
@@ -247,6 +268,7 @@ class SyncEngine(QObject):
             lambda job: self._work(client, will_send, idle, job),
             self._on_done,
             visible=visible,
+            summary=pass_sentence,
         )
 
     def _work(self, client: RemoteClient, send: bool, idle: int, job: JobContext) -> PassResult:
@@ -265,7 +287,7 @@ class SyncEngine(QObject):
         return PassResult(detected, queued)
 
     def _progress(self, done: int, total: int) -> None:
-        """Show ``Syncing N of M`` in the status bar. Thread-safe: the item is queued to the GUI."""
+        """Show ``Syncing N of M`` on the header icon. Thread-safe: queued to the GUI."""
         self._context.status_item.update(
             f"Syncing {done + 1} of {total}",
             "neutral",
@@ -281,7 +303,7 @@ class SyncEngine(QObject):
             return
         if error is not None and not isinstance(error, NetworkError):
             self._context.log.warning("The sync pass failed: %s", error)
-        # The status bar showed the progress of this pass: the connection state comes back.
+        # The header icon showed the progress of this pass: the connection state comes back.
         self._link.refresh_status()
         self._context.availability_changed(None)
         self.changed.emit()
@@ -309,6 +331,7 @@ class SyncEngine(QObject):
             "Backing up the database to MTEE Remote",
             lambda job: run_automatic(self._context, client, job),
             self._on_backed_up,
+            summary=lambda _result: "The automatic backup of the database is on the server.",
         )
 
     def _on_backed_up(self, result: None, error: BaseException | None) -> None:
@@ -325,10 +348,9 @@ class SyncEngine(QObject):
         self._fetch_job = None
         if self._closed:
             return
-        if error is not None:
-            self._context.notify(str(error) or type(error).__name__)
-        elif result is not None:
-            self._context.notify(result.summary())
+        # The job ends with its sentence (the result, or the readable error) in the
+        # notifications of the header: nothing more is announced here.
+        del result, error
         self._context.availability_changed(None)
         self.changed.emit()
 

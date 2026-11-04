@@ -305,8 +305,9 @@ class ThreadJobs:
         visible: bool = True,
         priority: int = 0,
         job_id: JobId | None = None,
+        summary: object = None,
     ) -> JobId:
-        del label, visible, priority, job_id
+        del label, visible, priority, job_id, summary
         identifier = JobId.new()
         job = ThreadJob()
         self._jobs[identifier] = job

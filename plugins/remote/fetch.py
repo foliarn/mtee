@@ -695,8 +695,8 @@ def _conflict(
 ) -> None:
     """Record a conflict for a track and an item, once while it is open (plan 126.6 resolves it).
 
-    A conflict the person dismissed (kept for later, hidden from Tasks) is reopened by a new change
-    on the server: the change is news, so the conflict shows again with the new versions.
+    A conflict the person dismissed (kept for later, hidden from the bell) is reopened by a new
+    change on the server: the change is news, so the conflict shows again with the new versions.
     """
     with state.store.transaction() as conn:
         row = conn.execute(

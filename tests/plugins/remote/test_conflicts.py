@@ -732,7 +732,8 @@ def test_the_summary_choice_keeps_this_computers_tags_and_renames_the_server_fil
     assert len(jobs.threads) == 1, "one job for all the waiting conflicts"
     sent = computer.client.uploaded_bytes - sent_before
     assert 0 < sent < local.stat().st_size // 10
-    assert notices == ["Kept this computer's version of 1 track."]
+    assert notices == []
+    assert jobs.sentences() == ["Kept this computer's version of 1 track."]
     after = computer.item_at("Renamed song.flac")
     assert after["relative_path"] == "Renamed song.flac"
     assert after["item_id"] == before["item_id"]
@@ -772,9 +773,11 @@ def test_a_waiting_pair_that_fails_stays_open_and_the_others_are_settled(
     jobs.wait()
 
     assert jobs.errors == []
-    assert len(notices) == 1
-    assert "Kept this computer's version of 1 track." in notices[0]
-    assert "could not be settled" in notices[0]
+    assert notices == []
+    sentences = jobs.sentences()
+    assert len(sentences) == 1
+    assert "Kept this computer's version of 1 track." in sentences[0]
+    assert "they stay in Conflicts with the reason" in sentences[0]
     # A tags conflict from the summary is decide-later; a failure keeps that state and the reason.
     still_open = work_of(computer).conflict(by_track[failing].conflict_id)
     assert still_open is not None

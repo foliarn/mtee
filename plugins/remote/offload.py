@@ -154,7 +154,7 @@ def run_delete(
     client: RemoteClient | None,
     request: DeleteRequest,
 ) -> str:
-    """Run one of the two delete choices on a job thread; return the sentence for Tasks."""
+    """Run one of the two delete choices on a job thread; return the sentence of the job."""
     if client is None:
         raise OffloadError(_NOT_CONNECTED)
     if request.choice_id == REMOVE_LOCAL:
@@ -268,13 +268,12 @@ class OffloadService:
             "Downloading from MTEE Remote",
             lambda job: download_tracks(self._context, self._store, client, job, ids),
             self._downloaded,
+            summary=lambda text: text,
         )
 
     def _downloaded(self, result: str | None, error: BaseException | None) -> None:
-        if error is not None:
-            self._context.notify(str(error) or type(error).__name__)
-        elif result:
-            self._context.notify(result)
+        # The job ends with the sentence of ``download_tracks``, or the readable error.
+        del result, error
         self._context.availability_changed(None)
         self._context.refresh_ui()
 

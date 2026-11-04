@@ -328,7 +328,10 @@ def test_apply_match_returns_the_waiting_ids_and_a_second_run_returns_the_same_o
 def run_start_sync(
     context: PluginContext, report: MatchReport, choice: str
 ) -> tuple[list[tuple[tuple[str, ...], str]], list[str]]:
-    """Press Start sync with ``choice`` in the summary; return the settle calls and the notices."""
+    """Press Start sync with ``choice`` in the summary; return the settle calls and the sentences.
+
+    The sentences are what the jobs end with (the notifications of the header), then the notices.
+    """
     jobs = ThreadJobs()
     notices: list[str] = []
     running = dataclasses.replace(
@@ -350,7 +353,7 @@ def run_start_sync(
     backend.startSync()
     jobs.wait()
     assert jobs.errors == []
-    return settled, notices
+    return settled, [*jobs.sentences(), *notices]
 
 
 @pytest.mark.parametrize("choice", ["computer", "server"])

@@ -15,12 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from mtee.plugins.api import JobContext, JobId, PluginContext
 
 from .client import ApiError, NetworkError, RemoteClient
+from .tasks import result_summary
 from .tokens import TokenError, delete_token, load_token, save_token, token_exists
 
 STATES = ("disconnected", "connecting", "connected", "offline", "error")
@@ -204,6 +206,7 @@ class ConnectionManager(QObject):
             "Connecting to MTEE Remote",
             lambda: _connect_work(client.base_url, user, secret, name, data_dir),
             self._on_connected,
+            summary=connected_sentence,
         )
 
     # Likewise: the name is the spec's, and it overrides the static QObject.disconnect.
@@ -223,6 +226,7 @@ class ConnectionManager(QObject):
             "Signing out of MTEE Remote",
             lambda: _disconnect_work(url, token, data_dir),
             self._on_disconnected,
+            summary=lambda message: message or "This computer is signed out of MTEE Remote.",
         )
 
     def check_now(self) -> None:
@@ -303,10 +307,8 @@ class ConnectionManager(QObject):
         self._set_state("connected", self._connected_text())
 
     def _on_disconnected(self, message: str | None, error: BaseException | None) -> None:
-        if error is not None:
-            self._notify(str(error) or type(error).__name__)
-        elif message:
-            self._notify(message)
+        # The job ends with the sentence of ``_disconnect_work``, or the readable error.
+        del message, error
         self._forget_session()
         self._clear_settings()
         self._set_state("disconnected", NOT_CONNECTED)
@@ -371,11 +373,16 @@ class ConnectionManager(QObject):
         done: Callable[[T | None, BaseException | None], None],
         *,
         visible: bool = True,
+        summary: Callable[[T], str] | None = None,
     ) -> None:
-        """Submit ``work`` as a job; ``done`` runs on the graphical thread with its result."""
+        """Submit ``work`` as a job; ``done`` runs on the graphical thread with its result.
+
+        ``summary(result)`` is the sentence a visible job ends with (see ``tasks.submit``).
+        """
         self._busy += 1
         self.changed.emit()
         holder: list[JobId] = []
+        results: list[T] = []
 
         def finish(result: T | None, error: BaseException | None) -> None:
             self._busy -= 1
@@ -391,10 +398,16 @@ class ConnectionManager(QObject):
             except BaseException as error:
                 failure = error
                 self._context.run_on_gui(lambda: finish(None, failure))
-                raise  # Tasks shows the readable sentence of the error
+                raise  # the Tasks window shows the readable sentence of the error
+            results.append(result)
             self._context.run_on_gui(lambda: finish(result, None))
 
-        job_id = self._context.jobs.submit(task, label=label, visible=visible)
+        if summary is None:
+            job_id = self._context.jobs.submit(task, label=label, visible=visible)
+        else:
+            job_id = self._context.jobs.submit(
+                task, label=label, visible=visible, summary=result_summary(results, summary)
+            )
         holder.append(job_id)
         self._jobs.add(job_id)
 
@@ -518,6 +531,14 @@ def _discard(url: str, token: str, data_dir: Path) -> None:
     with contextlib.suppress(Exception):
         RemoteClient(url, token).logout()
     _discard_local(data_dir)
+
+
+def connected_sentence(session: _Session) -> str:
+    """The sentence the connect job ends with."""
+    host = urlsplit(session.url).hostname or session.url
+    if session.offline:
+        return f"Signed in to {host} as {session.device_name}, but the server is offline now."
+    return f"Connected to {host} as {session.device_name}."
 
 
 def _disconnect_work(url: str, token: str, data_dir: Path) -> str:

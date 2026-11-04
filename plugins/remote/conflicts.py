@@ -6,7 +6,7 @@ A row of ``remote_conflicts`` is written by the push (``path_taken``, ``stale_re
 has no kind and is a ``decide_later`` conflict.
 
 States: ``open`` waits for the person. ``decide_later`` is listed too, except a dismissed one
-(``local_json["dismissed_at_utc"]``), which is hidden from Tasks until a change on either side
+(``local_json["dismissed_at_utc"]``), which is hidden from the bell until a change on either side
 reopens it. ``resolved`` keeps the chosen action in ``local_json["resolved_action"]`` and the
 sentence that says what was done in ``local_json["outcome"]``.
 
@@ -231,7 +231,7 @@ class Conflict:
 
     @property
     def visible(self) -> bool:
-        """Shown in Tasks and counted in the status: open, or a decide-later one not dismissed."""
+        """In the bell and counted in the status: open, or a decide-later one not dismissed."""
         return self.state == CONFLICT_OPEN or (
             self.state == CONFLICT_DECIDE_LATER and not self.dismissed
         )
@@ -472,7 +472,7 @@ class ConflictWork:
             )
 
     def dismiss(self, conflict: Conflict) -> None:
-        """Keep the conflict as decide-later: hidden from Tasks until a change reopens it."""
+        """Keep the conflict as decide-later: hidden from the bell until a change reopens it."""
         with self._store.transaction() as conn:
             local = dict(conflict.local)
             local[DISMISSED_KEY] = utc_now()
@@ -482,14 +482,14 @@ class ConflictWork:
             )
 
     def reopen(self, conflict: Conflict) -> None:
-        """A dismissed conflict whose file changed again shows in Tasks once more."""
+        """A dismissed conflict whose file changed again shows in the bell once more."""
         local = {key: value for key, value in conflict.local.items() if key != DISMISSED_KEY}
         with self._store.transaction() as conn:
             conn.execute(
                 "UPDATE remote_conflicts SET state = ?, local_json = ? WHERE conflict_id = ?",
                 (CONFLICT_OPEN, _dump(local), conflict.conflict_id),
             )
-            write_log(conn, f"{_name_of(conflict)} changed again: it is shown in Tasks.")
+            write_log(conn, f"{_name_of(conflict)} changed again: it waits in Conflicts once more.")
 
     def has_newer_push(self, conflict: Conflict) -> bool:
         """True when this computer queued a change of the track after the conflict was dismissed."""
@@ -923,9 +923,9 @@ class ConflictWork:
             write_log(conn, f"{_name_of(conflict)} is not resolved yet: {message}", "error")
 
 
-# -- the feature: what the Tasks group, the tab and the status item read (graphical thread) --
+# -- the feature: what the bell group, the tab and the status item read (graphical thread) ---
 class ConflictFeature(QObject):
-    """The conflicts of the plugin on the graphical thread: the Tasks rows, the tab, the status."""
+    """The conflicts of the plugin on the graphical thread: the bell rows, the tab, the status."""
 
     # The conflict whose tab must read again.
     changed = Signal(str)
@@ -1040,6 +1040,7 @@ class ConflictFeature(QObject):
             "Resolving a remote conflict",
             lambda job: self._work.resolve(conflict_id, action, job),
             lambda text, error: self._resolved(conflict_id, text, error),
+            summary=lambda text: text or "",
         )
 
     def settle(self, conflict_ids: Sequence[str], choice: str) -> None:
@@ -1060,7 +1061,8 @@ class ConflictFeature(QObject):
             self._context,
             f"Keeping {side} version of {len(ids):,} tracks",
             lambda job: self._settle_all(ids, action, job),
-            lambda counts, error: self._settled(ids, side, counts, error),
+            lambda counts, error: self._settled(ids, counts, error),
+            summary=lambda counts: settled_sentence(side, counts),
         )
 
     def _settle_all(self, ids: Sequence[str], action: str, job: JobContext) -> tuple[int, int]:
@@ -1072,7 +1074,7 @@ class ConflictFeature(QObject):
                 self._work.resolve(conflict_id, action, job)
                 done += 1
             except ConflictError:
-                # The reason is kept in the conflict row, which stays open in Tasks.
+                # The reason is kept in the conflict row, which stays open in Conflicts.
                 failed += 1
             job.report_progress((index + 1) / len(ids))
         return done, failed
@@ -1080,20 +1082,13 @@ class ConflictFeature(QObject):
     def _settled(
         self,
         ids: Sequence[str],
-        side: str,
         counts: tuple[int, int] | None,
         error: BaseException | None,
     ) -> None:
+        # The job ends with ``settled_sentence``, or the core's sentence of its error.
+        del counts, error
         self._busy.difference_update(ids)
         self._views.clear()
-        if counts is not None:
-            done, failed = counts
-            text = f"Kept {side} version of {_tracks(done)}."
-            if failed:
-                text += f" {_tracks(failed)} could not be settled: see Tasks for the reason."
-            self._context.notify(text)
-        elif error is not None and not isinstance(error, JobCancelledError):
-            self._context.notify(str(error) or type(error).__name__)
         self.refresh()
         self._context.refresh_ui()
 
@@ -1275,6 +1270,15 @@ def _mapped_optional(
             server = _join(subpath, relative)
             best = (depth, mapping.server_root_id, server)
     return None if best is None else (best[1], best[2])
+
+
+def settled_sentence(side: str, counts: tuple[int, int]) -> str:
+    """The sentence of the job that settles every same-audio pair with one side."""
+    done, failed = counts
+    text = f"Kept {side} version of {_tracks(done)}."
+    if failed:
+        text += f" {_tracks(failed)} could not be settled: they stay in Conflicts with the reason."
+    return text
 
 
 def _tracks(count: int) -> str:

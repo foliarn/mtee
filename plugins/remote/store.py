@@ -22,7 +22,7 @@ from mtee.plugins.api import PluginContext
 CONFLICT_OPEN = "open"
 CONFLICT_DECIDE_LATER = "decide_later"
 CONFLICT_RESOLVED = "resolved"
-# A decide-later conflict that the person dismissed from Tasks carries this key in its local JSON
+# A decide-later conflict that the person dismissed from the bell carries this key in its local JSON
 # (plan 126.6): it is hidden until the next change on either side reopens it.
 DISMISSED_KEY = "dismissed_at_utc"
 _OPEN_QUEUE_STATES = ("pending", "running", "failed", "blocked")
