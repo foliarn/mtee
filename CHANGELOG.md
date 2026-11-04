@@ -5,6 +5,8 @@ All notable changes to MTEE are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-04 - GUI Update
+
 ### Added
 - Playlists "New folder" no longer asks for a name: the folder is made at once as "Untitled folder
   NN" and its row is in inline rename, like a new folder of the Explorer.
@@ -23,15 +25,15 @@ All notable changes to MTEE are listed here. The format follows
   source or playlist is gone is dropped silently.
 - Finished background tasks each end with one sentence that says what they did (for example
   "123 songs analysed, 0 errors"); the sentences reach the header and the bell in the next steps
-  of the UI rework (plan 134).
+  of the UI rework.
 - The header shows the running task (label, count, bar, `+N` for the others) while a job runs;
   a click lists the running tasks with Cancel. A bell in the header lists what waits for you (tag
   conflicts, plugin items) and the notifications of the session; a balloon under the bell shows a
-  new notification or a message for 5 seconds, so no toast covers the player (plan 134.3-134.4).
+  new notification or a message for 5 seconds, so no toast covers the player.
 - Tasks window: a center tab with the session's tasks on the left (unfinished first, then the
   finished ones) and the selected task's record on the right: summary, start, end or elapsed time,
   counts, the items that failed (with Show in folder for a file path) and Cancel while it runs.
-  Opened from the hamburger menu, or by Details in a notification (plan 134.5).
+  Opened from the hamburger menu, or by Details in a notification.
 - Folder lists have the playlist search control (folded into an icon, Esc clears it).
 - Playlists scroll as one page: the playlist header scrolls away with the rows, and the column
   header sticks to the top of the list once the header has gone. Artwork view keeps the header.
@@ -68,32 +70,28 @@ All notable changes to MTEE are listed here. The format follows
 - Artists window: a button on the count line cycles A–Z, Z–A, Most tracks and Fewest tracks. The
   order is kept with the workspace.
 - A new folder in the Explorer is created at once as "Unnamed folder 01" (the first free number),
-  with no name asked; rename stays a separate action (plan 135).
+  with no name asked; rename stays a separate action.
 - A liked-tracks row without a cover of its own shows the covers of its first tracks as a 2x2
-  mosaic, or the heart when there are none (plan 135).
+  mosaic, or the heart when there are none.
 
 ### Fixed
-
 - Liked tracks shows its heart again, in the sidebar and on the big cover of its page, instead of a
   mosaic of four placeholder covers.
 - A header button closes its open popover (notifications, menu, tasks, volume) instead of closing
   and reopening it.
 - The hamburger menu and the other menus opened by a button (More, Add) close when the button is
-  clicked again, instead of closing and reopening at once (fix 137).
+  clicked again, instead of closing and reopening at once.
 - Column borders of a playlist list can be dragged: the drag saves all the widths it moved in one
-  write, so the column next to the border takes the change (plan 135).
-- The column header of a track list has a solid background, so rows do not show through it
-  (plan 135).
+  write, so the column next to the border takes the change.
+- The column header of a track list has a solid background, so rows do not show through it.
 
 ### Changed
 - A folder page scrolls its heading away with the rows and keeps only the column row in place, like a
   playlist; on a playlist the search, columns and More controls sit on the Play row.
 - The chevron of a folder row sits to the right of its label, so folder icons line up with the
-  playlist icons (plan 135).
-
+  playlist icons.
 - The Tasks tool window is gone from the left bar: tasks live in the header strip, the bell and the
-  Tasks window (plan 134.6). A saved layout that held it drops it on load.
-
+  Tasks window. A saved layout that held it drops it on load.
 - Track list: columns that do not fit the window leave from the right for that width (they stay
   checked in the column menu, marked "not enough room"); the table never scrolls sideways, and
   the heart and add buttons sit in their own cell, after Artist when only Title and Artist fit.

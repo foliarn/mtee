@@ -7,7 +7,7 @@ collection of audio files. It is written in Python 3.12 with PySide6 and QML, ha
 Electron or WebView, and targets Windows first. Everything runs locally: the library is
 read from your own folders, and your data stays in a local database.
 
-> **Status:** version 0.2.0. Windows is the supported platform.
+> **Status:** version 0.3.0. Windows is the supported platform.
 
 ## Screenshots
 
