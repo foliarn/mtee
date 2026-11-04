@@ -23,6 +23,19 @@ MTEE Remote is licensed under the GNU Affero General Public License version 3 or
 - A Linux user that owns the music files. The container runs as that user's ids, so it can
   read and write the library.
 
+## Quick install with the admin program
+
+On the server host (Linux, Docker Engine with the Compose plugin), as a normal user that may use
+Docker:
+
+    curl -fsSL https://raw.githubusercontent.com/foliarn/mtee-remote/main/install.sh | sh
+
+The script installs the server source and `mtee-remote-admin`, a terminal program that asks the
+settings, builds and starts the server, creates the admin account and adopts the music folder.
+It then shows the state of the server and lets you change the settings, the accounts, the
+devices, the libraries and the streaming settings, read the logs, and update the server. See
+[admin/README.md](admin/README.md). The steps below do the same by hand.
+
 ## Install
 
 1. Clone the repository on the server and go to the server folder:

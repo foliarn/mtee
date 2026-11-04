@@ -92,6 +92,13 @@ texts themselves.
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause | Dependency of `mtee` |
 | winrt-runtime and five winrt-Windows.* packages | 3.2.1 | MIT | Dependencies of `mtee`; installed on Windows only, absent from a Linux image |
 
+The admin program in `server/admin/` (`mtee-remote-admin`, AGPL-3.0-or-later) depends on Textual
+(`textual>=8.2,<9`; 8.2.8 when written, MIT) and what it needs: rich, markdown-it-py,
+mdit-py-plugins, linkify-it-py, mdurl and platformdirs (MIT), pygments (BSD-2-Clause) and
+typing-extensions (PSF-2.0), as announced in their package metadata on 2026-11-04. `uv tool install`
+installs them from PyPI on the server host, in the range of `server/admin/pyproject.toml` (the
+lock file pins the development environment only); they are not distributed with this repository.
+
 `uv.lock` also lists `pyside6-essentials` and `shiboken6` under the marker
 `sys_platform == 'never'`. A uv override in `server/pyproject.toml` removes PySide6 from the
 server environment, so neither package is installed or distributed with the server. The test
