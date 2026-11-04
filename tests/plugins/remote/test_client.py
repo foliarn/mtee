@@ -6,6 +6,7 @@ kept few: the server counts failed sign-ins and refuses after five of them.
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Callable
 
 import pytest
@@ -127,3 +128,65 @@ def test_plain_http_is_accepted_for_a_home_network_address_only() -> None:
     for refused in ("http://8.8.8.8:8080", "http://music.lan:8080", "http://192.168.1.29"):
         with pytest.raises(ValueError):
             normalize_base_url(refused)
+
+
+def _counting_connections(client: RemoteClient, monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Record each new connection the client opens."""
+    opened: list[object] = []
+    real = client._connection
+
+    def counting(timeout: float) -> object:
+        connection = real(timeout)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(client, "_connection", counting)
+    return opened
+
+
+def test_the_reads_of_a_client_share_one_connection(
+    remote_server: RemoteServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, token = _login(remote_server, "Test: keep-alive")
+    client = RemoteClient(remote_server.url, token)
+    opened = _counting_connections(client, monkeypatch)
+
+    for _ in range(5):
+        client.devices()
+    assert len(opened) == 1, "one TCP (and TLS) handshake for five reads"
+
+    client.logout()  # a POST: a connection of its own, never kept for another request
+    assert len(opened) == 2
+
+
+def test_a_kept_connection_the_server_closed_is_replaced_once(
+    remote_server: RemoteServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, token = _login(remote_server, "Test: stale")
+    client = RemoteClient(remote_server.url, token)
+    opened = _counting_connections(client, monkeypatch)
+    client.devices()
+    (idle,) = client._idle.values()
+    # As a server that closed an idle connection after its keep-alive delay.
+    assert idle.sock is not None
+    idle.sock.shutdown(socket.SHUT_RDWR)
+
+    devices = client.devices()
+
+    assert devices
+    assert len(opened) == 2
+    client.logout()
+
+
+def test_abort_also_closes_the_kept_connections(remote_server: RemoteServer) -> None:
+    _, token = _login(remote_server, "Test: abort")
+    client = RemoteClient(remote_server.url, token)
+    client.devices()
+    (idle,) = client._idle.values()
+
+    client.abort()
+
+    assert idle.sock is None
+    assert client._idle == {}
+    assert client.devices(), "a later call opens a new connection"
+    client.logout()

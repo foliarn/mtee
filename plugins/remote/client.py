@@ -183,6 +183,18 @@ SPLICE_CHUNK_BYTES = 8 * 1024 * 1024
 _SPLICE_STALLS = 3
 
 
+# Requests that may go on a kept-alive connection: sending one again changes nothing more. A POST
+# (sign-in, an upload opened or committed, play events) always gets a connection of its own.
+_IDEMPOTENT = frozenset({"GET", "HEAD", "PUT", "DELETE"})
+# What a request on a connection the server already closed raises; only then is it sent again.
+_STALE_KEEP_ALIVE: tuple[type[Exception], ...] = (
+    http.client.RemoteDisconnected,
+    ConnectionResetError,
+    BrokenPipeError,
+    ConnectionAbortedError,
+)
+
+
 class RemoteClient:
     """The calls MTEE makes to a MTEE Remote server; one method per route it uses."""
 
@@ -193,6 +205,8 @@ class RemoteClient:
         self._timeout = timeout
         self._open: set[http.client.HTTPConnection] = set()
         self._open_lock = threading.Lock()
+        # One idle keep-alive connection per thread, for the idempotent requests (see request).
+        self._idle: dict[int, http.client.HTTPConnection] = {}
         self._sent_lock = threading.Lock()
         self._uploaded_bytes = 0
 
@@ -213,7 +227,8 @@ class RemoteClient:
         cut raises ``NetworkError``; a later call on this client opens a new connection.
         """
         with self._open_lock:
-            connections = list(self._open)
+            connections = [*self._open, *self._idle.values()]
+            self._idle.clear()
         for connection in connections:
             sock = connection.sock
             if sock is not None:
@@ -247,19 +262,32 @@ class RemoteClient:
         sent.setdefault("Accept", "application/json")
         if self._token is not None:
             sent["Authorization"] = f"Bearer {self._token}"
-        connection = self._connection(self._timeout if timeout is None else timeout)
-        self._register(connection)
-        try:
-            connection.request(method, self._parts.path + path, body=payload, headers=sent)
-            response = connection.getresponse()
-            data = response.read()
-            status = response.status
-            response_headers = {name.lower(): value for name, value in response.getheaders()}
-        except (OSError, http.client.HTTPException) as error:
-            raise self._network_error(error) from None
-        finally:
-            self._unregister(connection)
-            connection.close()
+        wait = self._timeout if timeout is None else timeout
+        keep_alive = method in _IDEMPOTENT
+        while True:
+            connection, reused = self._take(wait) if keep_alive else (self._connection(wait), False)
+            self._register(connection)
+            kept = False
+            try:
+                connection.request(method, self._parts.path + path, body=payload, headers=sent)
+                response = connection.getresponse()
+                data = response.read()
+                status = response.status
+                response_headers = {name.lower(): value for name, value in response.getheaders()}
+                kept = keep_alive and not response.will_close
+            except _STALE_KEEP_ALIVE as error:
+                if reused:
+                    continue  # the server closed the idle connection: once more, on a new one
+                raise self._network_error(error) from None
+            except (OSError, http.client.HTTPException) as error:
+                raise self._network_error(error) from None
+            finally:
+                self._unregister(connection)
+                if kept:
+                    self._park(connection)
+                else:
+                    connection.close()
+            break
         if status >= 400:
             error = _api_error(status, data)
             error.headers = response_headers
@@ -868,6 +896,25 @@ class RemoteClient:
             return response.read(amount) if amount > 0 else response.read()
         except (OSError, http.client.HTTPException) as error:
             raise self._network_error(error) from None
+
+    def _take(self, timeout: float) -> tuple[http.client.HTTPConnection, bool]:
+        """The idle connection of this thread, with ``timeout``, or a new one; and if reused."""
+        with self._open_lock:
+            idle = self._idle.pop(threading.get_ident(), None)
+        if idle is not None and idle.sock is not None:
+            idle.timeout = timeout
+            with contextlib.suppress(OSError):
+                idle.sock.settimeout(timeout)
+            return idle, True
+        return self._connection(timeout), False
+
+    def _park(self, connection: http.client.HTTPConnection) -> None:
+        """Keep a connection whose answer was read whole for the next request of this thread."""
+        with self._open_lock:
+            previous = self._idle.pop(threading.get_ident(), None)
+            self._idle[threading.get_ident()] = connection
+        if previous is not None and previous is not connection:
+            previous.close()
 
     def _register(self, connection: http.client.HTTPConnection) -> None:
         with self._open_lock:
