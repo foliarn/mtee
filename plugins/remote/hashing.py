@@ -7,7 +7,7 @@ command below is that command, argument for argument, run without a shell.
 Hashing runs on a job thread, under the read lease of each track (``context.files.read_lease``),
 so a tag write never races it. The results are cached per path, size and modification time in
 ``remote_hash_cache``, with the time at which they were computed (``hashed_at_ns``): a file that
-did not change is never hashed twice, unless it is "racy" (see ``_trusted_cache``).
+did not change is never hashed twice, unless it is "racy" (see ``_trusted``).
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ import os
 import re
 import subprocess
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -31,9 +32,11 @@ log = logging.getLogger(__name__)
 
 CHUNK_BYTES = 1024 * 1024
 AUDIO_HASH_TIMEOUT_S = 600
-# Coarse file system timestamps (FAT: 2 s) can hide an edit that keeps the size: see _trusted_cache.
+# Coarse file system timestamps (FAT: 2 s) can hide an edit that keeps the size: see _trusted.
 RACY_MARGIN_NS = 2_000_000_000
 _BATCH = 400
+# Files hashed at once by hash_tracks: each runs ffmpeg and reads the whole file.
+HASH_WORKERS = 3
 _STREAMHASH = re.compile(r"SHA256=([0-9A-Fa-f]{64})")
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -116,84 +119,129 @@ def audio_hash(ffmpeg: Path, path: Path) -> str | None:
 def hash_tracks(context: PluginContext, track_ids: Sequence[str], job: JobContext) -> HashReport:
     """Hash each track of ``track_ids`` on a job thread; skip and count those that cannot be read.
 
-    Reports progress per track and stops at the next track when the job is cancelled
-    (``JobCancelledError``). A track without a local file, a missing file and a file that cannot
-    be read are skipped with their reason; the report keeps them.
+    Reports progress per track and stops when the job is cancelled (``JobCancelledError``). A
+    track without a local file, a missing file and a file that cannot be read are skipped with
+    their reason; the report keeps them.
+
+    Several files are hashed at once (``HASH_WORKERS`` threads: an ffmpeg run per file is the
+    slow part of a first match). The workers only read files, each under its read lease; the
+    cache rows they compare with are read before, and the new hashes stored after, on this
+    thread, so no worker opens a database connection.
     """
     store = RemoteStore(context)
     ffmpeg = context.ffmpeg_path()
     report = HashReport()
-    total = len(track_ids)
-    for index, track_id in enumerate(track_ids):
+    ids = list(dict.fromkeys(track_ids))
+    total = len(ids)
+    if not total:
+        return report
+    known = {
+        path_key(track.path) for track in context.library.tracks(ids) if track.path is not None
+    }
+    rows = _cache_rows(store, known)
+
+    def one(track_id: str) -> tuple[str, _Outcome | str]:
         job.raise_if_cancelled()
         try:
             with context.files.read_lease(track_id) as path:
-                hashes, was_cached = _hashes_of(store, ffmpeg, Path(path))
+                return track_id, _hash_one(ffmpeg, Path(path), rows)
         except FileNotFoundError:
-            report.skipped[track_id] = SKIP_MISSING
+            return track_id, SKIP_MISSING
         except TimeoutError:
-            report.skipped[track_id] = SKIP_BUSY
+            return track_id, SKIP_BUSY
         except LookupError:
-            report.skipped[track_id] = SKIP_UNKNOWN
+            return track_id, SKIP_UNKNOWN
         except ValueError:
             # A track without a local file: the lease refuses it with a ValueError.
-            report.skipped[track_id] = SKIP_NOT_A_FILE
+            return track_id, SKIP_NOT_A_FILE
         except OSError:
-            report.skipped[track_id] = SKIP_UNREADABLE
+            return track_id, SKIP_UNREADABLE
+
+    for done, (track_id, outcome) in enumerate(
+        _run_each(one, ids, min(HASH_WORKERS, total)), start=1
+    ):
+        if isinstance(outcome, str):
+            report.skipped[track_id] = outcome
         else:
-            report.hashes[track_id] = hashes
-            if was_cached:
+            report.hashes[track_id] = outcome.hashes
+            if outcome.fresh is None:
                 report.cached += 1
             else:
                 report.hashed += 1
-        if total:
-            job.report_progress((index + 1) / total)
+                _remember(store, *outcome.fresh, outcome.hashes)
+        job.report_progress(done / total)
     return report
 
 
-def _hashes_of(store: RemoteStore, ffmpeg: Path, path: Path) -> tuple[FileHashes, bool]:
-    """Return the hashes of ``path`` and whether they came from the cache.
+@dataclass(frozen=True)
+class _Outcome:
+    """The hashes of one file; ``fresh`` holds (key, size, mtime, hashed at) when computed now."""
 
-    The time of the hashing is taken before the file is read, and stored with the hashes.
-    """
+    hashes: FileHashes
+    fresh: tuple[str, int, int, int] | None
+
+
+def _hash_one(ffmpeg: Path, path: Path, rows: Mapping[str, Any]) -> _Outcome:
+    """The hashes of a file under its lease, from ``rows`` (the cache) when they can be trusted."""
     hashed_at_ns = time.time_ns()
     info = os.stat(path)
     key = path_key(path)
-    cached = _trusted_cache(store, key, info.st_size, info.st_mtime_ns)
-    if cached is not None:
-        return FileHashes(cached.sha256, cached.audio_hash), True
+    row = rows.get(key)
+    if (
+        row is not None
+        and row["size_bytes"] == info.st_size
+        and row["mtime_ns"] == info.st_mtime_ns
+    ):
+        cached = _trusted(row, info.st_mtime_ns)
+        if cached is not None:
+            return _Outcome(FileHashes(cached.sha256, cached.audio_hash), None)
     hashes = FileHashes(file_sha256(path), audio_hash(ffmpeg, path))
-    _remember(store, key, info.st_size, info.st_mtime_ns, hashed_at_ns, hashes)
-    return hashes, False
+    return _Outcome(hashes, (key, info.st_size, info.st_mtime_ns, hashed_at_ns))
 
 
-def _trusted_cache(
-    store: RemoteStore, key: str, size_bytes: int, mtime_ns: int
-) -> CachedHashes | None:
-    """Return the cached hashes of a file, when they can be trusted; None means hash it again.
+def _cache_rows(store: RemoteStore, keys: set[str]) -> dict[str, dict[str, Any]]:
+    """The cache rows of ``keys``, as plain mappings a worker thread can read."""
+    found: dict[str, dict[str, Any]] = {}
+    ordered = sorted(keys)
+    conn = store.connection()
+    for start in range(0, len(ordered), _BATCH):
+        chunk = ordered[start : start + _BATCH]
+        marks = ", ".join("?" for _ in chunk)
+        for row in conn.execute(
+            "SELECT path, size_bytes, mtime_ns, sha256, audio_hash, hashed_at_ns"
+            f" FROM remote_hash_cache WHERE path IN ({marks})",
+            chunk,
+        ):
+            found[str(row["path"])] = dict(row)
+    return found
+
+
+def _run_each[T, R](work: Callable[[T], R], items: Sequence[T], workers: int) -> Iterator[R]:
+    """``work`` of each item, on ``workers`` threads, as they finish; the first error stops it."""
+    if workers <= 1:
+        for item in items:
+            yield work(item)
+        return
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="remote-hash")
+    try:
+        futures = [pool.submit(work, item) for item in items]
+        for future in as_completed(futures):
+            yield future.result()
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
+def _trusted(row: Any, mtime_ns: int) -> CachedHashes | None:
+    """The cached hashes of a row of the same path, size and time, when they can be trusted.
 
     The rule is the one of Git's "racy" entries. Two saves can keep the size and fall in the same
     clock tick (or, on a coarse file system, in the same two seconds): the cache key then does not
     change, and the second content would get the first content's hash. So an entry is trusted only
     when the file's modification time is older than the time at which the hash was computed, minus
     2 seconds (``RACY_MARGIN_NS``). A file touched in that window is hashed again, and the new
-    hashes are stored with the new time, so a file older than the margin is served from the cache.
-    An entry without that time (stored before migration 004, or by another writer) is not trusted.
+    hashes are stored with the new time. An entry without that time (stored before migration 004,
+    or by another writer) is not trusted.
     """
-    row = (
-        store.connection()
-        .execute(
-            "SELECT sha256, audio_hash, hashed_at_ns FROM remote_hash_cache"
-            " WHERE path = ? AND size_bytes = ? AND mtime_ns = ?",
-            (key, size_bytes, mtime_ns),
-        )
-        .fetchone()
-    )
-    return _trusted(row, mtime_ns)
-
-
-def _trusted(row: Any, mtime_ns: int) -> CachedHashes | None:
-    """The racy rule of ``_trusted_cache`` for one cache row of the same path, size and time."""
     if row is None or row["hashed_at_ns"] is None:
         return None
     if mtime_ns >= int(row["hashed_at_ns"]) - RACY_MARGIN_NS:
@@ -211,7 +259,7 @@ def trusted_hashes(
 ) -> dict[str, FileHashes]:
     """The cached hashes that can be trusted for ``{key: (size, mtime_ns)}``, read in batches.
 
-    The same rule as ``_trusted_cache``, without a read lease: nothing of the file is read, only
+    The same rule as ``_trusted``, without a read lease: nothing of the file is read, only
     the size and time the caller took with ``os.stat``. A file that is missing here is hashed by
     ``hash_tracks`` under its lease. A pass over an unchanged library therefore reads no file and
     takes no lease.

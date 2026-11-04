@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 import time
 from pathlib import Path
 from typing import cast
@@ -201,3 +202,48 @@ def test_missing_files_and_tracks_without_a_file_are_skipped_and_counted(tmp_pat
 
     assert set(report.hashes) == {"here"}
     assert report.skipped == {"gone": "missing", "unknown": "unknown"}
+
+
+def test_several_files_are_hashed_at_once_and_the_workers_open_no_database_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = [
+        make_sine(tmp_path / "music" / f"{index}.flac", frequency=200 + 100 * index)
+        for index in range(6)
+    ]
+    for path in files:  # older than the racy margin, so the cache can answer the second call
+        os.utime(path, (time.time() - 3600, time.time() - 3600))
+    library = FakeLibrary(
+        [tmp_path / "music"], [track(f"t{index}", path) for index, path in enumerate(files)]
+    )
+    context = make_context(tmp_path, library)
+    context.database.connection()  # this thread's connection, as a job thread has one
+    connections_before = len(context.database._connections)
+    running = 0
+    most = 0
+    guard = threading.Lock()
+    real = hashing.audio_hash
+
+    def slow(ffmpeg: Path, path: Path) -> str | None:
+        nonlocal running, most
+        with guard:
+            running += 1
+            most = max(most, running)
+        time.sleep(0.2)
+        try:
+            return real(ffmpeg, path)
+        finally:
+            with guard:
+                running -= 1
+
+    monkeypatch.setattr(hashing, "audio_hash", slow)
+    job = FakeJob()
+
+    report = hash_tracks(context, [f"t{index}" for index in range(6)], cast(JobContext, job))
+
+    assert report.hashed == 6 and report.skipped == {}
+    assert most == hashing.HASH_WORKERS
+    assert job.progress == [index / 6 for index in range(1, 7)]
+    assert len(context.database._connections) == connections_before, "workers read files only"
+    # Stored on this thread: the next call answers from the cache.
+    assert hash_tracks(context, ["t0"], cast(JobContext, FakeJob())).cached == 1
