@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
+from mtee.domain.artist_index import ARTIST_SORT_KEYS, DEFAULT_ARTIST_SORT
 from mtee.domain.column_widths import clamp_column_width
 from mtee.models import window_layout as layout
 from mtee.models.window_layout import Leaf, Node, Split, node_from_dict
@@ -12,6 +13,7 @@ from mtee.models.workspace_rows import copy_column_preferences, parse_folder_ref
 from mtee.persistence.workspace_repository import (
     COLUMN_OPTIONS,
     DEFAULT_COLUMN_PREFERENCES,
+    RESTORED_TAB_KINDS,
 )
 
 __all__ = [
@@ -141,10 +143,7 @@ def restore_session_groups(
             continue
         tab_ids: list[str] = []
         for raw_tab in raw_group.get("tabs", []):
-            if not isinstance(raw_tab, dict) or raw_tab.get("kind") not in {
-                "folder",
-                "playlist",
-            }:
+            if not isinstance(raw_tab, dict) or raw_tab.get("kind") not in RESTORED_TAB_KINDS:
                 continue
             ref = str(raw_tab.get("ref", ""))
             if raw_tab.get("kind") == "folder":
@@ -219,9 +218,27 @@ def build_session_snapshot(
     preview_tabs: bool,
     column_preferences: dict[str, Any],
     next_group: int = 1,
+    artist_sort: str = DEFAULT_ARTIST_SORT,
+    docks: Mapping[str, layout.DockState] | None = None,
+    window: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Produce the complete serializable dictionary representing the workspace session (v2)."""
+    """Produce the complete serializable dictionary representing the workspace session (v2).
+
+    ``docks`` holds both docks as they are (open, width, both tool windows, split); without it
+    each dock is rebuilt from the sizes and the first window. ``window`` is the main window's
+    geometry.
+    """
     order = list(layout.groups(layout_tree))
+    saved_docks = (
+        {side: dock.to_dict() for side, dock in docks.items()}
+        if docks is not None
+        else {
+            "left": layout.DockState("left", sidebar_visible, sidebar_width, (activity,)).to_dict(),
+            "right": layout.DockState(
+                "right", right_visible, right_panel_width, (right_tab,)
+            ).to_dict(),
+        }
+    )
     return {
         "version": 2,
         "expanded": sorted(expanded),
@@ -245,14 +262,11 @@ def build_session_snapshot(
         "center": layout.node_to_dict(layout_tree),
         "activeGroup": active_group if active_group in order else order[0],
         "nextGroup": max(next_group, 1),
-        "docks": {
-            "left": layout.DockState("left", sidebar_visible, sidebar_width, (activity,)).to_dict(),
-            "right": layout.DockState(
-                "right", right_visible, right_panel_width, (right_tab,)
-            ).to_dict(),
-        },
+        "docks": saved_docks,
+        "window": dict(window) if window else None,
         "previewTabs": preview_tabs,
         "columnPreferences": copy_column_preferences(column_preferences),
+        "artistSort": artist_sort if artist_sort in ARTIST_SORT_KEYS else DEFAULT_ARTIST_SORT,
     }
 
 

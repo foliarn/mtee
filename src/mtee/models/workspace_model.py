@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any, cast
 from PySide6.QtCore import Property, QEvent, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QGuiApplication, QMouseEvent, QWindow
 
+from mtee.domain.artist_index import DEFAULT_ARTIST_SORT
+from mtee.domain.job_summaries import fixed, scan_summary
 from mtee.domain.jobs import JobCancelledError, JobId
 from mtee.domain.navigation_history import NavigationLocation
 from mtee.models import window_layout as layout
@@ -49,12 +51,19 @@ from mtee.models.workspace_artists import (
     prepare_artist_playback_rows,
     sort_artist_tracks,
 )
+from mtee.models.workspace_clipboard import (
+    PastePlan,
+    TrackClipboard,
+    plan_drop,
+    plan_paste,
+)
 from mtee.models.workspace_columns import (
     find_tabs_with_hidden_sort,
     move_column,
     move_column_relative,
     reset_column_preferences,
     resize_column,
+    resize_columns,
     set_show_artwork,
     toggle_column,
 )
@@ -170,7 +179,8 @@ SETTINGS_PAGES = (
     "about",
 )
 # The Profile page is a tab opened from the activity bar, not an activity of the sidebar.
-_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "artists", "plugins"}
+# The Tasks window is a center tab (plan 134.5), not a tool window: it is not an activity.
+_ACTIVITIES = {"explorer", "playlists", "convert", "artists", "plugins"}
 _SIDES = ("left", "right")
 _RIGHT_TABS = {"info", "queue", "history"}
 
@@ -192,6 +202,9 @@ class WorkspaceModel(QObject):
     """Own live root, tab, selection and scan state; all file work is asynchronous."""
 
     layoutChanged = Signal()
+    clipboardChanged = Signal()
+    # A folder just made without a name: the Explorer starts renaming its row (the folder id).
+    folderRenameRequested = Signal(str)
     explorerChanged = Signal()
     libraryChanged = Signal()
     selectionChanged = Signal()
@@ -214,6 +227,7 @@ class WorkspaceModel(QObject):
     enqueuePrepared = Signal(int, object)
     artistsChanged = Signal()
     availabilityFilterChanged = Signal()
+    taskFocusRequested = Signal(str)
 
     def __init__(
         self,
@@ -262,9 +276,14 @@ class WorkspaceModel(QObject):
         self._roots_by_id: dict[str, dict[str, Any]] = {}
         self._resume_roots_requested = False
         self._state = session.load()
+        # The order of the Artists list, saved with the workspace (plan 132.5).
+        self._artist_sort = str(self._state.get("artistSort", DEFAULT_ARTIST_SORT))
         saved_column_preferences = self._state.get("columnPreferences", DEFAULT_COLUMN_PREFERENCES)
         self._column_preferences = copy_column_preferences(saved_column_preferences)
         self._expanded = set(self._state.get("expanded", []))
+        self._window_geometry: dict[str, Any] | None = self._state.get("window")
+        self._track_clipboard = TrackClipboard()
+        self._folder_tabs_checked = False
         self._groups, self._layout, self._tab_states, self._next_group = self._restore_groups(
             self._state.get("groups", []), self._state.get("center")
         )
@@ -275,6 +294,11 @@ class WorkspaceModel(QObject):
             self._next_group = max(self._next_group, int(self._state.get("nextGroup", 1)))
         self._selection_by_tab: dict[tuple[str, str], list[str]] = {}
         self._anchor_by_tab: dict[tuple[str, str], str] = {}
+        # Song rows of the Explorer tree may be selected across folders (U14). While the source
+        # is "explorer" the selection is this list, not the one of the active tab.
+        self._selection_source = ""
+        self._explorer_selection: list[str] = []
+        self._explorer_anchor = ""
         for group_id in order:
             group = self._groups[group_id]
             saved = group.get("selections", {})
@@ -702,8 +726,58 @@ class WorkspaceModel(QObject):
 
     @Property(list, notify=selectionChanged)
     def selectedIds(self) -> list[str]:
+        return self._current_selection()
+
+    def _current_selection(self) -> list[str]:
+        if self._selection_source == "explorer":
+            return list(self._explorer_selection)
         tab_id = str(self._groups[self._active_group]["active"])
         return list(self._selection_by_tab.get((self._active_group, tab_id), []))
+
+    def _leave_explorer_selection(self) -> None:
+        """Drop the tree selection; the selection of the active tab shows again."""
+        self._selection_source = ""
+        self._explorer_selection = []
+
+    def _explorer_track_order(self) -> list[str]:
+        """Song rows of the tree in the order they are shown (the basis of Shift-click)."""
+        return [
+            str(row["id"])
+            for row in self._folder_model.rows_snapshot()
+            if row.get("kind") not in ("folder", "loading")
+        ]
+
+    @Slot(str)
+    def pickExplorerTrack(self, track_id: str) -> None:
+        """Select one song of the tree on its own (right click or drag of an unselected row)."""
+        self._explorer_selection = [str(track_id)]
+        self._explorer_anchor = str(track_id)
+        self._selection_source = "explorer"
+        self.selectionChanged.emit()
+
+    @Slot(str, bool)
+    def extendExplorerSelection(self, track_id: str, shift: bool) -> None:
+        """Ctrl-click toggles a song of the tree, Shift-click selects the rows from the anchor."""
+        order = self._explorer_track_order()
+        track_id = str(track_id)
+        if track_id not in order:
+            return
+        current = self._current_selection()
+        anchor = self._explorer_anchor if self._explorer_anchor in order else track_id
+        if shift:
+            first, last = sorted((order.index(anchor), order.index(track_id)))
+            selection = order[first : last + 1]
+        else:
+            selection = (
+                [value for value in current if value != track_id]
+                if track_id in current
+                else [*current, track_id]
+            )
+            anchor = track_id
+        self._explorer_selection = selection
+        self._explorer_anchor = anchor
+        self._selection_source = "explorer"
+        self.selectionChanged.emit()
 
     @Slot(str, result=list)
     def selectedIdsForGroup(self, group_id: str) -> list[str]:
@@ -850,11 +924,14 @@ class WorkspaceModel(QObject):
         model.noticeRaised.connect(self._set_message)
         model.playlistCreated.connect(self.openPlaylist)
         model.playlistDeleted.connect(self._on_playlist_deleted)
+        model.playRequested.connect(self.playPlaylistRows)
         model.libraryImported.connect(self._refresh_library)
 
     @Slot()
     def _on_playlists_changed(self) -> None:
         if self._playlists_model is not None:
+            if self._playlists_model.loaded:
+                self._drop_missing_playlist_tabs()
             for state in self._tab_states.values():
                 if state.get("kind") == "playlist":
                     detail = self._playlists_model.details(str(state.get("ref", "")))
@@ -865,6 +942,28 @@ class WorkspaceModel(QObject):
         self.libraryChanged.emit()
         self.layoutChanged.emit()
         self._refresh_timer.start()
+
+    def _drop_missing_playlist_tabs(self) -> None:
+        """Close, without a word, the restored playlist tabs whose playlist no longer exists."""
+        if self._playlists_model is None:
+            return
+        for group_id in self._group_order():
+            for tab_id in tuple(self._groups.get(group_id, {}).get("tabs", [])):
+                if tab_id.startswith("playlist:") and not self._playlists_model.details(
+                    tab_id.partition(":")[2]
+                ):
+                    self.closeTab(group_id, tab_id)
+
+    def _drop_missing_folder_tabs(self) -> None:
+        """Close, without a word, the folder tabs of a source that is no longer in the library."""
+        known = {str(root["id"]) for root in self._library.roots()}
+        for group_id in self._group_order():
+            for tab_id in tuple(self._groups.get(group_id, {}).get("tabs", [])):
+                if not tab_id.startswith("folder:"):
+                    continue
+                parsed = parse_folder_id(tab_id)
+                if parsed is None or parsed[0] not in known:
+                    self.closeTab(group_id, tab_id)
 
     @Slot(str)
     def _on_playlist_deleted(self, identity: str) -> None:
@@ -1059,6 +1158,12 @@ class WorkspaceModel(QObject):
         self._refresh_timer.start()
         self._persist()
 
+    @Slot(str, bool)
+    def playPlaylist(self, identity: str, shuffled: bool) -> None:
+        """Play a whole playlist (or Liked tracks) from the Playlists window (plan 132.4)."""
+        if self._playlists_model is not None:
+            self._playlists_model.play(identity, shuffled)
+
     @Slot(str, list, bool)
     def playPlaylistRows(self, identity: str, rows: list, shuffled: bool) -> None:
         available = prepare_playlist_playback_rows(rows, shuffled=shuffled)
@@ -1134,6 +1239,11 @@ class WorkspaceModel(QObject):
                 prepare,
                 label="Add playlist to queue" if entire_playlist else "Add tracks to queue",
                 visible=entire_playlist or len(identities) > 100,
+                summary=fixed(
+                    "Playlist added to the queue"
+                    if entire_playlist
+                    else "Tracks added to the queue"
+                ),
             )
         except RuntimeError as error:
             self.enqueuePrepared.emit(sequence, {"error": str(error)})
@@ -1308,8 +1418,15 @@ class WorkspaceModel(QObject):
         if self._artist_index is not None:
             raise RuntimeError("An artist index is already attached to this workspace.")
         self._artist_index = service
-        self._artist_list = ArtistListModel(service, self)
+        self._artist_list = ArtistListModel(service, self, self._artist_sort)
+        self._artist_list.sortChanged.connect(self._on_artist_sort_changed)
         service.indexChanged.connect(self._on_artist_index_changed)
+
+    def _on_artist_sort_changed(self) -> None:
+        """Keep the chosen order of the Artists list and save the workspace with it."""
+        if self._artist_list is not None:
+            self._artist_sort = str(self._artist_list.sortMode)
+            self._persist()
 
     @Property(QObject, notify=layoutChanged)
     def artistList(self) -> QObject | None:
@@ -1488,6 +1605,7 @@ class WorkspaceModel(QObject):
         self._trash_model = model
         model.setParent(self)
         model.tracksRecycled.connect(self._on_tracks_recycled)
+        model.folderRecycled.connect(self._on_folder_recycled)
         model.attach_delete_choices(self._plugin_ui)  # what plugins add to the confirmation
 
     def attach_file_move_model(self, model: FileMoveModel) -> None:
@@ -1497,7 +1615,9 @@ class WorkspaceModel(QObject):
         self._file_move_model = model
         model.setParent(self)
         model.tracksMoved.connect(self._on_tracks_moved)
+        model.tracksCopied.connect(self._on_tracks_copied)
         model.tracksRenamed.connect(self._on_tracks_renamed)
+        model.folderChanged.connect(self._on_folder_changed)
         model.noticeRaised.connect(self._set_message)
 
     def attach_plugin_host(self, host: PluginHost) -> None:
@@ -1681,6 +1801,16 @@ class WorkspaceModel(QObject):
         self._drop_moved_rows(_moved)
         self._refresh_library()
         self.metadataChanged.emit()
+
+    @Slot(object)
+    def _on_tracks_copied(self, copied: object) -> None:
+        """Files were copied into a folder: the library reads the new files there."""
+        if not isinstance(copied, dict):
+            return
+        root_id = str(copied.get("rootId", ""))
+        relative = str(copied.get("relative", ""))
+        self._refresh_library(root_id, {relative})
+        self._request_folder_refresh(root_id, relative)
 
     def _drop_moved_rows(self, moved: object) -> None:
         """Take moved tracks out of the open folder lists at once.
@@ -1875,7 +2005,12 @@ class WorkspaceModel(QObject):
             context.raise_if_cancelled()
             self.trackRowsReady.emit(model_key, generation, ordered)
 
-        job_id = self._jobs.submit(read_rows, label="Load folder contents", visible=False)
+        job_id = self._jobs.submit(
+            read_rows,
+            label="Load folder contents",
+            visible=False,
+            summary=fixed("Folder contents loaded"),
+        )
         self._track_tracker.record_job(model_key, str(job_id))
 
     def _play_columns_visible(self) -> bool:
@@ -1942,7 +2077,12 @@ class WorkspaceModel(QObject):
                 self.folderRootsReady.emit(generation, None, str(error))
                 raise
 
-        job_id = self._jobs.submit(read_roots, label="Load library folders", visible=False)
+        job_id = self._jobs.submit(
+            read_roots,
+            label="Load library folders",
+            visible=False,
+            summary=fixed("Library folders loaded"),
+        )
         self._folder_root_job_id = str(job_id)
 
     @Slot(int, object, object)
@@ -1957,6 +2097,10 @@ class WorkspaceModel(QObject):
             str(root.get("id", "")): dict(root) for root in roots if isinstance(root, dict)
         }
         self._folder_model.set_roots(roots)
+        if not self._folder_tabs_checked:
+            # Once, at the first list of sources after the start: the tabs of the last session.
+            self._folder_tabs_checked = True
+            self._drop_missing_folder_tabs()
         for folder_id in self._expanded:
             self._folder_model.set_expanded(folder_id, True)
         self.explorerChanged.emit()
@@ -1997,7 +2141,12 @@ class WorkspaceModel(QObject):
                 self.folderBranchReady.emit(folder_id, generation, None, str(error))
                 raise
 
-        job_id = self._jobs.submit(read_branch, label="Load folder contents", visible=False)
+        job_id = self._jobs.submit(
+            read_branch,
+            label="Load folder contents",
+            visible=False,
+            summary=fixed("Folder contents loaded"),
+        )
         self._branch_tracker.record_job(folder_id, str(job_id))
 
     @Slot(str, int, object, object)
@@ -2083,6 +2232,244 @@ class WorkspaceModel(QObject):
     @Slot(str, result=str)
     def rescanRoot(self, root_id: str) -> str:
         return self._start_root_scan(root_id, quiet=False)
+
+    @Slot(str)
+    def removeRoot(self, root_id: str) -> None:
+        """Remove a source from the library (U12): its files stay, its tracks keep their data.
+
+        The scan and folder refresh jobs of the source are cancelled, its folder tabs close, the
+        watcher follows the layout, and playlists show its tracks as unavailable.
+        """
+        root = self._roots_by_id.get(root_id)
+        if root is None:
+            self._set_message("This folder is no longer in the library.")
+            return
+        for job_id in self._scan_coordinator.forget_root(root_id):
+            with suppress(LookupError, ValueError):
+                self._jobs.cancel(JobId.parse(job_id))
+        self._close_folder_tabs(f"folder:{root_id}")
+        self._library.remove_root(root_id)
+        del self._roots_by_id[root_id]
+        self._expanded = {
+            item
+            for item in self._expanded
+            if item != f"root:{root_id}" and not self._within_folder(item, f"folder:{root_id}")
+        }
+        self._refresh_library(root_id, {""})
+        self.layoutChanged.emit()
+        self.selectionChanged.emit()
+        self._persist()
+        self._set_message(
+            f"Removed “{root['name']}” from the library. Your files stay on disk; "
+            "analysis and edits are kept if you add the folder again."
+        )
+
+    @staticmethod
+    def _within_folder(ref: str, prefix: str) -> bool:
+        """Whether a folder id or tab id is ``prefix`` itself or a folder under it."""
+        return ref == prefix or ref.startswith(prefix + "/")
+
+    def _close_folder_tabs(self, prefix: str) -> list[tuple[str, str]]:
+        """Close every tab that shows the folder ``prefix`` or a folder under it.
+
+        Returns the (window, tab) pairs closed. A window that empties and goes is skipped.
+        """
+        closed: list[tuple[str, str]] = []
+        for group_id in tuple(self._groups):
+            if group_id not in self._groups:
+                continue
+            for tab_id in tuple(self._groups[group_id]["tabs"]):
+                if group_id not in self._groups or tab_id not in self._groups[group_id]["tabs"]:
+                    continue
+                if self._within_folder(tab_id, prefix):
+                    self.closeTab(group_id, tab_id)
+                    closed.append((group_id, tab_id))
+        return closed
+
+    @Slot(str, str)
+    def createFolder(self, parent_folder_id: str, name: str) -> None:
+        """Create a folder inside a source or a folder, on disk, as a job (plan 132.2)."""
+        parsed = parse_folder_id(parent_folder_id)
+        if parsed is None or self._file_move_model is None:
+            self._set_message("Folders cannot be created here.")
+            return
+        root_id, relative = parsed
+        self._file_move_model.create_folder(root_id, relative, name)
+
+    @Slot(str)
+    def createUnnamedFolder(self, parent_folder_id: str) -> None:
+        """Create "Unnamed folder NN" in a source or folder at once, with no name prompt."""
+        parsed = parse_folder_id(parent_folder_id)
+        if parsed is None or self._file_move_model is None:
+            self._set_message("Folders cannot be created here.")
+            return
+        root_id, relative = parsed
+        self._file_move_model.create_unnamed_folder(root_id, relative)
+
+    @Slot(str, str)
+    def renameFolder(self, folder_id: str, name: str) -> None:
+        """Rename a folder of a source on disk; open tabs follow it (plan 132.2)."""
+        parsed = parse_folder_id(folder_id)
+        if parsed is None or self._file_move_model is None:
+            self._set_message("Folders cannot be renamed here.")
+            return
+        root_id, relative = parsed
+        if not relative:
+            self._set_message("A source is removed from the library, not renamed.")
+            return
+        self._file_move_model.rename_folder(root_id, relative, name)
+
+    @Slot(str)
+    def recycleFolder(self, folder_id: str) -> None:
+        """Ask to send a folder with everything in it to the Recycle Bin (plan 132.2)."""
+        parsed = parse_folder_id(folder_id)
+        if parsed is None or self._trash_model is None:
+            self._set_message("Folders cannot be recycled here.")
+            return
+        root_id, relative = parsed
+        self._trash_model.request_recycle_folder(root_id, relative)
+
+    @Slot(list, str)
+    def copyTracksToFolder(self, track_ids: list, folder_id: str) -> None:
+        """Copy the files of these tracks into a library folder, without overwriting."""
+        if self._file_move_model is None:
+            self._set_message("Copying files is not available.")
+            return
+        target = resolve_folder_drop_target(folder_id, self._roots_by_id)
+        if target is None:
+            self._set_message("Drop the files on a folder of the library.")
+            return
+        root_id, relative, name = target
+        self._file_move_model.copy_tracks(track_ids, root_id, relative, name)
+
+    @Property(int, notify=clipboardChanged)
+    def clipboardCount(self) -> int:
+        """How many tracks Ctrl+C or Ctrl+X holds."""
+        return len(self._track_clipboard.track_ids)
+
+    @Slot(list, list, str, bool)
+    def setTrackClipboard(self, track_ids: list, entry_ids: list, source: str, cut: bool) -> None:
+        """Ctrl+C (``cut`` false) or Ctrl+X: hold a reference to the selected tracks."""
+        ids = tuple(dict.fromkeys(str(identity) for identity in track_ids if str(identity)))
+        if not ids:
+            return
+        self._track_clipboard = TrackClipboard(
+            ids, tuple(str(entry) for entry in entry_ids if str(entry)), str(source), bool(cut)
+        )
+        self.clipboardChanged.emit()
+        count = len(ids)
+        verb = "Cut" if cut else "Copied"
+        self._set_message(f"{verb} {count} track{'s' if count != 1 else ''}.")
+
+    @Slot(str, str)
+    def pasteTracks(self, target_kind: str, target_ref: str) -> None:
+        """Ctrl+V in the list ``target_kind:target_ref``: add, copy or move what was held."""
+        clipboard = self._track_clipboard
+        plan = plan_paste(clipboard, target_kind, target_ref)
+        if self._apply_track_plan(plan, target_kind, target_ref) and clipboard.cut:
+            self._track_clipboard = TrackClipboard()
+            self.clipboardChanged.emit()
+
+    @Slot(list, str, str, str, bool)
+    def dropTracksOnList(
+        self, track_ids: list, source: str, target_kind: str, target_ref: str, copy: bool
+    ) -> None:
+        """Tracks dragged from a list and dropped on another one (``copy``: Ctrl was held)."""
+        ids = tuple(dict.fromkeys(str(identity) for identity in track_ids if str(identity)))
+        plan = plan_drop(ids, str(source), target_kind, target_ref, bool(copy))
+        self._apply_track_plan(plan, target_kind, target_ref)
+
+    def _apply_track_plan(self, plan: PastePlan, target_kind: str, target_ref: str) -> bool:
+        """Carry out a paste or a drop; return whether something was started."""
+        if plan.action == "none":
+            if plan.message:
+                self._set_message(plan.message)
+            return False
+        ids = list(plan.track_ids)
+        if plan.action == "add":
+            if self._playlists_model is None:
+                self._set_message("Playlists are not available.")
+                return False
+            self._playlists_model.add(target_ref, ids)
+            if plan.remove_from and plan.remove_entries:
+                self._playlists_model.remove(plan.remove_from, list(plan.remove_entries))
+            name = str(self._playlists_model.details(target_ref).get("name", "the playlist"))
+            count = len(ids)
+            self._set_message(f"Added {count} track{'s' if count != 1 else ''} to {name}.")
+            return True
+        folder_id = f"folder:{target_ref}"
+        if plan.action == "copy":
+            self.copyTracksToFolder(ids, folder_id)
+        else:
+            self.moveTracksToFolder(ids, folder_id)
+        return True
+
+    @Slot(str)
+    def openFolderInExplorer(self, folder_id: str) -> None:
+        """Show a folder of a source in Windows Explorer."""
+        parsed = parse_folder_id(folder_id)
+        root = self._roots_by_id.get(parsed[0]) if parsed else None
+        if parsed is None or root is None:
+            self._set_message("This folder is no longer in the library.")
+            return
+        target = Path(str(root["path"])) / parsed[1]
+        try:
+            self._shell_reveal.open_folder(target)
+        except (OSError, RuntimeError, ValueError) as error:
+            self._set_message(f"Could not open this folder in Windows Explorer: {error}")
+
+    @Slot(object)
+    def _on_folder_changed(self, payload: object) -> None:
+        """A folder was created or renamed on disk: the tree and the open tabs follow."""
+        if not isinstance(payload, dict):
+            return
+        root_id = str(payload.get("rootId", ""))
+        relative = str(payload.get("relative", ""))
+        if payload.get("action") == "created":
+            parent = relative.rpartition("/")[0]
+            self._expanded.add(f"folder:{root_id}/{parent}" if parent else f"root:{root_id}")
+            self._refresh_library(root_id, {parent})
+            if payload.get("startRename") is True:
+                self.folderRenameRequested.emit(f"folder:{root_id}/{relative}")
+        elif payload.get("action") == "renamed":
+            previous = str(payload.get("previous", ""))
+            self._follow_folder_rename(root_id, previous, relative)
+            self._refresh_library(
+                root_id, {previous.rpartition("/")[0], relative.rpartition("/")[0]}
+            )
+        self.layoutChanged.emit()
+        self._persist()
+
+    def _follow_folder_rename(self, root_id: str, previous: str, relative: str) -> None:
+        """Re-open the tabs of a renamed folder, and its expanded branches, at the new path."""
+        old_ref = f"folder:{root_id}/{previous}"
+        new_ref = f"folder:{root_id}/{relative}"
+        closed = self._close_folder_tabs(old_ref)
+        for group_id, tab_id in closed:
+            _, _, rest = tab_id.partition(old_ref)
+            target = parse_folder_id(new_ref + rest)
+            if target is None:
+                continue
+            window = group_id if group_id in self._groups else self._active_group
+            self._open_folder(target[0], target[1], group_id=window)
+        self._expanded = {
+            new_ref + item[len(old_ref) :] if self._within_folder(item, old_ref) else item
+            for item in self._expanded
+        }
+
+    @Slot(object)
+    def _on_folder_recycled(self, payload: object) -> None:
+        """A folder went to the Recycle Bin: its tabs close and the tree drops it."""
+        if not isinstance(payload, dict):
+            return
+        root_id = str(payload.get("rootId", ""))
+        relative = str(payload.get("relative", ""))
+        ref = f"folder:{root_id}/{relative}"
+        self._close_folder_tabs(ref)
+        self._expanded = {item for item in self._expanded if not self._within_folder(item, ref)}
+        self._refresh_library(root_id, {str(payload.get("parentRelative", ""))})
+        self.layoutChanged.emit()
+        self._persist()
 
     def _start_root_scan(self, root_id: str, *, quiet: bool) -> str:
         root = self._roots_by_id.get(root_id)
@@ -2180,6 +2567,7 @@ class WorkspaceModel(QObject):
         job_id = self._jobs.submit(
             task,
             label=f"Indexing {root['name']}",
+            summary=scan_summary(str(root["name"])),
             visible=not quiet,
             priority=-1 if quiet else 0,
         )
@@ -2233,6 +2621,9 @@ class WorkspaceModel(QObject):
     @Slot(str, str)
     def selectExplorerTrack(self, track_id: str, folder_id: str) -> None:
         """Open a tree track's folder and select it only when it is in the listing."""
+        self._leave_explorer_selection()
+        self._explorer_anchor = str(track_id)
+        self.selectionChanged.emit()
         self._request_explorer_track_action(track_id, folder_id, play=False)
 
     @Slot(str, str)
@@ -2337,7 +2728,9 @@ class WorkspaceModel(QObject):
                 self.explorerTrackReady.emit(generation, None, str(error))
                 raise
 
-        job_id = self._jobs.submit(read_track, label="Load selected track", visible=False)
+        job_id = self._jobs.submit(
+            read_track, label="Load selected track", visible=False, summary=fixed("Track loaded")
+        )
         self._explorer_coordinator.record_job(str(job_id))
 
     @Slot(int, object, object)
@@ -2641,15 +3034,19 @@ class WorkspaceModel(QObject):
         elif not available:
             self._set_message("This artist has no track to play.")
 
-    @Slot()
-    def openTasks(self) -> None:
-        """Open the Tasks page as an editor tab, like Settings; Back and Forward replay it."""
+    @Slot(str)
+    def openTasks(self, job_id: str = "") -> None:
+        """Open the Tasks page as an editor tab, like Settings; Back and Forward replay it.
+
+        ``job_id`` names the job the page should select (empty: keep the page as it is).
+        """
         self._cancel_explorer_track_action()
         self._capture_navigation()
         self._open_special_tab("tasks:", "Tasks")
         self._record_navigation()
         self.layoutChanged.emit()
         self._persist()
+        self.taskFocusRequested.emit(job_id)
 
     def _open_special_tab(self, tab_id: str, title: str) -> None:
         group = self._groups[self._active_group]
@@ -2661,6 +3058,7 @@ class WorkspaceModel(QObject):
         if group_id not in self._groups or tab_id not in self._groups[group_id]["tabs"]:
             return
         self._cancel_explorer_track_action()
+        self._leave_explorer_selection()
         self._capture_navigation()
         self._active_group = group_id
         self._groups[group_id]["active"] = tab_id
@@ -2676,6 +3074,7 @@ class WorkspaceModel(QObject):
         if group_id not in self._groups or group_id == self._active_group:
             return
         self._cancel_explorer_track_action()
+        self._leave_explorer_selection()
         self._capture_navigation()
         self._active_group = group_id
         self._load_group_view(group_id)
@@ -2708,6 +3107,44 @@ class WorkspaceModel(QObject):
         self.layoutChanged.emit()
         self.selectionChanged.emit()
         self._persist()
+
+    @Property(dict, constant=True)
+    def savedWindow(self) -> dict[str, Any]:
+        """The window geometry saved at the last close ({} the first time)."""
+        return dict(self._window_geometry or {})
+
+    @Slot(int, int, int, int, bool)
+    def saveWindowGeometry(self, x: int, y: int, width: int, height: int, maximized: bool) -> None:
+        """Remember where the main window is; it is written with the session when MTEE closes."""
+        self._window_geometry = {
+            "x": int(x),
+            "y": int(y),
+            "width": int(width),
+            "height": int(height),
+            "maximized": bool(maximized),
+        }
+        self._persist()
+
+    @Slot(str, str, str)
+    def closeTabs(self, group_id: str, scope: str, tab_id: str) -> None:
+        """Close tabs of a window: ``others``, those ``left``/``right`` of one, or ``all``."""
+        if group_id not in self._groups or scope not in ("others", "all", "left", "right"):
+            return
+        tabs: list[str] = list(self._groups[group_id]["tabs"])
+        if scope != "all":
+            if tab_id not in tabs:
+                return
+            position = tabs.index(tab_id)
+            if scope == "others":
+                tabs = [tab for tab in tabs if tab != tab_id]
+            elif scope == "left":
+                tabs = tabs[:position]
+            else:
+                tabs = tabs[position + 1 :]
+        for closing in tabs:
+            if group_id not in self._groups:
+                break
+            self.closeTab(group_id, closing)
 
     @Slot(str)
     def closeGroup(self, group_id: str) -> None:
@@ -2976,6 +3413,26 @@ class WorkspaceModel(QObject):
             self.layoutChanged.emit()
             self._persist()
 
+    @Slot(str, dict)
+    def resizeColumns(self, tab_id: str, widths: dict) -> None:
+        """Save several widths at once, after a border drag (plan 133.3)."""
+        plugin_kind = self._plugin_list_kind(tab_id)
+        if tab_id.startswith("playlist:") and self._playlists_model is not None:
+            # One write for all the widths: one write per column would keep only the last.
+            self._playlists_model.resizeColumns(dict(widths))
+            return
+        if plugin_kind:
+            for key, width in widths.items():
+                self.resizeColumn(tab_id, key, int(width))
+            return
+        self._ensure_tab(tab_id)
+        self._column_preferences, changed = resize_columns(
+            self._column_preferences, widths, _COLUMN_KEYS
+        )
+        if changed:
+            self.layoutChanged.emit()
+            self._persist()
+
     @Slot(str, str, int)
     def moveColumn(self, tab_id: str, key: str, offset: int) -> None:
         plugin_kind = self._plugin_list_kind(tab_id)
@@ -3164,6 +3621,9 @@ class WorkspaceModel(QObject):
         if target != self._active_group:
             self.focusGroup(target)
         self._nav.clear_pending_if_matches(target, tab_id)
+        if self._selection_source == "explorer":
+            self._leave_explorer_selection()
+            self.selectionChanged.emit()
         if not self._selection_by_tab.get(key) and not self._anchor_by_tab.get(key):
             return
         self._selection_by_tab[key] = []
@@ -3177,6 +3637,7 @@ class WorkspaceModel(QObject):
         tab_id = str(self._groups[self._active_group]["active"])
         key = (self._active_group, tab_id)
         self._nav.clear_pending_if_matches(self._active_group, tab_id)
+        self._leave_explorer_selection()
         selected = self._selection_by_tab.setdefault(key, [])
         anchor = self._anchor_by_tab.get(key, "")
         new_selected, new_anchor = calculate_selection(selected, anchor, track_id, mode, ordered)
@@ -3190,6 +3651,7 @@ class WorkspaceModel(QObject):
         tab_id = str(self._groups[self._active_group]["active"])
         key = (self._active_group, tab_id)
         self._nav.clear_pending_if_matches(self._active_group, tab_id)
+        self._leave_explorer_selection()
         self._selection_by_tab[key] = [str(track_id) for track_id in ordered]
         self._anchor_by_tab[key] = str(ordered[0]) if ordered else ""
         self.selectionChanged.emit()
@@ -3565,7 +4027,13 @@ class WorkspaceModel(QObject):
             )
 
         try:
-            job_id = self._jobs.submit(task, label="Refresh folder", visible=False, priority=1)
+            job_id = self._jobs.submit(
+                task,
+                label="Refresh folder",
+                visible=False,
+                priority=1,
+                summary=fixed("Folder refreshed"),
+            )
         except RuntimeError:
             return
         self._scan_coordinator.record_folder_refresh_job(root_id, relative, str(job_id))
@@ -3673,6 +4141,9 @@ class WorkspaceModel(QObject):
             preview_tabs=self._preview_tabs,
             column_preferences=self._column_preferences,
             next_group=self._next_group,
+            artist_sort=self._artist_sort,
+            docks=self._docks,
+            window=self._window_geometry,
         )
 
     @Slot()

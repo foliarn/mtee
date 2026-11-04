@@ -11,6 +11,11 @@ MAX_TITLE_WIDTH = 2400
 
 
 def clamp_column_width(key: str, width: int) -> int:
-    """Keep a width inside the bounds of its column."""
+    """Keep a width inside the bounds of its column.
+
+    A width of 0 on the title is automatic: the title takes the room left over (plan 133.3).
+    """
+    if key == "title" and width <= 0:
+        return 0
     ceiling = MAX_TITLE_WIDTH if key == "title" else MAX_COLUMN_WIDTH
     return min(max(width, MIN_COLUMN_WIDTH), ceiling)

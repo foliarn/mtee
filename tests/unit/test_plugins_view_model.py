@@ -79,8 +79,10 @@ class FakeJobs:
         self.labels: list[str] = []
         self.failures: list[tuple[str, BaseException]] = []
 
-    def submit(self, task: Any, *, label: str = "", visible: bool = True) -> None:
-        del visible
+    def submit(
+        self, task: Any, *, label: str = "", visible: bool = True, summary: Any = None
+    ) -> None:
+        del visible, summary
         self.labels.append(label)
         try:
             task(FakeContext())
@@ -628,3 +630,32 @@ def test_cancelling_a_chosen_file_leaves_the_file_alone(harness: Harness) -> Non
     view.cancelInstall()
     assert package.is_file()
     assert view.property("pendingInstall") == {}
+
+
+def test_the_one_list_shows_each_plugin_once_in_its_order(harness: Harness) -> None:
+    # alpha is installed and listed by the Marketplace; beta is installed and not listed; delta and
+    # zeta are only listed. Alpha is in the Marketplace list too, but it is one row.
+    _install_on_disk(harness, _package(harness.tmp / "p1", "alpha"))
+    _install_on_disk(harness, _package(harness.tmp / "p2", "beta"), enabled=False)
+    harness.opener = FakeOpener(
+        {
+            _index_url(): _index(
+                [
+                    _entry(_package(harness.tmp / "p3", "zeta"), "zeta"),
+                    _entry(_package(harness.tmp / "p4", "alpha"), "alpha"),
+                    _entry(_package(harness.tmp / "p5", "delta"), "delta"),
+                ]
+            )
+        }
+    )
+    view = harness.start()
+    view.marketplaceRequested()
+
+    rows = view.property("plugins")
+    assert [row["pluginId"] for row in rows] == ["alpha", "beta", "delta", "zeta"]
+    assert [row["installed"] for row in rows] == [True, True, False, False]
+    assert [row["tag"] for row in rows] == ["Running", "Installed", "", ""]
+    assert rows[0]["key"] == "alpha" and rows[2]["key"].startswith("delta@")
+
+    view.setProperty("search", "zet")
+    assert [row["pluginId"] for row in view.property("plugins")] == ["zeta"]

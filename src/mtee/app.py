@@ -32,6 +32,7 @@ from mtee.models.file_move_model import FileMoveModel
 from mtee.models.icon_provider import ICON_PROVIDER_ID, IconProvider
 from mtee.models.jobs_model import JobsListModel
 from mtee.models.metadata_editor_model import MetadataEditorModel
+from mtee.models.notifications_model import NotificationsModel
 from mtee.models.playback_settings_model import PlaybackSettingsModel
 from mtee.models.player_model import PlayerModel
 from mtee.models.playlists_model import PlaylistsModel
@@ -187,6 +188,7 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
 
     jobs = JobService(application)
     jobs_model = JobsListModel(jobs)
+    notifications_model = NotificationsModel(jobs, application)
     artwork_provider = None
     media_controls: MediaControls | None = None
     player_service = None
@@ -461,6 +463,13 @@ def _build_runtime(application: QGuiApplication, options: AppOptions) -> _Runtim
     context = engine.rootContext()
     context.setContextProperty("shell", controller)
     context.setContextProperty("jobsModel", jobs_model)
+    if options.demo:
+        notifications_model.seed_demo()
+    # The bell's notifications open the Tasks window through the workspace (plan 134.2).
+    open_tasks = getattr(workspace, "openTasks", None)
+    if callable(open_tasks):
+        notifications_model.set_open_tasks(open_tasks)
+    context.setContextProperty("notifications", notifications_model)
     context.setContextProperty("workspace", workspace)
     context.setContextProperty("windowFrame", frame)
     # Models of the Profile and Settings pages (plans 114-115). Demo mode has none of them.

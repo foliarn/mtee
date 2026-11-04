@@ -1,8 +1,8 @@
 """The Plugins view: installed plugins, the Marketplace, installs and restarts (plan 123.6).
 
 QML reads the properties of ``PluginsViewModel`` and calls its slots; it never touches a file or a
-network address. Every file, download and index read runs as a job, so it appears in Tasks with
-progress and Cancel. Results return to the graphical thread through a signal.
+network address. Every file, download and index read runs as a job, so it appears in the Tasks
+window with progress and Cancel. Results return to the graphical thread through a signal.
 
 A plugin's state is compared with a snapshot taken at start, when the plugins were loaded. A
 plugin whose version or switch differs from that snapshot, or that is new, needs a restart and
@@ -24,6 +24,8 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 
 from mtee import __version__
+from mtee.domain.job_summaries import fixed
+from mtee.models.plugin_list import plugin_list_rows
 from mtee.persistence.settings_repository import SettingsRepository
 from mtee.plugins import installer, marketplace
 from mtee.plugins.api import SUPPORTED_API_VERSIONS
@@ -173,6 +175,14 @@ class PluginsViewModel(QObject):
         """The compatible plugins of the Marketplace list, in the order of the list."""
         return [dict(row) for row in self._market_rows if self._matches(row)]
 
+    @Property(list, notify=changed)
+    def plugins(self) -> list[dict[str, Any]]:
+        """The one list of the view: installed and Marketplace plugins, each once (plan 132.6)."""
+        installed = [dict(row) for row in self._installed_rows if self._matches(row)]
+        market = [dict(row) for row in self._market_rows if self._matches(row)]
+        listed = {entry.id for _, entry in self._offers()}
+        return plugin_list_rows(installed, market, listed)
+
     @Property(str, notify=changed)
     def marketplaceState(self) -> str:
         return self._market_state
@@ -297,7 +307,12 @@ class PluginsViewModel(QObject):
             installer.uninstall(plugin_id, data_dir=data_dir, trash=trash, preferences=preferences)
             self._onGui.emit(self._refresh)
 
-        self._jobs.submit(task, label=f"Uninstalling {title}", visible=True)
+        self._jobs.submit(
+            task,
+            label=f"Uninstalling {title}",
+            visible=True,
+            summary=fixed(f"Plugin {title} uninstalled"),
+        )
 
     @Slot(str)
     def chooseFile(self, url: str) -> None:
@@ -356,7 +371,12 @@ class PluginsViewModel(QObject):
                 )
             )
 
-        self._jobs.submit(task, label=f"Installing {title}", visible=True)
+        self._jobs.submit(
+            task,
+            label=f"Installing {title}",
+            visible=True,
+            summary=fixed(f"Plugin {title} installed"),
+        )
 
     @Slot()
     def cancelInstall(self) -> None:
@@ -401,7 +421,12 @@ class PluginsViewModel(QObject):
             if reads and len(failed) == len(reads):
                 raise MarketplaceError(failed[0].error)
 
-        self._jobs.submit(task, label="Reading the plugin list", visible=True)
+        self._jobs.submit(
+            task,
+            label="Reading the plugin list",
+            visible=True,
+            summary=fixed("Plugin list read"),
+        )
 
     @Slot()
     def marketplaceRequested(self) -> None:
@@ -854,7 +879,12 @@ class PluginsViewModel(QObject):
                 )
             )
 
-        self._jobs.submit(task, label=f"Downloading {title}", visible=True)
+        self._jobs.submit(
+            task,
+            label=f"Downloading {title}",
+            visible=True,
+            summary=fixed(f"{title} downloaded"),
+        )
 
     def _installed(self, plugin_id: str, source: str, package: Path, address: str) -> None:
         self._settings.set(f"{SOURCE_SETTING_PREFIX}{plugin_id}", source)

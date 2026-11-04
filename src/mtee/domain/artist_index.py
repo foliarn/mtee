@@ -28,6 +28,8 @@ from typing import Any
 from mtee.domain.artists import choose_spelling, clean_name, normalize_key
 
 __all__ = [
+    "ARTIST_SORT_KEYS",
+    "DEFAULT_ARTIST_SORT",
     "MODE_ONE_ARTIST",
     "MODE_SPLIT",
     "ArtistEntry",
@@ -45,6 +47,10 @@ __all__ = [
 MODE_ONE_ARTIST = "one_artist"
 MODE_SPLIT = "split"
 OVERRIDE_MODES: tuple[str, ...] = (MODE_ONE_ARTIST, MODE_SPLIT)
+
+# The orders of the Artists list (plan 132.5): A-Z, Z-A, most tracks, fewest tracks.
+ARTIST_SORT_KEYS: tuple[str, ...] = ("name", "nameDesc", "mostTracks", "fewestTracks")
+DEFAULT_ARTIST_SORT = "name"
 
 # A strong separator takes the spaces around it. ``feat`` and ``ft`` are whole words only:
 # ``Left`` or ``Rift`` do not match.

@@ -23,6 +23,7 @@ from mtee.domain.artist_index import (
     has_separator,
 )
 from mtee.domain.artists import clean_name, normalize_key
+from mtee.domain.job_summaries import fixed
 from mtee.persistence.credit_override_repository import CreditOverrideRepository
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.jobs import JobContext, JobService
@@ -97,7 +98,12 @@ class ArtistIndexService(QObject):
 
         self._submitting = True
         try:
-            self._jobs.submit(build, label="Index artists", visible=False)
+            self._jobs.submit(
+                build,
+                label="Index artists",
+                visible=False,
+                summary=fixed("Artists indexed"),
+            )
         except RuntimeError:
             self._running = False  # the application is shutting down
         finally:

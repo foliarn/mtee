@@ -3,20 +3,22 @@ import QtQuick.Controls.Basic
 import Mtee
 import "../components"
 
-// Tasks page: every background job of this session with its counter, current item,
-// time spent and left, cancellation and the items that failed, plus the tag
-// conflicts and the items plugins leave to the user. The sidebar keeps a compact summary.
+// Tasks window (plan 134.5): a center tab. Left, the session's tasks (unfinished first, then the
+// finished ones, newest first) as nav rows with a state tag; right, the record of the selected
+// task: summary, times, counts, the items that failed and Cancel while it runs. Opened from the
+// hamburger menu or from a notification's Details, which selects the task (taskFocusRequested).
 Rectangle {
     id: page
 
     required property var workspace
     property int bottomInset: 0
-    readonly property var conflicts: workspace.tagConflicts
-    readonly property bool hasConflictModel: conflicts && typeof conflicts.count === "number"
-    readonly property var pluginUi: workspace.pluginUi || null
-    readonly property int waitingCount: pluginUi !== null ? pluginUi.waitingCount : 0
+    property string selectedId: ""
+    property var tasks: []
+    property var detail: ({})
     readonly property int active: jobsModel.activeCount
     readonly property int finished: jobsModel.finishedCount
+    readonly property bool hasDetail: detail.jobId !== undefined
+    readonly property bool isActive: hasDetail && (detail.jobState === "running" || detail.jobState === "queued")
     readonly property string summary: {
         const parts = []
         const running = jobsModel.runningCount
@@ -32,251 +34,378 @@ Rectangle {
     objectName: "tasksView"
     color: Theme.editor
 
-    Flickable {
-        WheelScrollHandler { flickable: scroller }
-        id: scroller
-        anchors.fill: parent
+    function formatClock(seconds) {
+        const whole = Math.max(0, Math.floor(seconds))
+        const hours = Math.floor(whole / 3600)
+        const minutes = Math.floor((whole % 3600) / 60)
+        const rest = whole % 60
+        const two = (value) => (value < 10 ? "0" : "") + value
+        return hours > 0 ? hours + ":" + two(minutes) + ":" + two(rest) : minutes + ":" + two(rest)
+    }
+
+    function formatLeft(seconds) {
+        if (seconds < 60)
+            return "Less than a minute left"
+        const minutes = Math.ceil(seconds / 60)
+        if (minutes < 60)
+            return "About " + minutes + " min left"
+        return "About " + Math.floor(minutes / 60) + " hr " + (minutes % 60) + " min left"
+    }
+
+    function formatTime(seconds) {
+        if (!(seconds > 0))
+            return "-"
+        return new Date(seconds * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat)
+    }
+
+    // Reads the task list and the selected record again (on every job change and clock tick).
+    function refresh() {
+        tasks = jobsModel.taskList()
+        let found = false
+        for (let i = 0; i < tasks.length; ++i) {
+            if (tasks[i].jobId === selectedId)
+                found = true
+        }
+        if (!found)
+            selectedId = tasks.length > 0 ? tasks[0].jobId : ""
+        detail = selectedId.length > 0 ? jobsModel.taskDetail(selectedId) : ({})
+    }
+
+    function select(jobId) {
+        selectedId = jobId
+        refresh()
+    }
+
+    Component.onCompleted: refresh()
+
+    Connections {
+        target: jobsModel
+        function onDataChanged() { page.refresh() }
+        function onRowsInserted() { page.refresh() }
+        function onRowsRemoved() { page.refresh() }
+        function onModelReset() { page.refresh() }
+    }
+
+    Connections {
+        target: page.workspace
+        function onTaskFocusRequested(jobId) {
+            if (jobId.length > 0)
+                page.select(jobId)
+        }
+    }
+
+    // Left: the summary, the clear button and the task list.
+    Item {
+        id: sidebar
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
         anchors.bottomMargin: page.bottomInset
-        contentHeight: column.implicitHeight + 40
+        width: Math.min(320, Math.max(220, page.width * 0.34))
+
+        Column {
+            id: heading
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 16
+            spacing: 2
+
+            SectionLabel { text: "Tasks" }
+
+            Text {
+                objectName: "tasksSummary"
+                width: parent.width
+                text: page.summary
+                elide: Text.ElideRight
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSecondary
+            }
+
+            TextButton {
+                objectName: "clearFinishedTasks"
+                anchors.right: parent.right
+                text: "Clear finished"
+                kind: "ghost"
+                implicitHeight: 24
+                enabledAction: page.finished > 0
+                onClicked: jobsModel.clearFinished()
+            }
+        }
+
+        NavList {
+            id: taskList
+            objectName: "taskList"
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: heading.bottom
+            anchors.bottom: parent.bottom
+            anchors.topMargin: 8
+            size: "regular"
+            model: page.tasks
+            rowObjectName: "taskRow"
+            selectionEnabled: false
+            selectedIds: page.selectedId.length > 0 ? [page.selectedId] : []
+            onRowClicked: (rowId, modifiers) => page.select(rowId)
+
+        }
+
+        Text {
+            anchors.horizontalCenter: taskList.horizontalCenter
+            anchors.top: taskList.top
+            anchors.topMargin: 24
+            visible: page.tasks.length === 0
+            width: sidebar.width - 32
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: "No background tasks in this session."
+            color: Theme.textSecondary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSecondary
+        }
+    }
+
+    Rectangle {
+        anchors.left: sidebar.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 1
+        color: Theme.separator
+    }
+
+    // Right: the record of the selected task.
+    Flickable {
+        id: scroller
+        anchors.left: sidebar.right
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: page.bottomInset
+        contentHeight: detailColumn.implicitHeight + 48
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        WheelScrollHandler { flickable: scroller }
         ScrollBar.vertical: ThinScrollBar {}
 
         Column {
-            id: column
-            x: Math.max(24, (scroller.width - width) / 2)
-            width: Math.min(900, scroller.width - 48)
-            spacing: 18
+            id: detailColumn
+            x: 24
+            y: 24
+            width: Math.min(640, scroller.width - 48)
+            spacing: 14
+            visible: page.hasDetail
 
-            // Heading placed like the folder page, at the page padding rather than
-            // inside the centred content column; the summary sits under the title.
-            Item {
-                readonly property int pagePadding: scroller.width < 600 ? 12 : 24
+            Text {
+                objectName: "taskTitle"
+                width: parent.width
+                text: page.detail.label || ""
+                wrapMode: Text.WordWrap
+                color: Theme.textPrimary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeHeading
+                font.weight: Font.Bold
+            }
 
-                x: pagePadding - column.x
-                width: scroller.width - 2 * pagePadding
-                height: 92
+            Row {
+                spacing: 8
 
-                Column {
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 14
-                    spacing: 2
-
-                    SectionLabel { text: "Tasks" }
-
-                    Text {
-                        text: "Background tasks"
-                        color: Theme.textPrimary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeHeading
-                        font.weight: Font.Bold
-                    }
-
-                    Text {
-                        objectName: "tasksSummary"
-                        text: page.summary
-                        color: Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSecondary
-                    }
+                TagChip {
+                    objectName: "taskState"
+                    text: page.detail.stateLabel || ""
+                    tone: page.detail.tagTone || "neutral"
                 }
 
                 TextButton {
-                    objectName: "clearFinishedTasks"
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 14
-                    text: "Clear finished"
+                    objectName: "taskCancel"
+                    visible: page.detail.canCancel === true
+                    text: "Cancel"
                     kind: "ghost"
-                    enabledAction: page.finished > 0
-                    onClicked: jobsModel.clearFinished()
+                    implicitHeight: 24
+                    onClicked: jobsModel.cancel(page.selectedId)
                 }
             }
 
-            Item {
-                visible: conflictsRepeater.count > 0
+            Text {
+                objectName: "taskSummary"
                 width: parent.width
-                height: 24
+                visible: text.length > 0
+                text: page.detail.summary || (page.isActive ? "" : page.detail.detail || "")
+                wrapMode: Text.WordWrap
+                color: Theme.textPrimary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeBody
+            }
 
-                SectionLabel {
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "Tag conflicts (" + conflictsRepeater.count + ")"
+            ProgressLine {
+                visible: page.isActive
+                width: parent.width
+                progress: page.detail.progress || 0
+                status: "running"
+            }
+
+            // The facts of the record: started, finished or elapsed, counts.
+            Grid {
+                id: facts
+                columns: 2
+                columnSpacing: 24
+                rowSpacing: 6
+
+                Text { text: "Started"; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSecondary }
+                Text {
+                    objectName: "taskStarted"
+                    text: page.formatTime(page.detail.startedAt || 0)
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
                 }
 
-                Row {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
+                Text {
+                    text: "Finished"
+                    visible: !page.isActive
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
+                }
+                Text {
+                    objectName: "taskFinished"
+                    visible: !page.isActive
+                    text: page.formatTime(page.detail.finishedAt || 0)
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
+                }
 
-                    IconButton {
-                        width: 22
-                        height: 22
-                        icon: "check"
-                        iconSize: 14
-                        tip: "Replace all: delete the old tag values of every listed track and write the new ones"
-                        onClicked: page.conflicts.resolveAll()
-                    }
+                Text {
+                    text: page.isActive ? "Elapsed" : "Duration"
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
+                }
+                Text {
+                    objectName: "taskDuration"
+                    text: page.formatClock(page.detail.elapsedSeconds || 0)
+                        + (page.isActive && (page.detail.remainingSeconds || -1) >= 0
+                            ? " · " + page.formatLeft(page.detail.remainingSeconds) : "")
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
+                }
 
-                    IconButton {
-                        width: 22
-                        height: 22
-                        icon: "close"
-                        iconSize: 14
-                        tip: "Dismiss all without writing"
-                        onClicked: page.conflicts.dismissAll()
+                Text {
+                    visible: (page.detail.total || -1) > 0 || (page.detail.completed || -1) >= 0
+                    text: "Counts"
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
+                }
+                Text {
+                    objectName: "taskCounts"
+                    visible: text.length > 0
+                    text: {
+                        const total = page.detail.total || -1
+                        const done = page.detail.completed || -1
+                        let head = ""
+                        if (total > 0)
+                            head = done + " of " + total
+                        else if (done >= 0)
+                            head = done.toLocaleString(Qt.locale("en_US"), "f", 0) + " done"
+                        const failed = page.detail.failureCount || 0
+                        if (failed > 0)
+                            head += (head.length > 0 ? " · " : "") + failed + " failed"
+                        return head
                     }
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSecondary
                 }
             }
 
-            Repeater {
-                id: conflictsRepeater
-                model: page.hasConflictModel ? page.conflicts : null
-                delegate: TaskConflictRow {
-                    required property string trackId
-                    required property string fileName
-                    required property string summary
-                    required property string conflictState
-                    required property string errorMessage
-                    width: column.width
-                    title: fileName
-                    detail: summary
-                    stage: conflictState
-                    error: errorMessage
-                    onReplaceRequested: page.conflicts.resolve(trackId)
-                    onDismissRequested: page.conflicts.dismiss(trackId)
-                }
+            Text {
+                objectName: "taskError"
+                visible: (page.detail.errorMessage || "").length > 0
+                width: parent.width
+                text: page.detail.errorMessage || ""
+                wrapMode: Text.WordWrap
+                color: Theme.danger
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSecondary
             }
 
-            // The items plugins leave to the user ("Waiting for you"): a card per item, like
-            // the cards of the jobs. A group with no item is hidden.
-            Repeater {
-                model: page.pluginUi !== null ? page.pluginUi.waitingGroups : []
-                delegate: Column {
-                    id: waitingGroup
+            SectionLabel {
+                visible: (page.detail.failureCount || 0) > 0
+                text: "Items that failed (" + (page.detail.failureCount || 0) + ")"
+            }
 
-                    required property var modelData
+            Column {
+                id: failureList
+                objectName: "taskFailures"
+                width: parent.width
+                spacing: 10
+                visible: (page.detail.failureCount || 0) > 0
 
-                    objectName: "waitingGroup"
-                    visible: waitingRepeater.count > 0
-                    width: column.width
-                    spacing: 18
+                Repeater {
+                    model: page.detail.failures || []
 
-                    SectionLabel {
-                        text: waitingGroup.modelData.title + " (" + waitingRepeater.count + ")"
-                    }
+                    delegate: Rectangle {
+                        id: failureCard
 
-                    Repeater {
-                        id: waitingRepeater
-                        model: page.pluginUi.waitingModel(waitingGroup.modelData.key)
-                        delegate: Rectangle {
-                            id: waitingCard
+                        required property var modelData
 
-                            required property var modelData
+                        width: failureList.width
+                        height: failureColumn.implicitHeight + 24
+                        color: Theme.surface
+                        radius: Theme.radius
 
-                            width: waitingGroup.width
-                            height: waitingRow.implicitHeight + 28
-                            color: Theme.surface
-                            radius: Theme.radius
+                        Column {
+                            id: failureColumn
+                            x: 14
+                            y: 12
+                            width: failureCard.width - 28
+                            spacing: 4
 
-                            TaskChoiceRow {
-                                id: waitingRow
-                                x: 16
-                                y: 14
-                                width: parent.width - 32
-                                title: waitingCard.modelData.title || ""
-                                detail: waitingCard.modelData.subtitle || ""
-                                actionText: waitingCard.modelData.action || "Open"
-                                onChosen: page.pluginUi.runWaiting(waitingGroup.modelData.key, waitingCard.modelData.id)
-                                onDismissRequested: page.pluginUi.dismissWaiting(waitingGroup.modelData.key, waitingCard.modelData.id)
+                            Text {
+                                width: parent.width
+                                text: failureCard.modelData.name
+                                elide: Text.ElideMiddle
+                                color: Theme.textPrimary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSecondary
+                                font.weight: Font.DemiBold
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: failureCard.modelData.message
+                                wrapMode: Text.WordWrap
+                                color: Theme.textSecondary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSmall
+                            }
+
+                            TextButton {
+                                objectName: "taskShowInFolder"
+                                visible: /^([A-Za-z]:[\\/]|\/)/.test(failureCard.modelData.name)
+                                text: "Show in folder"
+                                kind: "ghost"
+                                implicitHeight: 24
+                                onClicked: jobsModel.showInFolder(failureCard.modelData.name)
                             }
                         }
                     }
                 }
             }
-
-            SectionLabel {
-                visible: page.active > 0
-                text: "Running"
-            }
-
-            Repeater {
-                model: jobsModel
-                delegate: JobCard {
-                    width: column.width
-                    visible: canCancel
-                }
-            }
-
-            SectionLabel {
-                visible: page.finished > 0
-                text: "Finished"
-            }
-
-            Repeater {
-                model: jobsModel
-                delegate: JobCard {
-                    width: column.width
-                    visible: !canCancel
-                }
-            }
-
-            Text {
-                visible: page.active === 0 && page.finished === 0 && page.waitingCount === 0
-                width: parent.width
-                text: "No background tasks in this session."
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSecondary
-            }
         }
-    }
 
-    component JobCard: Rectangle {
-        id: card
-
-        required property string jobId
-        required property string label
-        required property string jobState
-        required property string outcome
-        required property string stateLabel
-        required property real progress
-        required property int completed
-        required property int total
-        required property string detail
-        required property real elapsedSeconds
-        required property real remainingSeconds
-        required property string errorMessage
-        required property int failureCount
-        required property var failures
-        required property bool canCancel
-
-        implicitHeight: body.implicitHeight + 28
-        height: visible ? implicitHeight : 0
-        color: Theme.surface
-        radius: Theme.radius
-
-        TaskRow {
-            id: body
-            x: 16
-            y: 14
-            width: card.width - 32
-            jobId: card.jobId
-            label: card.label
-            jobState: card.jobState
-            outcome: card.outcome
-            stateLabel: card.stateLabel
-            progress: card.progress
-            completed: card.completed
-            total: card.total
-            detail: card.detail
-            elapsedSeconds: card.elapsedSeconds
-            remainingSeconds: card.remainingSeconds
-            errorMessage: card.errorMessage
-            failureCount: card.failureCount
-            failures: card.failures
-            canCancel: card.canCancel
-            onCancelRequested: jobsModel.cancel(card.jobId)
+        Text {
+            x: 24
+            y: 24
+            visible: !page.hasDetail
+            width: Math.min(640, scroller.width - 48)
+            text: "Select a task on the left to see its record."
+            color: Theme.textSecondary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSecondary
         }
     }
 }

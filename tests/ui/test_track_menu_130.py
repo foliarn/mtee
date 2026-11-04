@@ -124,7 +124,12 @@ def test_a_track_of_the_explorer_tree_opens_the_same_menu(qapp, tmp_path: Path) 
         _wait_for(window, lambda: any(_row_id(row) == sets for row in _rows(window)))
         workspace.toggleFolder(sets)
         one = library.path_owner(music / "Sets" / "one.wav")
+        # The tree may still reload a branch after a scan: take the row once nothing is loading.
+        _wait_for(
+            window, lambda: not any(_row_id(row).startswith("loading:") for row in _rows(window))
+        )
         _wait_for(window, lambda: any(_row_id(row) == one for row in _rows(window)))
+        QTest.qWait(200)
         row = next(row for row in _rows(window) if _row_id(row) == one)
         _right_click(window, row)
         labels = _labels(_object(window, "explorerTrackMenu"))

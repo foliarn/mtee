@@ -95,7 +95,6 @@ Item {
             }
         }
         Component { id: pluginsViewPane; PluginsViewPane { workspace: dock.workspace } }
-        Component { id: tasksPane; TasksPane { workspace: dock.workspace } }
         // The Convert pane belongs to the conversion plugin: it is loaded only when that window is
         // shown, which the workspace allows only when the plugin is enabled.
         Component {
@@ -139,7 +138,6 @@ Item {
                 if (id === "playlists") return playlistsPane
                 if (id === "artists") return dock.workspace.artistList ? artistsPane : artistsUnavailablePane
                 if (id === "plugins") return pluginsViewPane
-                if (id === "tasks") return tasksPane
                 if (id === "convert") return convertPane
                 if (id === "info") return infoPane
                 if (id === "queue") return queuePane

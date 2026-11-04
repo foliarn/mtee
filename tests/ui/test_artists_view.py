@@ -7,6 +7,7 @@ last and each uses an artist that no earlier test changes.
 from __future__ import annotations
 
 import pytest
+from tests.helpers.ui_plugin import click
 from tests.ui.artists_support import (
     active_tab,
     artist_tabs,
@@ -136,3 +137,28 @@ def test_split_opens_the_first_artist_of_the_result_and_keeps_the_others_in_the_
     assert wait_until(lambda: text(root, "artistTitleText") == "Camo")
     workspace.setActivity("artists")
     assert wait_until(lambda: _find(root, "artistRow_krooked") is not None)
+
+
+def test_the_count_line_button_steps_the_order_and_names_it(view) -> None:
+    workspace, root, _tracks = view
+    workspace.setActivity("artists")
+    assert wait_until(lambda: _find(root, "artistsPane") is not None)
+    label = _find(root, "cycleButtonLabel")
+    assert label is not None and label.property("text") == "A" + chr(0x2013) + "Z"
+    assert workspace.artistList.sortMode == "name"
+
+    click(root, label)
+    assert wait_until(lambda: label.property("text") == "Z" + chr(0x2013) + "A")
+    assert workspace.artistList.sortMode == "nameDesc"
+    click(root, label)
+    assert wait_until(lambda: label.property("text") == "Most tracks")
+    assert workspace.artistList.sortMode == "mostTracks"
+    model = workspace.artistList
+    counts = [int(model.data(model.index(row, 0))["trackCount"]) for row in range(model.count)]
+    assert counts == sorted(counts, reverse=True)
+    click(root, label)
+    assert wait_until(lambda: label.property("text") == "Fewest tracks")
+    assert workspace.artistList.sortMode == "fewestTracks"
+    click(root, label)
+    assert wait_until(lambda: label.property("text") == "A" + chr(0x2013) + "Z")
+    assert workspace.artistList.sortMode == "name"

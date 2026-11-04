@@ -9,6 +9,7 @@ from typing import Protocol
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
 from mtee.domain.analysis import AnalysisSettings
+from mtee.domain.job_summaries import analysis_summary
 from mtee.models.analysis_settings_model import AnalysisSettingsModel
 from mtee.persistence.library_repository import LibraryRepository
 from mtee.services.analysis_service import AnalysisService
@@ -127,7 +128,7 @@ class AnalysisModel(QObject):
                 force=force,
             )
 
-        self._jobs.submit(task, label=label)
+        self._jobs.submit(task, label=label, summary=analysis_summary())
 
     @Slot(str)
     def _on_track_done(self, track_id: str) -> None:

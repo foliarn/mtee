@@ -94,7 +94,8 @@ class JobStatus:
     ``completed`` and ``total`` count the elements of a job that has several (files,
     tracks); both stay ``None`` when the job cannot tell. ``started_at`` and
     ``finished_at`` are epoch seconds. ``failures`` keeps the first failed elements;
-    ``failure_total`` counts them all.
+    ``failure_total`` counts them all. ``summary`` is the one sentence written when the job
+    ends (empty while it runs); see ``mtee.domain.job_summaries``.
     """
 
     job_id: JobId
@@ -109,6 +110,7 @@ class JobStatus:
     finished_at: float | None = None
     failures: tuple[JobItemFailure, ...] = ()
     failure_total: int = 0
+    summary: str = ""
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.progress <= 1.0:

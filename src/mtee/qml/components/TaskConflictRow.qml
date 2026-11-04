@@ -2,7 +2,7 @@ import QtQuick
 import Mtee
 
 // One tag conflict listed like a changed file: the file, what differs, and small
-// buttons to replace its tags or to dismiss it. Shared by the Tasks pane and page.
+// buttons to replace its tags or to dismiss it. Shared by the notifications bell.
 Column {
     id: conflictRow
 

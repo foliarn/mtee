@@ -20,6 +20,20 @@ Item {
     property bool renaming: false
     property bool dropTarget: false
     property bool keepExtension: false
+    // Title colour: accent for the open folder or the playing song, muted for a loading row.
+    property bool accent: false
+    property bool muted: false
+    // A warning row (a plugin that failed): its title is drawn in the warning colour.
+    property bool warning: false
+    // A short status at the right edge (for example "Unavailable"); tone "danger" or "muted".
+    property string trailingText: ""
+    property string trailingTone: "muted"
+    property string renameSeed: title
+    // Up to four cover URLs drawn as a 2x2 mosaic when ``leading`` is empty (a playlist without a
+    // cover of its own).
+    property var covers: []
+    // The tile is the accent gradient (the default cover of Liked tracks); the icon is dark on it.
+    property bool tileGradient: false
     readonly property bool compact: size === "compact"
     readonly property bool hovered: mouse.containsMouse
     readonly property int tileSize: compact ? 18 : 40
@@ -33,6 +47,8 @@ Item {
     signal renamed(string text)
     signal renameCancelled()
     signal dragStarted()
+    signal dragMoved(real x, real y)
+    signal dragEnded()
 
     implicitWidth: 240
     implicitHeight: compact ? 28 : 52
@@ -69,8 +85,16 @@ Item {
                 dragSent = true
                 item.dragStarted()
             }
+            if (dragSent)
+                item.dragMoved(event.x, event.y)
+        }
+        onReleased: {
+            if (dragSent)
+                item.dragEnded()
         }
         onClicked: (event) => {
+            if (dragSent)
+                return
             if (event.button === Qt.RightButton)
                 item.contextRequested(event.x, event.y)
             else
@@ -88,36 +112,43 @@ Item {
         height: parent.height
         spacing: 8
 
-        Item {
-            id: chevronBox
-            width: item.compact ? 14 : 0
-            height: parent.height
-            visible: item.compact || item.expandable
-
-            Icon {
-                anchors.centerIn: parent
-                visible: item.expandable
-                name: item.expanded ? "chevron-down" : "chevron-right"
-                size: 12
-                color: Theme.textMuted
-            }
-            MouseArea {
-                anchors.fill: parent
-                enabled: item.expandable
-                onClicked: item.chevronClicked()
-            }
-        }
-
         Rectangle {
             id: tile
             objectName: "navItemLeading"
-            visible: item.leading.length > 0
+            visible: item.leading.length > 0 || item.covers.length > 0
             anchors.verticalCenter: parent.verticalCenter
             width: item.tileSize
             height: item.tileSize
             radius: Theme.radiusCover
             color: item.isCover ? "transparent" : Theme.selection
             clip: true
+
+            Rectangle {
+                anchors.fill: parent
+                visible: item.tileGradient
+                radius: parent.radius
+                gradient: Gradient {
+                    GradientStop { position: 0; color: Theme.primary }
+                    GradientStop { position: 1; color: Qt.darker(Theme.primary, 1.45) }
+                }
+            }
+            Grid {
+                anchors.fill: parent
+                columns: 2
+                visible: item.covers.length > 0 && item.leading.length === 0
+                Repeater {
+                    model: 4
+                    Image {
+                        required property int index
+                        width: tile.width / 2
+                        height: tile.height / 2
+                        source: item.covers.length ? (item.covers[index % item.covers.length] || "") : ""
+                        sourceSize: Qt.size(item.tileSize, item.tileSize)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                    }
+                }
+            }
 
             Image {
                 anchors.fill: parent
@@ -138,10 +169,10 @@ Item {
             }
             Icon {
                 anchors.centerIn: parent
-                visible: !item.isCover && !item.isLetter
+                visible: !item.isCover && !item.isLetter && item.leading.length > 0
                 name: item.isCover || item.isLetter ? "" : item.leading
                 size: item.compact ? 14 : 20
-                color: Theme.textSecondary
+                color: item.tileGradient ? Theme.editor : Theme.textSecondary
             }
         }
 
@@ -158,7 +189,7 @@ Item {
                 width: parent.width
                 text: item.title
                 elide: Text.ElideRight
-                color: Theme.textPrimary
+                color: item.warning ? Theme.warning : item.muted ? Theme.textMuted : item.accent ? Theme.primary : Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
             }
@@ -190,6 +221,26 @@ Item {
                 onCancelled: { item.renaming = false; item.renameCancelled() }
             }
         }
+
+        Item {
+            id: chevronBox
+            width: item.expandable ? 14 : 0
+            height: parent.height
+            visible: item.expandable
+
+            Icon {
+                anchors.centerIn: parent
+                visible: item.expandable
+                name: item.expanded ? "chevron-down" : "chevron-right"
+                size: 12
+                color: Theme.textMuted
+            }
+            MouseArea {
+                anchors.fill: parent
+                enabled: item.expandable
+                onClicked: item.chevronClicked()
+            }
+        }
     }
 
     Row {
@@ -198,11 +249,20 @@ Item {
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
         spacing: 6
+
+        Text {
+            objectName: "navItemTrailing"
+            visible: item.trailingText.length > 0
+            text: item.trailingText
+            color: item.trailingTone === "danger" ? Theme.danger : Theme.textMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSmall
+        }
     }
 
     onRenamingChanged: {
         if (renaming)
-            editor.begin(title)
+            editor.begin(renameSeed)
         else
             editor.visible = false
     }

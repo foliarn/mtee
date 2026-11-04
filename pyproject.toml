@@ -50,7 +50,7 @@ testpaths = ["tests"]
 # wall-clock speed and take seconds each. `uv run pytest -m ""` runs every test;
 # `-n 0` runs in one process for debugging. A test still running after 2 minutes is
 # stopped with the stack of every thread, instead of hanging the run.
-addopts = "-q -n auto --dist worksteal -m \"not slow\""
+addopts = "-q -n 8 --dist worksteal -m \"not slow\""
 timeout = 120
 timeout_method = "thread"
 qt_api = "pyside6"

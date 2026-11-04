@@ -22,6 +22,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from mtee.domain.job_summaries import fixed
 from mtee.domain.jobs import JobCancelledError
 from mtee.domain.tag_conflicts import TagConflict
 from mtee.services.jobs import JobContext, JobService
@@ -132,7 +133,7 @@ class TagConflictsModel(QAbstractListModel):
         count = len(self._conflicts)
         self.noticeRaised.emit(
             f"{count} track{'s' if count != 1 else ''} with tags stored under several names. "
-            "Open Tasks to replace the old values."
+            "Open the notifications bell to replace the old values."
         )
 
     @Slot(str)
@@ -163,7 +164,11 @@ class TagConflictsModel(QAbstractListModel):
             if message:
                 raise RuntimeError(message)
 
-        self._jobs.submit(task, label=f"Replace tags: {conflict.file_name}")
+        self._jobs.submit(
+            task,
+            label=f"Replace tags: {conflict.file_name}",
+            summary=fixed(f"Tags replaced in {conflict.file_name}"),
+        )
 
     @Slot()
     def resolveAll(self) -> None:

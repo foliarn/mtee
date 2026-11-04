@@ -96,9 +96,9 @@ Item {
             id: fields
             spacing: 16
             Text {
-                text: dialogs.action === "create" ? "New playlist" : dialogs.action === "folder" ? "New folder"
+                text: dialogs.action === "create" ? "New playlist"
                     : dialogs.action === "edit" ? "Edit playlist" : dialogs.action === "export" ? "Export playlist"
-                    : dialogs.action.indexOf("delete") === 0 ? "Delete " + (dialogs.action === "deleteFolder" ? "folder" : "playlist") + "?"
+                    : dialogs.action.indexOf("delete") === 0 ? "Delete playlist?"
                     : dialogs.action === "renameFolder" ? "Rename folder" : "Move to folder"
                 color: Theme.textPrimary; font.family: Theme.fontFamily; font.pixelSize: 24; font.weight: Font.Bold
             }
@@ -106,7 +106,7 @@ Item {
                 id: name
                 objectName: "playlistNameInput"
                 width: parent.width; height: 40
-                visible: ["create", "folder", "edit", "renameFolder"].indexOf(dialogs.action) >= 0
+                visible: ["create", "edit", "renameFolder"].indexOf(dialogs.action) >= 0
                 placeholderText: "Name"; color: Theme.textPrimary; placeholderTextColor: Theme.textMuted
                 font.family: Theme.fontFamily; font.pixelSize: 16
                 background: Rectangle { radius: Theme.radius; color: Theme.editor; border.color: name.activeFocus ? Theme.focus : Theme.separator }
@@ -138,8 +138,7 @@ Item {
             Text {
                 width: parent.width
                 visible: dialogs.action.indexOf("delete") === 0 || dialogs.action === "export"
-                text: dialogs.action === "deleteFolder" ? "The folder must contain no playlists or subfolders."
-                    : dialogs.action === "delete" ? "Your audio files stay in the library."
+                text: dialogs.action === "delete" ? "Your audio files stay in the library."
                     : "Choose a lightweight backup or include exact copies of available audio files. Missing tracks keep their positions."
                 wrapMode: Text.WordWrap; color: Theme.textSecondary; font.family: Theme.fontFamily; font.pixelSize: 15
             }
@@ -159,11 +158,9 @@ Item {
                     visible: dialogs.action !== "export"
                     onClicked: {
                         if (dialogs.action === "create") dialogs.model.create(name.text, dialogs.identity, dialogs.tracks)
-                        else if (dialogs.action === "folder") dialogs.model.createFolder(name.text, dialogs.identity)
                         else if (dialogs.action === "edit") dialogs.model.edit(dialogs.identity, name.text, description.text, dialogs.version)
                         else if (dialogs.action === "renameFolder") dialogs.model.renameFolder(dialogs.identity, name.text)
                         else if (dialogs.action === "delete") dialogs.model.delete(dialogs.identity)
-                        else if (dialogs.action === "deleteFolder") dialogs.model.deleteFolder(dialogs.identity)
                         else dialogs.model.move(dialogs.identity, chooser.model[chooser.currentIndex].id, dialogs.action === "moveFolder", "")
                         form.close()
                     }

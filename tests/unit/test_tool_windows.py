@@ -20,7 +20,7 @@ def _ids(entries: list[dict[str, object]], side: str) -> list[str]:
 
 def test_core_windows_are_listed_per_bar_and_place() -> None:
     entries = core_tool_windows(convert_enabled=False)
-    assert _ids(entries, "left") == ["explorer", "playlists", "artists", "tasks", "plugins"]
+    assert _ids(entries, "left") == ["explorer", "playlists", "artists", "plugins"]
     assert _ids(entries, "right") == ["info", "queue", "history", "settings"]
     places = {entry["id"]: entry["place"] for entry in entries}
     assert places["plugins"] == "bottom"
@@ -42,7 +42,7 @@ def test_plugin_windows_follow_core_windows_on_their_side() -> None:
     entries = tool_window_entries(activities, convert_enabled=False)
     left = _ids(entries, "left")
     right = _ids(entries, "right")
-    assert left.index("sample.left_pane") > left.index("tasks")
+    assert left.index("sample.left_pane") > left.index("artists")
     assert right == ["info", "queue", "history", "sample.right_pane", "settings"]
     owners = {entry["id"]: entry["owner"] for entry in entries}
     assert owners["sample.right_pane"] == "sample"

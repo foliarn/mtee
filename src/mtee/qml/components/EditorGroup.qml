@@ -76,6 +76,18 @@ WindowSurface {
         return entries
     }
 
+    // An entry of the menu of a tab: the close entries, and a split moves the tab into a new
+    // window on that side (the same split as a drop on an edge).
+    function runTabAction(tabId, action) {
+        const edges = { "splitRight": "right", "splitLeft": "left", "splitUp": "top", "splitDown": "bottom" }
+        if (action === "close")
+            group.workspace.closeTab(group.groupId, tabId)
+        else if (action === "others" || action === "all" || action === "left" || action === "right")
+            group.workspace.closeTabs(group.groupId, action, tabId)
+        else if (edges[action] !== undefined)
+            group.workspace.splitWithTab(group.groupId, edges[action], group.groupId, tabId)
+    }
+
     TabStrip {
         id: strip
         width: parent.width
@@ -92,6 +104,7 @@ WindowSurface {
             if (typeof group.workspace.keepTab === "function")
                 group.workspace.keepTab(group.groupId, tabId)
         }
+        onTabAction: (tabId, action) => group.runTabAction(tabId, action)
         onEmptyClicked: group.workspace.clearSelection(group.groupId)
         onTabMoved: (tabId, toIndex) => group.workspace.moveTab(group.groupId, tabId, group.groupId, toIndex)
         onTabDropped: (payload, toIndex) => group.workspace.moveTab(payload.groupId, payload.tabId,

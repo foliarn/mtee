@@ -8,6 +8,7 @@ from mtee.models.workspace_columns import (
     move_column_relative,
     reset_column_preferences,
     resize_column,
+    resize_columns,
     set_show_artwork,
     toggle_column,
 )
@@ -148,3 +149,27 @@ def test_find_tabs_with_hidden_sort() -> None:
     assert reset == ["tab1"]
     assert tab_states["tab1"]["sortMode"] == "default"
     assert tab_states["tab1"]["sortKey"] == "fileCreatedAt"
+
+
+def test_resize_columns_sets_several_widths_at_once() -> None:
+    prefs = {"widths": {"title": 0, "artist": 150}, "hidden": [], "order": ["title", "artist"]}
+
+    updated, changed = resize_columns(prefs, {"artist": 210, "fileCreatedAt": 90})
+
+    assert changed is True
+    assert updated["widths"]["artist"] == 210
+    assert updated["widths"]["fileCreatedAt"] == 90
+    assert updated["widths"]["title"] == 0
+    assert prefs["widths"] == {"title": 0, "artist": 150}
+
+    _, unchanged = resize_columns(updated, {"artist": 210})
+    assert unchanged is False
+
+
+def test_a_title_width_of_zero_stays_automatic() -> None:
+    prefs = {"widths": {"title": 500}, "hidden": [], "order": ["title"]}
+
+    updated, changed = resize_column(prefs, "title", 0)
+
+    assert changed is True
+    assert updated["widths"]["title"] == 0

@@ -24,6 +24,8 @@ Column {
     // Groups the user folded or unfolded: id -> true (folded) or false. A group with no entry
     // follows the plugin's ``expanded`` value.
     property var folded: ({})
+    // "compact" (tree rows) or "regular" (the Playlists list): the size of the NavItem rows.
+    property string rowSize: "compact"
     readonly property var ui: workspace.pluginUi
     // The count the plugin declared for the section, read again with the plugins' revision.
     readonly property int headerCount: ui ? ui.sectionCount(sectionKey, ui.revision) : 0
@@ -161,118 +163,60 @@ Column {
     Repeater {
         model: section.expanded ? section.visibleItems : []
 
-        delegate: Rectangle {
+        // A row is the NavItem of the Playlists list (plan 132.4): the same height, tile and hover
+        // as the playlists. A group folds by its chevron; a click on the row is the plugin's activate.
+        delegate: NavItem {
             id: row
             required property var modelData
             readonly property bool isGroup: modelData.kind === "group"
             readonly property bool current: !isGroup && modelData.id === section.activeId
-            readonly property bool hasIcon: isGroup || (modelData.icon || "").length > 0
-            readonly property bool warning: modelData.tone === "warning"
 
             objectName: "pluginRow_" + modelData.id
             width: section.width
-            height: Theme.treeRowHeight
-            color: current ? Theme.selection : rowMouse.containsMouse ? Theme.surface : "transparent"
+            size: section.rowSize
+            height: size === "compact" ? 28 : 52
+            depth: modelData.depth || 0
+            title: modelData.name || ""
+            leading: isGroup ? "" : (modelData.icon || "")
+            expandable: isGroup
+            expanded: isGroup && !section.isFolded(modelData)
+            accent: current
+            warning: modelData.tone === "warning"
+            trailingText: modelData.count || ""
+            trailingTone: warning ? "danger" : "muted"
+            trailing: Rectangle {
+                objectName: "pluginRowBadge_" + row.modelData.id
+                visible: (row.modelData.badge || 0) > 0
+                width: Math.max(14, badgeText.implicitWidth + 6)
+                height: 14
+                color: Theme.primary
 
-            Icon {
-                id: lead
-                x: 8 + (row.modelData.depth || 0) * 14
-                anchors.verticalCenter: parent.verticalCenter
-                visible: row.hasIcon
-                name: row.isGroup ? (section.isFolded(row.modelData) ? "chevron-right" : "chevron-down")
-                    : (row.modelData.icon || "")
-                size: row.isGroup ? 16 : 14
-                color: row.warning ? Theme.warning
-                    : row.isGroup ? Theme.textSecondary
-                    : row.modelData.tone === "secondary" ? Theme.secondary : Theme.textSecondary
-            }
-
-            Text {
-                id: nameText
-                anchors.left: lead.visible ? lead.right : parent.left
-                anchors.leftMargin: lead.visible ? (row.isGroup ? 4 : 8) : 8 + (row.modelData.depth || 0) * 14 + 22
-                anchors.right: tail.left
-                anchors.rightMargin: 8
-                anchors.verticalCenter: parent.verticalCenter
-                text: row.modelData.name
-                elide: Text.ElideRight
-                color: row.current ? Theme.primary : row.warning ? Theme.warning
-                    : row.isGroup ? Theme.textPrimary : Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSecondary
-                font.weight: row.isGroup && (row.modelData.depth || 0) === 0 ? Font.DemiBold : Font.Normal
-            }
-
-            Item {
-                id: tail
-                anchors.right: parent.right
-                anchors.rightMargin: 12
-                anchors.verticalCenter: parent.verticalCenter
-                width: tailRow.width
-                height: parent.height
-
-                Row {
-                    id: tailRow
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 8
-
-                    // A count the plugin wants noticed, in the accent colour as on the activity bar.
-                    Rectangle {
-                        visible: (row.modelData.badge || 0) > 0
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: Math.max(14, badgeText.implicitWidth + 6)
-                        height: 14
-                        color: Theme.primary
-
-                        Text {
-                            id: badgeText
-                            anchors.centerIn: parent
-                            text: row.modelData.badge || ""
-                            color: Theme.textOnColor
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
-                        }
-                    }
-
-                    Text {
-                        visible: (row.modelData.count || "").length > 0
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: row.modelData.count || ""
-                        color: row.warning ? Theme.warning : Theme.textMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.features: { "tnum": 1 }
-                    }
+                Text {
+                    id: badgeText
+                    anchors.centerIn: parent
+                    text: row.modelData.badge || ""
+                    color: Theme.textOnColor
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
                 }
             }
 
-            MouseArea {
-                id: rowMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                onClicked: (mouse) => {
-                    // The references are taken first: changing the fold state rebuilds this
-                    // delegate, so nothing below may read the row's ids after that.
-                    const ui = section.ui
-                    const column = section
-                    const key = section.sectionKey
-                    const item = row.modelData
-                    if (!row.isGroup) {
-                        ui.activateRow(key, item.id)
-                        return
-                    }
-                    // The chevron folds and unfolds; the name of the group is the plugin's activate.
-                    if (mouse.x < lead.x + lead.width + 4) {
-                        const expanded = column.isFolded(item)
-                        const next = Object.assign({}, column.folded)
-                        next[item.id] = !expanded
-                        column.folded = next
-                        ui.foldRow(key, item.id, expanded)
-                    } else if (mouse.x >= nameText.x && mouse.x <= nameText.x + nameText.paintedWidth) {
-                        ui.activateRow(key, item.id)
-                    }
-                }
+            onClicked: {
+                // The references are taken first: folding rebuilds this delegate.
+                const ui = section.ui
+                const key = section.sectionKey
+                ui.activateRow(key, row.modelData.id)
+            }
+            onChevronClicked: {
+                const ui = section.ui
+                const key = section.sectionKey
+                const item = row.modelData
+                const expanded = section.isFolded(item)
+                const next = Object.assign({}, section.folded)
+                next[item.id] = !expanded
+                section.folded = next
+                ui.foldRow(key, item.id, expanded)
             }
         }
     }

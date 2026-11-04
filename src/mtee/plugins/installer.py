@@ -67,7 +67,7 @@ _CHUNK_BYTES = 1024 * 1024
 class InstallRefusedError(PackageError):
     """A package, or a plugin folder, is refused; the message is one readable sentence."""
 
-    # Shown in Tasks as its message alone (see docs/plugins.md, the readable attribute).
+    # Shown in the Tasks window as its message alone (see docs/plugins.md, the readable attribute).
     readable = True
 
 

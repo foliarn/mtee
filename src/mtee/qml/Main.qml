@@ -6,7 +6,7 @@ import "components"
 import "views"
 
 // Frameless MTEE window: the frame (header, tool bars, windows, player bar), the dialogs, the
-// toast, the native resize edges and the window shortcuts (components/AppShortcuts.qml).
+// native resize edges and the window shortcuts (components/AppShortcuts.qml).
 Window {
     id: root
 
@@ -23,6 +23,51 @@ Window {
     flags: Qt.Window | Qt.FramelessWindowHint
     title: "MTEE"
     color: Theme.chrome
+
+    // The window comes back where it was closed (position, size, maximized), if it is still on a
+    // screen. The size and place of the restored (not maximized) window are tracked as it moves.
+    property rect normalGeometry: Qt.rect(0, 0, 0, 0)
+    function noteGeometry() {
+        if (visibility === Window.Windowed)
+            normalGeometry = Qt.rect(x, y, width, height)
+    }
+    onXChanged: noteGeometry()
+    onYChanged: noteGeometry()
+    onWidthChanged: noteGeometry()
+    onHeightChanged: noteGeometry()
+    function onScreens(rect) {
+        const cx = rect.x + rect.width / 2
+        const cy = rect.y + rect.height / 2
+        for (const screen of Qt.application.screens) {
+            if (cx >= screen.virtualX && cx < screen.virtualX + screen.width
+                    && cy >= screen.virtualY && cy < screen.virtualY + screen.height)
+                return true
+        }
+        return false
+    }
+    function restoreGeometry() {
+        const saved = typeof ws.savedWindow === "object" && ws.savedWindow ? ws.savedWindow : {}
+        if (saved.width === undefined)
+            return
+        const rect = Qt.rect(saved.x, saved.y, Math.max(minimumWidth, saved.width), Math.max(minimumHeight, saved.height))
+        if (onScreens(rect)) {
+            x = rect.x
+            y = rect.y
+            width = rect.width
+            height = rect.height
+        }
+        if (saved.maximized === true)
+            visibility = Window.Maximized
+    }
+    function saveGeometry() {
+        if (typeof ws.saveWindowGeometry !== "function")
+            return
+        noteGeometry()
+        const r = normalGeometry.width > 0 ? normalGeometry : Qt.rect(x, y, width, height)
+        ws.saveWindowGeometry(r.x, r.y, r.width, r.height, maximized)
+    }
+    Component.onCompleted: restoreGeometry()
+    onClosing: saveGeometry()
 
     Timer {
         interval: 250
@@ -54,38 +99,6 @@ Window {
     AppShortcuts {
         window: root
         workspace: root.ws
-    }
-
-    Rectangle {
-        id: statusToast
-        visible: !shell.demoMode && root.ws.message.length > 0
-        z: 90
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 20
-        width: Math.min(560, parent.width - 48)
-        height: 42
-        color: Theme.surface
-        border.width: 1
-        border.color: Theme.separator
-
-        Text {
-            anchors.fill: parent
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
-            verticalAlignment: Text.AlignVCenter
-            text: root.ws.message
-            elide: Text.ElideRight
-            color: Theme.textPrimary
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSecondary
-        }
-
-        Timer {
-            interval: 5000
-            running: statusToast.visible
-            onTriggered: root.ws.clearMessage()
-        }
     }
 
     Loader {

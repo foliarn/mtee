@@ -17,11 +17,23 @@ Popup {
 
     parent: Overlay.overlay
     padding: 8
-    modal: false
+    modal: true
+    dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     width: bodyWidth + leftPadding + rightPadding
     height: Math.min(maxHeight, body.childrenRect.height + topPadding + bottomPadding)
+
+    // A press outside closes the popover before the click of its own button arrives, so the click
+    // must not open it again: ``toggle`` is what a button calls (HeaderButton + Popover pairs).
+    // The popover is modal (and not dimmed): a press outside closes it and goes no further, so the
+    // click on its own button cannot open it again at once. That makes the button a toggle.
+    function toggle() {
+        if (opened)
+            close()
+        else
+            open()
+    }
 
     function place() {
         const root = Overlay.overlay
@@ -41,6 +53,8 @@ Popup {
     onAboutToShow: place()
     onWidthChanged: if (opened) place()
     onHeightChanged: if (opened) place()
+
+    Overlay.modal: Item {}
 
     background: Rectangle {
         color: Theme.surface

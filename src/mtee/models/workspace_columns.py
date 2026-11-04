@@ -17,6 +17,7 @@ __all__ = [
     "move_column_relative",
     "reset_column_preferences",
     "resize_column",
+    "resize_columns",
     "set_show_artwork",
     "toggle_column",
 ]
@@ -76,6 +77,24 @@ def resize_column(
     widths[key] = clamped_width
     updated["widths"] = widths
     return updated, True
+
+
+def resize_columns(
+    prefs: dict[str, Any],
+    widths: dict[str, Any],
+    all_keys: Collection[str] = COLUMN_KEYS,
+) -> tuple[dict[str, Any], bool]:
+    """Set several column widths at once, for one save after a border drag (plan 133.3).
+
+    Returns:
+        (updated_prefs, changed)
+    """
+    updated = prefs
+    changed = False
+    for key, width in widths.items():
+        updated, did_change = resize_column(updated, key, int(width), all_keys)
+        changed = changed or did_change
+    return updated, changed
 
 
 def move_column(

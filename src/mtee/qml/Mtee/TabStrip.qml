@@ -28,6 +28,7 @@ Rectangle {
     signal tabKept(string tabId)
     signal tabMoved(string tabId, int toIndex)
     signal tabDropped(var payload, int toIndex)
+    signal tabAction(string tabId, string action)
     signal switcherChosen(string windowId)
     signal emptyClicked()
 
@@ -153,6 +154,11 @@ Rectangle {
             }
 
             TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: (point) => strip.showTabMenu(tab.modelData.id, tab.index, tab, point.position.x, point.position.y)
+            }
+
+            TapHandler {
                 acceptedButtons: Qt.MiddleButton
                 onTapped: strip.tabClosed(tab.modelData.id)
             }
@@ -264,6 +270,38 @@ Rectangle {
         anchors.rightMargin: 6
         anchors.verticalCenter: parent.verticalCenter
         spacing: 2
+    }
+
+    // The menu of a tab (right click). Entries that do not apply are disabled.
+    property string menuTabId: ""
+    function tabMenuGroups(index) {
+        const count = tabs.length
+        return [
+            { "id": "close", "items": [
+                { "id": "close", "label": "Close", "objectName": "tabMenuClose" },
+                { "id": "others", "label": "Close others", "objectName": "tabMenuCloseOthers", "enabled": count > 1 },
+                { "id": "all", "label": "Close all", "objectName": "tabMenuCloseAll" },
+                { "id": "left", "label": "Close tabs to the left", "objectName": "tabMenuCloseLeft", "enabled": index > 0 },
+                { "id": "right", "label": "Close tabs to the right", "objectName": "tabMenuCloseRight", "enabled": index < count - 1 }
+            ] },
+            { "id": "split", "items": [
+                { "id": "splitRight", "label": "Split right", "objectName": "tabMenuSplitRight" },
+                { "id": "splitLeft", "label": "Split left", "objectName": "tabMenuSplitLeft" },
+                { "id": "splitUp", "label": "Split up", "objectName": "tabMenuSplitUp" },
+                { "id": "splitDown", "label": "Split down", "objectName": "tabMenuSplitDown" }
+            ] }
+        ]
+    }
+    function showTabMenu(tabId, index, anchor, x, y) {
+        strip.menuTabId = tabId
+        tabMenu.groups = strip.tabMenuGroups(index)
+        tabMenu.popup(anchor, x, y)
+    }
+
+    ActionMenu {
+        id: tabMenu
+        objectName: "tabContextMenu"
+        onTriggered: actionId => strip.tabAction(strip.menuTabId, actionId)
     }
 
     AppMenu {

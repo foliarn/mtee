@@ -1,4 +1,5 @@
-"""Wide track table: highlight stops at the visible edge and the row actions stay in view."""
+"""Track table at any width: columns that do not fit leave from the right, nothing scrolls,
+and the row actions never overlap a column (plan 133.1 and 133.2)."""
 
 from __future__ import annotations
 
@@ -44,54 +45,86 @@ def _frame(row: QQuickItem) -> QQuickItem:
     return frames[0]
 
 
-def test_actions_stay_visible_and_highlight_stops_at_the_viewport_edge(
+def _action_cell(row: QQuickItem) -> QQuickItem:
+    cells = [item for item in row.findChildren(QQuickItem) if item.objectName() == "trackActions"]
+    assert len(cells) == 1
+    return cells[0]
+
+
+def _header_cells(window: QQuickWindow) -> list[QQuickItem]:
+    return [
+        item
+        for item in window.findChildren(QQuickItem)
+        if item.objectName().startswith("columnHeader_") and item.isVisible()
+    ]
+
+
+def test_columns_that_do_not_fit_leave_from_the_right_and_nothing_scrolls(
     qapp, qtbot, tmp_path: Path, monkeypatch
 ) -> None:
+    # Plan 133.1: the table is never wider than the window. Columns that do not fit are hidden
+    # for this render; the saved widths stay, and the highlight and the buttons stay in view.
     application, runtime, window, workspace, root_id, track_ids = _started(tmp_path, monkeypatch, 3)
     try:
         qtbot.waitUntil(lambda: row_item(window, 1) is not None, timeout=10_000)
-        viewport = _find(window, "tableViewport")
         view = _find(window, "trackListView")
         row = row_item(window, 1)
-        assert viewport is not None and view is not None and row is not None
+        assert view is not None and row is not None
 
         # Make the columns wider than the viewport, as a user would by dragging the headers.
         tab_id = f"folder:{root_id}/"
         workspace.resizeColumn(tab_id, "artist", 640)
         workspace.resizeColumn(tab_id, "fileCreatedAt", 640)
-        qtbot.waitUntil(
-            lambda: viewport.property("contentWidth") > viewport.property("width") + 200,
-            timeout=5_000,
-        )
+        qtbot.waitUntil(lambda: _find(window, "columnHeader_fileCreatedAt") is None, timeout=5_000)
+        assert _find(window, "columnHeader_title") is not None
+        assert _find(window, "columnHeader_artist") is not None
+        # The saved preference is kept: only the drawing leaves the table.
+        assert "fileCreatedAt" in cast(dict, workspace.columnPreferences)["order"]
 
         track_id = str(cast(dict, row.property("modelData"))["id"])
         assert track_id in track_ids
         like = _find(window, f"trackLike_{track_id}")
         assert like is not None and like.isVisible()
+        view_left, view_right = _viewport(window)
+        for cell in _header_cells(window):
+            assert _span(cell)[1] <= view_right + 0.5, cell.objectName()
+        left, right = _span(like)
+        assert left >= view_left and right <= view_right
 
-        def like_visible() -> bool:
-            left, right = _span(like)
-            view_left, view_right = _viewport(window)
-            return left >= view_left and right <= view_right
-
-        qtbot.waitUntil(like_visible, timeout=5_000)
-
-        # The selected row's frame ends at the visible edge, not at the wide table's end.
         workspace.selectTrack(track_id, "single", [])
         view.forceActiveFocus()
         frame = _frame(row)
         qtbot.waitUntil(lambda: frame.isVisible(), timeout=5_000)
-        _view_left, view_right = _viewport(window)
         assert _span(frame)[1] <= view_right + 0.5
+    finally:
+        _shutdown(runtime)
+        application.quit()
 
-        # Scroll the columns sideways: the actions stay at the visible right edge.
-        max_x = viewport.property("contentWidth") - viewport.property("width")
-        viewport.setProperty("contentX", min(max_x, 300.0))
-        qtbot.waitUntil(lambda: abs(viewport.property("contentX") - min(max_x, 300.0)) < 0.5)
-        qtbot.waitUntil(like_visible, timeout=5_000)
-        assert _span(frame)[1] <= _viewport(window)[1] + 0.5
-        QTest.qWait(50)
-        assert like_visible()
+
+def test_the_action_cell_never_meets_a_column_when_the_window_is_resized(
+    qapp, qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    # Plan 133.2: stepping the width from the smallest window the app allows (Theme.minWindowWidth,
+    # 560 px) to 1 920 px, no column reaches past the window and the action cell (heart, add, info)
+    # never overlaps another cell. Narrower windows cannot be reached by the user.
+    application, runtime, window, _workspace, _root_id, _track_ids = _started(
+        tmp_path, monkeypatch, 3
+    )
+    try:
+        qtbot.waitUntil(lambda: row_item(window, 1) is not None, timeout=10_000)
+        for target in [560, 640, 760, 880, 1100, 1280, 1440, 1600, 1920]:
+            window.resize(target, 900)
+            QTest.qWait(60)
+            row = row_item(window, 1)
+            assert row is not None
+            action_left, action_right = _span(_action_cell(row))
+            _view_left, view_right = _viewport(window)
+            assert action_right <= view_right + 0.5, target
+            for cell in _header_cells(window):
+                cell_left, cell_right = _span(cell)
+                assert cell_right <= view_right + 0.5, (target, cell.objectName())
+                overlaps = cell_left < action_right - 0.5 and action_left < cell_right - 0.5
+                assert not overlaps, (target, cell.objectName())
     finally:
         _shutdown(runtime)
         application.quit()
@@ -105,10 +138,8 @@ def test_actions_keep_their_natural_place_when_the_table_fits(
     )
     try:
         qtbot.waitUntil(lambda: row_item(window, 1) is not None, timeout=10_000)
-        viewport = _find(window, "tableViewport")
         row = row_item(window, 1)
-        assert viewport is not None and row is not None
-        assert viewport.property("contentWidth") <= viewport.property("width") + 0.5
+        assert row is not None
 
         # No overflow: the rightmost action (add to playlist) ends at the row's padded right edge.
         track_id = str(cast(dict, row.property("modelData"))["id"])

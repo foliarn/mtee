@@ -76,7 +76,7 @@ _SCENARIOS = {
         name="playing-queue", right_panel="queue", shuffle=True, repeat="all", position=187
     ),
     "fullscreen": DemoScenario(name="fullscreen", fullscreen=True, position=131),
-    "tasks": DemoScenario(name="tasks", activity="tasks"),
+    "tasks": DemoScenario(name="tasks", groups=(("tasks:",),), active_tabs=("tasks:",)),
     "playlists": DemoScenario(
         name="playlists",
         activity="playlists",

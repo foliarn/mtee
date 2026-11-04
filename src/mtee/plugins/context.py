@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from mtee.domain.artist_index import OVERRIDE_MODES, split_credit_parts
 from mtee.domain.artists import clean_name, normalize_key
+from mtee.domain.job_summaries import SummaryFn
 from mtee.domain.musical_key import MusicalKey
 from mtee.domain.source_tracks import NonFileTrackError, SourceTrack, SourceTrackEntry
 from mtee.domain.tracks import TrackId
@@ -510,9 +511,14 @@ class _Jobs:
         self._jobs = jobs
 
     def submit(
-        self, task: JobTask, *, label: str = "Background task", visible: bool = True
+        self,
+        task: JobTask,
+        *,
+        label: str = "Background task",
+        visible: bool = True,
+        summary: SummaryFn | None = None,
     ) -> JobId:
-        return self._jobs.submit(task, label=label, visible=visible)
+        return self._jobs.submit(task, label=label, visible=visible, summary=summary)
 
     def cancel(self, job_id: JobId) -> None:
         self._jobs.cancel(job_id)

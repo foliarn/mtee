@@ -552,6 +552,125 @@ class LibraryRepository:
                 changed.add(relative)
         return sorted(changed)
 
+    def remove_root(self, root_id: str) -> int:
+        """Remove a source from the library and return how many tracks lost their membership.
+
+        Files stay on disk. The folder rows and the memberships of the root (``root_tracks``)
+        leave with the root row (``ON DELETE CASCADE``). Track rows, their locations, analysis,
+        manual corrections, play stats and playlist entries are keyed by ``track_id`` and are not
+        touched (U12). Adding the same folder again finds the same ``track_id``s through
+        ``track_locations.path_key``. Tracks without a membership read as unavailable.
+        """
+        with self._database.transaction() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM root_tracks WHERE root_id=?", (root_id,)
+            ).fetchone()[0]
+            connection.execute("UPDATE root_tracks SET present=0 WHERE root_id=?", (root_id,))
+            connection.execute("UPDATE library_folders SET present=0 WHERE root_id=?", (root_id,))
+            deleted = connection.execute(
+                "DELETE FROM library_roots WHERE root_id=?", (root_id,)
+            ).rowcount
+            if deleted != 1:
+                raise KeyError(f"Unknown library root: {root_id}")
+        return int(count)
+
+    def add_folder_record(self, root_id: str, relative: str) -> None:
+        """Record a folder that now exists on disk so the tree lists it before the next scan."""
+        parent = relative.rpartition("/")[0]
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT scan_generation FROM library_roots WHERE root_id=?", (root_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown library root: {root_id}")
+            connection.execute(
+                "INSERT INTO library_folders(root_id,relative_path,seen_generation,present,"
+                "parent_relative_path) VALUES(?,?,?,1,?) "
+                "ON CONFLICT(root_id,relative_path) DO UPDATE SET present=1,"
+                "seen_generation=excluded.seen_generation,"
+                "parent_relative_path=excluded.parent_relative_path",
+                (root_id, relative, int(row[0]), parent),
+            )
+
+    def forget_folder(self, root_id: str, relative: str) -> None:
+        """Hide a folder and every folder under it, as a recycled folder leaves the tree."""
+        prefix = relative + "/"
+        with self._database.transaction() as connection:
+            connection.execute(
+                "UPDATE library_folders SET present=0 WHERE root_id=? "
+                "AND (relative_path=? OR substr(relative_path,1,?)=?)",
+                (root_id, relative, len(prefix), prefix),
+            )
+
+    def folder_tracks_and_subfolders(self, root_id: str, relative: str) -> tuple[int, int]:
+        """Count the present tracks and the present sub-folders under a folder, at any depth."""
+        prefix = relative + "/"
+        connection = self._database.connection()
+        tracks = connection.execute(
+            "SELECT COUNT(*) FROM root_tracks WHERE root_id=? AND present=1 "
+            "AND substr(relative_path,1,?)=?",
+            (root_id, len(prefix), prefix),
+        ).fetchone()[0]
+        folders = connection.execute(
+            "SELECT COUNT(*) FROM library_folders WHERE root_id=? AND present=1 "
+            "AND relative_path<>? AND substr(relative_path,1,?)=?",
+            (root_id, relative, len(prefix), prefix),
+        ).fetchone()[0]
+        return int(tracks), int(folders)
+
+    def rename_folder_records(
+        self, root_id: str, old_relative: str, new_relative: str, new_path: Path
+    ) -> int:
+        """Point the records under a renamed folder at its new place; return the tracks updated.
+
+        The folder is already renamed on disk to ``new_path``. Track UUIDs, analysis and edits
+        stay: only the locations and the folder rows change, in one transaction. A collision of
+        a new path with an existing record raises ``sqlite3.IntegrityError`` and the caller
+        undoes the disk rename.
+        """
+        old_prefix = old_relative + "/"
+        new_prefix = new_relative + "/"
+        moved = 0
+        with self._database.transaction() as connection:
+            rows = connection.execute(
+                "SELECT rt.track_id,rt.relative_path FROM root_tracks rt "
+                "WHERE rt.root_id=? AND substr(rt.relative_path,1,?)=?",
+                (root_id, len(old_prefix), old_prefix),
+            ).fetchall()
+            for row in rows:
+                track_id = str(row["track_id"])
+                rest = str(row["relative_path"])[len(old_prefix) :]
+                file_path = new_path / rest
+                connection.execute(
+                    "UPDATE track_locations SET path_key=?,path=? WHERE track_id=?",
+                    (normalize_path(file_path), str(file_path), track_id),
+                )
+                connection.execute(
+                    "UPDATE root_tracks SET relative_path=?,parent_relative_path=? "
+                    "WHERE root_id=? AND track_id=?",
+                    (
+                        new_prefix + rest,
+                        (new_prefix + rest).rpartition("/")[0],
+                        root_id,
+                        track_id,
+                    ),
+                )
+                moved += 1
+            folder_rows = connection.execute(
+                "SELECT relative_path FROM library_folders WHERE root_id=? "
+                "AND (relative_path=? OR substr(relative_path,1,?)=?)",
+                (root_id, old_relative, len(old_prefix), old_prefix),
+            ).fetchall()
+            for folder in folder_rows:
+                relative = str(folder["relative_path"])
+                target = new_relative + relative[len(old_relative) :]
+                connection.execute(
+                    "UPDATE library_folders SET relative_path=?,parent_relative_path=? "
+                    "WHERE root_id=? AND relative_path=?",
+                    (target, target.rpartition("/")[0], root_id, relative),
+                )
+        return moved
+
     def roots(self) -> list[dict[str, Any]]:
         rows = (
             self._database.connection()

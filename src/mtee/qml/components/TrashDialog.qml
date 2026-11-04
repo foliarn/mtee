@@ -21,7 +21,8 @@ Dialog {
     parent: Overlay.overlay
     anchors.centerIn: parent
     title: trashModel.state === "confirm"
-        ? (trashModel.hasLocalFiles ? "Move to Recycle Bin" : "Choose an action")
+        ? (trashModel.folderSummary.length > 0 ? "Move folder to Recycle Bin"
+            : trashModel.hasLocalFiles ? "Move to Recycle Bin" : "Choose an action")
         : "Recycle operation"
     standardButtons: Dialog.NoButton
 
@@ -50,7 +51,9 @@ Dialog {
             text: dialog.trashModel.state === "preparing"
                 ? dialog.trashModel.message
                 : dialog.trashModel.state === "confirm"
-                    ? (dialog.trashModel.hasLocalFiles
+                    ? (dialog.trashModel.folderSummary.length > 0
+                        ? dialog.trashModel.folderSummary + " Move it to the Windows Recycle Bin?"
+                    : dialog.trashModel.hasLocalFiles
                         ? "Move " + dialog.trashModel.selectedCount + " selected audio file(s) to the Windows Recycle Bin?"
                         : "None of the selected tracks has a file on this computer, so none can go to the Windows Recycle Bin.")
                     : dialog.trashModel.message

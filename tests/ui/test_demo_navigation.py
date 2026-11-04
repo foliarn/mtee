@@ -78,7 +78,7 @@ def test_the_demo_starts_without_the_convert_plugin(qapp, tmp_path: Path) -> Non
         QCoreApplication.processEvents()
         workspace = cast(DemoWorkspace, runtime.workspace)
         assert workspace.pluginUiEnabled is False
-        assert workspace.activity == "tasks"
+        assert str(workspace.activeTabId).startswith("tasks:")
     finally:
         _close(application, runtime)
 

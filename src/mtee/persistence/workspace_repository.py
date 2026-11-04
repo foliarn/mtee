@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from mtee.domain.artist_index import ARTIST_SORT_KEYS, DEFAULT_ARTIST_SORT
 from mtee.domain.column_widths import clamp_column_width
 from mtee.models import window_layout as layout
 from mtee.persistence.database import Database
@@ -23,8 +24,12 @@ __all__ = [
 ]
 
 _PLUGIN_ACTIVITY = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
-_CORE_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "artists", "plugins"}
+_CORE_ACTIVITIES = {"explorer", "playlists", "convert", "artists", "plugins"}
 _RIGHT_TOOL_WINDOWS = {"info", "queue", "history"}
+# The tabs the session brings back. A tab of a plugin, of Convert or of the artist manager depends
+# on something that may not run next time, and an artist page is rebuilt from the index (tested:
+# artist tabs are not restored), so those are not saved.
+RESTORED_TAB_KINDS = frozenset({"folder", "playlist", "settings", "profile", "tasks"})
 V1_BACKUP_NAME = "workspace.v1.json"
 
 COLUMN_OPTIONS = (
@@ -111,6 +116,10 @@ DEFAULT_WORKSPACE: dict[str, Any] = {
     },
     "previewTabs": True,
     "columnPreferences": deepcopy(DEFAULT_COLUMN_PREFERENCES),
+    # The main window: {x, y, width, height, maximized}, or None until it was first closed.
+    "window": None,
+    # The order of the Artists list (plan 132.5): a view preference, not a library fact.
+    "artistSort": DEFAULT_ARTIST_SORT,
 }
 
 
@@ -262,8 +271,27 @@ def _validated_docks(value: Any) -> dict[str, Any]:
     left = layout.DockState.from_dict("left", value.get("left")).to_dict()
     right = layout.DockState.from_dict("right", value.get("right")).to_dict()
     left["windows"] = [name for name in left["windows"] if _valid_activity(name)]
+    # A dock that held only removed windows (the Tasks window of plan 134.6) closes on load.
+    if not left["windows"]:
+        left["open"] = False
     right["windows"] = [name for name in right["windows"] if name in _RIGHT_TOOL_WINDOWS]
     return {"left": left, "right": right}
+
+
+def _validated_window(value: Any) -> dict[str, Any] | None:
+    """The saved window position and size, or None when it is missing or not numbers."""
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, Any] = {}
+    for key in ("x", "y", "width", "height"):
+        item = value.get(key)
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return None
+        result[key] = int(item)
+    if result["width"] < 200 or result["height"] < 200:
+        return None
+    result["maximized"] = value.get("maximized") is True
+    return result
 
 
 def _validated(value: Any) -> dict[str, Any]:
@@ -282,7 +310,7 @@ def _validated(value: Any) -> dict[str, Any]:
         group["tabs"] = [
             tab
             for tab in group["tabs"]
-            if isinstance(tab, dict) and tab.get("kind") in {"folder", "playlist"}
+            if isinstance(tab, dict) and tab.get("kind") in RESTORED_TAB_KINDS
         ]
         group["active"] = str(group.get("active", ""))
         saved_selections = group.get("selections", {})
@@ -332,6 +360,9 @@ def _validated(value: Any) -> dict[str, Any]:
     # known only once the plugins are loaded, so the saved value is kept.
     result["docks"] = _validated_docks(value.get("docks"))
     result["previewTabs"] = bool(result.get("previewTabs", True))
+    result["window"] = _validated_window(value.get("window"))
+    artist_sort = result.get("artistSort", DEFAULT_ARTIST_SORT)
+    result["artistSort"] = artist_sort if artist_sort in ARTIST_SORT_KEYS else DEFAULT_ARTIST_SORT
     return result
 
 

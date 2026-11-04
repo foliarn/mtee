@@ -6,7 +6,7 @@ __all__ = ["format_playlist_meta"]
 
 
 def format_playlist_meta(count: int, seconds: int) -> str:
-    """Return ``8 tracks, 34 min 26 sec`` (``1 hr 12 min`` from one hour, no seconds then).
+    """Return ``8 tracks, 34 min 26 sec`` (``1 h 12 min`` from one hour, no seconds then).
 
     The duration is left out of an empty playlist and of one whose length is unknown.
     """
@@ -19,7 +19,7 @@ def format_playlist_meta(count: int, seconds: int) -> str:
     hours, rest = divmod(total, 3600)
     minutes, secs = divmod(rest, 60)
     if hours:
-        duration = f"{hours} hr" + (f" {minutes} min" if minutes else "")
+        duration = f"{hours} h" + (f" {minutes} min" if minutes else "")
     elif minutes:
         duration = f"{minutes} min" + (f" {secs} sec" if secs else "")
     else:

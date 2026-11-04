@@ -14,6 +14,7 @@ from dataclasses import replace
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
 
+from mtee.domain.job_summaries import SummaryFn, job_summary
 from mtee.domain.jobs import (
     ERROR_CANCELLED,
     ERROR_INTERRUPTED,
@@ -153,6 +154,9 @@ class JobService(QObject):
     jobUpdated = Signal(object)
     jobsCleared = Signal(object)
     _progressFlushRequested = Signal()
+    # Payload: (terminal status, summary function). Emitted by a worker thread; the slot
+    # that writes the summary runs on the graphical thread.
+    _terminalRequested = Signal(object)
 
     def __init__(
         self, parent: QObject | None = None, *, max_thread_count: int | None = None
@@ -162,14 +166,19 @@ class JobService(QObject):
         if max_thread_count is not None:
             self._pool.setMaxThreadCount(max_thread_count)
         self._lock = threading.RLock()
+        self._owner_thread = threading.current_thread()
         self._statuses: dict[JobId, JobStatus] = {}
         self._contexts: dict[JobId, JobContext] = {}
+        self._summaries: dict[JobId, SummaryFn] = {}
         self._hidden: set[JobId] = set()
         self._pending_progress: set[JobId] = set()
         self._progress_flush_enqueued = False
         self._accepting = True
         self._progressFlushRequested.connect(
             self._schedule_progress_flush, Qt.ConnectionType.QueuedConnection
+        )
+        self._terminalRequested.connect(
+            self._on_terminal_requested, Qt.ConnectionType.QueuedConnection
         )
         self._progress_timer = QTimer(self)
         self._progress_timer.setSingleShot(True)
@@ -184,8 +193,14 @@ class JobService(QObject):
         visible: bool = True,
         priority: int = 0,
         job_id: JobId | None = None,
+        summary: SummaryFn | None = None,
     ) -> JobId:
-        """Queue ``task`` and return its identifier."""
+        """Queue ``task`` and return its identifier.
+
+        ``summary`` writes the one sentence shown when the job ends; it is called once on the
+        graphical thread with the terminal status. Without it, or if it raises, the generic
+        sentence is used (see ``mtee.domain.job_summaries``).
+        """
         job_id = job_id or JobId.new()
         context = JobContext(job_id, self)
         status = JobStatus(job_id=job_id, label=label, state=JobState.QUEUED)
@@ -196,6 +211,8 @@ class JobService(QObject):
                 raise ValueError(f"Job identifier is already registered: {job_id}")
             self._statuses[job_id] = status
             self._contexts[job_id] = context
+            if summary is not None:
+                self._summaries[job_id] = summary
             if not visible:
                 self._hidden.add(job_id)
         self.jobSubmitted.emit(status)
@@ -258,7 +275,7 @@ class JobService(QObject):
         """
         self.begin_shutdown()
         self._pool.waitForDone(timeout_ms)
-        interrupted: list[JobStatus] = []
+        interrupted: list[tuple[JobStatus, SummaryFn | None]] = []
         with self._lock:
             for job_id, status in list(self._statuses.items()):
                 if status.is_terminal:
@@ -273,10 +290,10 @@ class JobService(QObject):
                     ),
                 )
                 self._statuses[job_id] = stopped
-                interrupted.append(stopped)
-        for status in interrupted:
-            self.jobUpdated.emit(status)
-        return interrupted
+                interrupted.append((stopped, self._summaries.pop(job_id, None)))
+        for status, summary in interrupted:
+            self._publish_terminal(status, summary)
+        return [status for status, _summary in interrupted]
 
     def begin_shutdown(self) -> None:
         """Reject new jobs and request cancellation before native services close."""
@@ -387,7 +404,28 @@ class JobService(QObject):
             self._statuses[job_id] = finished
             self._contexts.pop(job_id, None)
             self._pending_progress.discard(job_id)
+            summary = self._summaries.pop(job_id, None)
+        if threading.current_thread() is self._owner_thread:
+            self._publish_terminal(finished, summary)
+        else:
+            self._terminalRequested.emit((finished, summary))
+
+    def _publish_terminal(self, finished: JobStatus, summary: SummaryFn | None) -> None:
+        """Write the summary of a terminal status, then tell the models. Graphical thread."""
+        text = job_summary(finished, summary)
+        with self._lock:
+            current = self._statuses.get(finished.job_id)
+            if current is None:
+                # Cleared from the list before its sentence was written: nothing to tell.
+                return
+            finished = replace(current, summary=text)
+            self._statuses[finished.job_id] = finished
         self.jobUpdated.emit(finished)
+
+    @Slot(object)
+    def _on_terminal_requested(self, payload: object) -> None:
+        status, summary = payload  # type: ignore[misc]
+        self._publish_terminal(status, summary)
 
     @Slot()
     def _schedule_progress_flush(self) -> None:

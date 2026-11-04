@@ -3,22 +3,18 @@ import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import Mtee
 
-// The Plugins activity (plan 123.6, placement B): a search field, the Installed plugins and the
-// Marketplace list. A row opens the plugin's detail as an editor tab. Every action goes to
-// workspace.pluginsView; QML passes ids and file URLs only.
+// The Plugins activity (plan 123.6, placement B): a search field and one list of the installed and
+// the Marketplace plugins (plan 132.6). A row opens the plugin's detail as an editor tab. Every
+// action goes to workspace.pluginsView; QML passes ids and file URLs only.
 Item {
     id: pane
 
     required property var workspace
     readonly property var view: workspace.pluginsView
-    readonly property var installedRows: view ? view.installed : []
+    // The one list of the view (plan 132.6): each plugin once, in its order.
+    readonly property var pluginRows: view ? view.plugins : []
     readonly property var marketRows: view ? view.marketplace : []
     readonly property bool searching: view ? view.search.trim().length > 0 : false
-    // Text for a StyledText label: the characters that the rich-text parser reads are escaped.
-    function escapeText(value) {
-        return String(value === undefined || value === null ? "" : value)
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    }
     // The tab ref of the open plugin: a plugin id, or a Marketplace key ("id@address").
     readonly property string activeId: {
         const groups = pane.workspace.groups
@@ -131,104 +127,44 @@ Item {
         Column {
             id: column
             width: list.width
+            topPadding: 2
 
-            Item {
-                width: parent.width
-                height: 30
-
-                SectionLabel {
-                    x: 16
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "Installed"
-                }
-            }
-
+            // One list (plan 132.6): installed and Marketplace plugins, each once. A tag only on an
+            // installed plugin. The rows are NavItem; the letter tile is its own leading.
             Repeater {
-                model: pane.installedRows
-                delegate: Item {
-                    id: installedRow
+                model: pane.pluginRows
+                delegate: NavItem {
+                    id: pluginRow
                     required property var modelData
-                    readonly property bool selected: modelData.id === pane.activeId
-                    readonly property color stateColor: modelData.status === "failed" ? Theme.danger
-                        : modelData.status === "restart" ? Theme.warning
-                        : modelData.status === "running" ? Theme.primary : Theme.textMuted
                     width: column.width
-                    height: 32
-                    objectName: "pluginsInstalled_" + modelData.id
-
-                    Rectangle {
-                        anchors.fill: parent
-                        color: installedRow.selected ? Theme.selection
-                            : hit.containsMouse ? Theme.surface : "transparent"
-                    }
-
-                    PluginLetterTile {
-                        x: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        letter: installedRow.modelData.letter
-                    }
-
-                    Text {
-                        id: installedStatus
-                        anchors.right: parent.right
-                        anchors.rightMargin: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: installedRow.modelData.statusText
-                        color: installedRow.stateColor
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeCaption
-                    }
-
-                    Text {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 44
-                        anchors.right: installedStatus.left
-                        anchors.rightMargin: 8
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: installedRow.modelData.title
-                        elide: Text.ElideRight
-                        color: installedRow.selected ? Theme.primary : Theme.textPrimary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSecondary
-                    }
-
-                    MouseArea {
-                        id: hit
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: if (pane.view) pane.view.openDetail(installedRow.modelData.id)
-                    }
+                    objectName: (modelData.installed ? "pluginsInstalled_" : "pluginsMarket_") + modelData.key
+                    leading: modelData.letter
+                    title: modelData.title
+                    tag: modelData.tag
+                    tagTone: modelData.tagTone
+                    warning: modelData.warning
+                    selected: modelData.key === pane.activeId
+                    onClicked: if (pane.view) pane.view.openDetail(modelData.key)
                 }
             }
 
             Text {
-                objectName: "pluginsInstalledEmpty"
+                objectName: "pluginsEmpty"
                 x: 16
                 width: column.width - 32
-                visible: pane.installedRows.length === 0
+                visible: pane.pluginRows.length === 0
                 wrapMode: Text.WordWrap
-                text: pane.searching ? "No installed plugin matches the search." : "No plugin is installed."
+                text: pane.searching ? "No plugin matches the search." : "No plugin is installed or listed yet."
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
-            }
-
-            Item {
-                width: parent.width
-                height: 30
-
-                SectionLabel {
-                    x: 16
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "Marketplace"
-                }
             }
 
             Text {
                 objectName: "marketplaceLoading"
                 x: 16
                 width: column.width - 32
+                topPadding: 12
                 visible: pane.view !== null && (pane.view.marketplaceState === "loading"
                     || pane.view.marketplaceState === "idle")
                 wrapMode: Text.WordWrap
@@ -242,6 +178,7 @@ Item {
                 objectName: "marketplaceFailed"
                 x: 16
                 width: column.width - 32
+                topPadding: 12
                 visible: pane.view !== null && pane.view.marketplaceState === "failed"
                 spacing: 8
 
@@ -267,6 +204,7 @@ Item {
                 objectName: "marketplaceEmpty"
                 x: 16
                 width: column.width - 32
+                topPadding: 12
                 visible: pane.view !== null && pane.view.marketplaceState === "ready"
                     && pane.marketRows.length === 0
                 wrapMode: Text.WordWrap
@@ -274,68 +212,6 @@ Item {
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSecondary
-            }
-
-            Repeater {
-                model: pane.marketRows
-                delegate: Item {
-                    id: marketRow
-                    required property var modelData
-                    readonly property bool selected: modelData.key === pane.activeId
-                    width: column.width
-                    height: 32
-                    objectName: "pluginsMarket_" + modelData.key
-
-                    Rectangle {
-                        anchors.fill: parent
-                        color: marketRow.selected ? Theme.selection
-                            : marketHit.containsMouse ? Theme.surface : "transparent"
-                    }
-
-                    PluginLetterTile {
-                        x: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        letter: marketRow.modelData.letter
-                    }
-
-                    Text {
-                        id: marketState
-                        anchors.right: parent.right
-                        anchors.rightMargin: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: marketRow.modelData.state === "update" ? "Update to " + marketRow.modelData.version
-                            : marketRow.modelData.state === "installed" ? "Installed" : "Install"
-                        color: marketRow.modelData.state === "update" ? Theme.primary : Theme.textMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeCaption
-                    }
-
-                    Text {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 44
-                        anchors.right: marketState.left
-                        anchors.rightMargin: 8
-                        anchors.verticalCenter: parent.verticalCenter
-                        // A plugin listed by two marketplaces shows which list this entry comes from.
-                        textFormat: Text.StyledText
-                        text: pane.escapeText(marketRow.modelData.title)
-                            + (marketRow.modelData.duplicate === true
-                                ? " <font color=\"" + Theme.textMuted + "\">· " + pane.escapeText(marketRow.modelData.sourceTitle) + "</font>"
-                                : "")
-                        elide: Text.ElideRight
-                        color: marketRow.selected ? Theme.primary : Theme.textPrimary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSecondary
-                    }
-
-                    MouseArea {
-                        id: marketHit
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: if (pane.view) pane.view.openDetail(marketRow.modelData.key)
-                    }
-                }
             }
         }
     }

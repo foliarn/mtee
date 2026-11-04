@@ -4,7 +4,7 @@ import Mtee
 // One of the two tool bars of the frame (plan 131.5): a column of header-sized buttons built from the
 // tool window registry for this side, the top group first and the bottom group at the foot. A click
 // toggles the window in its dock; Shift+click stacks it below the window already shown; a right click
-// offers "Open below" and "Close". The Tasks badge counts the running jobs and what waits for the user.
+// offers "Open below" and "Close". The bell (plan 134.4) carries the count of what waits.
 Item {
     id: bar
 
@@ -18,15 +18,6 @@ Item {
     readonly property var entries: workspace.toolWindows ? workspace.toolWindows.entries : []
     readonly property var topEntries: entries.filter(entry => entry.side === side && entry.place === "top")
     readonly property var bottomEntries: entries.filter(entry => entry.side === side && entry.place === "bottom")
-    // Running tasks plus what waits for the user (tag conflicts and the items plugins list under
-    // "Waiting for you"), like the badge of a source-control view.
-    readonly property int runningTasks: {
-        const conflicts = workspace.tagConflicts && workspace.tagConflicts.count !== undefined
-            ? workspace.tagConflicts.count : 0
-        const waiting = workspace.pluginUi ? workspace.pluginUi.waitingCount : 0
-        return jobsModel.runningCount + conflicts + waiting
-    }
-
     width: Theme.frameSize
 
     Connections {
@@ -44,8 +35,6 @@ Item {
     }
 
     function badgeOf(entry) {
-        if (entry.id === "tasks")
-            return runningTasks
         if (entry.owner.length > 0 && workspace.pluginUi)
             return workspace.pluginUi.activityBadge(entry.id, workspace.pluginUi.revision)
         return 0

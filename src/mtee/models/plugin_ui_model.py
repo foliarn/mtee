@@ -619,7 +619,7 @@ class PluginUiModel(QObject):
 
     @Property(int, notify=waitingChanged)
     def waitingCount(self) -> int:
-        """How many items wait for the user in all groups: they count in the Tasks badge."""
+        """How many items wait for the user in all groups: they count in the bell badge."""
         return self._waiting_count
 
     @Property(list, notify=changed)

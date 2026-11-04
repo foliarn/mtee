@@ -9,8 +9,11 @@ silently. Playlists, analyses and tag history keep following the UUID.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
 from collections.abc import Callable
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,7 +23,13 @@ from mtee.persistence.library_repository import LibraryRepository, normalize_pat
 from mtee.services.file_access import FileAccessCoordinator, FileAccessTimeoutError
 from mtee.services.file_import import place_without_overwrite
 
-__all__ = ["FileMoveError", "FileMoveResult", "FileMoveService", "invalid_base_name"]
+__all__ = [
+    "FileMoveError",
+    "FileMoveResult",
+    "FileMoveService",
+    "FolderActionResult",
+    "invalid_base_name",
+]
 
 _REFUSED_CHARACTERS = frozenset('<>:"/\\|?*')
 _RESERVED_NAMES = frozenset(
@@ -50,13 +59,26 @@ class FileMoveError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class FileMoveResult:
-    """Outcome for one track: ``moved``, ``unchanged``, ``conflict``, ``busy`` or ``failed``."""
+    """Outcome for one track: ``moved``, ``copied``, ``unchanged``, ``conflict``, ``busy`` or
+    ``failed``."""
 
     track_id: str
     name: str
     status: str
     message: str = ""
     path: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class FolderActionResult:
+    """Outcome of a folder action: ``created``, ``renamed``, ``unchanged``, ``conflict``, ``busy``
+    or ``failed``. ``relative`` is the folder after the action, ``previous`` the one before it."""
+
+    status: str
+    message: str = ""
+    name: str = ""
+    relative: str = ""
+    previous: str = ""
 
 
 class FileMoveService:
@@ -144,6 +166,55 @@ class FileMoveService:
             record, track_id, name, target, "move audio file", on_disk_moved=on_disk_moved
         )
 
+    def copy(self, track_id: str, folder: Path) -> FileMoveResult:
+        """Copy one track's file into ``folder``; a name already there is a conflict.
+
+        The bytes go to a hidden ``.part`` file opened with mode ``xb`` and are put in place by
+        ``os.rename``, which refuses an existing target on Windows, so nothing is ever replaced
+        and a scan never sees a half-written file. The copy is a new file for the library: the
+        scanner records it, the original track keeps its own record. Playing files can be copied.
+        """
+        record = self._library.source_record(track_id)
+        if record is None or record.status != "readable":
+            refusal = self._library.non_file_refusal(track_id, "copied") if record is None else ""
+            return FileMoveResult(
+                track_id, track_id, "conflict", refusal or "The file is no longer available."
+            )
+        current = record.path
+        name = current.name
+        target = folder / name
+        if target.exists() or self._library.path_owner(target) is not None:
+            return FileMoveResult(
+                track_id, name, "conflict", "A file with this name already exists in the folder."
+            )
+        part = folder / f".{name}.part"
+        created = False
+        try:
+            if not record.revision.matches(SourceRevision.observe(current)):
+                return FileMoveResult(
+                    track_id, name, "conflict", "The file changed since its last scan."
+                )
+            with open(current, "rb") as reader, open(part, "xb") as writer:
+                created = True
+                shutil.copyfileobj(reader, writer, 1024 * 1024)
+            shutil.copystat(current, part)
+            os.rename(part, target)
+        except FileExistsError:
+            return FileMoveResult(
+                track_id, name, "conflict", "A file with this name already exists in the folder."
+            )
+        except PermissionError:
+            return FileMoveResult(track_id, name, "busy", "The file is in use by another program.")
+        except OSError as error:
+            return FileMoveResult(
+                track_id, name, "failed", f"The file could not be copied: {error}"
+            )
+        finally:
+            if created:  # only the part file this call made, if it was not put in place
+                with contextlib.suppress(OSError):
+                    part.unlink(missing_ok=True)
+        return FileMoveResult(track_id, name, "copied", path=str(target))
+
     def rename(self, track_id: str, new_base_name: str) -> FileMoveResult:
         """Rename one track's file inside its folder; the extension stays and nothing is replaced.
 
@@ -230,6 +301,137 @@ class FileMoveService:
                 track_id, name, "busy", "The file is playing or in use. Stop playback and retry."
             )
         return FileMoveResult(track_id, name, "moved", path=str(target))
+
+    def create_folder(self, root_id: str, parent_relative: str, name: str) -> FolderActionResult:
+        """Create a folder inside a library folder. An existing name is refused, never reused."""
+        clean = name.strip()
+        problem = invalid_base_name(name)
+        if problem:
+            return FolderActionResult("failed", problem, name=clean)
+        try:
+            parent = self.resolve_folder(root_id, parent_relative)
+        except FileMoveError as error:
+            return FolderActionResult("failed", str(error), name=clean)
+        target = parent / clean
+        if os.path.lexists(target):
+            return FolderActionResult(
+                "conflict", "A file or folder with this name already exists here.", name=clean
+            )
+        relative = f"{parent_relative}/{clean}" if parent_relative else clean
+        try:
+            os.mkdir(target)
+        except FileExistsError:
+            return FolderActionResult(
+                "conflict", "A file or folder with this name already exists here.", name=clean
+            )
+        except OSError as error:
+            return FolderActionResult(
+                "failed", f"The folder could not be created: {error}", name=clean
+            )
+        try:
+            self._library.add_folder_record(root_id, relative)
+        except Exception as error:
+            with suppress(OSError):
+                os.rmdir(target)
+            return FolderActionResult(
+                "failed", f"The library could not record the folder: {error}", name=clean
+            )
+        return FolderActionResult(
+            "created", f"Created the folder “{clean}”.", name=clean, relative=relative
+        )
+
+    def next_folder_name(
+        self, root_id: str, parent_relative: str, base: str = "Unnamed folder"
+    ) -> str:
+        """The first free "<base> 01", "<base> 02"... inside a folder; never an existing name."""
+        parent = self.resolve_folder(root_id, parent_relative)
+        for number in range(1, 1000):
+            candidate = f"{base} {number:02d}"
+            if not os.path.lexists(parent / candidate):
+                return candidate
+        raise FileMoveError("No free folder name is left here.")
+
+    def rename_folder(self, root_id: str, relative: str, new_name: str) -> FolderActionResult:
+        """Rename a folder of a source on disk and point the records under it at the new place.
+
+        The tracks under the folder keep their UUIDs, analysis, edits and playlist entries. The
+        folder is renamed only when every track under it is free (write leases taken without
+        waiting), and the rename is undone when the library cannot record it. A source itself is
+        never renamed here: it is removed from the library and added again.
+        """
+        clean = new_name.strip()
+        if not relative:
+            return FolderActionResult("failed", "A source cannot be renamed here.", name=clean)
+        problem = invalid_base_name(new_name)
+        if problem:
+            return FolderActionResult("failed", problem, name=clean)
+        try:
+            old = self.resolve_folder(root_id, relative)
+        except FileMoveError as error:
+            return FolderActionResult("failed", str(error), name=clean, previous=relative)
+        if clean == old.name:
+            return FolderActionResult(
+                "unchanged", "The name did not change.", name=clean, previous=relative
+            )
+        target = old.with_name(clean)
+        only_case = normalize_path(target) == normalize_path(old)
+        if not only_case and os.path.lexists(target):
+            return FolderActionResult(
+                "conflict",
+                "A file or folder with this name already exists here.",
+                name=clean,
+                previous=relative,
+            )
+        parent_relative = relative.rpartition("/")[0]
+        new_relative = f"{parent_relative}/{clean}" if parent_relative else clean
+        track_ids = self._library.track_ids_in_tree(root_id, relative)
+        try:
+            with ExitStack() as leases:
+                for track_id in track_ids:
+                    leases.enter_context(
+                        self._access.acquire(
+                            TrackId.parse(track_id), "rename folder", timeout_seconds=0
+                        )
+                    )
+                try:
+                    os.rename(old, target)
+                except PermissionError:
+                    return FolderActionResult(
+                        "busy",
+                        "A file in the folder is in use by another program.",
+                        name=clean,
+                        previous=relative,
+                    )
+                except OSError as error:
+                    return FolderActionResult(
+                        "failed",
+                        f"The folder could not be renamed: {error}",
+                        name=clean,
+                        previous=relative,
+                    )
+                try:
+                    self._library.rename_folder_records(root_id, relative, new_relative, target)
+                except Exception as error:
+                    message = f"The library could not record the rename: {error}"
+                    try:
+                        os.rename(target, old)
+                    except OSError:
+                        message += " The folder stays renamed on disk; rescan the source."
+                    return FolderActionResult("failed", message, name=clean, previous=relative)
+        except FileAccessTimeoutError:
+            return FolderActionResult(
+                "busy",
+                "A file of the folder is playing or in use. Stop playback and retry.",
+                name=clean,
+                previous=relative,
+            )
+        return FolderActionResult(
+            "renamed",
+            f"Renamed the folder to “{clean}”.",
+            name=clean,
+            relative=new_relative,
+            previous=relative,
+        )
 
     def _record(self, record, track_id: str, target: Path) -> None:
         with self._database.transaction() as connection:

@@ -145,7 +145,7 @@ core is reachable from it.
 | `database` | The shared `Database`. Use only your own tables. Each thread has its own connection. |
 | `library` | `track_ids()`, `tracks(ids)` (`LibraryTrack`: id, path, title, artists, album, `duration_us`, `readable`, `isrc`), `roots()` (`LibraryRoot`: `root_id`, `path`), `add_watched_folder(path)` and `rescan(path)`. The last two on the graphical thread only. See "Library roots, read leases and ffmpeg". |
 | `playlists` | `create(name, track_ids)`, `replace_entries(playlist_id, track_ids, expected_revision=None)` (returns the new revision), `rename(playlist_id, name, expected_revision=None)` (returns the new revision), `entries(playlist_id)`, `read(playlist_id)`, `revision(playlist_id)`, `name(playlist_id)` (`None` when it is gone), `exists(playlist_id)` and `list()` (`PlaylistInfo` of every local playlist), through the core playlist service. See "Store access for sync". |
-| `jobs` | `submit(task, label=..., visible=...)` and `cancel(job_id)` on the core job service. |
+| `jobs` | `submit(task, label=..., visible=..., summary=None)` and `cancel(job_id)` on the core job service. `summary(status)` (optional, `API_VERSION` stays 1) returns the one sentence the job ends with, for example `"Plugin Hello installed"` or `"12 files checked, 1 error"`. The core calls it once on the graphical thread when the job ends, with the terminal `JobStatus` (`completed`, `total`, `failure_total`, `state`, `error`); it may raise, and then the core writes the generic sentence (`<label>: done`, `<label>: 3 of 120 failed`, `<label>: cancelled`). Keep it cheap and free of Qt calls. A hidden job (`visible=False`) never notifies. |
 | `files` | The core write services: `move_track(track_id, root_id, relative_folder)`, `import_file(source, folder)`, `replace_content(track_id, source)` and `attach_file(track_id, source, folder)` (optional capabilities, see below) and `recycle(track_ids)` (the user confirms in the usual dialog). Never a file API on a music file. `read_lease(track_id)` is the one read access: a context manager that yields the path under a read lease. See "Library roots, read leases and ffmpeg" and below. |
 | `ffmpeg_path()` | The core's pinned `ffmpeg` executable, never one found on `PATH`. See "Library roots, read leases and ffmpeg". |
 | `settings` | A key-value store scoped to the plugin: `get`, `set`, `get_json`, `set_json`, `delete`. Keys live under `plugins.<id>.` in the settings. |
@@ -427,8 +427,7 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   label="", visible=None)` buttons in the pane header: with a `label` they are small ghost text
   buttons instead of icon buttons, and `visible()` decides whether a button is drawn. `foot` is a
   `PluginRowsModel` of `{"text", "tone"}` rows (`tone`: `secondary`, `muted` or `warning`) drawn at
-  the bottom. `badge()` returns the number drawn on the bar button, like the badge of Tasks (hidden
-  at 0). `badge`, `visible` are read when the plugin calls `refresh_ui()` and at
+  the bottom. `badge()` returns the number drawn on the bar button (hidden at 0). `badge`, `visible` are read when the plugin calls `refresh_ui()` and at
   registration; a function that raises counts as 0, or as hidden. The id may not be a core
   activity name.
 - `SidebarSection(section_id, title, activity, model, actions=(), activate=None, on_fold=None,
@@ -442,6 +441,9 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   `count()` gives a badge drawn next to the section title (hidden at 0), read with `refresh_ui()`.
   `expanded` is the state of the section the first time it is shown: `True`, `False`, or a function
   read at that moment; after that the user's choice is kept.
+- The rows of a `SidebarSection` are drawn as `NavItem` rows (plan 132.4): `regular` (52 px, the
+  cover-like tile on the left, 2 px corners) in the Playlists list, `compact` (28 px) in a tree.
+  The tile is the letter of the row's name when the row has no icon.
 - A row with `tone="warning"` is drawn in the warning colour, its icon and its text and count
   included; `secondary` colours only the icon.
 - `TabKind(kind, title_fn, content, header=None, backend=None, icon="playlists")`: an editor tab
@@ -471,6 +473,10 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   `run_action(row)`. `default_visible_for` lists the tab kinds (`"playlist"` or a
   `TabKind.kind`) where the column is shown until the user hides it. Plugin columns are not
   offered in Explorer folder lists.
+  A `TrackColumn` cell is left aligned, like the text columns. A column that does not fit the
+  window width is not drawn for that width (it leaves from the right, and Title and Artist always
+  stay): it takes no room and is marked "not enough room" in the column menu, but it stays
+  checked and comes back when the window is wider. The plugin does not set this; it is computed.
 - `TrackAction(action_id, label, group, run, enabled_fn=None)`: an entry of the track context
   menu, in a captioned group named `group`. The groups of plugins sit after the edit group
   (Analyze, Edit info, Convert) and before the file group (Open in Windows Explorer, Rename file,
@@ -483,17 +489,17 @@ names a core QML type in it. Icons are icon names of the core (`music`, `repeat`
   after Plugins and before About. `content` is a QML file.
 - `StartupTask(task_id, run)`: submitted as a hidden job once the plugin is registered. `run`
   is a job task.
-- `WaitingItems(section_id, title, model, run, dismiss)`: a group of the Tasks pane and page for
-  work that waits for the user, for example a track to choose a match for. It is drawn like the
+- `WaitingItems(section_id, title, model, run, dismiss)`: a group of the notifications bell
+  drop-down ("Waiting for you", plan 134.4), for work that waits for the user, for example a
+  track to choose a match for. It is drawn like the
   tag conflicts: a heading `title (count)`, then one entry per row of `model`: the item, what is
-  needed, a small ghost button with the label of the row and a dismiss cross. The page shows
-  each entry on a card, as it does for jobs. `model` is a `PluginRowsModel` the plugin keeps up
+  needed, a small ghost button with the label of the row and a dismiss cross. `model` is a `PluginRowsModel` the plugin keeps up
   to date; a row has `id`, `title`, `subtitle` and `action` (the button label, `Open` when
   missing). `run(row_id)` answers the button and returns a `TabRequest` or `None`;
   `dismiss(row_id)` answers the cross, and the plugin removes the row. Both run on the graphical
   thread. A group with no row is not drawn, nothing is drawn for a plugin that is off, and the
-  rows of all groups count in the badge of the Tasks activity, with the running jobs and the
-  tag conflicts.
+  rows of all groups count in the badge of the notifications bell in the header, with the unread
+  notifications and the tag conflicts. The contract is unchanged: no field was added.
 - `PluginDialog(dialog_id, content, backend=None, width=480)`: a modal dialog, opened with
   `context.open_dialog(dialog_id, ref)`. `content` is a QML file. The core draws the popup
   (surface, border, radius 8, 20 px padding, centred, closed by Escape or a click outside) at
@@ -542,7 +548,7 @@ to it with `DeleteChoices(offer, run)`:
   `danger` draws the button with the core's red style, for a choice MTEE cannot undo. A choice
   with an empty id or label, or a second one with the same id, is ignored.
 - `run(request) -> str | None` runs when the user presses a choice, on a job thread submitted with
-  the job service: it shows in Tasks, and `request.job` can be checked for cancellation (the
+  the job service: it shows in the header strip and in the Tasks window, and `request.job` can be checked for cancellation (the
   dialog shows the Cancel button while it runs). It returns a short sentence that tells what was
   done (`None` shows "Done."), or raises: an exception with `readable = True` is shown as its
   message alone, any other as `ClassName: message`, and the job ends Failed. The dialog then shows
@@ -704,7 +710,7 @@ The sample plugin's `settings.qml` shows the rows in use.
 - A plugin that produces new files reports them as derived outputs through the core, so they
   are tracked and can be found again.
 - Long work runs as a job through `context.jobs`, with a state, a progress value, a way to
-  cancel and a readable error. Tasks shows an exception as `ClassName: message`; an exception
+  cancel and a readable error. The Tasks window shows an exception as `ClassName: message`; an exception
   with the class attribute `readable = True` is shown as its message alone, so write that
   message as a sentence that names the cause and where to fix it. An optional `code` attribute
   (a string) is kept as the error code of the job.
@@ -893,18 +899,26 @@ only when a compatible package is higher. The maintainer's steps are in
 
 The Plugins view is the tool window at the foot of the left bar, with the plugin icon. It is always there.
 
-- **Installed** lists each plugin with its status: `Running`, `Disabled`, `Failed` (with the
-  reason) or `Restart needed`. The switch saves the choice; a change applies after a restart,
-  and the view offers **Restart now**. **Uninstall** sends the plugin folder to the Recycle Bin
-  without a prompt; the plugin's data stays in `<data-dir>/plugin-data/<id>/`.
-- **Marketplace** lists the plugins of the plugin list. It is read when the view shows it, and
-  again on **Check again**. Install and Update download the package, check its SHA-256 against the
-  list, and then show the same warning as a local file.
+- **One list** (plan 132.6): the installed plugins and the Marketplace plugins are one list, and
+  each plugin is in it once, even when it is installed and listed by a marketplace (or by two
+  marketplaces). The order: installed plugins that a marketplace lists, by name; then installed
+  plugins that no marketplace lists, by name; then the Marketplace plugins that are not installed,
+  by name. The search field filters this list. A click opens the plugin's detail tab.
+- **Tags** (P8): a row shows its tag under the name only when the plugin is installed. `Running`
+  (accent), `Failed` (warning colour; the reason is on the detail page) or `Installed` for the other
+  installed plugins, including a disabled one. A plugin that is not installed has no tag; its
+  detail page offers Install or Update. The switch on the detail page saves the choice; a change
+  applies after a restart, and the footer of the view offers **Restart now**. **Uninstall** sends
+  the plugin folder to the Recycle Bin without a prompt; the plugin's data stays in
+  `<data-dir>/plugin-data/<id>/`.
+- **Marketplace** lists the plugins of the plugin list in the same list. It is read when the view
+  shows it, and again on **Check again**. Install and Update download the package, check its
+  SHA-256 against the list, and then show the same warning as a local file.
 - **Install from file** takes a `.mteeplugin` file. The warning names the plugin, its author,
   version and size, and says that a plugin runs with full access to the computer. Install only
   plugins you trust.
 - **Open plugins folder** opens `<data-dir>/plugins/` in Explorer.
 
 A plugin's own Settings page (for example Accounts) stays in Settings. Each plugin's detail page
-opens in an editor tab (tab kind `plugin`). Installs, downloads and uninstalls run as jobs in Tasks,
-with progress and Cancel.
+opens in an editor tab (tab kind `plugin`). Installs, downloads and uninstalls run as jobs: they show in the header
+progress strip and in the Tasks window, with progress and Cancel.

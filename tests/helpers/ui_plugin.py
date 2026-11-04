@@ -320,6 +320,8 @@ def click(window: QQuickWindow, item: QQuickItem) -> None:
 def settle(runtime: _Runtime) -> None:
     """Let the background jobs and the queued signals finish."""
     for _ in range(30):
+        # Queued GUI hand-offs first: a job waiting for the GUI would otherwise hold each wait.
+        QCoreApplication.processEvents()
         runtime.jobs.wait_for_done(500)
         QCoreApplication.processEvents()
         QTest.qWait(20)

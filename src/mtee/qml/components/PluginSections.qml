@@ -11,6 +11,8 @@ Column {
     // "playlists", "explorer" or "<plugin_id>.<activity_id>".
     required property string activity
     property bool coreActivity: true
+    // "compact" (tree rows, Explorer) or "regular" (the Playlists list, plan 132.4).
+    property string rowSize: "compact"
     readonly property var ui: workspace.pluginUi
     readonly property var declared: ui ? ui.sections(activity) : []
     // The reference of the active editor tab, to mark the current row.
@@ -37,6 +39,7 @@ Column {
             title: modelData.title
             actions: modelData.actions
             showHeader: sections.coreActivity || sections.declared.length > 1
+            rowSize: sections.rowSize
             readonly property var rowsModel: sections.ui.sectionModel(modelData.key)
             items: rowsModel ? rowsModel.items : []
             activeId: sections.activeRef

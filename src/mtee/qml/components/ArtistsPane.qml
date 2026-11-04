@@ -95,6 +95,23 @@ Item {
         font.pixelSize: Theme.fontSizeCaption
     }
 
+    // The order of the list, on the count line (plan 132.5); the choice is saved with the workspace.
+    CycleButton {
+        objectName: "artistSort"
+        labelled: true
+        anchors.verticalCenter: countLine.verticalCenter
+        anchors.right: parent.right
+        anchors.rightMargin: 10
+        options: [
+            {key: "name", label: "A–Z"},
+            {key: "nameDesc", label: "Z–A"},
+            {key: "mostTracks", label: "Most tracks"},
+            {key: "fewestTracks", label: "Fewest tracks"}
+        ]
+        currentKey: pane.artists ? pane.artists.sortMode : "name"
+        onChosen: (key) => pane.artists.setSortMode(key)
+    }
+
     Text {
         objectName: "artistsEmpty"
         anchors.top: countLine.bottom

@@ -84,7 +84,12 @@ Rectangle {
             objectName: "hamburgerButton"
             icon: "menu"
             tip: "Menu"
-            onClicked: appMenu.popup(hamburger, 0, hamburger.height)
+            onClicked: {
+                if (appMenu.visible)
+                    appMenu.close()
+                else
+                    appMenu.popup(hamburger, 0, hamburger.height)
+            }
         }
 
         // Below the single-window width Back and Forward leave the header; the menu keeps them.
@@ -180,17 +185,30 @@ Rectangle {
             }
         }
 
-        // Reserved for the task progress strip and the notifications bell (plan 134).
+        // The task progress strip, shown only while a job runs (plan 134.3, U8).
         Item {
             objectName: "progressSlot"
-            width: 0
+            width: progressStrip.visible ? progressStrip.width + 8 : 0
             height: parent.height
+
+            TaskProgress {
+                id: progressStrip
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                windowWidth: bar.width
+            }
         }
 
+        // The notifications bell and its balloon (plan 134.4, U9, P9).
         Item {
             objectName: "bellSlot"
-            width: 0
+            width: Theme.frameSize
             height: parent.height
+
+            NotificationBell {
+                anchors.fill: parent
+                workspace: bar.workspace
+            }
         }
 
         HeaderButton {
@@ -348,6 +366,10 @@ Rectangle {
             hint: "Alt+H"
             mark: bar.windowShown("history")
             onTriggered: bar.workspace.toggleToolWindow("history")
+        }
+        AppMenuItem {
+            text: "Tasks"
+            onTriggered: bar.workspace.openTasks()
         }
         AppMenuItem {
             text: "Fullscreen player"

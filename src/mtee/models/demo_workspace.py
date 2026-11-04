@@ -31,7 +31,7 @@ from mtee.plugins.registry import plugin_ui_enabled
 
 __all__ = ["ACTIVITIES", "EDITABLE_FIELDS", "DemoWorkspace", "format_duration"]
 
-ACTIVITIES = ("explorer", "playlists", "tasks", "artists", "plugins")
+ACTIVITIES = ("explorer", "playlists", "artists", "plugins")
 TAB_KINDS = ("folder", "playlist", "settings", "profile", "tasks", "plugin")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")
@@ -118,6 +118,7 @@ class DemoWorkspace(QObject):
     explorerChanged = Signal()
     libraryChanged = Signal()
     renameFileRequested = Signal(str, str)
+    taskFocusRequested = Signal(str)
     selectionChanged = Signal()
     playbackChanged = Signal()
     positionChanged = Signal()
@@ -776,6 +777,30 @@ class DemoWorkspace(QObject):
     def analyzeFolder(self, folder_id: str, force: bool) -> None:
         """The demo library has no audio files, so there is nothing to analyze."""
 
+    @Slot(str)
+    def removeRoot(self, root_id: str) -> None:
+        """The demo library has no source to remove (plan 132.1 twin of the core slot)."""
+
+    @Slot(str, str)
+    def createFolder(self, parent_folder_id: str, name: str) -> None:
+        """The demo library has no folders on disk (plan 132.2 twin of the core slot)."""
+
+    @Slot(str)
+    def createUnnamedFolder(self, parent_folder_id: str) -> None:
+        """The demo library has no folders on disk (twin of the core slot)."""
+
+    @Slot(str, str)
+    def renameFolder(self, folder_id: str, name: str) -> None:
+        """The demo library has no folders on disk (plan 132.2 twin of the core slot)."""
+
+    @Slot(str)
+    def recycleFolder(self, folder_id: str) -> None:
+        """The demo library has no folders on disk (plan 132.2 twin of the core slot)."""
+
+    @Slot(str)
+    def openFolderInExplorer(self, folder_id: str) -> None:
+        """The demo library has no folders on disk (plan 132.2 twin of the core slot)."""
+
     @Property(list, constant=True)
     def formats(self) -> list[dict[str, str]]:
         return [
@@ -1055,6 +1080,10 @@ class DemoWorkspace(QObject):
         self._open_tab(f"playlist:{playlist_id}")
         self.layoutChanged.emit()
 
+    @Slot(str, bool)
+    def playPlaylist(self, _playlist_id: str, _shuffled: bool) -> None:
+        """The demo has no audio: playing a playlist does nothing (plan 132.4 twin)."""
+
     @Slot()
     def openConvert(self) -> None:
         if not plugin_ui_enabled():  # the Convert plugin is not part of this build
@@ -1078,10 +1107,11 @@ class DemoWorkspace(QObject):
         """The demo has no play log, so its details have no listening figures."""
         return []
 
-    @Slot()
-    def openTasks(self) -> None:
+    @Slot(str)
+    def openTasks(self, job_id: str = "") -> None:
         self._open_tab("tasks:")
         self.layoutChanged.emit()
+        self.taskFocusRequested.emit(job_id)
 
     @Slot(str, str)
     def activateTab(self, group_id: str, tab_id: str) -> None:
@@ -1324,6 +1354,18 @@ class DemoWorkspace(QObject):
             self._anchor = track_id
         self._reset_save_state()
         self.selectionChanged.emit()
+
+    @Slot(str)
+    def pickExplorerTrack(self, track_id: str) -> None:
+        """Mirror of the live slot: one song of the tree selected on its own."""
+        self.selectTrack(track_id, "single", [])
+
+    @Slot(str, bool)
+    def extendExplorerSelection(self, track_id: str, shift: bool) -> None:
+        """Mirror of the live slot: Ctrl toggles a song, Shift extends from the anchor."""
+        self.selectTrack(
+            track_id, "range" if shift else "toggle", [str(tid) for tid in self._order]
+        )
 
     @Slot(list)
     def selectAll(self, ordered: list) -> None:

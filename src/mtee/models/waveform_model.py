@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtCore import Property, QByteArray, QObject, Qt, Signal, Slot
 
 from mtee.domain.conversion import ConversionSource
+from mtee.domain.job_summaries import fixed
 from mtee.domain.jobs import JobId
 from mtee.domain.waveform import WaveformPoints
 from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
@@ -178,7 +179,12 @@ class WaveformModel(QObject):
                 self._bridge.completed.emit(request_id, str(context.job_id), None, error)
                 raise
 
-        self._job_id = self._jobs.submit(task, label="Generate waveform", visible=False)
+        self._job_id = self._jobs.submit(
+            task,
+            label="Generate waveform",
+            visible=False,
+            summary=fixed("Waveform generated"),
+        )
         self._job_has_started = False
 
     @Slot(object)

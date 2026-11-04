@@ -375,3 +375,48 @@ def test_v1_backup_is_written_once_and_never_overwritten(tmp_path: Path) -> None
     assert backup.read_text(encoding="utf-8") == '{"version": 1, "first": true}'
     repository._backup_v1('{"version": 1, "second": true}')
     assert backup.read_text(encoding="utf-8") == '{"version": 1, "first": true}'
+
+
+def test_a_saved_tasks_window_is_dropped_when_the_layout_loads() -> None:
+    # The Tasks tool window was removed (plan 134.6): a dock that held it keeps its other windows,
+    # and a dock that held only it closes.
+    state = repo._validated(None)
+    state["docks"]["left"]["windows"] = ["tasks", "explorer"]
+    assert repo._validated(state)["docks"]["left"]["windows"] == ["explorer"]
+
+    state["docks"]["left"]["windows"] = ["tasks"]
+    left = repo._validated(state)["docks"]["left"]
+    assert left["windows"] == []
+    assert left["open"] is False
+
+
+def test_the_snapshot_keeps_both_docks_and_the_window_and_restores_special_tabs() -> None:
+    docks = {
+        "left": layout.DockState("left", True, 300, ("explorer", "playlists"), 0.4),
+        "right": layout.DockState("right", False, 410, ("queue", "info"), 0.7),
+    }
+    snapshot = build_session_snapshot(
+        expanded=set(),
+        groups={"g1": {"tabs": ["settings:"], "active": "settings:"}},
+        layout_tree=Leaf("g1"),
+        tab_states={"settings:": {"id": "settings:", "kind": "settings", "ref": "", "title": "S"}},
+        selection_by_tab={},
+        anchor_by_tab={},
+        active_group="g1",
+        activity="explorer",
+        sidebar_visible=True,
+        right_visible=False,
+        right_tab="info",
+        sidebar_width=240,
+        right_panel_width=360,
+        preview_tabs=True,
+        column_preferences={},
+        docks=docks,
+        window={"x": 1, "y": 2, "width": 900, "height": 700, "maximized": True},
+    )
+    assert snapshot["docks"]["left"]["windows"] == ["explorer", "playlists"]
+    assert snapshot["docks"]["right"]["ratio"] == 0.7
+    assert snapshot["window"]["maximized"] is True
+    groups, _tree, tab_states, _next = restore_session_groups(snapshot["groups"])
+    assert groups["g1"]["tabs"] == ["settings:"]
+    assert tab_states["settings:"]["kind"] == "settings"

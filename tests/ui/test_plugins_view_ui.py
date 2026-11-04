@@ -126,20 +126,40 @@ def test_the_pane_lists_the_installed_plugins_with_their_status_words(demo: Demo
     window = demo.window
     for plugin_id in ("spotify", "sample", "genre_manager", "convert"):
         assert visible(window, f"pluginsInstalled_{plugin_id}"), plugin_id
-    texts = visible_texts(window)
-    for word in ("Running", "Disabled", "Failed", "Restart needed"):
-        assert word in texts, word
-    for plugin_id in ("convert", "artist_manager", "genre_manager", "loudness_report"):
+    for plugin_id in ("artist_manager", "loudness_report"):
         assert visible(window, f"pluginsMarket_{plugin_id}@foliarn/mtee-plugins"), plugin_id
-    assert "Update to 1.2.0" in texts
-    assert "Installed" in texts
+    texts = visible_texts(window)
+    # A tag only on an installed plugin: Running, Failed (warning) or Installed (plan 132.6, P8).
+    for word in ("Running", "Failed", "Installed"):
+        assert word in texts, word
+    for word in ("Disabled", "Restart needed", "Update to 1.2.0"):
+        assert word not in texts, word
+
+
+def test_each_plugin_is_listed_once_in_the_order_of_the_one_list(demo: DemoContext) -> None:
+    window = demo.window
+    # Convert is installed and also listed by the Marketplace: one row, the installed one.
+    assert find_item(window, "pluginsMarket_convert@foliarn/mtee-plugins") is None
+    names = [
+        "pluginsInstalled_convert",
+        "pluginsInstalled_genre_manager",
+        "pluginsInstalled_sample",
+        "pluginsInstalled_spotify",
+        "pluginsMarket_artist_manager@foliarn/mtee-plugins",
+        "pluginsMarket_loudness_report@foliarn/mtee-plugins",
+    ]
+    tops = [float(cast(QQuickItem, find_item(window, name)).property("y")) for name in names]
+    assert tops == sorted(tops) and len(set(tops)) == len(tops)
+    assert "Convert" in visible_texts(window)
+    installed_rows = [name for name in names if name.startswith("pluginsInstalled_")]
+    assert len(installed_rows) == 4
 
 
 def test_the_marketplace_is_requested_when_the_pane_opens(demo: DemoContext) -> None:
     assert ("marketplaceRequested",) in demo.view.calls
 
 
-def test_search_filters_both_groups(demo: DemoContext) -> None:
+def test_search_filters_the_one_list(demo: DemoContext) -> None:
     window = demo.window
     demo.view.set_search("spot")
     pump()

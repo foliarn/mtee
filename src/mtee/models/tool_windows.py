@@ -62,7 +62,6 @@ def core_tool_windows(*, convert_enabled: bool) -> list[dict[str, Any]]:
     ]
     if convert_enabled:
         entries.append(_entry("convert", "Convert", "convert", "left", "top"))
-    entries.append(_entry("tasks", "Tasks", "tasks", "left", "top"))
     entries.append(_entry("plugins", "Plugins", "plugins", "left", "bottom"))
     entries.extend(
         [

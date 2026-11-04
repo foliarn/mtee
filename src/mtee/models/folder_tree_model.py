@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QPersistentModelIndex,
     Qt,
     Signal,
+    Slot,
 )
 
 __all__ = ["FolderTreeModel"]
@@ -63,6 +64,11 @@ class FolderTreeModel(QAbstractListModel):
 
     def row_for_id(self, identity: str) -> int:
         return self._row_by_id.get(identity, -1)
+
+    @Slot(str, result=int)
+    def rowForId(self, identity: str) -> int:
+        """The row of a tree identity for QML (-1 when it is not listed)."""
+        return self.row_for_id(identity)
 
     def set_roots(self, roots: list[dict[str, Any]]) -> None:
         self._roots = [dict(root) for root in roots]

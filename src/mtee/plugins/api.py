@@ -19,6 +19,7 @@ from typing import Any, Literal, Protocol
 
 from PySide6.QtCore import QAbstractItemModel, QObject
 
+from mtee.domain.job_summaries import SummaryFn
 from mtee.domain.jobs import JobId
 from mtee.domain.recycling import RecycleFailure, RecycleOutcome
 from mtee.domain.source_tracks import (
@@ -96,6 +97,7 @@ __all__ = [
     "StartupTask",
     "StatusItem",
     "StatusItemAccess",
+    "SummaryFn",
     "SyncedSettings",
     "TabAction",
     "TabHeader",
@@ -321,9 +323,18 @@ class PluginJobs(Protocol):
     """Submit and cancel background work on the core job service."""
 
     def submit(
-        self, task: JobTask, *, label: str = "Background task", visible: bool = True
+        self,
+        task: JobTask,
+        *,
+        label: str = "Background task",
+        visible: bool = True,
+        summary: SummaryFn | None = None,
     ) -> JobId:
-        """Queue ``task`` and return its job identifier."""
+        """Queue ``task`` and return its job identifier.
+
+        ``summary(status)`` may write the one sentence shown when the job ends; without it,
+        or when it raises, the core writes a generic one (see docs/plugins.md).
+        """
         ...
 
     def cancel(self, job_id: JobId) -> None:
@@ -1007,7 +1018,7 @@ class PluginActivity(Contribution):
     The pane shows ``title`` with ``actions`` in its header, then the ``SidebarSection`` of
     the plugin that name this activity. ``foot`` is an optional ``PluginRowsModel`` of
     ``{"text", "tone"}`` rows drawn at the bottom of the pane. ``badge`` is drawn on the
-    activity bar button like the badge of Tasks (hidden when 0) and is read when the plugin
+    activity bar button (hidden when 0) and is read when the plugin
     calls ``refresh_ui``.
 
     ``side`` is the bar the button goes to: ``"left"`` (the default, music windows) or
@@ -1177,13 +1188,13 @@ class LibraryScanned(Contribution):
 
 @dataclass(frozen=True, slots=True)
 class WaitingItems(Contribution):
-    """A group of the Tasks page and pane for work that waits for the user's answer.
+    """A group of the notifications bell for work that waits for the user's answer.
 
     The group is drawn with ``title`` (for example ``"Waiting for you"``) and a count, in the
     style of the tag conflicts, and is hidden while ``model`` is empty. ``model`` is a
     ``PluginRowsModel`` the plugin keeps up to date; a row has ``id``, ``title`` (the item),
     ``subtitle`` (what is needed) and ``action`` (the label of its primary button, ``"Open"``
-    when missing). Waiting items count in the badge of the Tasks activity.
+    when missing). Waiting items count in the badge of the notifications bell.
     ``run(row_id)`` answers the primary button: it returns a ``TabRequest`` to open or ``None``.
     ``dismiss(row_id)`` answers the cross; the plugin then removes the row from its model.
     Both run on the graphical thread.
@@ -1265,12 +1276,13 @@ class DeleteChoices(Contribution):
     the confirmation opens: keep it cheap and read only the plugin's own data.
 
     ``run(request)`` runs when the user presses a choice, on a job thread (the core submits it
-    with the job service, so it shows in Tasks and ``request.job`` can be cancelled). The
+    with the job service, so it shows in the Tasks window and ``request.job`` can be cancelled). The
     ``DeleteRequest`` carries the choice id, the identifiers that ``offer`` received and
     ``request.recycle``. It returns a short sentence that tells what was done, or ``None`` for
     the default "Done."; it raises when it fails. An exception with the class attribute
     ``readable = True`` is shown as its message alone, any other as ``ClassName: message``, as
-    in Tasks. Pressing a choice moves no file by itself: a choice that must recycle files calls
+    in the Tasks window. Pressing a choice moves no file by itself: a choice that must recycle
+    files calls
     ``request.recycle``, which needs no second dialog because the user confirmed the selection
     just before. A plugin has at most one ``DeleteChoices``. If ``offer`` raises, the failure is
     logged and announced once, the plugin's choices are left out and the core action works as

@@ -17,6 +17,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.domain.artist_index import CreditRules
 from mtee.domain.artists import choose_spelling, normalize_key
+from mtee.domain.job_summaries import fixed
 from mtee.domain.listening_periods import PERIOD_KINDS, calendar_period, listening_buckets
 from mtee.persistence.play_log_repository import (
     ArtistTextPlays,
@@ -254,7 +255,12 @@ class StatisticsModel(QObject):
                 raise
             self._resultReady.emit(generation, snapshot, "")
 
-        self._jobs.submit(task, label="Read listening statistics", visible=False)
+        self._jobs.submit(
+            task,
+            label="Read listening statistics",
+            visible=False,
+            summary=fixed("Listening statistics read"),
+        )
 
     @Slot(int, object, str)
     def _receive(self, generation: int, snapshot: object, error: str) -> None:

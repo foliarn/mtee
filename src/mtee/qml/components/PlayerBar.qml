@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.Basic
 import Mtee
 
 // The player, full width in the footer of the frame (decision U11, plan 131.8): the track on the
@@ -52,6 +53,66 @@ Rectangle {
         const minutes = Math.floor(total / 60)
         const secs = total % 60
         return minutes + ":" + (secs < 10 ? "0" : "") + secs
+    }
+
+    // The library ids of the playing track: what a playlist can take.
+    readonly property var dragIds: {
+        if (!hasTrack)
+            return []
+        const ids = typeof workspace.localTrackIds === "function"
+            ? workspace.localTrackIds([track.id]) : [track.id]
+        return Array.from(ids).filter(identity => String(identity).length > 0)
+    }
+    property bool dragging: false
+    property point dragPoint: Qt.point(0, 0)
+
+    // The same menu as a track row, for the playing track.
+    function openTrackMenu(anchor, x, y) {
+        if (!hasTrack)
+            return
+        trackMenu.trackId = String(track.id)
+        trackMenu.trackIds = [String(track.id)]
+        trackMenu.orderedIds = [String(track.id)]
+        trackMenu.source = String(player.playingSource || "")
+        trackMenu.captureQueueTargets()
+        trackMenu.prepare(true)
+        trackMenu.popup(anchor, x, y - trackMenu.implicitHeight)
+    }
+
+    TrackMenu {
+        id: trackMenu
+        objectName: "playerTrackMenu"
+        workspace: bar.workspace
+        listKind: "playing"
+    }
+
+    TrackDragPreview {
+        parent: Overlay.overlay
+        visible: bar.dragging
+        trackTitle: String(bar.track.title || "")
+        artist: String(bar.track.artist || "")
+        count: 1
+        readonly property point pointer: Overlay.overlay ? Overlay.overlay.mapFromItem(null, bar.dragPoint.x, bar.dragPoint.y) : Qt.point(0, 0)
+        x: Math.max(8, Math.min(parent.width - width - 8, pointer.x + 16))
+        y: Math.max(8, Math.min(parent.height - height - 8, pointer.y + 16))
+    }
+
+    Item {
+        id: dragSession
+        objectName: "playerDragSession"
+        parent: Overlay.overlay
+        width: 1; height: 1
+        readonly property point pointer: Overlay.overlay ? Overlay.overlay.mapFromItem(null, bar.dragPoint.x, bar.dragPoint.y) : Qt.point(0, 0)
+        x: pointer.x; y: pointer.y
+        property var dragTrackIds: bar.dragIds
+        property var dragEntryIds: []
+        property string dragSource: String(bar.player.playingSource || "")
+        property int dragVersion: -1
+        property bool dragCanAdd: bar.dragIds.length > 0
+        Drag.active: bar.dragging
+        Drag.source: dragSession
+        Drag.keys: ["mtee-tracks"]
+        Drag.supportedActions: Qt.CopyAction
     }
 
     // Swallow clicks so the list underneath never receives them.
@@ -113,6 +174,30 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: bar.workspace.revealTrack(bar.track.id, bar.player.playingSource)
+                }
+
+                // The same menu as a track row, for the playing track.
+                TapHandler {
+                    objectName: "playerTitleMenuTap"
+                    acceptedButtons: Qt.RightButton
+                    enabled: bar.hasTrack
+                    onTapped: (point) => bar.openTrackMenu(titleText, point.position.x, point.position.y)
+                }
+
+                // Dragging the title onto a playlist (sidebar row or open tab) adds the track,
+                // with the same keys and fields as a track row of a list.
+                DragHandler {
+                    id: titleDrag
+                    objectName: "playerTitleDrag"
+                    target: null
+                    acceptedButtons: Qt.LeftButton
+                    enabled: bar.hasTrack && bar.dragIds.length > 0
+                    onActiveChanged: {
+                        if (!active && bar.dragging)
+                            dragSession.Drag.drop()
+                        bar.dragging = active
+                    }
+                    onCentroidChanged: bar.dragPoint = titleText.mapToItem(null, centroid.position.x, centroid.position.y)
                 }
             }
 
@@ -336,7 +421,7 @@ Rectangle {
             icon: "more"
             iconSize: 18
             tip: "More"
-            onClicked: moreMenu.opened ? moreMenu.close() : moreMenu.open()
+            onClicked: moreMenu.toggle()
         }
 
         IconButton {
@@ -372,7 +457,7 @@ Rectangle {
             icon: bar.player.muted || bar.player.volume === 0 ? "volume-off" : "volume"
             iconSize: 18
             tip: "Volume"
-            onClicked: volumePopover.opened ? volumePopover.close() : volumePopover.open()
+            onClicked: volumePopover.toggle()
         }
 
         IconButton {

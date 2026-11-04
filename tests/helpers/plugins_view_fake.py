@@ -15,6 +15,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from mtee.models import demo_workspace
 from mtee.models.demo_plugins_view import _INSTALLED, _MARKETPLACE
+from mtee.models.plugin_list import plugin_list_rows
 
 __all__ = ["FakePluginsView", "use_fake_view"]
 
@@ -78,6 +79,14 @@ class FakePluginsView(QObject):
     @Property(list, notify=changed)
     def installed(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self._installed if self._matches(row)]
+
+    @Property(list, notify=changed)
+    def plugins(self) -> list[dict[str, Any]]:
+        """The one list, built as the real view builds it (plan 132.6)."""
+        installed = [dict(row) for row in self._installed if self._matches(row)]
+        market = [dict(row) for row in self._marketplace if self._matches(row)]
+        listed = {str(row["id"]) for row in self._marketplace}
+        return plugin_list_rows(installed, market, listed)
 
     @Property(list, notify=changed)
     def marketplace(self) -> list[dict[str, Any]]:

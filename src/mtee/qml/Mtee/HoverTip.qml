@@ -4,6 +4,7 @@ import QtQuick.Controls.Basic
 ToolTip {
     id: tip
 
+
     delay: 600
     timeout: 6000
     padding: 6

@@ -92,8 +92,6 @@ Rectangle {
 
             Item { width: 1; height: 30 }
 
-            SectionLabel { text: "Preferences" }
-
             Text {
                 text: "Settings"
                 color: Theme.textPrimary
@@ -125,6 +123,7 @@ Rectangle {
                         delegate: Item {
                             id: tabItem
                             required property var modelData
+                            required property int index
                             readonly property bool current: settings.page === modelData.key
 
                             objectName: "settingsTab_" + modelData.key
@@ -133,7 +132,9 @@ Rectangle {
 
                             Text {
                                 id: tabLabel
-                                anchors.centerIn: parent
+                                anchors.verticalCenter: parent.verticalCenter
+                                // The first tab starts on the heading's left edge; the others keep a 12 px gap.
+                                x: tabItem.index === 0 ? 0 : 12
                                 text: tabItem.modelData.label.toUpperCase()
                                 color: tabItem.current || tabMouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
                                 font.family: Theme.fontFamily
@@ -443,7 +444,7 @@ Rectangle {
                         { "action": "Show or hide the left dock", "keys": "Ctrl+B" },
                         { "action": "Show or hide the right dock", "keys": "Ctrl+Alt+B" },
                         { "action": "Show the Explorer", "keys": "Ctrl+Shift+E" },
-                        { "action": "Left bar windows in bar order: Explorer, Playlists, Artists, Convert, Tasks", "keys": "Alt+1 to Alt+5" },
+                        { "action": "Left bar windows in bar order: Explorer, Playlists, Artists, Convert, Plugins", "keys": "Alt+1 to Alt+5" },
                         { "action": "Show or hide the Info panel", "keys": "Ctrl+I" },
                         { "action": "Show or hide the Queue", "keys": "Alt+Q" },
                         { "action": "Show or hide the History", "keys": "Alt+H" },

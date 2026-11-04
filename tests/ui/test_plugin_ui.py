@@ -204,9 +204,9 @@ def test_a_waiting_item_of_the_plugin_shows_on_the_tasks_page_and_follows_its_an
         workspace = _workspace(runtime)
         window = _window(runtime)
         assert module is not None
-        workspace.openTasks()
+        _click(window, cast(QQuickItem, _find(window, "notificationButton")))
         _settle(runtime)
-        group = _find(window, "waitingGroup")
+        group = _find(window, "bellWaitingGroup")
         assert group is not None and group.isVisible()
         texts = _texts(window)
         assert "Waiting for you (1)" in texts and "Probe one" in texts and "Needs a pick" in texts
@@ -216,8 +216,8 @@ def test_a_waiting_item_of_the_plugin_shows_on_the_tasks_page_and_follows_its_an
         _settle(runtime)
         assert "answer w1" in module.EVENTS
         assert cast(Any, workspace).activeTabId == f"{LIST_KIND}:alpha"
-        # The cross dismisses it; the plugin empties its model and the group goes away.
-        workspace.openTasks()
+        # The cross dismisses it; the plugin empties its model and the group goes away. The
+        # popover is still open: a click on the bell would close it (feedback 136).
         _settle(runtime)
         _click(window, cast(QQuickItem, _find(window, "dismissWaiting")))
         _settle(runtime)

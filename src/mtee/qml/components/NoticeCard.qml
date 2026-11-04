@@ -1,8 +1,8 @@
 import QtQuick
 import Mtee
 
-// A notice on a page: a surface card with a bar in the warning colour on the left, like a card
-// of the Tasks pane.
+// A notice on a page: a surface card with a bar in the warning colour on the left, like a notification card
+// of the notifications bell.
 Rectangle {
     id: notice
 

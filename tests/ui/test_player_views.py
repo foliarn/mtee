@@ -6,7 +6,7 @@ import wave
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtTest import QTest
 
@@ -28,7 +28,9 @@ def _find(root: QQuickWindow, name: str) -> QQuickItem | None:
         if item.objectName() == name:
             return item
         pending.extend(item.childItems())
-    return None
+    # Menus are Popups: their items are not in the window's item tree, only in the QObject tree.
+    found = root.findChild(QObject, name)
+    return found if isinstance(found, QQuickItem) else None
 
 
 def _visible(root: QQuickWindow, name: str) -> bool:

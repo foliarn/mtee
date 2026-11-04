@@ -38,6 +38,7 @@ class InlineJobs(JobService):
         visible: bool = True,
         priority: int = 0,
         job_id: JobId | None = None,
+        summary=None,
     ) -> JobId:
         self.labels.append(label)
         job_id = job_id or JobId.new()

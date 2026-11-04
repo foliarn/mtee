@@ -6,7 +6,39 @@ All notable changes to MTEE are listed here. The format follows
 ## [Unreleased]
 
 ### Added
-
+- Playlists "New folder" no longer asks for a name: the folder is made at once as "Untitled folder
+  NN" and its row is in inline rename, like a new folder of the Explorer.
+- Songs can move between windows: drag a selection from a list onto a playlist list (it adds them)
+  or onto a folder list (it moves the files; hold Ctrl to copy them). Ctrl+C, Ctrl+X and Ctrl+V
+  on a list do the same with the keyboard: a playlist takes the tracks (a cut leaves its source
+  playlist), a folder list copies or moves the files. Files are never overwritten: a name already
+  taken is refused and reported.
+- The playing song in the player bar can be dragged onto a playlist (the sidebar row or an open
+  playlist), and a right click on its title opens the same menu as a track row.
+- A right click on a tab opens Close, Close others, Close all, Close tabs to the left / right and
+  Split right / left / up / down.
+- MTEE comes back as you left it: the windows and their split sizes, the tabs of each window
+  (folders, playlists, Settings, Profile, Tasks), the active tab and window, both docks
+  with their tool windows and sizes, and the position and size of the window. A tab whose folder
+  source or playlist is gone is dropped silently.
+- Finished background tasks each end with one sentence that says what they did (for example
+  "123 songs analysed, 0 errors"); the sentences reach the header and the bell in the next steps
+  of the UI rework (plan 134).
+- The header shows the running task (label, count, bar, `+N` for the others) while a job runs;
+  a click lists the running tasks with Cancel. A bell in the header lists what waits for you (tag
+  conflicts, plugin items) and the notifications of the session; a balloon under the bell shows a
+  new notification or a message for 5 seconds, so no toast covers the player (plan 134.3-134.4).
+- Tasks window: a center tab with the session's tasks on the left (unfinished first, then the
+  finished ones) and the selected task's record on the right: summary, start, end or elapsed time,
+  counts, the items that failed (with Show in folder for a file path) and Cancel while it runs.
+  Opened from the hamburger menu, or by Details in a notification (plan 134.5).
+- Folder lists have the playlist search control (folded into an icon, Esc clears it).
+- Playlists scroll as one page: the playlist header scrolls away with the rows, and the column
+  header sticks to the top of the list once the header has gone. Artwork view keeps the header.
+- Playlist and folder menus: the column menu lists only columns; "Custom order", "Show artwork"
+  and "Reset columns" are in a separate "More" menu next to it.
+- Explorer tree: Ctrl-click and Shift-click select songs across folders; `Del`, the track menu and
+  the drag to a folder act on the whole selection. Tree rows use the sidebar list look.
 - Track menu: the same menu everywhere a track can be right-clicked (folder lists, playlists,
   the Explorer tree, the Queue, the History and the Fullscreen player), regrouped, with Go to
   artist, Show in folder and Rename file. The file actions (Open in Windows Explorer, Rename
@@ -25,9 +57,50 @@ All notable changes to MTEE are listed here. The format follows
   Ctrl+Shift+Tab for the tabs, Ctrl+Alt+Arrow to move a tab, Ctrl+Shift+W to close a window,
   Alt+Left and Alt+Right for the history, Ctrl+Shift+Left and Ctrl+Shift+Right to resize a dock,
   and Esc to close a floating dock. Settings > Keyboard shortcuts lists them by group.
+- Explorer: "Remove from library…" on a source. Its files stay on disk; its analysis, edits and
+  play stats are kept, so adding the folder again brings the same tracks back.
+- Explorer: "New folder" (made at once as "Unnamed folder NN"), "Rename…" and "Delete folder…" (to the Recycle Bin, with a count of the
+  tracks and sub-folders) on a folder, and "Open in Windows Explorer" on a folder or a source.
+- Playlists window: playlists and folders are rows of the same height with 2 px covers; folders
+  have a folder tile. Liked tracks has a heart cover that "Change cover…" replaces. The playlist,
+  Liked tracks and folder menus are rebuilt; a folder is renamed in place and deleted either with
+  its playlists moved up one level or with everything inside it.
+- Artists window: a button on the count line cycles A–Z, Z–A, Most tracks and Fewest tracks. The
+  order is kept with the workspace.
+- A new folder in the Explorer is created at once as "Unnamed folder 01" (the first free number),
+  with no name asked; rename stays a separate action (plan 135).
+- A liked-tracks row without a cover of its own shows the covers of its first tracks as a 2x2
+  mosaic, or the heart when there are none (plan 135).
+
+### Fixed
+
+- Liked tracks shows its heart again, in the sidebar and on the big cover of its page, instead of a
+  mosaic of four placeholder covers.
+- A header button closes its open popover (notifications, menu, tasks, volume) instead of closing
+  and reopening it.
+- The hamburger menu and the other menus opened by a button (More, Add) close when the button is
+  clicked again, instead of closing and reopening at once (fix 137).
+- Column borders of a playlist list can be dragged: the drag saves all the widths it moved in one
+  write, so the column next to the border takes the change (plan 135).
+- The column header of a track list has a solid background, so rows do not show through it
+  (plan 135).
 
 ### Changed
+- A folder page scrolls its heading away with the rows and keeps only the column row in place, like a
+  playlist; on a playlist the search, columns and More controls sit on the Play row.
+- The chevron of a folder row sits to the right of its label, so folder icons line up with the
+  playlist icons (plan 135).
 
+- The Tasks tool window is gone from the left bar: tasks live in the header strip, the bell and the
+  Tasks window (plan 134.6). A saved layout that held it drops it on load.
+
+- Track list: columns that do not fit the window leave from the right for that width (they stay
+  checked in the column menu, marked "not enough room"); the table never scrolls sideways, and
+  the heart and add buttons sit in their own cell, after Artist when only Title and Artist fit.
+- Plugins window: the installed and the Marketplace plugins are one list, each plugin once. Under
+  an installed plugin a tag shows Running, Failed or Installed; a plugin that is not installed has
+  no tag. The order is installed plugins listed by a marketplace, other installed plugins, then the
+  Marketplace plugins not installed, each by name.
 - Buttons, fields, menus, dialogs and tabs have rounded corners.
 - The mouse wheel scrolls three times further in every list and page.
 - The player is a full-width bar at the foot of the window, always shown and greyed out when
@@ -42,6 +115,13 @@ All notable changes to MTEE are listed here. The format follows
   version 1 text is kept as `workspace.v1.json` next to `mtee.sqlite3` in the data folder, so an
   older build can be restored by hand.
 - The menu bar is one hamburger menu in the header.
+- Track list columns: a column that does not fit leaves from the right (Title and Artist stay with
+  the heart and (+) buttons), nothing runs past the window edge, and the widths can be dragged on
+  the border between two columns (the columns on the right give way, down to their minimum).
+  Double-click a border to reset its column. Text is left-aligned and numbers right-aligned.
+- Playlist header: the play time reads "1 h 32 min" instead of "1 hr 32 min"; Liked tracks has no
+  description line.
+- Settings: the "Preferences" label is gone, and the first tab lines up with the "Settings" heading.
 
 ## [0.2.0] - 2026-11-03
 
