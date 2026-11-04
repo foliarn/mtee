@@ -4,10 +4,24 @@
 
 Connects MTEE to your MTEE Remote server. In Settings > Remote you enter the server address, your
 user name and your password once. MTEE signs this computer in as a named device and keeps the
-connection: the status bar shows **Connected**, or **Offline** when the server cannot be reached,
-and MTEE checks the connection every minute, with longer waits after repeated failures. Settings
-also list the devices of your account, and you can revoke another device from there. Disconnect
-signs this computer out and revokes its device on the server.
+connection: the cloud icon in the header of the window shows **Connected** on hover, or turns to
+**Offline** when the server cannot be reached, and MTEE checks the connection every minute, with
+longer waits after repeated failures. Settings also list the devices of your account, and you can
+revoke another device from there (MTEE asks first). Disconnect signs this computer out and revokes
+its device on the server.
+
+Where things are (MTEE 0.3.0):
+
+- **Remote** window, the cloud button of the left bar (Alt+4 when it is the fourth window): the
+  changes waiting to be sent (Apply in Manual mode), the open conflicts, the newest backups and the
+  activity log, with **Sync now** and **Fetch** in its header. Its foot says whether this computer
+  is connected and what waits. The button carries the number of conflicts and blocked changes.
+- **Explorer > Server**: the folders of the server, each opening its tracks in a tab.
+- **Settings > Remote**: the connection, the devices, the sync, playback and backup choices, the
+  settings that travel and the folder links.
+- The **bell** of the header lists the conflicts under "Remote conflicts" (Waiting for you), and
+  each finished task of the plugin (a sync, a fetch, a backup, a download) leaves one sentence
+  there that says what it did, or why it failed. The Tasks window keeps their record.
 
 The **first match** links each watched folder to a server folder (Settings > Remote > Folders). A
 mapping can start at a subfolder on either side (**Local subfolder**, **Server subfolder**), so a
@@ -55,9 +69,10 @@ confirmation as before. **Download** (track menu, for a Server only track) puts 
 in its mapped folder under the same id, checked by its SHA-256; a copy kept from playing it is
 reused. Nothing is deleted permanently.
 
-**Conflicts** are the cases the sync cannot settle alone. They wait in the Tasks page under
-"Remote conflicts", and the status bar shows **N conflicts** (warning colour) while any wait. A
-conflict opens in an editor tab with this computer's copy and the server's copy side by side (title,
+**Conflicts** are the cases the sync cannot settle alone. They wait in the bell under "Remote
+conflicts" and in the Conflicts section of the Remote window, and the header icon turns to the
+warning colour (**N conflicts** on hover; a click opens the first one) while any wait. A conflict
+opens in a tab with this computer's copy and the server's copy side by side (title,
 artists, album, genre, year, size, modified time, revision); the values that differ are in the
 warning colour. Nothing changes until you choose:
 
@@ -79,10 +94,8 @@ warning colour. Nothing changes until you choose:
 Choices that would overwrite a server file on a changed revision are refused by the server, not
 guessed. A choice whose situation no longer holds (the file is gone from the library, or the server
 has the file again) closes the conflict as obsolete. A failed choice keeps the conflict open with
-the reason. **Dismiss** in Tasks (the cross) keeps a conflict for later: it is hidden from Tasks until
-a change on either side reopens it.
-
-Backups come in a later version.
+the reason. **Dismiss** in the bell (the cross) keeps a conflict for later: it is hidden from the
+bell until a change on either side reopens it.
 
 ## Requirements and external tools
 
@@ -147,7 +160,8 @@ Backups come in a later version.
 - **Remove from this computer** closes its conflict only after the core's Recycle Bin confirmation
   has removed the file from the library; until then the conflict stays open.
 - The folder, backup and settings-that-travel groups are not built yet.
-- The status item has no click action yet.
+- A click on the header icon opens the first open conflict; with none it does nothing, since a
+  plugin cannot open its own tool window yet.
 - A track is adopted as a server-only track under the key of its server copy. When that key is
   already the key of another track of this plugin (a track that was server-only earlier and got a
   local file by a fetch), **Remove from this computer** skips the track before anything moves: the

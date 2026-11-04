@@ -5,6 +5,13 @@ All notable changes to MTEE are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- MTEE Remote plugin follows the 0.3.0 interface. Each of its tasks (sync, fetch, backup,
+  download, conflict choices) ends with one sentence in the bell instead of a separate message.
+  The Remote window shows the connection and what waits in its foot. Settings > Remote uses the
+  shared rows and asks in a dialog before revoking a device or deleting a backup. The conflict
+  tab's Close button works again in split windows.
+
 ## [0.3.0] - 2026-11-04 - GUI Update
 
 ### Added
