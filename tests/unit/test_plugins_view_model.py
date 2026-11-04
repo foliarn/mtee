@@ -524,8 +524,7 @@ def test_open_detail_opens_a_plugin_tab_and_detail_returns_the_row(
 
         view.openDetail("alpha")
 
-        group = cast(Any, workspace).groups[workspace.activeGroup]
-        assert group["active"] == "plugin:alpha"
+        assert cast(Any, workspace).activeTabId == "plugin:alpha"
         assert cast(Any, view.detail("alpha"))["readme"] == "# Hi"
         assert view.detail("missing") == {}
         jobs.shutdown(1_000)

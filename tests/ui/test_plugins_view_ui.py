@@ -69,8 +69,7 @@ def text_of(window: QQuickWindow, name: str) -> str:
 def active_tab(workspace: DemoWorkspace) -> str:
     """The id of the active tab of the focused group, such as ``plugin:spotify``."""
     untyped = cast(Any, workspace)
-    group = untyped.groups[untyped.activeGroup]
-    return str(group["active"])
+    return str(untyped.activeTabId)
 
 
 class DemoContext:

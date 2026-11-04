@@ -6,19 +6,26 @@ import json
 import re
 from copy import deepcopy
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from mtee.domain.column_widths import clamp_column_width
+from mtee.models import window_layout as layout
 from mtee.persistence.database import Database
 
 __all__ = [
     "COLUMN_OPTIONS",
     "DEFAULT_COLUMN_PREFERENCES",
     "DEFAULT_WORKSPACE",
+    "V1_BACKUP_NAME",
     "WorkspaceRepository",
+    "convert_v1_state",
 ]
 
 _PLUGIN_ACTIVITY = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
+_CORE_ACTIVITIES = {"explorer", "playlists", "convert", "tasks", "artists", "plugins"}
+_RIGHT_TOOL_WINDOWS = {"info", "queue", "history"}
+V1_BACKUP_NAME = "workspace.v1.json"
 
 COLUMN_OPTIONS = (
     ("title", "Title"),
@@ -90,19 +97,18 @@ DEFAULT_COLUMN_PREFERENCES: dict[str, Any] = {
 }
 
 DEFAULT_WORKSPACE: dict[str, Any] = {
-    "version": 1,
+    "version": 2,
     "roots": [],
     "expanded": [],
     "groups": [{"tabs": [], "active": ""}],
-    "activeGroup": 0,
+    "center": None,
+    "activeGroup": "",
+    "nextGroup": 1,
     "selectedByGroup": [[]],
-    "activity": "explorer",
-    "sidebarVisible": True,
-    "rightPanelVisible": False,
-    "rightPanelTab": "info",
-    "sidebarWidth": 240,
-    "rightPanelWidth": 360,
-    "islandEnabled": True,
+    "docks": {
+        "left": layout.DockState("left", True, 240, ("explorer",)).to_dict(),
+        "right": layout.DockState("right", False, 360, ("info",)).to_dict(),
+    },
     "previewTabs": True,
     "columnPreferences": deepcopy(DEFAULT_COLUMN_PREFERENCES),
 }
@@ -124,13 +130,31 @@ class WorkspaceRepository:
         if row is None:
             self.load_recovered = False
             return deepcopy(DEFAULT_WORKSPACE)
+        raw_text = str(row[0])
         try:
-            raw = json.loads(str(row[0]))
+            raw = json.loads(raw_text)
         except (TypeError, json.JSONDecodeError):
             self.load_recovered = True
             return deepcopy(DEFAULT_WORKSPACE)
+        if isinstance(raw, dict) and raw.get("version") == 1:
+            self._backup_v1(raw_text)
+            raw = convert_v1_state(raw)
         self.load_recovered = not _has_valid_session_structure(raw)
         return _validated(raw)
+
+    def _backup_v1(self, raw_text: str) -> None:
+        """Keep the version 1 state next to the database, once, before it is converted."""
+        database_path = Path(str(self._database.path))
+        if str(database_path) == ":memory:" or not database_path.exists():
+            return
+        target = database_path.parent / V1_BACKUP_NAME
+        if target.exists():
+            return
+        try:
+            target.write_text(raw_text, encoding="utf-8")
+        except OSError:
+            # The conversion still runs in memory; the next save replaces the stored state.
+            return
 
     def save(self, state: dict[str, Any]) -> None:
         value = _validated(state)
@@ -145,8 +169,105 @@ class WorkspaceRepository:
             )
 
 
+def convert_v1_state(raw: dict[str, Any]) -> dict[str, Any]:
+    """Convert a version 1 workspace state (0.2.0) to version 2, once, in memory.
+
+    The groups get the ids ``g1``, ``g2``... in saved order and sit side by side. The sidebar
+    becomes the left dock and the right panel the right dock; ``islandEnabled`` is dropped.
+    Unknown values fall back to their defaults.
+    """
+    result = deepcopy(DEFAULT_WORKSPACE)
+    for key in ("roots", "expanded", "previewTabs", "columnPreferences", "selectedByGroup"):
+        if key in raw:
+            result[key] = raw[key]
+    raw_groups = raw.get("groups")
+    groups: list[dict[str, Any]] = []
+    if isinstance(raw_groups, list):
+        for index, group in enumerate(raw_groups):
+            if isinstance(group, dict):
+                converted = dict(group)
+                converted.setdefault("id", f"g{index + 1}")
+                groups.append(converted)
+    if not groups:
+        groups = [{"id": "g1", "tabs": [], "active": ""}]
+    ids = [str(group["id"]) for group in groups]
+    result["groups"] = groups
+    result["center"] = _side_by_side(ids)
+    result["nextGroup"] = len(ids) + 1
+    saved_index = raw.get("activeGroup", 0)
+    if isinstance(saved_index, bool) or not isinstance(saved_index, int):
+        saved_index = 0
+    result["activeGroup"] = ids[min(max(saved_index, 0), len(ids) - 1)]
+    activity = raw.get("activity", "explorer")
+    left_window = activity if _valid_activity(activity) else "explorer"
+    right_tab = raw.get("rightPanelTab", "info")
+    right_window = right_tab if right_tab in _RIGHT_TOOL_WINDOWS else "info"
+    result["docks"] = {
+        "left": _dock_dict(
+            "left",
+            raw.get("sidebarVisible", True),
+            raw.get("sidebarWidth", 240),
+            left_window,
+            240,
+        ),
+        "right": _dock_dict(
+            "right",
+            raw.get("rightPanelVisible", False),
+            raw.get("rightPanelWidth", 360),
+            right_window,
+            360,
+        ),
+    }
+    return result
+
+
+def _side_by_side(group_ids: list[str]) -> dict[str, Any]:
+    if len(group_ids) == 1:
+        return layout.node_to_dict(layout.Leaf(group_ids[0]))
+    share = 1 / len(group_ids)
+    node = layout.Split(
+        "row",
+        tuple(layout.Leaf(group_id) for group_id in group_ids),
+        tuple(share for _ in group_ids),
+    )
+    return layout.node_to_dict(node)
+
+
+def _dock_dict(
+    side: str, is_open: Any, width: Any, window: str, default_width: int
+) -> dict[str, Any]:
+    if isinstance(width, bool) or not isinstance(width, (int, float)):
+        width = default_width
+    return layout.DockState(
+        side,  # type: ignore[arg-type]
+        bool(is_open) if isinstance(is_open, bool) else True,
+        int(width),
+        (window,),
+    ).to_dict()
+
+
+def _valid_activity(activity: Any) -> bool:
+    if not isinstance(activity, str):
+        return False
+    if activity in _CORE_ACTIVITIES:
+        return True
+    return bool(_PLUGIN_ACTIVITY.match(activity))
+
+
+def _validated_docks(value: Any) -> dict[str, Any]:
+    """Normalize both docks: widths are clamped and only known tool windows are kept."""
+    defaults = deepcopy(DEFAULT_WORKSPACE["docks"])
+    if not isinstance(value, dict):
+        return defaults
+    left = layout.DockState.from_dict("left", value.get("left")).to_dict()
+    right = layout.DockState.from_dict("right", value.get("right")).to_dict()
+    left["windows"] = [name for name in left["windows"] if _valid_activity(name)]
+    right["windows"] = [name for name in right["windows"] if name in _RIGHT_TOOL_WINDOWS]
+    return {"left": left, "right": right}
+
+
 def _validated(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or value.get("version") != 1:
+    if not isinstance(value, dict) or value.get("version") != 2:
         return deepcopy(DEFAULT_WORKSPACE)
     result: dict[str, Any] = deepcopy(DEFAULT_WORKSPACE)
     result.update({key: item for key, item in value.items() if key in result})
@@ -155,7 +276,6 @@ def _validated(value: Any) -> dict[str, Any]:
         return deepcopy(DEFAULT_WORKSPACE)
     if not result["groups"]:
         result["groups"] = [{"tabs": [], "active": ""}]
-    result["groups"] = result["groups"][:2]
     for group in result["groups"]:
         if not isinstance(group, dict) or not isinstance(group.get("tabs"), list):
             return deepcopy(DEFAULT_WORKSPACE)
@@ -185,12 +305,12 @@ def _validated(value: Any) -> dict[str, Any]:
                 "anchor": str(selected.get("anchor", "")),
             }
         group["selections"] = group_selections
+    if not isinstance(result["activeGroup"], str):
+        result["activeGroup"] = ""
     try:
-        result["activeGroup"] = min(max(int(result["activeGroup"]), 0), len(result["groups"]) - 1)
-        result["sidebarWidth"] = min(max(int(result["sidebarWidth"]), 180), 420)
-        result["rightPanelWidth"] = min(max(int(result["rightPanelWidth"]), 260), 480)
+        result["nextGroup"] = max(int(result["nextGroup"]), 1)
     except (TypeError, ValueError, OverflowError):
-        return deepcopy(DEFAULT_WORKSPACE)
+        result["nextGroup"] = 1
     legacy_selections = result.get("selectedByGroup", [[]])
     if not isinstance(legacy_selections, list):
         legacy_selections = [[]]
@@ -208,28 +328,9 @@ def _validated(value: Any) -> dict[str, Any]:
         if isinstance(expanded, list)
         else []
     )
-    # The activity of a plugin is written "<plugin_id>.<activity>"; whether that plugin runs is
+    # The window of a plugin is written "<plugin_id>.<window>"; whether that plugin runs is
     # known only once the plugins are loaded, so the saved value is kept.
-    if not isinstance(result["activity"], str) or (
-        result["activity"]
-        not in {
-            "explorer",
-            "playlists",
-            "convert",
-            "tasks",
-            "artists",
-            "plugins",
-        }
-        and not _PLUGIN_ACTIVITY.match(result["activity"])
-    ):
-        result["activity"] = "explorer"
-    if not isinstance(result["rightPanelTab"], str) or result["rightPanelTab"] not in {
-        "info",
-        "queue",
-        "history",
-    }:
-        result["rightPanelTab"] = "info"
-    result["islandEnabled"] = bool(result.get("islandEnabled", True))
+    result["docks"] = _validated_docks(value.get("docks"))
     result["previewTabs"] = bool(result.get("previewTabs", True))
     return result
 
@@ -291,12 +392,12 @@ def _validated_column_preferences(value: Any) -> dict[str, Any]:
 
 
 def _has_valid_session_structure(value: Any) -> bool:
-    if not isinstance(value, dict) or value.get("version") != 1:
+    if not isinstance(value, dict) or value.get("version") != 2:
         return False
     if not isinstance(value.get("roots", []), list):
         return False
     groups = value.get("groups", [])
-    if not isinstance(groups, list) or len(groups) > 2:
+    if not isinstance(groups, list):
         return False
     if not groups:
         return False
@@ -305,10 +406,7 @@ def _has_valid_session_structure(value: Any) -> bool:
             return False
         if any(not isinstance(tab, dict) for tab in group["tabs"]):
             return False
-    try:
-        int(value.get("activeGroup", 0))
-        int(value.get("sidebarWidth", 240))
-        int(value.get("rightPanelWidth", 360))
-    except (TypeError, ValueError, OverflowError):
+    docks = value.get("docks", {})
+    if not isinstance(docks, dict):
         return False
     return isinstance(value.get("expanded", []), list)

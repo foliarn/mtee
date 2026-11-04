@@ -11,6 +11,7 @@ Item {
     readonly property bool vertical: orientation === Qt.Vertical
     readonly property bool active: mouse.containsMouse || mouse.pressed
     readonly property int thickness: Theme.windowGap + 4
+    signal dragStarted()
     signal dragged(real delta)
     signal released()
     signal doubleClicked()
@@ -40,7 +41,10 @@ Item {
             return handle.vertical ? global.y : global.x
         }
 
-        onPressed: (event) => origin = axis(event.x, event.y)
+        onPressed: (event) => {
+            origin = axis(event.x, event.y)
+            handle.dragStarted()
+        }
         onPositionChanged: (event) => {
             if (pressed)
                 handle.dragged(axis(event.x, event.y) - origin)

@@ -703,7 +703,7 @@ class TrackSourceAccess(Protocol):
 
 
 class StatusItemAccess(Protocol):
-    """The item this plugin shows in the status bar under the player bar (plan 125.5).
+    """The item this plugin shows as a small icon in the header (plan 125.5, header since 131.5).
 
     ``update`` shows the item, or changes it; ``clear`` hides it. Both may be called from any
     thread: the change is queued to the graphical thread. The item exists only when the plugin
@@ -1009,6 +1009,9 @@ class PluginActivity(Contribution):
     ``{"text", "tone"}`` rows drawn at the bottom of the pane. ``badge`` is drawn on the
     activity bar button like the badge of Tasks (hidden when 0) and is read when the plugin
     calls ``refresh_ui``.
+
+    ``side`` is the bar the button goes to: ``"left"`` (the default, music windows) or
+    ``"right"`` (information windows). The pane is a tool window of that dock.
     """
 
     activity_id: str
@@ -1017,6 +1020,7 @@ class PluginActivity(Contribution):
     actions: tuple[PaneAction, ...] = ()
     foot: QAbstractItemModel | None = None
     badge: Callable[[], int] | None = None
+    side: str = "left"
 
 
 @dataclass(frozen=True, slots=True)

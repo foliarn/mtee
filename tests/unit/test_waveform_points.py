@@ -41,6 +41,7 @@ def test_a_short_track_keeps_one_point_per_bin() -> None:
     assert points.rms == (1, 2, 3)
 
 
+@pytest.mark.slow
 def test_the_reduction_of_a_long_mix_is_fast() -> None:
     bins = 3 * 3600 * 50  # three hours of 20 ms bins
     low = np.full(bins, -100, dtype=np.int16)

@@ -107,14 +107,13 @@ def test_fullscreen_keeps_the_island_and_restores_the_editor(qapp, tmp_path: Pat
         _close(application, runtime)
 
 
-def test_the_island_setting_hides_the_island(qapp, tmp_path: Path) -> None:
+def test_the_player_bar_is_always_shown_and_has_no_setting(qapp, tmp_path: Path) -> None:
     application, runtime = _runtime(qapp, tmp_path, "settings")
     try:
         root = runtime.engine.rootObjects()[0]
         QCoreApplication.processEvents()
         assert _visible(root, "settingsView")
-        cast(DemoWorkspace, runtime.workspace).setIslandEnabled(False)
-        QCoreApplication.processEvents()
-        assert not _visible(root, "playerIsland")
+        assert _find(root, "islandSetting") is None
+        assert _visible(root, "playerIsland")
     finally:
         _close(application, runtime)

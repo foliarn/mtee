@@ -45,16 +45,19 @@ packages = ["src/mtee"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Tests run in parallel, one test file per worker so module fixtures stay shared;
-# `-n 0` runs them in one process for debugging. A test still running after 5
-# minutes is stopped with the stack of every thread, instead of hanging the run.
-addopts = "-q -n auto --dist loadfile"
-timeout = 300
+# Default run: parallel (one worker per CPU, tests handed out one by one so a slow
+# file does not hold a worker idle) and without the `slow` tests, which check
+# wall-clock speed and take seconds each. `uv run pytest -m ""` runs every test;
+# `-n 0` runs in one process for debugging. A test still running after 2 minutes is
+# stopped with the stack of every thread, instead of hanging the run.
+addopts = "-q -n auto --dist worksteal -m \"not slow\""
+timeout = 120
 timeout_method = "thread"
 qt_api = "pyside6"
 markers = [
     "native_audio: requires the pinned Windows libmpv runtime; missing runtime is a failure, not a skip",
     "windows_file_ops: requires native Windows file operation semantics",
+    "slow: wall-clock speed guard (seconds per test); off by default, run with -m slow or -m ''",
 ]
 
 [tool.ruff]

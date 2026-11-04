@@ -215,7 +215,7 @@ def test_a_waiting_item_of_the_plugin_shows_on_the_tasks_page_and_follows_its_an
         _click(window, cast(QQuickItem, _find(window, "answerWaiting")))
         _settle(runtime)
         assert "answer w1" in module.EVENTS
-        assert cast(Any, workspace).groups[workspace.activeGroup]["active"] == f"{LIST_KIND}:alpha"
+        assert cast(Any, workspace).activeTabId == f"{LIST_KIND}:alpha"
         # The cross dismisses it; the plugin empties its model and the group goes away.
         workspace.openTasks()
         _settle(runtime)
@@ -328,14 +328,14 @@ def test_a_plugin_opens_its_own_tab_with_open_tab_and_adds_to_a_playlist_meta_li
         thread.start()
         thread.join()
         _settle(runtime)
-        active = cast(Any, workspace).groups[workspace.activeGroup]["active"]
+        active = cast(Any, workspace).activeTabId
         assert active == f"{LIST_KIND}:beta"
         plugin.service.context.open_tab(LIST_KIND, "alpha")  # type: ignore[union-attr]
         plugin.service.context.open_tab(LIST_KIND, "beta")  # type: ignore[union-attr]
         _settle(runtime)
         tabs = [tab["id"] for group in workspace.groups_snapshot() for tab in group["tabs"]]
         assert tabs.count(f"{LIST_KIND}:beta") == 1  # focused, not opened twice
-        assert cast(Any, workspace).groups[workspace.activeGroup]["active"] == f"{LIST_KIND}:beta"
+        assert cast(Any, workspace).activeTabId == f"{LIST_KIND}:beta"
 
         # The meta line of a local playlist carries the phrase of the plugin.
         model = cast(Any, workspace).playlistModel

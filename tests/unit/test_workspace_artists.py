@@ -60,9 +60,9 @@ def test_decide_artist_index_effects() -> None:
     prev_index = MagicMock(spec=ArtistIndex)
     prev_index.tracks_by_artist = {"bowie": ["t1"], "queen": ["t3"]}
 
-    groups = [
-        {"tabs": ["artist:bowie", "artist:queen", "artist:deleted", "folder:rock"]},
-    ]
+    groups = {
+        "g1": {"tabs": ["artist:bowie", "artist:queen", "artist:deleted", "folder:rock"]},
+    }
     tab_states = {
         "artist:bowie": {"title": "Old Bowie"},
         "artist:queen": {"title": "Queen"},
@@ -79,7 +79,7 @@ def test_decide_artist_index_effects() -> None:
     )
 
     assert effects.opened_artist == ("bowie", "David Bowie")
-    assert effects.stale_tabs == [(0, "artist:deleted")]
+    assert effects.stale_tabs == [("g1", "artist:deleted")]
     assert effects.retitled_tabs == [("artist:bowie", "David Bowie")]
     # bowie tracks changed (['t1'] -> ['t1', 't2']), queen unchanged
     assert effects.reloaded_tab_ids == ["artist:bowie"]

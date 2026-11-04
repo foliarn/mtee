@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,20 +18,20 @@ __all__ = [
 
 
 def compute_folder_watch_targets(
-    groups: list[dict[str, Any]],
+    groups: Mapping[str, dict[str, Any]],
     roots_by_id: dict[str, Any],
 ) -> tuple[dict[str, tuple[str, str]], list[str], set[tuple[str, str]]]:
     """Compute watch targets mapping, watch paths list, and active folder tabs.
 
     Args:
-        groups: List of workspace split groups containing active tab IDs.
+        groups: The workspace groups by id, each with its active tab ID.
         roots_by_id: Dictionary mapping root_id to root data (containing 'path').
 
     Returns:
         (targets_by_normcase_path, paths_to_watch, active_folder_tabs)
     """
     active: set[tuple[str, str]] = set()
-    for group in groups:
+    for group in groups.values():
         tab_id = str(group.get("active", ""))
         if not tab_id.startswith("folder:"):
             continue

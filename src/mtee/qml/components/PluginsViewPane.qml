@@ -24,7 +24,7 @@ Item {
         const groups = pane.workspace.groups
         if (groups.length === 0)
             return ""
-        const active = groups[pane.workspace.activeGroup].active
+        const active = pane.workspace.activeTabId
         return active.indexOf("plugin:") === 0 ? active.slice("plugin:".length) : ""
     }
 

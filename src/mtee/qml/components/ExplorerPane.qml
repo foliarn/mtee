@@ -73,19 +73,64 @@ Item {
         pane.endTrackDrag()
     }
 
-    Component.onDestruction: cancelTrackDrag()
+    // A folder dragged to a center window's edge (plan 131.7): payload {type: "folder", folderId}.
+    property bool folderDragActive: false
+    property var folderDragRow: null
+    property string folderDragName: ""
+    property real folderDragX: 0
+    property real folderDragY: 0
+
+    function beginFolderDrag(row) {
+        folderSession.payload = ({ "type": "folder", "folderId": String(row.modelData.id) })
+        pane.folderDragName = String(row.modelData.name)
+        pane.folderDragRow = row
+        pane.folderDragActive = true
+    }
+
+    function moveFolderDrag(row, x, y) {
+        const point = row.mapToItem(pane, x, y)
+        pane.folderDragX = point.x
+        pane.folderDragY = point.y
+    }
+
+    function endFolderDrag() {
+        pane.folderDragActive = false
+        pane.folderDragRow = null
+    }
+
+    function finishFolderDrag() {
+        if (pane.folderDragActive)
+            folderSession.Drag.drop()
+        pane.endFolderDrag()
+    }
+
+    function cancelFolderDrag() {
+        if (pane.folderDragActive)
+            folderSession.Drag.cancel()
+        pane.endFolderDrag()
+    }
+
+    Component.onDestruction: {
+        cancelTrackDrag()
+        cancelFolderDrag()
+    }
 
     Shortcut {
         sequence: "Escape"
-        enabled: pane.trackDragActive
-        onActivated: pane.cancelTrackDrag()
+        enabled: pane.trackDragActive || pane.folderDragActive
+        onActivated: {
+            pane.cancelTrackDrag()
+            pane.cancelFolderDrag()
+        }
     }
 
     Connections {
         target: pane.Window.window
         function onActiveChanged() {
-            if (!pane.Window.window.active)
+            if (!pane.Window.window.active) {
                 pane.cancelTrackDrag()
+                pane.cancelFolderDrag()
+            }
         }
     }
 
@@ -128,6 +173,46 @@ Item {
         Drag.source: dragSession
         Drag.keys: ["mtee-tracks"]
         Drag.supportedActions: Qt.MoveAction | Qt.CopyAction
+    }
+
+    // The folder drag source: only the drop zones of the center windows take it ("mtee-folder").
+    Item {
+        id: folderSession
+        parent: Overlay.overlay
+        width: 1; height: 1
+        readonly property var pointer: pane.mapToItem(parent, pane.folderDragX, pane.folderDragY)
+        x: pointer.x; y: pointer.y
+        property var payload: ({})
+        Drag.active: pane.folderDragActive
+        Drag.source: folderSession
+        Drag.keys: ["mtee-folder"]
+        Drag.supportedActions: Qt.CopyAction
+    }
+
+    Rectangle {
+        objectName: "explorerFolderDragPreview"
+        parent: Overlay.overlay
+        visible: pane.folderDragActive
+        width: folderDragLabel.implicitWidth + 24
+        height: 30
+        radius: Theme.radiusControl
+        color: Theme.surface
+        border.width: 1
+        border.color: Theme.primary
+        z: 1000
+        enabled: false
+        readonly property var pointer: pane.mapToItem(parent, pane.folderDragX, pane.folderDragY)
+        x: Math.max(8, Math.min(parent.width - width - 8, pointer.x + 16))
+        y: Math.max(8, Math.min(parent.height - height - 8, pointer.y + 16))
+
+        Text {
+            id: folderDragLabel
+            anchors.centerIn: parent
+            text: pane.folderDragName
+            color: Theme.textPrimary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSecondary
+        }
     }
 
     function parentFolderId(rowData) {
@@ -294,6 +379,26 @@ Item {
                         pane.moveTrackDrag(row, centroid.position.x, centroid.position.y)
                     } else if (pane.trackDragRow === row) {
                         pane.finishTrackDrag()
+                    }
+                }
+            }
+
+            // A folder row starts a folder drag: it opens the folder in a center window on drop.
+            DragHandler {
+                id: folderDrag
+                target: null
+                acceptedButtons: Qt.LeftButton
+                enabled: row.isFolder && !row.isLoading
+                onTranslationChanged: {
+                    if (active)
+                        pane.moveFolderDrag(row, centroid.position.x, centroid.position.y)
+                }
+                onActiveChanged: {
+                    if (active) {
+                        pane.beginFolderDrag(row)
+                        pane.moveFolderDrag(row, centroid.position.x, centroid.position.y)
+                    } else if (pane.folderDragRow === row) {
+                        pane.finishFolderDrag()
                     }
                 }
             }

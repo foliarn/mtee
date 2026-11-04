@@ -265,6 +265,7 @@ def test_the_playhead_ratio_follows_the_playback_position(probe) -> None:
     assert view.property("playheadRatio") == pytest.approx(0.5)
 
 
+@pytest.mark.slow
 def test_a_repaint_at_full_width_is_fast(probe, capsys) -> None:
     qapp, window, _waveform, playback = probe
     window.grabWindow()

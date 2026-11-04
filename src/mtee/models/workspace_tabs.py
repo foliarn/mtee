@@ -1,16 +1,19 @@
-"""Pure tab and group lifecycle, placement, split view and state management."""
+"""Pure tab and group lifecycle, placement and state management.
+
+Groups are keyed by a stable group id (``"g1"``, ``"g2"``...). The reading order of the
+groups comes from the layout tree (``window_layout.groups``), not from this module.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 __all__ = [
     "build_groups_snapshot",
     "close_tab_in_group",
-    "create_split_group",
     "is_tab_in_any_group",
     "keep_tab_state",
-    "merge_group_tabs_on_close",
     "open_special_tab",
     "place_tab",
     "purge_forgotten_tab_state",
@@ -18,20 +21,23 @@ __all__ = [
 
 
 def build_groups_snapshot(
-    groups: list[dict[str, Any]],
+    order: Sequence[str],
+    groups: Mapping[str, dict[str, Any]],
     tab_states: dict[str, dict[str, Any]],
-    group_tab_states: dict[tuple[int, str], dict[str, Any]],
+    group_tab_states: dict[tuple[str, str], dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Build a serialized snapshot of all groups and their tab states."""
+    """Build a serialized snapshot of the groups, in reading order, with their tab states."""
     return [
         {
+            "id": group_id,
             "tabs": [
-                dict(tab_states.get(tab_id, {})) | group_tab_states.get((index, tab_id), {})
-                for tab_id in group.get("tabs", [])
+                dict(tab_states.get(tab_id, {})) | group_tab_states.get((group_id, tab_id), {})
+                for tab_id in groups[group_id].get("tabs", [])
             ],
-            "active": group.get("active", ""),
+            "active": groups[group_id].get("active", ""),
         }
-        for index, group in enumerate(groups)
+        for group_id in order
+        if group_id in groups
     ]
 
 
@@ -68,8 +74,8 @@ def place_tab(
 
 
 def close_tab_in_group(
-    groups: list[dict[str, Any]],
-    group_index: int,
+    groups: Mapping[str, dict[str, Any]],
+    group_id: str,
     tab_id: str,
 ) -> tuple[bool, str]:
     """Remove a tab from a group and update the active tab if necessary.
@@ -77,9 +83,9 @@ def close_tab_in_group(
     Returns:
         (was_closed, new_active_tab_id)
     """
-    if not (0 <= group_index < len(groups)):
+    if group_id not in groups:
         return False, ""
-    group = groups[group_index]
+    group = groups[group_id]
     tabs: list[str] = group["tabs"]
     if tab_id not in tabs:
         return False, str(group.get("active", ""))
@@ -90,9 +96,9 @@ def close_tab_in_group(
     return True, str(group.get("active", ""))
 
 
-def is_tab_in_any_group(groups: list[dict[str, Any]], tab_id: str) -> bool:
+def is_tab_in_any_group(groups: Mapping[str, dict[str, Any]], tab_id: str) -> bool:
     """Check if a tab ID is present in any group's tab list."""
-    return any(tab_id in group.get("tabs", []) for group in groups)
+    return any(tab_id in group.get("tabs", []) for group in groups.values())
 
 
 def open_special_tab(
@@ -114,25 +120,6 @@ def open_special_tab(
     group["active"] = tab_id
 
 
-def create_split_group(active_tab_id: str) -> dict[str, Any]:
-    """Create a new group dictionary for split view initialization."""
-    return {
-        "tabs": [active_tab_id] if active_tab_id else [],
-        "active": active_tab_id,
-        "selections": {active_tab_id: {"ids": [], "anchor": ""}} if active_tab_id else {},
-    }
-
-
-def merge_group_tabs_on_close(group0: dict[str, Any], group1: dict[str, Any]) -> None:
-    """Merge non-duplicate tabs from group1 into group0 when closing split view."""
-    tabs0: list[str] = group0["tabs"]
-    for tab_id in group1.get("tabs", []):
-        if tab_id not in tabs0:
-            tabs0.append(tab_id)
-    if not group0.get("active"):
-        group0["active"] = group1.get("active", "")
-
-
 def keep_tab_state(tab_state: dict[str, Any]) -> bool:
     """Turn a preview tab into a permanent tab by removing the preview flag."""
     return bool(tab_state.pop("preview", None))
@@ -141,18 +128,12 @@ def keep_tab_state(tab_state: dict[str, Any]) -> bool:
 def purge_forgotten_tab_state(
     tab_id: str,
     tab_states: dict[str, Any],
-    group_tab_states: dict[tuple[int, str], Any],
-    selection_by_tab: dict[tuple[int, str], Any],
-    anchor_by_tab: dict[tuple[int, str], Any],
+    group_tab_states: dict[tuple[str, str], Any],
+    selection_by_tab: dict[tuple[str, str], Any],
+    anchor_by_tab: dict[tuple[str, str], Any],
 ) -> None:
     """Purge cached tab states, selections and anchors when a tab leaves all groups."""
     tab_states.pop(tab_id, None)
-    group_tab_keys = [k for k in group_tab_states if k[1] == tab_id]
-    for k in group_tab_keys:
-        del group_tab_states[k]
-    selection_keys = [k for k in selection_by_tab if k[1] == tab_id]
-    for k in selection_keys:
-        del selection_by_tab[k]
-    anchor_keys = [k for k in anchor_by_tab if k[1] == tab_id]
-    for k in anchor_keys:
-        del anchor_by_tab[k]
+    for store in (group_tab_states, selection_by_tab, anchor_by_tab):
+        for k in [k for k in store if k[1] == tab_id]:
+            del store[k]

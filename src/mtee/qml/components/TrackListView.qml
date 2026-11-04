@@ -10,9 +10,9 @@ FocusScope {
 
     required property var workspace
     required property var tab
-    focus: groupIndex === workspace.activeGroup
+    focus: groupId === workspace.activeGroup
     activeFocusOnTab: true
-    property int groupIndex: 0
+    property string groupId: ""
     property int bottomInset: 0
     property var localColumnWidths: ({})
     property string draggedColumnKey: ""
@@ -34,12 +34,12 @@ FocusScope {
     readonly property bool modelBacked: typeof workspace.trackModelForTab === "function"
     readonly property var rows: modelBacked ? [] : workspace.tabTracks(tab.kind, tab.ref, tab.sortKey, tab.sortAscending, workspace.revision)
     readonly property var trackModel: modelBacked
-        ? workspace.trackModelForTab(tab.id, tab.kind, tab.ref, tab.sortKey, tab.sortAscending, groupIndex)
+        ? workspace.trackModelForTab(tab.id, tab.kind, tab.ref, tab.sortKey, tab.sortAscending, groupId)
         : rows
     readonly property var orderedIds: modelBacked ? trackModel.trackIds : rows.map((track) => track.id)
     readonly property var selectionIds: {
         workspace.selectedIds
-        return workspace.selectedIdsForGroup(groupIndex)
+        return workspace.selectedIdsForGroup(groupId)
     }
     // id -> true, built once per selection change, so each row looks up its neighbours in O(1).
     readonly property var selectionSet: {
@@ -199,7 +199,7 @@ FocusScope {
     }
 
     function press(index, event) {
-        workspace.setActiveGroup(groupIndex)
+        workspace.focusGroup(groupId)
         list.currentIndex = index
         view.forceActiveFocus()
         const trackId = orderedIds[index]
@@ -252,7 +252,7 @@ FocusScope {
         target: view.workspace
         ignoreUnknownSignals: true
         function onTrackRevealRequested(targetGroup, tabId, trackId) {
-            if (targetGroup === view.groupIndex && view.tab && view.tab.id === tabId)
+            if (targetGroup === view.groupId && view.tab && view.tab.id === tabId)
                 view.revealTrack(trackId)
         }
     }
@@ -407,7 +407,7 @@ FocusScope {
             return
         }
         if (event.key === Qt.Key_Escape && !playlistSearch.fieldActive) {
-            workspace.clearSelection(view.groupIndex)
+            workspace.clearSelection(view.groupId)
             event.accepted = true
             return
         }
@@ -440,7 +440,7 @@ FocusScope {
             anchors.fill: parent
             z: -1
             acceptedButtons: Qt.LeftButton
-            onClicked: { view.forceActiveFocus(); view.workspace.clearSelection(view.groupIndex) }
+            onClicked: { view.forceActiveFocus(); view.workspace.clearSelection(view.groupId) }
         }
 
         Loader {
@@ -513,7 +513,7 @@ FocusScope {
                 tip: "Search playlist"
                 text: view.tab.searchQuery || ""
                 onEdited: (text) => {
-                    view.workspace.setActiveGroup(view.groupIndex)
+                    view.workspace.focusGroup(view.groupId)
                     view.workspace.setSearch(view.tab.id, text)
                 }
             }
@@ -523,7 +523,7 @@ FocusScope {
                 active: !view.artwork
                 tip: "List"
                 onClicked: {
-                    view.workspace.setActiveGroup(view.groupIndex)
+                    view.workspace.focusGroup(view.groupId)
                     view.workspace.setTabView(view.tab.id, "list")
                 }
             }
@@ -534,7 +534,7 @@ FocusScope {
                 active: view.artwork
                 tip: "Artwork"
                 onClicked: {
-                    view.workspace.setActiveGroup(view.groupIndex)
+                    view.workspace.focusGroup(view.groupId)
                     view.workspace.setTabView(view.tab.id, "artwork")
                 }
             }
@@ -656,7 +656,7 @@ FocusScope {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSmall
             onTextEdited: {
-                view.workspace.setActiveGroup(view.groupIndex)
+                view.workspace.focusGroup(view.groupId)
                 view.workspace.setSearch(view.tab.id, text)
             }
             Keys.onEscapePressed: (event) => {
@@ -750,14 +750,14 @@ FocusScope {
                     acceptedButtons: Qt.LeftButton
                     onTapped: (point, button) => {
                         if (list.indexAt(point.position.x, list.contentY + point.position.y) < 0)
-                            view.workspace.clearSelection(view.groupIndex)
+                            view.workspace.clearSelection(view.groupId)
                     }
                 }
                 property bool navigationRestored: false
                 function restoreNavigationScroll() {
                     if (navigationRestored || count === 0) return
-                    const saved = view.workspace.navigationScroll(view.groupIndex, view.tab.id, "list")
-                    const anchor = view.workspace.navigationAnchor(view.groupIndex, view.tab.id, "list")
+                    const saved = view.workspace.navigationScroll(view.groupId, view.tab.id, "list")
+                    const anchor = view.workspace.navigationAnchor(view.groupId, view.tab.id, "list")
                     const index = view.indexOfTrack(anchor.id)
                     if (index >= 0) {
                         positionViewAtIndex(index, ListView.Beginning)
@@ -773,7 +773,7 @@ FocusScope {
                     const index = indexAt(1, contentY + 1)
                     const item = index >= 0 ? itemAtIndex(index) : null
                     const anchorId = index >= 0 && index < view.orderedIds.length ? view.orderedIds[index] : ""
-                    view.workspace.setNavigationScroll(view.groupIndex, view.tab.id, "list",
+                    view.workspace.setNavigationScroll(view.groupId, view.tab.id, "list",
                         contentY, anchorId, item ? contentY - item.y : 0)
                 }
                 anchors.fill: parent
@@ -811,7 +811,7 @@ FocusScope {
                     MouseArea {
                         anchors.fill: parent
                         acceptedButtons: Qt.LeftButton
-                        onClicked: view.workspace.clearSelection(view.groupIndex)
+                        onClicked: view.workspace.clearSelection(view.groupId)
                     }
                 }
                 MouseArea {
@@ -821,7 +821,7 @@ FocusScope {
                     z: 10
                     enabled: list.count === 0
                     acceptedButtons: Qt.LeftButton
-                    onClicked: view.workspace.clearSelection(view.groupIndex)
+                    onClicked: view.workspace.clearSelection(view.groupId)
                 }
                 ScrollBar.vertical: ThinScrollBar {}
 
@@ -838,7 +838,7 @@ FocusScope {
                     track: modelData
                     columns: view.columns
                     workspace: view.workspace
-                    groupIndex: view.groupIndex
+                    groupId: view.groupId
                     separateArtist: view.modelBacked
                     selected: view.selectionIds.indexOf(modelData.id) >= 0
                     playing: view.workspace.playingId === (modelData.trackId || modelData.id)
@@ -852,7 +852,7 @@ FocusScope {
                     onDragStarted: view.prepareTrackDrag(trackRow, modelData)
                     onDragMoved: (x, y) => view.moveTrackDrag(trackRow, x, y)
                     onDragFinished: view.finishTrackDrag(trackRow)
-                    onMarginClicked: { view.forceActiveFocus(); view.workspace.clearSelection(view.groupIndex) }
+                    onMarginClicked: { view.forceActiveFocus(); view.workspace.clearSelection(view.groupId) }
                     Rectangle {
                         anchors.left: parent.left; anchors.right: parent.right
                         y: view.trackDropAfter ? parent.height - 3 : 0
@@ -882,7 +882,7 @@ FocusScope {
                     onToggleRequested: view.workspace.togglePlay()
                     onInfoRequested: {
                         view.workspace.selectTrack(modelData.id, "single", [])
-                        view.workspace.showRightPanel("info")
+                        view.workspace.openToolWindow("info")
                     }
                     onPlaylistRequested: (anchor) => view.openPlaylistMenu(anchor, modelData.id)
                     onContextRequested: (x, y) => {
@@ -905,14 +905,14 @@ FocusScope {
             acceptedButtons: Qt.LeftButton
             onTapped: (point, button) => {
                 if (grid.indexAt(point.position.x, grid.contentY + point.position.y) < 0)
-                    view.workspace.clearSelection(view.groupIndex)
+                    view.workspace.clearSelection(view.groupId)
             }
         }
         property bool navigationRestored: false
         function restoreNavigationScroll() {
             if (navigationRestored || count === 0) return
-            const saved = view.workspace.navigationScroll(view.groupIndex, view.tab.id, "artwork")
-            const anchor = view.workspace.navigationAnchor(view.groupIndex, view.tab.id, "artwork")
+            const saved = view.workspace.navigationScroll(view.groupId, view.tab.id, "artwork")
+            const anchor = view.workspace.navigationAnchor(view.groupId, view.tab.id, "artwork")
             const index = view.indexOfTrack(anchor.id)
             if (index >= 0) {
                 positionViewAtIndex(index, GridView.Beginning)
@@ -928,7 +928,7 @@ FocusScope {
             const index = indexAt(1, contentY + 1)
             const item = index >= 0 ? itemAtIndex(index) : null
             const anchorId = index >= 0 && index < view.orderedIds.length ? view.orderedIds[index] : ""
-            view.workspace.setNavigationScroll(view.groupIndex, view.tab.id, "artwork",
+            view.workspace.setNavigationScroll(view.groupId, view.tab.id, "artwork",
                 contentY, anchorId, item ? contentY - item.y : 0)
         }
         visible: view.artwork
@@ -972,7 +972,7 @@ FocusScope {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
-                onClicked: view.workspace.clearSelection(view.groupIndex)
+                onClicked: view.workspace.clearSelection(view.groupId)
             }
         }
         MouseArea {
@@ -981,7 +981,7 @@ FocusScope {
             z: 10
             enabled: grid.count === 0
             acceptedButtons: Qt.LeftButton
-            onClicked: view.workspace.clearSelection(view.groupIndex)
+            onClicked: view.workspace.clearSelection(view.groupId)
         }
         ScrollBar.vertical: ThinScrollBar {}
 
@@ -1220,7 +1220,7 @@ FocusScope {
                 if (event.button === Qt.RightButton)
                     reorderMenu.popup(cell, event.x, event.y)
                 else if (cell.sortKey.length > 0) {
-                    view.workspace.setActiveGroup(view.groupIndex)
+                    view.workspace.focusGroup(view.groupId)
                     view.workspace.setSort(view.tab.id, cell.sortKey)
                 }
             }

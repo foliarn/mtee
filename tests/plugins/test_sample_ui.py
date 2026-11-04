@@ -403,7 +403,7 @@ def test_the_sample_waiting_items_are_drawn_in_the_tasks_pane_and_page(
         click(window, _button_of(pick, "answerWaiting"))
         settle(runtime)
         assert "pick w1" in module.EVENTS
-        active = cast(Any, workspace).groups[workspace.activeGroup]["active"]
+        active = cast(Any, workspace).activeTabId
         assert active == f"{SAMPLE_KIND}:missing"
 
         # The page lists the same items as cards; the cross dismisses through the plugin.

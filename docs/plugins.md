@@ -14,6 +14,13 @@ manager, Genre Manager) are not ported yet and still use the legacy switch, see 
   `Mtee` QML module for its QML files).
 - **Manifest**: `manifest.py` of a plugin. It declares the plugin and is read before the plugin
   is enabled.
+- **Tool window**: a window opened from a button of a bar (the left or the right one of the
+  frame). It is shown in the dock of its side, which holds one or two windows stacked. The
+  Explorer, Playlists, Info and the plugin windows are tool windows. A plugin window is a
+  `PluginActivity`.
+- **Center window**: a window of the centre of the frame, with its own tab strip. Tabs open in a
+  center window; a plugin tab is one of them.
+- **Status item**: the small icon a plugin shows in the header of the window (see "Status item").
 
 ## 2. Layout of a plugin
 
@@ -412,13 +419,16 @@ A contribution is data. The core draws it with its own components and colours; a
 names a core QML type in it. Icons are icon names of the core (`music`, `repeat`,
 `arrow-down`...). Every identifier is lowercase snake_case and unique within its kind.
 
-- `PluginActivity(activity_id, title, icon, actions=(), foot=None, badge=None)`: a button in the
-  activity bar and a sidebar pane. `actions` are `PaneAction(action_id, tip, icon, run, label="",
-  visible=None)` buttons in the pane header: with a `label` they are small ghost text buttons
-  instead of icon buttons, and `visible()` decides whether a button is drawn. `foot` is a
+- `PluginActivity(activity_id, title, icon, actions=(), foot=None, badge=None, side="left")`: a
+  tool window. Its button is in the left or right bar (`side` is `"left"`, the default, or
+  `"right"`; any other value is refused), and its pane opens in the dock of that side. A click on
+  the button shows the window in the dock; Shift+click stacks it under the window already shown.
+  The pane keeps its own header and sections. `actions` are `PaneAction(action_id, tip, icon, run,
+  label="", visible=None)` buttons in the pane header: with a `label` they are small ghost text
+  buttons instead of icon buttons, and `visible()` decides whether a button is drawn. `foot` is a
   `PluginRowsModel` of `{"text", "tone"}` rows (`tone`: `secondary`, `muted` or `warning`) drawn at
-  the bottom. `badge()` returns the number drawn on the activity bar button like the badge of
-  Tasks (hidden at 0). `badge`, `visible` are read when the plugin calls `refresh_ui()` and at
+  the bottom. `badge()` returns the number drawn on the bar button, like the badge of Tasks (hidden
+  at 0). `badge`, `visible` are read when the plugin calls `refresh_ui()` and at
   registration; a function that raises counts as 0, or as hidden. The id may not be a core
   activity name.
 - `SidebarSection(section_id, title, activity, model, actions=(), activate=None, on_fold=None,
@@ -608,7 +618,7 @@ says where each track is, and draws its badge.
 
 ### Status item
 
-An optional capability (`API_VERSION` stays 1) for a plugin that shows a short state at the bottom of
+An optional capability (`API_VERSION` stays 1) for a plugin that shows a short state in the header of
 the window, for example whether a server is reached, or a sync in progress.
 
 - `StatusItem(item_id, icon, on_click=None)`: the declaration. `item_id` is lowercase snake_case, and
@@ -620,11 +630,13 @@ the window, for example whether a server is reached, or a sync in progress.
 - Both calls may come from any thread; the change is queued to the graphical thread. A bad value (a
   tone that is not one of the three, a progress outside 0 to 1, a text that is not a string) raises
   `ValueError` or `TypeError` in the calling thread, and nothing is shown.
-- The item appears at the first `update`. Items are shown in plugin load order. The strip under the
-  player bar is drawn only while at least one item is shown; without any, the window keeps its full
-  height.
+- The item appears at the first `update`. Items are shown in plugin load order, as small icons on the
+  right of the header (plan 131.5): the icon is 16 px and tinted by the tone, `progress` is a 2 px line
+  under it, and the text and the tooltip are shown on hover. Without any item the header keeps the same
+  height. Below 640 px of window width the icons leave the header: each item is listed in the
+  hamburger menu instead, by its text, and runs the same click (plan 131.9).
 - `on_click()` runs on the graphical thread when the user clicks the item, for example to open a
-  plugin activity or dialog. Without `on_click` the item is plain text. A failing `on_click` is
+  plugin activity or dialog. Without `on_click` the item is only informative. A failing `on_click` is
   logged and announced once; the application goes on.
 
 ### QML of a plugin
@@ -636,8 +648,11 @@ Architecture); it talks to its `backend`, a `QObject` it created, and the core n
 a plugin QML type when it loads. The core loads each file by URL with a `Loader` and sets properties
 after loading, so every binding must work while a property is still unset:
 
-- a **tab file** (`TabKind.content` as a `Path`) receives `workspace`, `tab`, `groupIndex`,
-  `bottomInset` and `backend`;
+- a **tab file** (`TabKind.content` as a `Path`) receives `workspace`, `tab`, `groupId`,
+  `groupIndex`, `bottomInset` and `backend`. `groupId` is the identifier of the center window that
+  shows the tab (`g1`, `g2`...); it stays the same when windows are split, moved or closed. Use it
+  to name a window. `groupIndex` is the position of the window in reading order at the time it was
+  set: it changes when a window before it is closed, so do not keep it;
 - a **dialog file** receives `workspace`, `backend`, `ref` and `dialog` (see `PluginDialog`);
 - a **Settings page file** receives `workspace` and `backend`. Its root fills the width of the
   page.
@@ -876,7 +891,7 @@ only when a compatible package is higher. The maintainer's steps are in
 
 ## 13. Where the user installs and manages plugins
 
-The Plugins view is the activity of the left bar with the plugin icon. It is always there.
+The Plugins view is the tool window at the foot of the left bar, with the plugin icon. It is always there.
 
 - **Installed** lists each plugin with its status: `Running`, `Disabled`, `Failed` (with the
   reason) or `Restart needed`. The switch saves the choice; a change applies after a restart,

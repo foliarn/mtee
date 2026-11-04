@@ -77,8 +77,9 @@ All four must pass before a change is ready:
     uv run pyright
     uv run pytest
 
-`uv run pytest` runs the tests in parallel (pytest-xdist, one file per worker) and stops a test
-that runs longer than 5 minutes. Add `-n 0` to run in one process when debugging a single test.
+`uv run pytest` runs the tests in parallel (pytest-xdist, work-stealing) and skips the `slow`
+marker (wall-clock speed guards). It stops a test that runs longer than 2 minutes. Run every test,
+including the slow ones, with `uv run pytest -m ""`. Add `-n 0` to run in one process when debugging.
 Some tests need the pinned libmpv runtime. Run `pwsh -File scripts/fetch_mpv.ps1` once to
 install it. If a gate fails before your change (a pre-existing failure), say so and list it.
 Do not hide it.

@@ -21,7 +21,7 @@ Item {
         if (mode === "import") { importer.open(); return }
         if (mode === "locate") {
             const groups = workspace.groups
-            locatePlaylist = groups[workspace.activeGroup].active.split(":")[1]
+            locatePlaylist = workspace.activeTabId.split(":")[1]
             locator.open(); return
         }
         if (mode === "resume") { resumes.open(); return }

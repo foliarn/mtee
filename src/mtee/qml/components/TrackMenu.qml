@@ -151,7 +151,7 @@ ActionMenu {
             workspace.analyzeTracks(localIds(targets), false)
         } else if (actionId === "editInfo") {
             if (listKind === "list" || listKind === "explorer")
-                workspace.showRightPanel("info")
+                workspace.openToolWindow("info")
             else
                 workspace.revealTrackForEdit(trackId, source)
         } else if (actionId === "convert") {

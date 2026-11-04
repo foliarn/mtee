@@ -136,7 +136,7 @@ def text(root: QQuickWindow, name: str) -> str:
 
 def active_tab(workspace: WorkspaceModel) -> str:
     typed = cast(Any, workspace)
-    return str(typed.groups[typed.activeGroup]["active"])
+    return str(typed.activeTabId)
 
 
 def artist_tabs(workspace: WorkspaceModel) -> list[str]:

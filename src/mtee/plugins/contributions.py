@@ -136,6 +136,11 @@ def _check_activity(activity: PluginActivity) -> None:
         raise ValueError(f"The foot of activity {activity.activity_id} is not a Qt model.")
     if activity.badge is not None:
         _need_callable("activity badge", activity.activity_id, activity.badge)
+    if activity.side not in ("left", "right"):
+        raise ValueError(
+            f"The activity {activity.activity_id} asks for the side {activity.side!r}; "
+            "only 'left' and 'right' are allowed."
+        )
 
 
 def _check_pane_action(action: PaneAction) -> None:

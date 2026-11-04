@@ -1,7 +1,7 @@
 import QtQuick
 import Mtee
 
-// Shuffle, Previous, Play/Pause, Next and Repeat, shared by the island and the
+// Shuffle, Previous, Play/Pause, Next and Repeat, shared by the player bar and the
 // fullscreen player. Active modes are drawn in the primary colour with a dot.
 Row {
     id: controls

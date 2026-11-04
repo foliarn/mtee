@@ -486,12 +486,14 @@ def test_a_saved_plugin_activity_is_kept_until_the_plugins_are_loaded(qapp, tmp_
     repository = WorkspaceRepository(database)
     try:
         for saved, expected in (
-            ("ui_probe.main", "ui_probe.main"),
-            ("Not A.Plugin", "explorer"),
-            ("playlists", "playlists"),
+            ("ui_probe.main", ["ui_probe.main"]),
+            ("Not A.Plugin", []),
+            ("playlists", ["playlists"]),
         ):
-            repository.save(DEFAULT_WORKSPACE | {"activity": saved})
-            assert repository.load()["activity"] == expected
+            left = {"open": True, "width": 260, "windows": [saved], "ratio": 0.5}
+            docks = {"left": left, "right": DEFAULT_WORKSPACE["docks"]["right"]}
+            repository.save(DEFAULT_WORKSPACE | {"docks": docks})
+            assert repository.load()["docks"]["left"]["windows"] == expected
     finally:
         database.close()
 

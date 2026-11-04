@@ -18,7 +18,7 @@ Column {
         const groups = workspace.groups
         if (groups.length === 0)
             return ""
-        const id = groups[workspace.activeGroup].active
+        const id = workspace.activeTabId
         return id.substring(id.indexOf(":") + 1)
     }
 

@@ -1,8 +1,9 @@
 import QtQuick
 import Mtee
 
-// One or two tab groups side by side. Below the single-group width only the
-// active group is shown; its tab strip offers a switch to the other one.
+// The centre of the frame (plan 131.7): the window tree of the centre, or the empty watermark when no
+// window is open. Below the single-window width only the focused window is drawn; its tab strip offers
+// a switch to the others.
 Item {
     id: area
 
@@ -14,35 +15,29 @@ Item {
     objectName: "editorArea"
 
     function selectAll() {
-        const group = repeater.itemAt(workspace.activeGroup)
+        const group = tree.groupItem(workspace.activeGroup)
         if (group)
             group.selectAll()
     }
 
-    Row {
+    WindowTree {
+        id: tree
         anchors.fill: parent
-
-        Repeater {
-            id: repeater
-            model: area.groups.length
-
-            delegate: EditorGroup {
-                required property int index
-                workspace: area.workspace
-                groupIndex: index
-                groupData: area.groups[index] || { "tabs": [], "active": "" }
-                groupCount: area.groups.length
-                singleGroup: area.singleGroup
-                bottomInset: area.bottomInset
-                visible: !area.singleGroup || index === area.workspace.activeGroup
-                width: area.singleGroup || area.groups.length < 2 ? area.width : area.width / area.groups.length
-                height: area.height
-            }
-        }
+        visible: area.groups.length > 0
+        workspace: area.workspace
+        singleGroup: area.singleGroup
+        bottomInset: area.bottomInset
+        node: area.singleGroup
+            ? ({ "type": "leaf", "group": area.workspace.activeGroup })
+            : area.workspace.centerLayout
     }
 
-    EmptyEditor {
+    WindowSurface {
         anchors.fill: parent
         visible: area.groups.length === 0
+
+        EmptyEditor {
+            anchors.fill: parent
+        }
     }
 }

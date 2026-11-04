@@ -34,7 +34,6 @@ class DemoScenario:
     repeat: str = "off"
     save_fails: bool = False
     conversion_error: bool = False
-    island_enabled: bool = True
 
 
 DEFAULT_SCENARIO = "explorer"

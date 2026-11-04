@@ -25,6 +25,7 @@ from mtee.domain.durations import format_playlist_meta
 from mtee.domain.waveform import WAVEFORM_POINTS, WaveformPoints
 from mtee.domain.waveform_levels import WAVEFORM_DISPLAY_GAMMA, bar_levels
 from mtee.models.demo_plugins_view import DemoPluginsView
+from mtee.models.tool_windows import ToolWindowRegistry
 from mtee.models.workspace_model import SETTINGS_PAGES
 from mtee.plugins.registry import plugin_ui_enabled
 
@@ -34,7 +35,6 @@ ACTIVITIES = ("explorer", "playlists", "tasks", "artists", "plugins")
 TAB_KINDS = ("folder", "playlist", "settings", "profile", "tasks", "plugin")
 SORT_KEYS = ("index", "title", "album", "genre", "bpm", "key", "duration")
 REPEAT_MODES = ("off", "all", "one")
-MAX_GROUPS = 2
 
 EDITABLE_FIELDS = (
     ("title", "Title"),
@@ -147,18 +147,23 @@ class DemoWorkspace(QObject):
         }
         self._revision = 0
         self._activity = scenario.activity
+        self._tool_windows = ToolWindowRegistry(None, self)
         self._plugins_view = DemoPluginsView(self)
         self._plugins_view.detailRequested.connect(self.openPluginDetail)
         self._sidebar_visible = scenario.sidebar_visible
         self._tab_state: dict[str, dict[str, object]] = {}
-        self._groups: list[dict[str, object]] = []
+        self._groups: dict[str, dict[str, object]] = {}
+        self._group_ids: list[str] = []
+        self._next_group = 1
         for tabs, active in zip(scenario.groups, scenario.active_tabs, strict=True):
-            self._groups.append({"tabs": list(tabs), "active": active})
+            group_id = self._new_group_id()
+            self._groups[group_id] = {"tabs": list(tabs), "active": active}
+            self._group_ids.append(group_id)
             for tab_id in tabs:
                 self._ensure_tab(tab_id)
         for tab_id in scenario.artwork_tabs:
             self._ensure_tab(tab_id)["view"] = "artwork"
-        self._active_group = 0
+        self._active_group = self._group_ids[0] if self._group_ids else ""
         self._right_panel = scenario.right_panel
         self._right_panel_visible = bool(scenario.right_panel)
         self._fullscreen = scenario.fullscreen
@@ -166,7 +171,6 @@ class DemoWorkspace(QObject):
         self._bar_count = 0
         self._liked: set[str] = set()
         self._settings_page = "general"
-        self._island_enabled = scenario.island_enabled
         self._expanded: set[str] = set(_INITIAL_EXPANDED)
         self._selected = list(scenario.selected)
         self._anchor = self._selected[-1] if self._selected else ""
@@ -249,7 +253,8 @@ class DemoWorkspace(QObject):
     @Property(list, notify=layoutChanged)
     def groups(self) -> list[dict[str, object]]:
         result = []
-        for group in self._groups:
+        for group_id in self._group_ids:
+            group = self._groups[group_id]
             tabs = []
             for tab_id in group["tabs"]:  # type: ignore[union-attr]
                 kind, _, ref = str(tab_id).partition(":")
@@ -262,19 +267,39 @@ class DemoWorkspace(QObject):
                         **self._tab_state[str(tab_id)],
                     }
                 )
-            result.append({"tabs": tabs, "active": group["active"]})
+            result.append({"id": group_id, "tabs": tabs, "active": group["active"]})
         return result
 
-    @Property(int, notify=layoutChanged)
-    def activeGroup(self) -> int:
+    @Property(dict, notify=layoutChanged)
+    def centerLayout(self) -> dict[str, object]:
+        """The demo lays its windows side by side, in reading order."""
+        leaves: list[dict[str, object]] = [
+            {"type": "leaf", "group": gid} for gid in self._group_ids
+        ]
+        if len(leaves) == 1:
+            return leaves[0]
+        share = 1.0 / len(leaves)
+        return {
+            "type": "split",
+            "orientation": "row",
+            "children": leaves,
+            "ratios": [share for _ in leaves],
+        }
+
+    @Property(str, notify=layoutChanged)
+    def activeGroup(self) -> str:
         return self._active_group
+
+    @Property(str, notify=layoutChanged)
+    def activeTabId(self) -> str:
+        return str(self._groups[self._active_group]["active"]) if self._active_group else ""
 
     @Property(str, notify=layoutChanged)
     def settingsPage(self) -> str:
         return self._settings_page
 
-    @Slot(int, result=str)
-    def settingsPageForGroup(self, _group_index: int) -> str:
+    @Slot(str, result=str)
+    def settingsPageForGroup(self, _group_id: str) -> str:
         return self._settings_page
 
     @Slot(str)
@@ -283,15 +308,15 @@ class DemoWorkspace(QObject):
             self._settings_page = page
             self.layoutChanged.emit()
 
-    @Slot(int, str)
-    def setSettingsPageForGroup(self, _group_index: int, page: str) -> None:
+    @Slot(str, str)
+    def setSettingsPageForGroup(self, _group_id: str, page: str) -> None:
         self.setSettingsPage(page)
 
-    @Slot(int, str, str, float)
-    @Slot(int, str, str, float, str, float)
+    @Slot(str, str, str, float)
+    @Slot(str, str, str, float, str, float)
     def setNavigationScroll(
         self,
-        _group: int,
+        _group: str,
         _tab: str,
         _view: str,
         _value: float,
@@ -300,12 +325,12 @@ class DemoWorkspace(QObject):
     ) -> None:
         return
 
-    @Slot(int, str, str, result=float)
-    def navigationScroll(self, _group: int, _tab: str, _view: str) -> float:
+    @Slot(str, str, str, result=float)
+    def navigationScroll(self, _group: str, _tab: str, _view: str) -> float:
         return 0.0
 
-    @Slot(int, str, str, result=dict)
-    def navigationAnchor(self, _group: int, _tab: str, _view: str) -> dict[str, object]:
+    @Slot(str, str, str, result=dict)
+    def navigationAnchor(self, _group: str, _tab: str, _view: str) -> dict[str, object]:
         return {"id": "", "offset": 0.0}
 
     @Slot()
@@ -334,10 +359,6 @@ class DemoWorkspace(QObject):
     @Property(bool, notify=layoutChanged)
     def fullscreen(self) -> bool:
         return self._fullscreen
-
-    @Property(bool, notify=layoutChanged)
-    def islandEnabled(self) -> bool:
-        return self._island_enabled
 
     @Property(QObject, constant=True)
     def playerModel(self) -> QObject:
@@ -509,8 +530,8 @@ class DemoWorkspace(QObject):
     def selectedIds(self) -> list[str]:
         return list(self._selected)
 
-    @Slot(int, result=list)
-    def selectedIdsForGroup(self, _group_index: int) -> list[str]:
+    @Slot(str, result=list)
+    def selectedIdsForGroup(self, _group_id: str) -> list[str]:
         return list(self._selected)
 
     @Property(str, notify=playbackChanged)
@@ -938,19 +959,90 @@ class DemoWorkspace(QObject):
         self._sidebar_visible = not self._sidebar_visible
         self.layoutChanged.emit()
 
-    def _open_tab(self, tab_id: str, group: int = -1) -> None:
+    @Slot(str, bool)
+    def openToolWindow(self, window_id: str, below: bool = False) -> None:
+        """Mirror of the workspace slot: the demo keeps one window per bar side."""
+        if window_id in ("info", "queue", "history"):
+            self.showRightPanel(window_id)
+        elif window_id in ACTIVITIES or window_id == "convert":
+            self.setActivity(window_id)
+
+    @Slot(str)
+    def toggleToolWindow(self, window_id: str) -> None:
+        if window_id in ("info", "queue", "history"):
+            self.toggleRightPanel(window_id)
+        elif window_id in ACTIVITIES:
+            if self._activity == window_id and self._sidebar_visible:
+                self.closeToolWindow(window_id)
+            else:
+                self.openToolWindow(window_id, False)
+
+    @Slot(str)
+    def closeToolWindow(self, window_id: str) -> None:
+        if window_id == self._activity and self._sidebar_visible:
+            self.setSidebarVisible(False)
+        elif window_id == self.rightPanelTab and self._right_panel_visible:
+            self.setRightPanelVisible(False)
+
+    @Slot(str)
+    def toggleDock(self, side: str) -> None:
+        if side == "left":
+            self.toggleSidebar()
+        elif side == "right":
+            self.setRightPanelVisible(not self._right_panel_visible)
+
+    @Slot(str, int)
+    def setDockWidth(self, side: str, width: int) -> None:
+        """The demo has no pixel sizes; the width is accepted and not kept."""
+
+    @Slot(str, float)
+    def setDockRatio(self, side: str, ratio: float) -> None:
+        """The demo has no stacked windows; the ratio is accepted and not kept."""
+
+    @Slot(str, result=dict)
+    def dockState(self, side: str) -> dict[str, object]:
+        # The demo keeps one window per side and the widths of the former bars (no stacking).
+        if side == "left":
+            return {
+                "side": side,
+                "open": self._sidebar_visible,
+                "width": 240,
+                "windows": [self._activity],
+                "ratio": 0.5,
+            }
+        if side == "right":
+            return {
+                "side": side,
+                "open": self._right_panel_visible,
+                "width": 320,
+                "windows": [self.rightPanelTab],
+                "ratio": 0.5,
+            }
+        return {}
+
+    @Property(QObject, constant=True)
+    def toolWindows(self) -> QObject:
+        return self._tool_windows
+
+    def _new_group_id(self) -> str:
+        group_id = f"g{self._next_group}"
+        self._next_group += 1
+        return group_id
+
+    def _open_tab(self, tab_id: str, group_id: str = "") -> None:
         self._ensure_tab(tab_id)
-        index = self._active_group if group < 0 else group
         if not self._groups:
-            self._groups.append({"tabs": [], "active": ""})
-            index = 0
-        target = self._groups[index]
+            group_id = self._new_group_id()
+            self._groups[group_id] = {"tabs": [], "active": ""}
+            self._group_ids.append(group_id)
+        target_id = group_id if group_id in self._groups else self._active_group
+        target = self._groups[target_id]
         tabs = target["tabs"]
         assert isinstance(tabs, list)
         if tab_id not in tabs:
             tabs.append(tab_id)
         target["active"] = tab_id
-        self._active_group = index
+        self._active_group = target_id
         self._fullscreen = False
 
     @Slot(str)
@@ -991,24 +1083,38 @@ class DemoWorkspace(QObject):
         self._open_tab("tasks:")
         self.layoutChanged.emit()
 
-    @Slot(int, str)
-    def activateTab(self, group: int, tab_id: str) -> None:
-        if 0 <= group < len(self._groups):
-            self._groups[group]["active"] = tab_id
-            self._active_group = group
+    @Slot(str, str)
+    def activateTab(self, group_id: str, tab_id: str) -> None:
+        if group_id in self._groups:
+            self._groups[group_id]["active"] = tab_id
+            self._active_group = group_id
             self.layoutChanged.emit()
 
-    @Slot(int)
-    def setActiveGroup(self, group: int) -> None:
-        if 0 <= group < len(self._groups) and group != self._active_group:
-            self._active_group = group
+    @Slot(str)
+    def focusGroup(self, group_id: str) -> None:
+        if group_id in self._groups and group_id != self._active_group:
+            self._active_group = group_id
             self.layoutChanged.emit()
 
-    @Slot(int, str)
-    def closeTab(self, group: int, tab_id: str) -> None:
-        if not 0 <= group < len(self._groups):
+    @Slot(str)
+    def setActiveGroup(self, group_id: str) -> None:
+        """Alias kept for callers written before the group ids; use ``focusGroup``."""
+        self.focusGroup(group_id)
+
+    def _remove_group(self, group_id: str) -> None:
+        if group_id not in self._groups or len(self._group_ids) < 2:
             return
-        target = self._groups[group]
+        position = self._group_ids.index(group_id)
+        self._group_ids.remove(group_id)
+        del self._groups[group_id]
+        if self._active_group == group_id:
+            self._active_group = self._group_ids[min(position, len(self._group_ids) - 1)]
+
+    @Slot(str, str)
+    def closeTab(self, group_id: str, tab_id: str) -> None:
+        if group_id not in self._groups:
+            return
+        target = self._groups[group_id]
         tabs = target["tabs"]
         assert isinstance(tabs, list)
         if tab_id not in tabs:
@@ -1017,27 +1123,107 @@ class DemoWorkspace(QObject):
         tabs.remove(tab_id)
         if target["active"] == tab_id:
             target["active"] = tabs[min(index, len(tabs) - 1)] if tabs else ""
-        if not tabs and len(self._groups) > 1:
-            self._groups.pop(group)
-        self._active_group = min(self._active_group, len(self._groups) - 1)
+        if not tabs:
+            self._remove_group(group_id)
         self.layoutChanged.emit()
 
-    @Slot()
-    def toggleSplit(self) -> None:
-        """Split the editor into two groups, or join them again."""
-        if len(self._groups) >= MAX_GROUPS:
-            second = self._groups.pop()
-            first_tabs = self._groups[0]["tabs"]
-            assert isinstance(first_tabs, list)
-            for tab_id in second["tabs"]:  # type: ignore[union-attr]
-                if tab_id not in first_tabs:
-                    first_tabs.append(tab_id)
-            self._active_group = 0
-        elif self._groups:
-            active = str(self._groups[self._active_group]["active"])
-            self._groups.append({"tabs": [active] if active else [], "active": active})
-            self._active_group = len(self._groups) - 1
+    @Slot(str)
+    def closeGroup(self, group_id: str) -> None:
+        if group_id not in self._groups or len(self._group_ids) < 2:
+            return
+        self._remove_group(group_id)
         self.layoutChanged.emit()
+
+    @Slot(str, str, str, str)
+    def splitWithTab(
+        self, target_group_id: str, edge: str, source_group_id: str, tab_id: str
+    ) -> None:
+        if (
+            target_group_id not in self._groups
+            or source_group_id not in self._groups
+            or edge not in ("left", "right", "top", "bottom")
+        ):
+            return
+        source = self._groups[source_group_id]
+        source_tabs = source["tabs"]
+        assert isinstance(source_tabs, list)
+        if tab_id not in source_tabs:
+            return
+        # The only tab of a window is copied beside it, as in the real workspace.
+        copy_beside = target_group_id == source_group_id and len(source_tabs) == 1
+        new_id = self._new_group_id()
+        if not copy_beside:
+            source_tabs.remove(tab_id)
+            if source["active"] == tab_id:
+                source["active"] = source_tabs[0] if source_tabs else ""
+        self._groups[new_id] = {"tabs": [tab_id], "active": tab_id}
+        position = self._group_ids.index(target_group_id)
+        self._group_ids.insert(position if edge in ("left", "top") else position + 1, new_id)
+        if not copy_beside and not source_tabs and source_group_id != new_id:
+            self._remove_group(source_group_id)
+        self._active_group = new_id
+        self.layoutChanged.emit()
+
+    @Slot(str, str, str, int)
+    def moveTab(self, source_group_id: str, tab_id: str, target_group_id: str, index: int) -> None:
+        if source_group_id not in self._groups or target_group_id not in self._groups:
+            return
+        source = self._groups[source_group_id]
+        source_tabs = source["tabs"]
+        assert isinstance(source_tabs, list)
+        if tab_id not in source_tabs:
+            return
+        target = self._groups[target_group_id]
+        target_tabs = target["tabs"]
+        assert isinstance(target_tabs, list)
+        source_tabs.remove(tab_id)
+        if source["active"] == tab_id:
+            source["active"] = source_tabs[0] if source_tabs else ""
+        target_tabs.insert(min(max(index, 0), len(target_tabs)), tab_id)
+        target["active"] = tab_id
+        if not source_tabs and source_group_id != target_group_id:
+            self._remove_group(source_group_id)
+        self._active_group = target_group_id
+        self.layoutChanged.emit()
+
+    @Slot(str, str, str)
+    def openFolderAt(self, folder_id: str, target_group_id: str, zone: str) -> None:
+        if target_group_id not in self._groups:
+            return
+        if zone == "center":
+            self._open_tab(f"folder:{folder_id}", target_group_id)
+        elif zone in ("left", "right", "top", "bottom"):
+            new_id = self._new_group_id()
+            self._groups[new_id] = {"tabs": [], "active": ""}
+            position = self._group_ids.index(target_group_id)
+            self._group_ids.insert(position if zone in ("left", "top") else position + 1, new_id)
+            self._open_tab(f"folder:{folder_id}", new_id)
+        self.layoutChanged.emit()
+
+    @Slot(list, list)
+    def setSplitRatios(self, _path: list, _ratios: list) -> None:
+        """The demo has no split ratios to change: its windows keep equal shares."""
+        return
+
+    @Slot(str)
+    def focusNeighbour(self, direction: str) -> None:
+        target = self._neighbour(direction)
+        if target is not None:
+            self.focusGroup(target)
+
+    @Slot(str)
+    def moveTabToNeighbour(self, direction: str) -> None:
+        target = self._neighbour(direction)
+        tab_id = str(self._groups[self._active_group]["active"]) if self._active_group else ""
+        if target is not None and tab_id:
+            self.moveTab(self._active_group, tab_id, target, len(self._groups[target]["tabs"]))  # type: ignore[arg-type]
+
+    def _neighbour(self, direction: str) -> str | None:
+        """The demo's windows sit side by side: left and right are the reading-order neighbours."""
+        if direction not in ("left", "right") or self._active_group not in self._group_ids:
+            return None
+        position = self._group_ids.index(self._active_group) + (1 if direction == "right" else -1)
+        return self._group_ids[position] if 0 <= position < len(self._group_ids) else None
 
     @Slot(str, str)
     def setSort(self, tab_id: str, key: str) -> None:
@@ -1101,12 +1287,6 @@ class DemoWorkspace(QObject):
             self._fullscreen_page = target
             self.layoutChanged.emit()
 
-    @Slot(bool)
-    def setIslandEnabled(self, enabled: bool) -> None:
-        if bool(enabled) != self._island_enabled:
-            self._island_enabled = bool(enabled)
-            self.layoutChanged.emit()
-
     @Slot(str)
     def toggleFolder(self, folder_id: str) -> None:
         if folder_id in self._expanded:
@@ -1118,8 +1298,8 @@ class DemoWorkspace(QObject):
     # ---------------------------------------------------- selection actions
 
     @Slot()
-    @Slot(int)
-    def clearSelection(self, _group_index: int = -1) -> None:
+    @Slot(str)
+    def clearSelection(self, _group_id: str = "") -> None:
         self._selected = []
         self._anchor = ""
         self._reset_save_state()

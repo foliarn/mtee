@@ -7,7 +7,7 @@ Item {
     required property var workspace
     readonly property bool live: typeof workspace.playlistModel !== "undefined"
     readonly property var playlistsModel: live ? workspace.playlistModel : null
-    readonly property string activePlaylist: workspace.groups.length ? workspace.groups[workspace.activeGroup].active.split(":")[1] || "" : ""
+    readonly property string activePlaylist: workspace.groups.length ? workspace.activeTabId.split(":")[1] || "" : ""
     property var contextEntry: ({})
     objectName: "playlistsPane"
     PaneHeader {

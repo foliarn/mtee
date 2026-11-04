@@ -362,7 +362,7 @@ def test_without_a_track_fullscreen_only_says_to_play_one(
         assert empty.property("text") == "Play a track"
         assert not _visible(window, "fullscreenCard")
         assert _visible(window, "exitFullscreen")
-        assert not _visible(window, "playerIsland")
+        assert _visible(window, "playerIsland")  # the player bar stays in the footer
 
 
 def test_edit_info_in_the_real_workspace_replaces_the_selection_in_the_source(

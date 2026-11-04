@@ -12,11 +12,11 @@ Rectangle {
 
     objectName: "settingsView"
     required property var workspace
-    property int groupIndex: 0
+    property string groupId: ""
     property int bottomInset: 0
     // The page shown for this group. A method call is not a tracked binding, so the value is
     // read again whenever the workspace layout changes (a page was chosen).
-    property string page: workspace.settingsPageForGroup(groupIndex)
+    property string page: workspace.settingsPageForGroup(groupId)
     readonly property var analysis: workspace.analysisSettings
     readonly property var playback: workspace.playbackSettings
     // The Settings pages of the running plugins follow the core pages, before About.
@@ -64,7 +64,7 @@ Rectangle {
 
     Connections {
         target: settings.workspace
-        function onLayoutChanged() { settings.page = settings.workspace.settingsPageForGroup(settings.groupIndex) }
+        function onLayoutChanged() { settings.page = settings.workspace.settingsPageForGroup(settings.groupId) }
     }
 
     Connections {
@@ -156,7 +156,7 @@ Rectangle {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: settings.workspace.setSettingsPageForGroup(settings.groupIndex, tabItem.modelData.key)
+                                onClicked: settings.workspace.setSettingsPageForGroup(settings.groupId, tabItem.modelData.key)
                             }
                         }
                     }
@@ -302,22 +302,12 @@ Rectangle {
                 }
             }
 
-            // Playback: the player island and the loudness normalization (plan 116).
+            // Playback: the loudness normalization (plan 116). The player bar has no setting (plan 131.8).
             Column {
                 objectName: "playbackSettings"
                 width: content.width
                 visible: settings.page === "playback"
                 spacing: 8
-
-                Group { title: "Player" }
-
-                ToggleRow {
-                    objectName: "islandSetting"
-                    label: "Show player island"
-                    description: "Floating player at the bottom of the editor while a track is loaded. Also in View › Player island."
-                    checked: settings.workspace.islandEnabled
-                    onToggled: (checked) => settings.workspace.setIslandEnabled(checked)
-                }
 
                 Group { title: "Loudness" }
 
@@ -434,7 +424,7 @@ Rectangle {
                     width: parent.width
                     topPadding: 12
                     bottomPadding: 12
-                    text: "Read-only list of the shortcuts MTEE handles. Shortcuts that depend on a selection work only while that selection exists."
+                    text: "Read-only list of the shortcuts MTEE handles, grouped by what they do. Shortcuts that depend on a selection work only while that selection exists. While a text field has the focus, the window shortcuts are off, except F11, Ctrl+W and Ctrl+Z."
                     wrapMode: Text.WordWrap
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
@@ -443,24 +433,40 @@ Rectangle {
 
                 Repeater {
                     model: [
+                        { "header": "Playback" },
                         { "action": "Play or pause the loaded track", "keys": "Space" },
                         { "action": "Play the selected track", "keys": "Enter or double-click" },
+                        { "action": "Previous or next track", "keys": "Ctrl+Left / Ctrl+Right" },
+                        { "action": "Fullscreen player (Esc leaves it)", "keys": "F11" },
+                        { "action": "Fullscreen: next or previous page", "keys": "Down / Up, PgDown / PgUp" },
+                        { "header": "Windows" },
+                        { "action": "Show or hide the left dock", "keys": "Ctrl+B" },
+                        { "action": "Show or hide the right dock", "keys": "Ctrl+Alt+B" },
+                        { "action": "Show the Explorer", "keys": "Ctrl+Shift+E" },
+                        { "action": "Left bar windows in bar order: Explorer, Playlists, Artists, Convert, Tasks", "keys": "Alt+1 to Alt+5" },
+                        { "action": "Show or hide the Info panel", "keys": "Ctrl+I" },
+                        { "action": "Show or hide the Queue", "keys": "Alt+Q" },
+                        { "action": "Show or hide the History", "keys": "Alt+H" },
+                        { "action": "Open Settings", "keys": "Ctrl+," },
+                        { "action": "Split the focused window right or down with its active tab", "keys": "Ctrl+\\ / Ctrl+Shift+\\" },
+                        { "action": "Focus centre window 1 to 9, in reading order", "keys": "Ctrl+1 to Ctrl+9" },
+                        { "action": "Next or previous tab of the focused window", "keys": "Ctrl+Tab / Ctrl+Shift+Tab" },
+                        { "action": "Move the active tab to the window on that side", "keys": "Ctrl+Alt+Arrow" },
+                        { "action": "Close the active tab", "keys": "Ctrl+W" },
+                        { "action": "Close the focused window", "keys": "Ctrl+Shift+W" },
+                        { "action": "Resize the focused dock by 24 px", "keys": "Ctrl+Shift+Left / Right" },
+                        { "action": "Close a floating dock or a popover", "keys": "Esc" },
+                        { "header": "Navigation" },
+                        { "action": "Back and forward in the history", "keys": "Alt+Left / Alt+Right" },
                         { "action": "Move the selection up or down (Shift extends it)", "keys": "Up / Down" },
                         { "action": "Select all tracks in the list", "keys": "Ctrl+A" },
                         { "action": "Clear the selection", "keys": "Esc" },
-                        { "action": "Show or hide the info panel", "keys": "Ctrl+I" },
+                        { "header": "Editing" },
                         { "action": "Save the tag changes in the info panel", "keys": "Ctrl+S" },
                         { "action": "Undo the last save", "keys": "Ctrl+Z" },
-                        { "action": "Show the Explorer", "keys": "Ctrl+Shift+E" },
-                        { "action": "Show or hide the sidebar", "keys": "Ctrl+B" },
-                        { "action": "Split the editor", "keys": "Ctrl+\\" },
-                        { "action": "Open Settings", "keys": "Ctrl+," },
-                        { "action": "Close the active tab", "keys": "Ctrl+W" },
-                        { "action": "Next or previous track", "keys": "Ctrl+Right / Ctrl+Left" },
-                        { "action": "Fullscreen player", "keys": "F11 (Esc leaves it)" },
-                        { "action": "Fullscreen: next or previous page", "keys": "Down / Up, PgDown / PgUp" },
-                        { "action": "Move the selected files to the Recycle Bin", "keys": "Del (Explorer only)" }
+                        { "action": "Move the selected files to the Recycle Bin (Explorer only)", "keys": "Del" }
                     ]
+
 
                     delegate: Item {
                         id: shortcutRow
@@ -468,7 +474,14 @@ Rectangle {
                         width: content.width
                         height: 36
 
+                        SectionLabel {
+                            visible: shortcutRow.modelData.header !== undefined
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: shortcutRow.modelData.header !== undefined ? shortcutRow.modelData.header : ""
+                        }
+
                         Text {
+                            visible: shortcutRow.modelData.header === undefined
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width - keysBadge.width - 24
                             elide: Text.ElideRight
@@ -480,6 +493,7 @@ Rectangle {
 
                         Rectangle {
                             id: keysBadge
+                            visible: shortcutRow.modelData.header === undefined
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             width: keysText.implicitWidth + 16

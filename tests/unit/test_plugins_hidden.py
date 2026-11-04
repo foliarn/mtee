@@ -94,9 +94,9 @@ def test_convert_is_inert_without_its_plugin(qapp, tmp_path: Path) -> None:
 
 
 def test_a_saved_convert_tab_is_not_restored() -> None:
-    groups, tab_states = restore_session_groups(
+    groups, _tree, tab_states, _next = restore_session_groups(
         [{"tabs": [{"id": "convert:", "kind": "convert", "ref": ""}], "active": "convert:"}]
     )
 
-    assert groups[0]["tabs"] == []
+    assert groups["g1"]["tabs"] == []
     assert "convert:" not in tab_states

@@ -13,11 +13,35 @@ All notable changes to MTEE are listed here. The format follows
   file, Delete file) are a separate group at the bottom. Play, Move up and Move down are gone
   from the menu.
 - Reusable interface components for windows, lists, menus and dialogs (see `docs/plugins.md`).
+- Window frame: a header with the menu, Back and Forward, and the plugin status icons; a left and a
+  right tool bar; the player along the foot. Windows are rounded and 5 px apart.
+- Tool windows in two docks. The left dock is Explorer, Playlists, Artists and the plugin windows;
+  the right dock is Info, Queue and History. A dock shows two windows stacked: Shift+click a bar
+  button, or use its "Open below" menu entry.
+- Centre windows split in any direction: drag a tab, or an Explorer folder, to an edge of a window.
+  The split button is gone; Ctrl+\ and Ctrl+Shift+\ split the focused window.
+- Keyboard shortcuts: Ctrl+B and Ctrl+Alt+B for the docks, Alt+1 to Alt+5 for the left windows,
+  Alt+Q and Alt+H for the Queue and the History, Ctrl+1 to Ctrl+9 to focus a window, Ctrl+Tab and
+  Ctrl+Shift+Tab for the tabs, Ctrl+Alt+Arrow to move a tab, Ctrl+Shift+W to close a window,
+  Alt+Left and Alt+Right for the history, Ctrl+Shift+Left and Ctrl+Shift+Right to resize a dock,
+  and Esc to close a floating dock. Settings > Keyboard shortcuts lists them by group.
 
 ### Changed
 
 - Buttons, fields, menus, dialogs and tabs have rounded corners.
 - The mouse wheel scrolls three times further in every list and page.
+- The player is a full-width bar at the foot of the window, always shown and greyed out when
+  nothing plays. The floating player island and its "Show player island" setting are gone.
+- Ctrl+\ on a window with one tab opens that tab in a new window on the right; the tab stays
+  in the first window too.
+- Below 1100 px an open dock floats over the centre and closes on a click outside or on Esc. Below
+  760 px the centre shows only its focused window; its tab strip lists the others. The window
+  opens at least 560 × 420 px. Below 760 px the header hides Back and Forward, and below 640 px
+  the status icons move into the menu.
+- The saved window layout is version 2, converted once from version 1 at the first start. The
+  version 1 text is kept as `workspace.v1.json` next to `mtee.sqlite3` in the data folder, so an
+  older build can be restored by hand.
+- The menu bar is one hamburger menu in the header.
 
 ## [0.2.0] - 2026-11-03
 

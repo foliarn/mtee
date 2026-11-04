@@ -12,6 +12,8 @@ Item {
     property bool enabledAction: true
     property string tip: ""
     readonly property bool hovered: inner.hovered
+    // The modifiers of the last click, read in ``onClicked`` (Shift stacks a tool window).
+    readonly property int lastModifiers: inner.lastModifiers
     signal clicked()
 
     implicitWidth: Theme.frameSize

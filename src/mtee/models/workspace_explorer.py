@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import Any
 
 from mtee.models.workspace_rows import folder_from_track, parse_folder_id
@@ -114,7 +114,7 @@ class ExplorerTrackCoordinator:
         self,
         track_id: str,
         source: str,
-        active_group: int,
+        active_group: str,
         play: bool,
     ) -> bool:
         """Return True if an identical selection request is already active."""
@@ -135,7 +135,7 @@ class ExplorerTrackCoordinator:
         root_id: str,
         relative: str,
         tab_id: str,
-        group_index: int,
+        group_id: str,
         play: bool,
         rows_generation: int,
     ) -> tuple[dict[str, Any], str | None]:
@@ -147,7 +147,7 @@ class ExplorerTrackCoordinator:
         previous_job = self.cancel_action()
         pending = {
             "generation": self._activation_generation,
-            "group": group_index,
+            "group": group_id,
             "tab_id": tab_id,
             "track_id": str(track_id),
             "source": source,
@@ -188,15 +188,15 @@ class ExplorerTrackCoordinator:
     def is_context_current(
         self,
         pending: dict[str, Any],
-        active_group: int,
-        groups: list[dict[str, Any]],
+        active_group: str,
+        groups: Mapping[str, dict[str, Any]],
     ) -> bool:
         """Check if the pending action matches the currently active group and tab."""
-        group_index = int(pending.get("group", -1))
+        group_id = str(pending.get("group", ""))
         return (
-            0 <= group_index < len(groups)
-            and active_group == group_index
-            and groups[group_index].get("active") == pending.get("tab_id")
+            group_id in groups
+            and active_group == group_id
+            and groups[group_id].get("active") == pending.get("tab_id")
         )
 
     def is_matching_ready(self, generation: int) -> bool:

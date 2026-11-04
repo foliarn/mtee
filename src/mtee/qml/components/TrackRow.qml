@@ -9,7 +9,7 @@ Rectangle {
     required property var track
     required property var columns
     required property var workspace
-    property int groupIndex: 0
+    property string groupId: ""
     property bool selected: false
     readonly property string localId: track.trackId !== undefined ? track.trackId : track.id
     readonly property bool available: track.available !== false

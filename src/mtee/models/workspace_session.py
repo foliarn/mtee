@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 from mtee.domain.column_widths import clamp_column_width
+from mtee.models import window_layout as layout
+from mtee.models.window_layout import Leaf, Node, Split, node_from_dict
 from mtee.models.workspace_rows import copy_column_preferences, parse_folder_ref
 from mtee.persistence.workspace_repository import (
     COLUMN_OPTIONS,
@@ -118,15 +120,23 @@ def ensure_tab_state(
 def restore_session_groups(
     raw_groups: list[Any],
     roots_by_id: dict[str, dict[str, Any]] | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
-    """Restore up to 2 groups from session data, initializing their tab states.
+    center: Any = None,
+) -> tuple[dict[str, dict[str, Any]], Node, dict[str, dict[str, Any]], int]:
+    """Restore the groups and the center layout from session data.
+
+    Each saved group keeps its ``id`` when it is a unique, non-empty string; otherwise it gets
+    the next free id. The saved ``center`` tree is used when it places exactly these groups;
+    otherwise the groups sit side by side, or one window is shown when there is one group.
 
     Returns:
-        (groups, tab_states): the validated groups list and the tab states dictionary.
+        (groups, layout, tab_states, next_group_number): groups keyed by id, the layout tree,
+        the tab states, and the number the next new group id takes.
     """
     tab_states: dict[str, dict[str, Any]] = {}
-    groups: list[dict[str, Any]] = []
-    for raw_group in raw_groups[:2]:
+    groups: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    counter = 0
+    for raw_group in raw_groups:
         if not isinstance(raw_group, dict):
             continue
         tab_ids: list[str] = []
@@ -154,56 +164,93 @@ def restore_session_groups(
         selections = raw_group.get("selections", {})
         if not isinstance(selections, dict):
             selections = {}
-        groups.append({"tabs": tab_ids, "active": active, "selections": selections})
+        counter += 1
+        saved_id = raw_group.get("id")
+        group_id = (
+            saved_id
+            if isinstance(saved_id, str) and saved_id and saved_id not in groups
+            else f"g{counter}"
+        )
+        while group_id in groups:
+            counter += 1
+            group_id = f"g{counter}"
+        groups[group_id] = {"tabs": tab_ids, "active": active, "selections": selections}
+        order.append(group_id)
     if not groups:
-        groups = [{"tabs": [], "active": "", "selections": {}}]
-    return groups, tab_states
+        groups = {"g1": {"tabs": [], "active": "", "selections": {}}}
+        order = ["g1"]
+        counter = 1
+    return groups, restore_layout(center, order), tab_states, counter + 1
+
+
+def restore_layout(center: Any, group_ids: list[str]) -> Node:
+    """The saved tree when it places exactly ``group_ids``; else a default arrangement."""
+    if center is not None:
+        tree = node_from_dict(center)
+        if set(layout.groups(tree)) == set(group_ids) and len(layout.groups(tree)) == len(
+            group_ids
+        ):
+            return tree
+    if len(group_ids) == 1:
+        return Leaf(group_ids[0])
+    if len(group_ids) == 2:
+        return Split("row", (Leaf(group_ids[0]), Leaf(group_ids[1])), (0.5, 0.5))
+    tree: Node = Leaf(group_ids[0])
+    for group_id in group_ids[1:]:
+        tree = layout.split(tree, layout.groups(tree)[-1], "right", group_id)
+    return tree
 
 
 def build_session_snapshot(
     *,
     expanded: set[str] | list[str],
-    groups: list[dict[str, Any]],
+    groups: Mapping[str, dict[str, Any]],
+    layout_tree: Node,
     tab_states: dict[str, dict[str, Any]],
-    selection_by_tab: dict[tuple[int, str], list[str]],
-    anchor_by_tab: dict[tuple[int, str], str],
-    active_group: int,
+    selection_by_tab: dict[tuple[str, str], list[str]],
+    anchor_by_tab: dict[tuple[str, str], str],
+    active_group: str,
     activity: str,
     sidebar_visible: bool,
     right_visible: bool,
     right_tab: str,
     sidebar_width: int,
     right_panel_width: int,
-    island_enabled: bool,
     preview_tabs: bool,
     column_preferences: dict[str, Any],
+    next_group: int = 1,
 ) -> dict[str, Any]:
-    """Produce the complete serializable dictionary representing the workspace session."""
+    """Produce the complete serializable dictionary representing the workspace session (v2)."""
+    order = list(layout.groups(layout_tree))
     return {
-        "version": 1,
+        "version": 2,
         "expanded": sorted(expanded),
         "groups": [
             {
-                "tabs": [dict(tab_states.get(tab_id, {})) for tab_id in group.get("tabs", [])],
-                "active": group.get("active", ""),
+                "id": group_id,
+                "tabs": [
+                    dict(tab_states.get(tab_id, {})) for tab_id in groups[group_id].get("tabs", [])
+                ],
+                "active": groups[group_id].get("active", ""),
                 "selections": {
                     tab_id: {
-                        "ids": list(selection_by_tab.get((group_index, tab_id), [])),
-                        "anchor": anchor_by_tab.get((group_index, tab_id), ""),
+                        "ids": list(selection_by_tab.get((group_id, tab_id), [])),
+                        "anchor": anchor_by_tab.get((group_id, tab_id), ""),
                     }
-                    for tab_id in group.get("tabs", [])
+                    for tab_id in groups[group_id].get("tabs", [])
                 },
             }
-            for group_index, group in enumerate(groups)
+            for group_id in order
         ],
-        "activeGroup": active_group,
-        "activity": activity,
-        "sidebarVisible": sidebar_visible,
-        "rightPanelVisible": right_visible,
-        "rightPanelTab": right_tab,
-        "sidebarWidth": sidebar_width,
-        "rightPanelWidth": right_panel_width,
-        "islandEnabled": island_enabled,
+        "center": layout.node_to_dict(layout_tree),
+        "activeGroup": active_group if active_group in order else order[0],
+        "nextGroup": max(next_group, 1),
+        "docks": {
+            "left": layout.DockState("left", sidebar_visible, sidebar_width, (activity,)).to_dict(),
+            "right": layout.DockState(
+                "right", right_visible, right_panel_width, (right_tab,)
+            ).to_dict(),
+        },
         "previewTabs": preview_tabs,
         "columnPreferences": copy_column_preferences(column_preferences),
     }
