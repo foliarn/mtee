@@ -101,6 +101,23 @@ ERROR_KEY = "last_error"
 OUTCOME_KEY = "outcome"
 ACTION_KEY = "resolved_action"
 AWAITING_KEY = "awaiting_recycle"
+# The bell and the Remote window list this many conflicts, then one row that opens the full list.
+SHOWN = 50
+MORE_ID = "more"
+LIST_TAB_KIND = "remote.conflicts"
+LIST_REF = "all"
+
+
+def more_row(hidden: int) -> dict[str, str]:
+    """The last row of a capped list: how many more conflicts wait, and the button to list them."""
+    noun = "conflict" if hidden == 1 else "conflicts"
+    return {
+        "id": MORE_ID,
+        "title": f"{hidden:,} more {noun}",
+        "subtitle": "Open the list of every conflict",
+        "action": "Show all",
+    }
+
 
 _PUSH_KINDS = ("upload", "replace", "move")
 _NAME_CHARS = re.compile(r'[\\/:*?"<>|]')
@@ -256,20 +273,33 @@ def _conflict_of(row: sqlite3.Row) -> Conflict:
     )
 
 
-def read_conflicts(conn: sqlite3.Connection) -> list[Conflict]:
+def read_conflicts(conn: sqlite3.Connection, *, unresolved_only: bool = False) -> list[Conflict]:
+    """The conflicts, oldest first. A resolved one stays as a record, so most callers skip them."""
+    where = " WHERE state <> 'resolved'" if unresolved_only else ""
     rows = conn.execute(
-        "SELECT * FROM remote_conflicts ORDER BY created_at_utc, conflict_id"
+        f"SELECT * FROM remote_conflicts{where} ORDER BY created_at_utc, conflict_id"
     ).fetchall()
     return [_conflict_of(row) for row in rows]
 
 
 def visible_conflicts(conn: sqlite3.Connection) -> list[Conflict]:
-    return [conflict for conflict in read_conflicts(conn) if conflict.visible]
+    return [conflict for conflict in read_conflicts(conn, unresolved_only=True) if conflict.visible]
+
+
+# ``Conflict.visible`` in SQL: open, or decide-later and not dismissed. Counted with the state index
+# and without reading the two JSON documents of each row.
+_VISIBLE_SQL = (
+    "state = 'open' OR (state = 'decide_later'"
+    f" AND COALESCE(json_extract(local_json, '$.{DISMISSED_KEY}'), '') IN ('', 0))"
+)
 
 
 def open_count(conn: sqlite3.Connection) -> int:
     """How many conflicts wait for the person: the status item says ``N conflicts``."""
-    return len(visible_conflicts(conn))
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM remote_conflicts WHERE {_VISIBLE_SQL}"
+    ).fetchone()
+    return int(row["n"])
 
 
 # -- the job side ----------------------------------------------------------------------------
@@ -956,19 +986,39 @@ class ConflictFeature(QObject):
         return open_count(self._store.connection())
 
     def refresh(self) -> None:
-        """Read the rows again, close what the disk settled, reopen what changed, refresh status."""
+        """Read the rows again, close what the disk settled, reopen what changed, refresh status.
+
+        The bell and the Remote window show the oldest ``SHOWN`` conflicts, then one row that
+        opens the list of all of them (``LIST_TAB_KIND``): a first match can leave thousands, and
+        each row is an item drawn by the core.
+        """
         self._sweep()
-        rows = [self._row(conflict) for conflict in visible_conflicts(self._store.connection())]
+        visible = visible_conflicts(self._store.connection())
+        shown = visible[:SHOWN]
+        titles = self._titles(shown)
+        rows = [self._row(conflict, titles) for conflict in shown]
+        if len(visible) > SHOWN:
+            rows.append(more_row(len(visible) - SHOWN))
         self._model.replace(rows)
         self._after_change()
 
+    def list_rows(self) -> list[dict[str, str]]:
+        """Every conflict that waits, as the list tab shows it. A job thread or the GUI thread."""
+        visible = visible_conflicts(self._store.connection())
+        titles = self._titles(visible)
+        return [self._row(conflict, titles) for conflict in visible]
+
     def run_waiting(self, row_id: str) -> TabRequest | None:
+        if row_id == MORE_ID:
+            return TabRequest(LIST_TAB_KIND, LIST_REF)
         conflict = self._work.conflict(row_id)
         if conflict is None or not conflict.visible:
             return None
         return TabRequest(TAB_KIND, row_id)
 
     def dismiss_waiting(self, row_id: str) -> None:
+        if row_id == MORE_ID:
+            return  # the summary row stands for many conflicts: each is dismissed in its own tab
         conflict = self._work.conflict(row_id)
         if conflict is None or conflict.state == CONFLICT_RESOLVED:
             return
@@ -1124,8 +1174,18 @@ class ConflictFeature(QObject):
         self._work.mark(conflict, {AWAITING_KEY: True})
 
     def _sweep(self) -> None:
-        for conflict in read_conflicts(self._store.connection()):
-            if conflict.state == CONFLICT_RESOLVED or conflict.track_id is None:
+        """Close the conflicts whose file left, reopen the dismissed ones whose file changed.
+
+        Only the rows that can need it are read: unresolved, with a track, and waiting for the
+        Recycle Bin or dismissed. The other thousands of a first match are not looked at.
+        """
+        candidates = self._store.connection().execute(
+            "SELECT * FROM remote_conflicts WHERE state <> 'resolved' AND track_id IS NOT NULL"
+            f" AND (json_extract(local_json, '$.{AWAITING_KEY}') IS NOT NULL"
+            f" OR json_extract(local_json, '$.{DISMISSED_KEY}') IS NOT NULL)"
+        )
+        for conflict in (_conflict_of(row) for row in candidates.fetchall()):
+            if conflict.track_id is None:
                 continue
             if conflict.local.get(AWAITING_KEY) and self._work.track(conflict.track_id) is None:
                 self._work.forget_removed(conflict)
@@ -1134,18 +1194,27 @@ class ConflictFeature(QObject):
                 self._work.reopen(conflict)
                 self.changed.emit(conflict.conflict_id)
 
-    def _title(self, conflict: Conflict) -> str:
+    def _title(self, conflict: Conflict, titles: dict[str, str] | None = None) -> str:
         if conflict.kind == KIND_PLAYLIST:
             return _text(conflict.local.get("name")) or "Playlist"
-        track = self._work.track(conflict.track_id)
-        if track is not None and track.title:
-            return track.title
-        return PurePosixPath(conflict.path_hint()).stem or "Track"
+        if titles is None:
+            track = self._work.track(conflict.track_id)
+            title = track.title if track is not None else ""
+        else:
+            title = titles.get(conflict.track_id or "", "")
+        return title or PurePosixPath(conflict.path_hint()).stem or "Track"
 
-    def _row(self, conflict: Conflict) -> dict[str, str]:
+    def _titles(self, conflicts: Sequence[Conflict]) -> dict[str, str]:
+        """The library titles of the conflicts' tracks, read in one call."""
+        ids = [conflict.track_id for conflict in conflicts if conflict.track_id]
+        if not ids:
+            return {}
+        return {track.track_id: track.title for track in self._context.library.tracks(ids)}
+
+    def _row(self, conflict: Conflict, titles: dict[str, str] | None = None) -> dict[str, str]:
         return {
             "id": conflict.conflict_id,
-            "title": self._title(conflict),
+            "title": self._title(conflict, titles),
             "subtitle": _SUBTITLES.get(conflict.kind, "Needs a decision"),
             "action": "Resolve",
         }

@@ -1007,3 +1007,45 @@ def test_the_conflict_tab_loads_with_both_columns_in_the_real_window(
         ]
     finally:
         _shutdown(runtime)
+
+
+def test_past_fifty_conflicts_the_bell_opens_the_list_of_every_one(
+    qapp: object, tmp_path: Path
+) -> None:
+    """A first match can leave thousands: the bell keeps 50 rows and a row that opens the list."""
+    data_dir = tmp_path / "data"
+    _shutdown(start_app(data_dir, (PLUGIN_DIR,), ("remote",)))
+    database = Database(resolve_app_paths(data_dir).ensure().database_path)
+    with database.transaction() as conn:
+        for index in range(57):
+            insert_conflict(
+                conn,
+                track_id=f"ui-track-{index:04d}",
+                item_id=f"{index:032x}",
+                local={"kind": "tags_differ", "relative_path": f"Artist/{index:04d}.flac"},
+                server={"kind": "tags_differ", "item_id": f"{index:032x}"},
+                state="open",
+            )
+    database.close()
+
+    runtime = start_app(data_dir, (PLUGIN_DIR,), ("remote",))
+    try:
+        ui = plugin_ui_of(workspace_of(runtime))
+        settle(runtime)
+        assert ui.waitingCount == 51, "50 conflicts and the row of the 7 others"
+
+        ui.runWaiting("remote.conflicts", "more")
+        settle(runtime)
+
+        window = window_of(runtime)
+        assert str(workspace_of(runtime).activeTabId).startswith("remote.conflicts")
+        (count,) = find_items(window, "conflictListCount")
+        assert (
+            count.property("text") == "57 conflicts wait for you. Open one to choose what to keep."
+        )
+        (view,) = find_items(window, "conflictListView")
+        assert view.property("count") == 57
+        drawn = find_items(window, "conflictListRow")
+        assert 0 < len(drawn) < 57, "only the rows in view are drawn"
+    finally:
+        _shutdown(runtime)

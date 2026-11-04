@@ -12,14 +12,20 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from mtee.plugins.remote.activity import (  # pyright: ignore[reportMissingImports]
+from mtee.plugins.remote.activity import (  # pyright: ignore[reportMissingImports]  # pyright: ignore[reportMissingImports]
     BACKUPS_ID,
     CHANGES_ID,
     CONFLICTS_ID,
     LOG_ID,
+    MORE_CHANGES_ID,
+    SHOWN_CHANGES,
     RemoteActivity,
 )
-from mtee.plugins.remote.conflicts import (  # pyright: ignore[reportMissingImports]
+from mtee.plugins.remote.conflicts import (  # pyright: ignore[reportMissingImports]  # pyright: ignore[reportMissingImports]
+    LIST_REF,
+    LIST_TAB_KIND,
+    MORE_ID,
+    SHOWN,
     TAB_KIND,
     ConflictFeature,
 )
@@ -170,10 +176,11 @@ def test_queue_rows_name_each_operation_and_a_blocked_one_is_a_warning(harness: 
         conn.execute("UPDATE remote_queue SET state = 'blocked' WHERE track_id = 't2'")
 
     rows = harness.rows(CHANGES_ID)
-    assert [row["name"] for row in rows] == ["Upload a", "Move b"]
-    assert "tone" not in rows[0]
-    assert rows[1]["tone"] == "warning"
-    assert rows[1]["count"] == "blocked"
+    # A blocked or failed operation is listed first, so a capped list never hides it.
+    assert [row["name"] for row in rows] == ["Move b", "Upload a"]
+    assert rows[0]["tone"] == "warning"
+    assert rows[0]["count"] == "blocked"
+    assert "tone" not in rows[1]
 
 
 def test_a_done_queue_entry_is_not_listed(harness: Harness) -> None:
@@ -380,3 +387,80 @@ def test_the_connection_line_follows_the_state(
     assert (first["text"], first["tone"]) == expected
     if state == "disconnected":
         assert view.foot.rows()[1] == {"text": "Connect in Settings > Remote.", "tone": "muted"}
+
+
+def _many_conflicts(
+    harness: Harness,
+    count: int,
+    *,
+    extra_local: dict[str, Any] | None = None,
+    state: str = CONFLICT_OPEN,
+) -> None:
+    with harness.store.transaction() as conn:
+        for index in range(count):
+            insert_conflict(
+                conn,
+                track_id=f"x{index:04d}",
+                item_id=f"item-{index:04d}",
+                local={
+                    "kind": "tags_differ",
+                    "relative_path": f"A/{index:04d}.flac",
+                    **(extra_local or {}),
+                },
+                server={"kind": "tags_differ", "item_id": f"item-{index:04d}"},
+                state=state,
+            )
+
+
+def test_the_count_reads_only_the_conflicts_that_wait(harness: Harness) -> None:
+    _many_conflicts(harness, 3)
+    _many_conflicts(harness, 2, state="decide_later")
+    _many_conflicts(
+        harness, 4, state="decide_later", extra_local={"dismissed_at_utc": "2026-11-01"}
+    )
+    _many_conflicts(harness, 5, state="resolved")
+    harness.conflicts.refresh()
+    # The SQL count agrees with Conflict.visible: open and decide-later not dismissed.
+    assert harness.conflicts.open_count() == 5
+    assert len(harness.conflicts.list_rows()) == 5
+
+
+def test_the_bell_and_the_window_show_fifty_conflicts_then_a_row_for_the_rest(
+    harness: Harness,
+) -> None:
+    _many_conflicts(harness, SHOWN + 7)
+    harness.conflicts.refresh()
+
+    waiting = harness.conflicts.model.rows()
+    assert len(waiting) == SHOWN + 1
+    assert waiting[-1] == {
+        "id": MORE_ID,
+        "title": "7 more conflicts",
+        "subtitle": "Open the list of every conflict",
+        "action": "Show all",
+    }
+    assert harness.conflicts.run_waiting(MORE_ID) == TabRequest(LIST_TAB_KIND, LIST_REF)
+    harness.conflicts.dismiss_waiting(MORE_ID)  # a summary row: nothing is dismissed
+    assert harness.conflicts.open_count() == SHOWN + 7
+
+    rows = harness.rows(CONFLICTS_ID)
+    assert len(rows) == SHOWN + 1
+    assert rows[-1] == {"id": MORE_ID, "name": "7 more conflicts…", "icon": "list"}
+    activate = _section(harness.contributions, CONFLICTS_ID).activate
+    assert activate is not None and activate(MORE_ID) == TabRequest(LIST_TAB_KIND, LIST_REF)
+    assert len(harness.conflicts.list_rows()) == SHOWN + 7
+
+
+def test_the_changes_show_the_problems_first_and_count_the_rest(harness: Harness) -> None:
+    with harness.store.transaction() as conn:
+        for index in range(SHOWN_CHANGES + 10):
+            enqueue(conn, kind="upload", track_id=f"t{index}", item_id=None)
+        conn.execute(
+            "UPDATE remote_queue SET state = 'failed' WHERE track_id = ?",
+            (f"t{SHOWN_CHANGES + 5}",),
+        )
+
+    rows = harness.rows(CHANGES_ID)
+    assert len(rows) == SHOWN_CHANGES + 1
+    assert rows[0]["tone"] == "warning", "a failed operation is listed first"
+    assert rows[-1] == {"id": MORE_CHANGES_ID, "name": "10 more changes"}

@@ -32,7 +32,7 @@ from mtee.plugins.api import (
 
 from .activity import RemoteActivity
 from .availability import availability_column, availability_status
-from .conflicts import TAB_KIND, ConflictFeature
+from .conflicts import LIST_TAB_KIND, TAB_KIND, ConflictFeature
 from .connection import ConnectionManager
 from .engine import SyncEngine
 from .explorer import ServerFolders
@@ -41,6 +41,7 @@ from .offload import OffloadService
 from .sources import ServerTracks
 from .store import RemoteStore
 from .ui.conflict_backend import ConflictBackend
+from .ui.conflict_list_backend import ConflictListBackend
 from .ui.first_match_backend import FirstMatchBackend
 from .ui.settings_backend import SettingsBackend
 
@@ -48,6 +49,7 @@ HERE = Path(__file__).parent
 PAGE_QML = HERE / "ui" / "settings.qml"
 DIALOG_QML = HERE / "ui" / "first_match.qml"
 CONFLICT_QML = HERE / "ui" / "conflict.qml"
+CONFLICT_LIST_QML = HERE / "ui" / "conflict_list.qml"
 
 
 class RemoteService:
@@ -79,6 +81,7 @@ class RemoteService:
         # A setting that travels, changed by the person or another plugin, is sent on the next pass.
         self._unsubscribe_settings = _watch_synced_settings(context, self._engine)
         self._conflict_backend = ConflictBackend(self._conflicts)
+        self._conflict_list_backend = ConflictListBackend(context, self._conflicts)
         self._engine.changed.connect(self._conflicts.refresh)
         # The Remote activity and Explorer > Server (plan 126.9): read again after each pass, fetch
         # and resolution. A conflict change is read on the next turn, once the conflicts have rows.
@@ -118,6 +121,14 @@ class RemoteService:
                 title_fn=self._conflicts.tab_title,
                 content=CONFLICT_QML,
                 backend=self._conflict_backend,
+                icon="alert",
+            ),
+            # Every conflict that waits: the bell and the Remote window open it past the 50th.
+            TabKind(
+                LIST_TAB_KIND,
+                title_fn=lambda _ref: "Remote conflicts",
+                content=CONFLICT_LIST_QML,
+                backend=self._conflict_list_backend,
                 icon="alert",
             ),
             *self._activity.contributions(),

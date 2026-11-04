@@ -40,7 +40,7 @@ from mtee.plugins.api import (
 )
 
 from .backups import backup_rows
-from .conflicts import ConflictFeature
+from .conflicts import MORE_ID, ConflictFeature
 from .engine import CONNECTED, MANUAL, SyncEngine, SyncLink, sync_mode
 from .push import BLOCKED, PENDING
 from .store import RemoteStore
@@ -61,6 +61,8 @@ PROBLEM_STATES = ("blocked", "failed")
 WARNING_LEVELS = ("warning", "error")
 VERBS = {"upload": "Upload", "replace": "Replace", "move": "Move"}
 UP_TO_DATE = "Everything is up to date"
+SHOWN_CHANGES = 50
+MORE_CHANGES_ID = "more_changes"
 NOT_CONNECTED_FOOT = ("Not connected.", "Connect in Settings > Remote.")
 WARNING_STATES = ("offline", "error")
 
@@ -202,18 +204,27 @@ class RemoteActivity:
 
     # -- rows ------------------------------------------------------------------------------
     def _change_rows(self) -> list[dict[str, Any]]:
+        """The problems first, then the oldest operations: ``SHOWN_CHANGES`` rows at most.
+
+        A first sync can queue thousands of uploads; each row is an item the core draws, and its
+        title is read from the library on the graphical thread. The rest are counted in one row.
+        """
+        conn = self._store.connection()
         placeholders = ", ".join("?" for _ in QUEUE_STATES)
-        found = (
-            self._store.connection()
-            .execute(
-                "SELECT op_id, kind, track_id, state FROM remote_queue"
-                f" WHERE state IN ({placeholders}) ORDER BY rowid",
-                QUEUE_STATES,
-            )
-            .fetchall()
-        )
+        found = conn.execute(
+            "SELECT op_id, kind, track_id, state FROM remote_queue"
+            f" WHERE state IN ({placeholders})"
+            " ORDER BY state IN ('blocked', 'failed') DESC, rowid LIMIT ?",
+            (*QUEUE_STATES, SHOWN_CHANGES),
+        ).fetchall()
         if not found:
             return [{"id": "up_to_date", "name": UP_TO_DATE, "icon": "check", "tone": "secondary"}]
+        total = int(
+            conn.execute(
+                f"SELECT COUNT(*) AS n FROM remote_queue WHERE state IN ({placeholders})",
+                QUEUE_STATES,
+            ).fetchone()["n"]
+        )
         titles = self._titles([row["track_id"] for row in found if row["track_id"]])
         rows: list[dict[str, Any]] = []
         for row in found:
@@ -223,6 +234,8 @@ class RemoteActivity:
             if row["state"] in PROBLEM_STATES:
                 entry.update(tone="warning", icon="alert", count=str(row["state"]))
             rows.append(entry)
+        if total > len(found):
+            rows.append({"id": MORE_CHANGES_ID, "name": f"{total - len(found):,} more changes"})
         return rows
 
     def _foot_rows(self) -> list[dict[str, Any]]:
@@ -255,15 +268,21 @@ class RemoteActivity:
 
     def _conflict_rows(self) -> list[dict[str, Any]]:
         """The open conflicts, read from the conflicts' own rows (title and reason)."""
-        return [
-            {
-                "id": row["id"],
-                "name": f"{row['title']}: {row['subtitle']}",
-                "icon": "alert",
-                "tone": "warning",
-            }
-            for row in self._conflicts.model.rows()
-        ]
+        rows: list[dict[str, Any]] = []
+        for row in self._conflicts.model.rows():
+            if row["id"] == MORE_ID:
+                # Opens the list of every conflict (the section's activate is run_waiting).
+                rows.append({"id": MORE_ID, "name": f"{row['title']}…", "icon": "list"})
+                continue
+            rows.append(
+                {
+                    "id": row["id"],
+                    "name": f"{row['title']}: {row['subtitle']}",
+                    "icon": "alert",
+                    "tone": "warning",
+                }
+            )
+        return rows
 
     def _backup_rows(self) -> list[dict[str, Any]]:
         return [
