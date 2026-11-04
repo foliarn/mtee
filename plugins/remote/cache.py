@@ -10,6 +10,13 @@ Only files that this module wrote are touched: ``add`` takes a file only from th
 folder under the cache folder, and eviction and clearing only look at the files of the folder.
 Eviction removes the least recently used copies (by modification time, which ``lookup`` refreshes)
 until the folder is under the size limit.
+
+A copy is checked against its SHA-256 once per run of MTEE: when ``add`` keeps it, or at its first
+``lookup``. After that ``lookup`` trusts it while its size and modification time are the ones it had
+when it was checked (the time ``lookup`` itself sets is recorded too). Only this module writes the
+folder, so a copy that changed is one this module did not make, and it is checked again. ``open`` of
+a track runs at every play and again before the gapless start of the next one: hashing tens of MB
+each time delayed the start of every cached track.
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import threading
 from pathlib import Path, PurePosixPath
 
 from mtee.plugins.api import PluginContext
@@ -33,6 +41,35 @@ _GIB = 1024**3
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ITEM_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 _EXT = re.compile(r"^\.[a-z0-9]{1,8}$")
+# The copies checked in this run: their path, with the size and modification time they then had.
+_VERIFIED: dict[str, tuple[int, int]] = {}
+_VERIFIED_LOCK = threading.Lock()
+
+
+def _stamp(path: Path) -> tuple[int, int]:
+    info = os.stat(path)
+    return info.st_size, info.st_mtime_ns
+
+
+def _key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _remember_verified(path: Path) -> None:
+    stamp = _stamp(path)
+    with _VERIFIED_LOCK:
+        _VERIFIED[_key(path)] = stamp
+
+
+def _was_verified(path: Path) -> bool:
+    with _VERIFIED_LOCK:
+        known = _VERIFIED.get(_key(path))
+    return known is not None and known == _stamp(path)
+
+
+def _forget_verified(path: Path) -> None:
+    with _VERIFIED_LOCK:
+        _VERIFIED.pop(_key(path), None)
 
 
 def ext_of(name: str) -> str:
@@ -112,12 +149,15 @@ class StreamCache:
         path = self.path_for(item_id, sha256, ext)
         try:
             if not path.is_file():
+                _forget_verified(path)
                 return None
-            if file_sha256(path) != sha256:
+            if not _was_verified(path) and file_sha256(path) != sha256:
+                _forget_verified(path)
                 with contextlib.suppress(OSError):
                     path.unlink()
                 return None
             os.utime(path)
+            _remember_verified(path)
         except OSError:
             return None
         return path
@@ -141,6 +181,7 @@ class StreamCache:
             return None
         self._folder.mkdir(parents=True, exist_ok=True)
         os.replace(src, target)
+        _remember_verified(target)
         return target
 
     def evict(self, keep: Path | None = None) -> int:

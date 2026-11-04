@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import mtee.plugins.remote.cache as cache_module  # pyright: ignore[reportMissingImports]
 import pytest
 from mtee.plugins.remote.cache import (  # pyright: ignore[reportMissingImports]
     INCOMING_DIR,
@@ -239,3 +240,30 @@ def test_the_incoming_folder_is_inside_the_cache_folder(tmp_path: Path) -> None:
     cache = StreamCache(tmp_path / "cache", GIB)
     assert cache.incoming_dir() == tmp_path / "cache" / INCOMING_DIR
     assert cache.incoming_dir().is_dir()
+
+
+def test_a_checked_copy_is_not_hashed_again_at_each_play(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = StreamCache(tmp_path / "cache", GIB)
+    data = _bytes(11)
+    kept = cache.add(ITEM_A, _sha(data), _download(cache, ITEM_A, data))
+    assert kept is not None
+    hashed: list[Path] = []
+    real = cache_module.file_sha256
+
+    def counting(path: Path) -> str:
+        hashed.append(path)
+        return real(path)
+
+    monkeypatch.setattr(cache_module, "file_sha256", counting)
+    for _ in range(3):
+        assert cache.lookup(ITEM_A, _sha(data), ".flac") == kept
+    assert hashed == [], "add checked it; each play only compares its size and time"
+
+    # The same size written again with other bytes and another time: checked, and discarded.
+    kept.write_bytes(_bytes(12))
+    os.utime(kept, (1_000_000, 1_000_000))
+    assert cache.lookup(ITEM_A, _sha(data), ".flac") is None
+    assert hashed == [kept]
+    assert not kept.exists()
