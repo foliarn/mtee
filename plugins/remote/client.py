@@ -196,6 +196,10 @@ class RemoteClient:
         self._sent_lock = threading.Lock()
         self._uploaded_bytes = 0
 
+    def with_timeout(self, timeout: float) -> RemoteClient:
+        """The same server and token with another timeout per request (a quick attempt)."""
+        return RemoteClient(self.base_url, self._token, timeout=timeout)
+
     @property
     def uploaded_bytes(self) -> int:
         """The upload bytes this client has sent so far (a counter for sizes and tests)."""

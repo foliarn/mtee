@@ -15,8 +15,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
+import mtee.plugins.remote.sources as sources_module  # pyright: ignore[reportMissingImports]
 import pytest
-from mtee.plugins.remote import sources as sources_module  # pyright: ignore[reportMissingImports]
 from mtee.plugins.remote.cache import open_cache  # pyright: ignore[reportMissingImports]
 from mtee.plugins.remote.client import ApiError  # pyright: ignore[reportMissingImports]
 from mtee.plugins.remote.fetch import fetch_once  # pyright: ignore[reportMissingImports]
@@ -56,6 +56,12 @@ from mtee.services.mpv_backend import MpvBackend
 @pytest.fixture(scope="module")
 def sources(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     return source_files(tmp_path_factory.mktemp("streaming-sources"))
+
+
+@pytest.fixture(autouse=True)
+def stream_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests check the stream: no quick copy first. The quick-copy tests set it again."""
+    monkeypatch.setattr(sources_module, "HEAD_START_S", 0)
 
 
 @pytest.fixture
@@ -328,3 +334,74 @@ def test_the_player_plays_the_stream_with_the_header_through_libmpv(
     samples.frombytes(output.read_bytes())
     # The sine wave of the source is audible: the decoded samples are not silence.
     assert len(samples) > 44_100 and max(abs(value) for value in samples) > 1000
+
+
+def test_on_a_fast_network_the_original_is_copied_first_and_played_from_disk(
+    computer: Computer, sources: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One transfer: the copy arrives within the head start, so nothing is streamed."""
+    _, item_id = _server_track(computer, "Quick/fast.flac", sources["other"])
+    sha, ext = item_facts(computer.store, item_id)
+    downloads: list[str] = []
+    original = type(computer.client).download
+
+    def counting(self: Any, item: str, target: Path, **options: Any) -> Path:
+        downloads.append(item)
+        return cast(Path, original(self, item, target, **options))
+
+    monkeypatch.setattr(type(computer.client), "download", counting)
+    monkeypatch.setattr(sources_module, "HEAD_START_S", 30.0)
+    tracks = _tracks(computer)
+
+    played = tracks.open(item_id)
+
+    assert played.url is None
+    assert played.path == open_cache(computer.context).path_for(item_id, sha, ext)
+    assert played.path is not None and sha256_of(played.path) == sha
+    assert downloads == [item_id]
+    assert tracks.open(item_id).path == played.path
+    assert downloads == [item_id], "the next play is the copy"
+
+
+def test_when_the_head_start_runs_out_the_track_streams_and_the_copy_resumes(
+    computer: Computer, sources: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow network: the quick copy stops, the stream plays, the copy goes on from its part."""
+    _, item_id = _server_track(computer, "Quick/slow.flac", sources["long"])
+    sha, ext = item_facts(computer.store, item_id)
+    ranges: list[str] = []
+    original_stream = type(computer.client)._stream
+
+    def recording(self: Any, path: str, headers: dict[str, str]) -> Any:
+        ranges.append(headers.get("Range", ""))
+        return original_stream(self, path, headers)
+
+    monkeypatch.setattr(type(computer.client), "_stream", recording)
+    monkeypatch.setattr(sources_module, "HEAD_START_CHUNK", 16 * 1024)
+    monkeypatch.setattr(sources_module, "HEAD_START_S", 30.0)
+    monkeypatch.setattr(sources_module, "_Deadline", _AfterOneChunk)
+    tracks = _tracks(computer)
+
+    streamed = tracks.open(item_id)
+
+    assert streamed.path is None and streamed.url is not None
+    kept = wait_for_copy(computer.context, item_id, sha, ext)
+    assert sha256_of(kept) == sha
+    assert ranges[0] == "", "the quick copy starts at the first byte"
+    assert ranges[1] == "bytes=16384-", "the kept copy resumes after the bytes already written"
+
+
+class _AfterOneChunk:
+    """A deadline that passes after the first chunk: some bytes are written, then it stops."""
+
+    def __init__(self, seconds: float) -> None:
+        del seconds
+        self._checks = 0
+
+    def raise_if_cancelled(self) -> None:
+        self._checks += 1
+        if self._checks > 1:
+            raise sources_module._TooSlowError
+
+    def report_progress(self, progress: float) -> None:
+        del progress

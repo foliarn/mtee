@@ -22,7 +22,7 @@ from typing import Any, TypeGuard
 from mtee.plugins.api import JobContext, PlayableSource, PluginContext, SourceTrack
 
 from .cache import StreamCache, ext_of, open_cache
-from .client import NetworkError, RemoteClient
+from .client import ApiError, DownloadError, NetworkError, RemoteClient
 from .connection import ConnectionManager
 from .store import RemoteStore, ServerRow, upsert_server_item
 from .tasks import submit
@@ -33,6 +33,9 @@ STREAM_LEVELS = ("original", "lossless", "320", "128")
 # The codecs a desktop accepts from the server: FLAC as stored, Opus for the lossy levels.
 PLAY_CODECS = ("flac", "opus")
 PREPARE_TIMEOUT_S = 60.0
+# How long ``open`` downloads an original itself before it streams it instead (see _fetch_quickly).
+HEAD_START_S = 1.5
+HEAD_START_CHUNK = 256 * 1024
 PREPARE_POLL_S = 0.5
 _MAX_TEXT = 2000
 OFFLINE_TEXT = "Not available offline."
@@ -251,6 +254,11 @@ class ServerTracks:
         level = stream_level(self._context)
         headers = client.authorization_headers()
         if level == "original":
+            # One transfer when the network is fast: the copy comes first and plays from disk.
+            local = self._fetch_quickly(client, cache, item_id, sha256, ext)
+            if local is not None:
+                return PlayableSource(path=local)
+            # Slower: the stream plays now, and the copy goes on from the bytes it already has.
             self._keep_copy(client, cache, item_id, sha256, ext)
             return PlayableSource(url=client.stream_url(item_id, level), headers=headers)
         _wait_until_prepared(client, item_id, level)
@@ -278,6 +286,46 @@ class ServerTracks:
         part.write_bytes(data)
         os.replace(part, path)
         return data
+
+    def _fetch_quickly(
+        self, client: RemoteClient, cache: StreamCache, item_id: str, sha256: str, ext: str
+    ) -> Path | None:
+        """Download the original for ``HEAD_START_S`` at most; its cached copy, or None.
+
+        On a home network most originals arrive in that time, and the track then plays from the
+        cache: one transfer instead of a stream and a download side by side. When the time runs
+        out, the part already written stays, and ``_keep_copy`` resumes it with a Range request.
+        Nothing is tried while a copy of the same item is already being kept.
+        """
+        if HEAD_START_S <= 0:
+            return None
+        key = (item_id, sha256)
+        with self._guard:
+            if key in self._keeping:
+                return None
+            self._keeping.add(key)
+        try:
+            incoming = cache.incoming_dir() / f"{item_id}-{sha256}{ext}"
+            quick = client.with_timeout(HEAD_START_S)
+            quick.download(
+                item_id,
+                incoming,
+                expected_sha256=sha256,
+                chunk=HEAD_START_CHUNK,
+                job=_Deadline(HEAD_START_S),
+            )
+            kept = cache.add(item_id, sha256, incoming)
+            if kept is not None:
+                cache.evict(keep=kept)
+            return kept
+        except _TooSlowError:
+            return None
+        except (NetworkError, ApiError, DownloadError, OSError) as error:
+            self._context.log.info("The quick copy of a server track did not finish: %s", error)
+            return None
+        finally:
+            with self._guard:
+                self._keeping.discard(key)
 
     def _keep_copy(
         self, client: RemoteClient, cache: StreamCache, item_id: str, sha256: str, ext: str
@@ -321,6 +369,24 @@ def _wait_until_prepared(client: RemoteClient, item_id: str, level: str) -> None
         if time.monotonic() >= deadline:
             raise ServerTrackError(_NOT_READY)
         time.sleep(PREPARE_POLL_S)
+
+
+class _TooSlowError(Exception):
+    """The quick copy of ``_fetch_quickly`` ran out of time."""
+
+
+class _Deadline:
+    """Stands in for a job in a download: it stops the download once the time is over."""
+
+    def __init__(self, seconds: float) -> None:
+        self._end = time.monotonic() + seconds
+
+    def raise_if_cancelled(self) -> None:
+        if time.monotonic() >= self._end:
+            raise _TooSlowError
+
+    def report_progress(self, progress: float) -> None:
+        del progress
 
 
 def _nothing(result: object, error: BaseException | None) -> None:

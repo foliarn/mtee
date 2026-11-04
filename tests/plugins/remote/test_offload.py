@@ -405,14 +405,16 @@ def test_a_cached_copy_is_reused_without_a_second_download(
     computer.fetch()
     track_id, item_id = server_only_of(computer, "Cached/played.flac")
     downloads: list[str] = []
-    original = computer.client.download
+    original = type(computer.client).download
 
-    def counting(item: str, target: Path, **options: Any) -> Path:
+    def counting(self: Any, item: str, target: Path, **options: Any) -> Path:
         downloads.append(item)
-        return original(item, target, **options)
+        return cast(Path, original(self, item, target, **options))
 
-    monkeypatch.setattr(computer.client, "download", counting)
-    # Playing the track streams it and keeps its original in the stream cache (plan 127.5, 127.6).
+    # On the class: the quick copy of a play uses a client of its own (sources._fetch_quickly).
+    monkeypatch.setattr(type(computer.client), "download", counting)
+    # Playing the track keeps its original in the stream cache (plan 127.5, 127.6), from a quick
+    # copy on a fast network or beside the stream on a slow one.
     played = ServerTracks(computer.context, computer.store, cast(Any, _Link(computer.client)))
     played.open(item_id)
     sha, ext = item_facts(computer.store, item_id)
