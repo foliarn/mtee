@@ -1,10 +1,12 @@
 import QtQuick
 import Mtee
 
-// Settings > Remote: the server, this computer, the devices of the account, and the folders that
-// sync with the server (plan 126.2). The sync, backup and settings-that-travel groups come with
-// their own milestones. ``workspace`` and ``backend`` are set by the core after loading, so every
-// binding reads ``backend`` with a fallback.
+// Settings > Remote: the server, this computer, the devices of the account, the sync, playback,
+// backups, the settings that travel and the folders that sync with the server (plans 126 and 127).
+// Built from the rows of Mtee (MTEE 0.3.0): Group, FieldRow, ToggleRow, StepperRow, ActionRow, the
+// plugin's ChoiceRow for the chip choices, TagChip for a tag and one ConfirmDialog for the actions
+// that cannot be undone from here (revoke a device, delete a backup). ``workspace`` and ``backend``
+// are set by the core after loading, so every binding reads ``backend`` with a fallback.
 Column {
     id: page
 
@@ -37,6 +39,23 @@ Column {
     function connectNow() {
         page.backend.connectTo(page.serverText, page.userText, passwordRow.text, page.deviceText)
         passwordRow.clear()
+    }
+
+    // The one question of the page: revoke a device, or delete a backup. ``pending`` names it.
+    function ask(kind, id, name) {
+        confirm.pending = { "kind": kind, "id": id }
+        if (kind === "revoke") {
+            confirm.title = "Revoke " + name + "?"
+            confirm.text = "That device is signed out of your account at once. It can connect again with your password."
+            confirm.buttons = [{ "key": "cancel", "label": "Cancel", "kind": "ghost" },
+                               { "key": "confirm", "label": "Revoke", "kind": "danger" }]
+        } else {
+            confirm.title = "Delete this backup?"
+            confirm.text = name + ". It moves to the server's trash and leaves this list."
+            confirm.buttons = [{ "key": "cancel", "label": "Cancel", "kind": "ghost" },
+                               { "key": "confirm", "label": "Delete backup", "kind": "danger" }]
+        }
+        confirm.open()
     }
 
     function openEditor(row) {
@@ -144,23 +163,12 @@ Column {
                         font.pixelSize: Theme.fontSizeBody
                     }
 
-                    Rectangle {
+                    TagChip {
+                        objectName: "remoteDeviceCurrent"
                         visible: deviceRow.modelData.current
                         anchors.verticalCenter: parent.verticalCenter
-                        width: badgeText.implicitWidth + 12
-                        height: badgeText.implicitHeight + 4
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.separator
-
-                        Text {
-                            id: badgeText
-                            anchors.centerIn: parent
-                            text: "This computer"
-                            color: Theme.textSecondary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSmall
-                        }
+                        text: "This computer"
+                        tone: "primary"
                     }
                 }
 
@@ -179,8 +187,9 @@ Column {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Revoke"
+                kind: "ghost"
                 enabledAction: !page.busy
-                onClicked: page.backend.revoke(deviceRow.modelData.deviceId)
+                onClicked: page.ask("revoke", deviceRow.modelData.deviceId, deviceRow.modelData.name)
             }
         }
     }
@@ -192,56 +201,14 @@ Column {
         title: "Sync"
     }
 
-    Item {
+    ChoiceRow {
         objectName: "remoteSyncMode"
-        width: page.width
-        height: Math.max(52, modeTexts.implicitHeight + 16)
-
-        Column {
-            id: modeTexts
-            anchors.left: parent.left
-            anchors.right: modeChips.left
-            anchors.rightMargin: 24
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-
-            Text {
-                text: "Sync mode"
-                color: Theme.textPrimary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeBody
-            }
-
-            Text {
-                width: parent.width
-                text: "Auto sends new tracks, tag edits, moves and renames on its own. Manual keeps them in a queue until you press Apply."
-                wrapMode: Text.WordWrap
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-            }
-        }
-
-        Row {
-            id: modeChips
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 6
-
-            FilterChip {
-                objectName: "remoteSyncAuto"
-                text: "Auto"
-                checked: page.syncMode === "auto"
-                onToggled: page.backend.setSyncMode("auto")
-            }
-
-            FilterChip {
-                objectName: "remoteSyncManual"
-                text: "Manual"
-                checked: page.syncMode === "manual"
-                onToggled: page.backend.setSyncMode("manual")
-            }
-        }
+        label: "Sync mode"
+        description: "Auto sends new tracks, tag edits, moves and renames on its own. Manual keeps them in a queue until you press Apply."
+        options: [{ "key": "auto", "label": "Auto", "name": "remoteSyncAuto" },
+                  { "key": "manual", "label": "Manual", "name": "remoteSyncManual" }]
+        current: page.syncMode
+        onChosen: (key) => page.backend.setSyncMode(key)
     }
 
     StepperRow {
@@ -302,70 +269,16 @@ Column {
         title: "Playback"
     }
 
-    Item {
+    ChoiceRow {
         objectName: "remoteStreamLevel"
-        width: page.width
-        height: Math.max(52, levelTexts.implicitHeight + 16)
-
-        Column {
-            id: levelTexts
-            anchors.left: parent.left
-            anchors.right: levelChips.left
-            anchors.rightMargin: 24
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-
-            Text {
-                text: "Quality on this computer"
-                color: Theme.textPrimary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeBody
-            }
-
-            Text {
-                width: parent.width
-                text: "The quality of a track that is not on this computer. Original plays the file as it is and keeps a copy for offline play. The other levels are converted on the server and are not kept here."
-                wrapMode: Text.WordWrap
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-            }
-        }
-
-        Row {
-            id: levelChips
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 6
-
-            FilterChip {
-                objectName: "remoteLevelOriginal"
-                text: "Original"
-                checked: page.streamLevel === "original"
-                onToggled: page.backend.setStreamLevel("original")
-            }
-
-            FilterChip {
-                objectName: "remoteLevelLossless"
-                text: "Lossless"
-                checked: page.streamLevel === "lossless"
-                onToggled: page.backend.setStreamLevel("lossless")
-            }
-
-            FilterChip {
-                objectName: "remoteLevel320"
-                text: "320 kbps"
-                checked: page.streamLevel === "320"
-                onToggled: page.backend.setStreamLevel("320")
-            }
-
-            FilterChip {
-                objectName: "remoteLevel128"
-                text: "128 kbps"
-                checked: page.streamLevel === "128"
-                onToggled: page.backend.setStreamLevel("128")
-            }
-        }
+        label: "Quality on this computer"
+        description: "The quality of a track that is not on this computer. Original plays the file as it is and keeps a copy for offline play. The other levels are converted on the server and are not kept here."
+        options: [{ "key": "original", "label": "Original", "name": "remoteLevelOriginal" },
+                  { "key": "lossless", "label": "Lossless", "name": "remoteLevelLossless" },
+                  { "key": "320", "label": "320 kbps", "name": "remoteLevel320" },
+                  { "key": "128", "label": "128 kbps", "name": "remoteLevel128" }]
+        current: page.streamLevel
+        onChosen: (key) => page.backend.setStreamLevel(key)
     }
 
     StepperRow {
@@ -405,64 +318,16 @@ Column {
         title: "Backups"
     }
 
-    Item {
+    ChoiceRow {
         objectName: "remoteBackupSchedule"
         visible: page.connected
-        width: page.width
-        height: Math.max(52, scheduleTexts.implicitHeight + 16)
-
-        Column {
-            id: scheduleTexts
-            anchors.left: parent.left
-            anchors.right: scheduleChips.left
-            anchors.rightMargin: 24
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-
-            Text {
-                text: "Automatic backup"
-                color: Theme.textPrimary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeBody
-            }
-
-            Text {
-                width: parent.width
-                text: "A copy of the MTEE database is sent to the server. Music files are not part of it."
-                wrapMode: Text.WordWrap
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-            }
-        }
-
-        Row {
-            id: scheduleChips
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 6
-
-            FilterChip {
-                objectName: "remoteBackupDaily"
-                text: "Daily"
-                checked: page.backend && page.backend.backupSchedule === "daily"
-                onToggled: page.backend.setBackupSchedule("daily")
-            }
-
-            FilterChip {
-                objectName: "remoteBackupWeekly"
-                text: "Weekly"
-                checked: page.backend && page.backend.backupSchedule === "weekly"
-                onToggled: page.backend.setBackupSchedule("weekly")
-            }
-
-            FilterChip {
-                objectName: "remoteBackupOff"
-                text: "Off"
-                checked: page.backend && page.backend.backupSchedule === "off"
-                onToggled: page.backend.setBackupSchedule("off")
-            }
-        }
+        label: "Automatic backup"
+        description: "A copy of the MTEE database is sent to the server. Music files are not part of it."
+        options: [{ "key": "daily", "label": "Daily", "name": "remoteBackupDaily" },
+                  { "key": "weekly", "label": "Weekly", "name": "remoteBackupWeekly" },
+                  { "key": "off", "label": "Off", "name": "remoteBackupOff" }]
+        current: page.backend ? page.backend.backupSchedule : "off"
+        onChosen: (key) => page.backend.setBackupSchedule(key)
     }
 
     StepperRow {
@@ -521,101 +386,61 @@ Column {
         id: backupList
         model: page.backend ? page.backend.backups : []
 
-        delegate: Column {
+        delegate: Item {
             id: backupEntry
             required property var modelData
-            property bool confirming: false
 
             objectName: "remoteBackup"
             width: page.width
-            spacing: 0
-
-            Item {
-                width: backupEntry.width
-                height: 56
-
-                Column {
-                    anchors.left: parent.left
-                    anchors.right: backupButtons.left
-                    anchors.rightMargin: 24
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
-
-                    Text {
-                        text: backupEntry.modelData.when + " · " + backupEntry.modelData.kind
-                        color: Theme.textPrimary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeBody
-                    }
-
-                    Text {
-                        text: backupEntry.modelData.device + " · " + backupEntry.modelData.size
-                        color: Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSmall
-                    }
-                }
-
-                Row {
-                    id: backupButtons
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 6
-
-                    TextButton {
-                        objectName: "remoteRestoreBackup"
-                        text: "Restore…"
-                        kind: "ghost"
-                        enabledAction: !page.busy
-                        onClicked: page.backend.restoreBackup(backupEntry.modelData.backupId)
-                    }
-
-                    TextButton {
-                        objectName: "remoteDeleteBackup"
-                        text: "Delete"
-                        kind: "ghost"
-                        enabledAction: !page.busy
-                        onClicked: backupEntry.confirming = true
-                    }
-                }
-            }
+            height: 56
 
             Column {
-                objectName: "remoteDeleteConfirm"
-                visible: backupEntry.confirming
-                width: backupEntry.width
-                bottomPadding: 12
-                spacing: 8
+                anchors.left: parent.left
+                anchors.right: backupButtons.left
+                anchors.rightMargin: 24
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
 
                 Text {
                     width: parent.width
-                    text: "Delete this backup? It moves to the server's trash and leaves this list."
-                    wrapMode: Text.WordWrap
+                    elide: Text.ElideRight
+                    text: backupEntry.modelData.when + " · " + backupEntry.modelData.kind
                     color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeBody
+                }
+
+                Text {
+                    width: parent.width
+                    elide: Text.ElideRight
+                    text: backupEntry.modelData.device + " · " + backupEntry.modelData.size
+                    color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSmall
                 }
+            }
 
-                Row {
-                    spacing: 12
+            Row {
+                id: backupButtons
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
 
-                    TextButton {
-                        objectName: "remoteConfirmDeleteBackup"
-                        text: "Delete backup"
-                        kind: "primary"
-                        enabledAction: !page.busy
-                        onClicked: {
-                            backupEntry.confirming = false
-                            page.backend.deleteBackup(backupEntry.modelData.backupId)
-                        }
-                    }
+                TextButton {
+                    objectName: "remoteRestoreBackup"
+                    text: "Restore…"
+                    kind: "ghost"
+                    enabledAction: !page.busy
+                    onClicked: page.backend.restoreBackup(backupEntry.modelData.backupId)
+                }
 
-                    TextButton {
-                        objectName: "remoteCancelDeleteBackup"
-                        text: "Cancel"
-                        kind: "ghost"
-                        onClicked: backupEntry.confirming = false
-                    }
+                TextButton {
+                    objectName: "remoteDeleteBackup"
+                    text: "Delete…"
+                    kind: "ghost"
+                    enabledAction: !page.busy
+                    onClicked: page.ask("delete", backupEntry.modelData.backupId,
+                        backupEntry.modelData.when + " · " + backupEntry.modelData.kind)
                 }
             }
         }
@@ -775,5 +600,22 @@ Column {
         actionText: "Compare"
         enabledAction: !page.busy
         onAction: page.backend.compareNow()
+    }
+
+    // The question of ``ask``: nothing is sent before the danger button is pressed.
+    ConfirmDialog {
+        id: confirm
+        objectName: "remoteConfirm"
+        property var pending: ({})
+        onAnswered: (key) => {
+            const asked = confirm.pending
+            confirm.pending = ({})
+            if (key !== "confirm" || !page.backend)
+                return
+            if (asked.kind === "revoke")
+                page.backend.revoke(asked.id)
+            else if (asked.kind === "delete")
+                page.backend.deleteBackup(asked.id)
+        }
     }
 }

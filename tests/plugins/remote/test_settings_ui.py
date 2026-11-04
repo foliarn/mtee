@@ -26,8 +26,10 @@ from mtee.plugins.remote.ui.settings_backend import (  # pyright: ignore[reportM
     device_rows,
     last_seen_text,
 )
+from PySide6.QtCore import QObject
 from tests.helpers.ui_plugin import (
     find_item,
+    find_items,
     need_item,
     settle,
     start_app,
@@ -36,7 +38,7 @@ from tests.helpers.ui_plugin import (
     workspace_of,
 )
 from tests.plugins.remote.conftest import PLUGIN_DIR
-from tests.plugins.remote.helpers import FakeLibrary, make_context
+from tests.plugins.remote.helpers import FakeLibrary, make_context, press
 
 from mtee.app import _shutdown
 
@@ -205,3 +207,100 @@ def test_saving_a_folder_stores_its_local_subfolder_and_refuses_a_missing_one(
     backend.saveFolder(str(local), "root-1", "nowhere", "")
     assert notices == ["The local subfolder nowhere does not exist in this watched folder."]
     assert RemoteStore(context).mappings() == [kept], "a refused save changes nothing"
+
+
+class _ConnectedLink:
+    """Stands in for the connection of the page: connected, two devices, and a recording client."""
+
+    def __init__(self) -> None:
+        self.state = "connected"
+        self.state_text = "Connected to music.example.net."
+        self.signed_in = True
+        self.busy = False
+        self.server_url = "https://music.example.net"
+        self.user_name = "ana"
+        self.device_name = "Studio laptop"
+        self.devices = [
+            {"device_id": "d1", "name": "Studio laptop", "kind": "desktop", "current": True},
+            {"device_id": "d2", "name": "Desk PC", "kind": "desktop", "current": False},
+        ]
+        self.revoked: list[str] = []
+        self.deleted: list[str] = []
+        self._client = MagicMock()
+        self._client.delete_backup.side_effect = self.deleted.append
+        self._client.backups.return_value = []
+        self._client.backup_settings.return_value = {"daily": 30, "weekly": 12}
+
+    def client(self) -> Any:
+        return self._client
+
+    def revoke(self, device_id: str) -> None:
+        self.revoked.append(device_id)
+
+
+def _answer(window: Any, runtime: Any, key: str) -> None:
+    """Press the button ``key`` of the page's ConfirmDialog."""
+    (button,) = [item for item in find_items(window, f"confirmButton_{key}") if item.isVisible()]
+    press(button)
+    settle(runtime)
+
+
+def test_revoke_and_delete_backup_ask_first_in_a_confirm_dialog(
+    qapp: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Revoke and Delete open the ConfirmDialog of Mtee; only its danger button acts."""
+    monkeypatch.setattr(settings_backend, "submit", _run_inline)
+    runtime = start_app(tmp_path / "data", (PLUGIN_DIR,), ("remote",))
+    try:
+        workspace = workspace_of(runtime)
+        window = window_of(runtime)
+        workspace.openSettings()
+        workspace.setSettingsPage(REMOTE_PAGE)
+        settle(runtime)
+        backend = need_item(window, "remoteSettingsPage").property("backend")
+        link = _ConnectedLink()
+        backend._connection = link
+        backend._backup_rows = [
+            {
+                "backupId": "b1",
+                "when": "3 Nov 2026",
+                "kind": "Manual",
+                "device": "Desk PC",
+                "size": "2 MB",
+            }
+        ]
+        backend.changed.emit()
+        settle(runtime)
+
+        tags = [item for item in find_items(window, "remoteDeviceCurrent") if item.isVisible()]
+        assert [tag.property("text") for tag in tags] == ["This computer"], "one TagChip"
+        # The ConfirmDialog is a Popup: a QObject child of the page, drawn on the overlay.
+        page = need_item(window, "remoteSettingsPage")
+        dialog = page.findChild(QObject, "remoteConfirm")
+        assert dialog is not None
+        assert dialog.property("visible") is False
+
+        (revoke,) = [item for item in find_items(window, "remoteRevoke") if item.isVisible()]
+        press(revoke)
+        settle(runtime)
+        assert dialog.property("visible") is True
+        assert dialog.property("title") == "Revoke Desk PC?"
+        _answer(window, runtime, "cancel")
+        assert link.revoked == []
+        press(revoke)
+        settle(runtime)
+        _answer(window, runtime, "confirm")
+        assert link.revoked == ["d2"]
+
+        press(need_item(window, "remoteDeleteBackup"))
+        settle(runtime)
+        assert dialog.property("title") == "Delete this backup?"
+        assert "3 Nov 2026 · Manual" in str(dialog.property("text"))
+        _answer(window, runtime, "cancel")
+        assert link.deleted == []
+        press(need_item(window, "remoteDeleteBackup"))
+        settle(runtime)
+        _answer(window, runtime, "confirm")
+        assert link.deleted == ["b1"]
+    finally:
+        _shutdown(runtime)

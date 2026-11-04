@@ -2,16 +2,19 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Mtee
 
-// One conflict of MTEE Remote, as a tab of the editor (plan 126.6). Same page layout as the Tasks
-// and review pages: a centred column, a SectionLabel, surface cards with radius 6. Both versions
-// are two columns on one card; differing rows are in the warning colour. Nothing changes until a
-// choice is pressed. After a choice the outcome is shown and the next click closes the tab.
-// The core sets workspace, tab, groupIndex, bottomInset and backend after loading.
+// One conflict of MTEE Remote, as a tab of a center window (plan 126.6, MTEE 0.3.0 layout). Same
+// page layout as the Tasks window: a SectionLabel, the title, a TagChip for the state, then
+// surface cards with the control radius. Both versions are two columns on one card; differing
+// rows are in the warning colour. Nothing changes until a choice is pressed. After a choice the
+// outcome is shown and Close closes the tab in its window (``groupId``, which stays the same when
+// windows are split or moved; ``groupIndex`` is not kept). The core sets workspace, tab, groupId,
+// groupIndex, bottomInset and backend after loading.
 Rectangle {
     id: page
 
     property var workspace
     property var tab
+    property string groupId: ""
     property int groupIndex: 0
     property int bottomInset: 0
     property var backend
@@ -50,6 +53,7 @@ Rectangle {
         contentHeight: column.implicitHeight + 40
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        WheelScrollHandler { flickable: scroller }
         ScrollBar.vertical: ThinScrollBar {}
 
         Column {
@@ -60,9 +64,10 @@ Rectangle {
 
             Item {
                 width: parent.width
-                height: 100
+                height: headColumn.implicitHeight + 44
 
                 Column {
+                    id: headColumn
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 14
                     width: parent.width
@@ -89,6 +94,16 @@ Rectangle {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSecondary
                     }
+
+                    Item { width: 1; height: 6 }
+
+                    // The state of the conflict, as the Tasks window tags a task.
+                    TagChip {
+                        objectName: "conflictState"
+                        visible: page.view.loading !== true
+                        text: page.view.finished === true ? "Resolved" : "Waiting for you"
+                        tone: page.view.finished === true ? "primary" : "warning"
+                    }
                 }
             }
 
@@ -97,7 +112,7 @@ Rectangle {
                 width: parent.width
                 height: versions.implicitHeight + 28
                 color: Theme.surface
-                radius: 6
+                radius: Theme.radius
 
                 Column {
                     id: versions
@@ -269,7 +284,7 @@ Rectangle {
                 width: parent.width
                 height: outcomeColumn.implicitHeight + 28
                 color: Theme.surface
-                radius: 6
+                radius: Theme.radius
 
                 Column {
                     id: outcomeColumn
@@ -294,7 +309,7 @@ Rectangle {
                         kind: "ghost"
                         implicitHeight: 32
                         width: 120
-                        onClicked: page.workspace.closeTab(page.groupIndex, page.tab.id)
+                        onClicked: page.workspace.closeTab(page.groupId, page.tab.id)
                     }
                 }
             }
@@ -310,7 +325,7 @@ Rectangle {
                 width: parent.width
                 height: choiceColumn.implicitHeight + 8
                 color: Theme.surface
-                radius: 6
+                radius: Theme.radius
 
                 Column {
                     id: choiceColumn

@@ -45,8 +45,8 @@ Column {
         text: "Match with the server"
         color: Theme.textPrimary
         font.family: Theme.fontFamily
-        font.pixelSize: 24
-        font.weight: Font.Bold
+        font.pixelSize: Theme.fontSizeTitle
+        font.weight: Font.DemiBold
     }
 
     Text {
@@ -71,6 +71,7 @@ Column {
         contentHeight: groupList.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        WheelScrollHandler { flickable: scroll }
         ScrollBar.vertical: ThinScrollBar {}
 
         Column {

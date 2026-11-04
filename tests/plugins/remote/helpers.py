@@ -491,3 +491,13 @@ def signed_in(server: RemoteServer, username: str, password: str) -> Iterator[Re
     finally:
         with contextlib.suppress(Exception):
             client.logout()
+
+
+def press(item: Any) -> None:
+    """Emit the ``clicked`` signal of a QML button, also one that is hidden or off screen.
+
+    PySide takes the name as text at run time; its stubs ask for bytes, hence the cast.
+    """
+    from PySide6.QtCore import QMetaObject
+
+    assert QMetaObject.invokeMethod(item, cast(Any, "clicked")), "the item has no clicked signal"

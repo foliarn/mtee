@@ -72,6 +72,7 @@ from tests.plugins.remote.helpers import (
     ThreadJobs,
     fake_job,
     pinned_ffmpeg,
+    press,
     sha256_of,
     upload_file,
 )
@@ -988,5 +989,21 @@ def test_the_conflict_tab_loads_with_both_columns_in_the_real_window(
         assert len(shown) == 3, "upload again, remove from this computer, keep only here"
         (outcome_card,) = find_items(window, "conflictOutcomeCard")
         assert outcome_card.property("visible") is False, "no outcome before a choice"
+        (state,) = find_items(window, "conflictState")
+        assert state.property("text") == "Waiting for you"
+
+        # Close names its center window by id (MTEE 0.3.0): it closes the tab in that window.
+        workspace = workspace_of(runtime)
+        (view,) = find_items(window, "conflictView")
+        group_id = view.property("groupId")
+        assert group_id in [group["id"] for group in workspace.groups_snapshot()]
+        tab_id = str(workspace.activeTabId)
+        assert tab_id.startswith("remote.conflict")
+        (close,) = find_items(window, "conflictClose")
+        press(close)
+        settle(runtime)
+        assert tab_id not in [
+            tab["id"] for group in workspace.groups_snapshot() for tab in group["tabs"]
+        ]
     finally:
         _shutdown(runtime)

@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Mtee
 
-// A settings row with a masked text field: the same layout as FieldRow of the core, with the
-// characters hidden. The text is read by the page when the person presses Connect and is never
-// saved; the page clears it straight after.
+// A settings row with a masked text field: the same layout and rounded field as FieldRow of the
+// core, with the characters hidden. The text is read by the page when the person presses Connect
+// and is never saved; the page clears it straight after.
 Item {
     id: passwordRow
 
@@ -63,6 +63,7 @@ Item {
         leftPadding: 10
         rightPadding: 10
         background: Rectangle {
+            radius: Theme.radius
             color: Theme.surface
             border.width: 1
             border.color: passwordField.activeFocus ? Theme.focus : Theme.separator
