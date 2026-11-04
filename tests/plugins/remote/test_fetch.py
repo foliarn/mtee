@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
+import mtee.plugins.remote.sources as sources_module  # pyright: ignore[reportMissingImports]
 import mutagen.flac
 import pytest
 from mtee.plugins.remote.client import (  # pyright: ignore[reportMissingImports]
@@ -378,6 +379,8 @@ def test_tracksource_open_streams_then_plays_the_verified_copy(
         return original(self, item_id, target, **kwargs)
 
     monkeypatch.setattr(RemoteClient, "download", counting)
+    # This test checks the stream of a first play: no quick copy first (sources._fetch_quickly).
+    monkeypatch.setattr(sources_module, "HEAD_START_S", 0)
     tracks = ServerTracks(computer.context, computer.store, cast(Any, Link()))
     sha, ext = item_facts(computer.store, item_id)
 

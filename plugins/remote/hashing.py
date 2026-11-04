@@ -18,9 +18,10 @@ import os
 import re
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from mtee.plugins.api import JobContext, PluginContext
 
@@ -32,6 +33,7 @@ CHUNK_BYTES = 1024 * 1024
 AUDIO_HASH_TIMEOUT_S = 600
 # Coarse file system timestamps (FAT: 2 s) can hide an edit that keeps the size: see _trusted_cache.
 RACY_MARGIN_NS = 2_000_000_000
+_BATCH = 400
 _STREAMHASH = re.compile(r"SHA256=([0-9A-Fa-f]{64})")
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -156,7 +158,7 @@ def _hashes_of(store: RemoteStore, ffmpeg: Path, path: Path) -> tuple[FileHashes
     """
     hashed_at_ns = time.time_ns()
     info = os.stat(path)
-    key = os.path.normcase(os.path.abspath(path))
+    key = path_key(path)
     cached = _trusted_cache(store, key, info.st_size, info.st_mtime_ns)
     if cached is not None:
         return FileHashes(cached.sha256, cached.audio_hash), True
@@ -187,11 +189,52 @@ def _trusted_cache(
         )
         .fetchone()
     )
+    return _trusted(row, mtime_ns)
+
+
+def _trusted(row: Any, mtime_ns: int) -> CachedHashes | None:
+    """The racy rule of ``_trusted_cache`` for one cache row of the same path, size and time."""
     if row is None or row["hashed_at_ns"] is None:
         return None
     if mtime_ns >= int(row["hashed_at_ns"]) - RACY_MARGIN_NS:
         return None
     return CachedHashes(str(row["sha256"]), row["audio_hash"])
+
+
+def path_key(path: str | os.PathLike[str]) -> str:
+    """The key of a file in ``remote_hash_cache``: its absolute path, case-folded on Windows."""
+    return os.path.normcase(os.path.abspath(path))
+
+
+def trusted_hashes(
+    store: RemoteStore, files: Mapping[str, tuple[int, int]]
+) -> dict[str, FileHashes]:
+    """The cached hashes that can be trusted for ``{key: (size, mtime_ns)}``, read in batches.
+
+    The same rule as ``_trusted_cache``, without a read lease: nothing of the file is read, only
+    the size and time the caller took with ``os.stat``. A file that is missing here is hashed by
+    ``hash_tracks`` under its lease. A pass over an unchanged library therefore reads no file and
+    takes no lease.
+    """
+    found: dict[str, FileHashes] = {}
+    keys = list(files)
+    conn = store.connection()
+    for start in range(0, len(keys), _BATCH):
+        chunk = keys[start : start + _BATCH]
+        marks = ", ".join("?" for _ in chunk)
+        for row in conn.execute(
+            "SELECT path, size_bytes, mtime_ns, sha256, audio_hash, hashed_at_ns"
+            f" FROM remote_hash_cache WHERE path IN ({marks})",
+            chunk,
+        ):
+            key = str(row["path"])
+            size_bytes, mtime_ns = files[key]
+            if int(row["size_bytes"]) != size_bytes or int(row["mtime_ns"]) != mtime_ns:
+                continue
+            cached = _trusted(row, mtime_ns)
+            if cached is not None:
+                found[key] = FileHashes(cached.sha256, cached.audio_hash)
+    return found
 
 
 def _remember(

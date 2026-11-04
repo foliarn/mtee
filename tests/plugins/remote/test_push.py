@@ -501,3 +501,36 @@ def test_a_held_track_keeps_its_pending_row_and_run_does_not_send_it(
     item = push.client.get_item(str(before["item_id"]))
     assert item["revision"] == before["item_revision"]
     assert push.link(track_id) == before
+
+
+def test_a_pass_over_unchanged_files_takes_no_read_lease(
+    push: Push, sources: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cache answers for files whose size and time did not change: no lease, no hashing."""
+    first = push.add_file("a.flac", sources["short"])
+    push.add_file("b.flac", sources["other"])
+    # Old enough for the cache to trust the hashes (the racy margin is 2 s after the hashing).
+    for path in push.local.iterdir():
+        os.utime(path, (time.time() - 3600, time.time() - 3600))
+    push.run()
+    leases: list[str] = []
+    real = type(push.context.files).read_lease
+
+    def counting(self: Any, track_id: str) -> Any:
+        leases.append(track_id)
+        return real(self, track_id)
+
+    monkeypatch.setattr(type(push.context.files), "read_lease", counting)
+
+    detected, queued = push.run()
+
+    assert leases == []
+    assert (detected.uploads, detected.replacements, queued.sent) == (0, 0, 0)
+
+    # A changed file is hashed under its lease, and only that one.
+    with push.path_of(first).open("ab") as handle:
+        handle.write(b"\0")
+    os.utime(push.path_of(first), (time.time() - 3600, time.time() - 3600))
+    detected, _queued = push.run()
+    assert detected.replacements == 1
+    assert set(leases) == {first}, "the hashing and the upload read only the changed file"

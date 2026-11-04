@@ -34,7 +34,7 @@ from mtee.plugins.api import JobContext, PluginContext
 
 from .client import ApiError, NetworkError, RemoteClient, UploadOffsetError
 from .first_match import OwnedTrack, owned_tracks
-from .hashing import hash_tracks
+from .hashing import hash_tracks, path_key, trusted_hashes
 from .store import (
     CONFLICT_DECIDE_LATER,
     RemoteStore,
@@ -199,11 +199,24 @@ def detect_changes(
     if not settled:
         return report
 
-    hashed = hash_tracks(context, list(settled), job or _NO_JOB)
+    # An unchanged file is answered by the cache in one batch, without a lease or a read; only
+    # the files that changed (or were never hashed) are hashed under their read lease.
+    keys = {track_id: path_key(owned.track.path) for track_id, (owned, _f) in settled.items()}
+    trusted = trusted_hashes(
+        store,
+        {
+            keys[track_id]: (fingerprint["size"], fingerprint["mtime_ns"])
+            for track_id, (_owned, fingerprint) in settled.items()
+        },
+    )
+    known = {track_id: trusted[key] for track_id, key in keys.items() if key in trusted}
+    unknown = [track_id for track_id in settled if track_id not in known]
+    hashed = hash_tracks(context, unknown, job or _NO_JOB)
     report.unhashed = len(hashed.skipped)
+    all_hashes = {**known, **hashed.hashes}
     locals_: list[_Local] = []
     for track_id, (owned, fingerprint) in settled.items():
-        hashes = hashed.hashes.get(track_id)
+        hashes = all_hashes.get(track_id)
         if hashes is None:
             continue
         mapping = mappings[owned.mapping]
@@ -218,8 +231,17 @@ def detect_changes(
             )
         )
     with store.transaction() as conn:
+        ids = [local.track_id for local in locals_]
+        links = _links_of(conn, ids)
+        open_rows = _open_rows_of(conn, ids)
         for local in locals_:
-            _reconcile(conn, local, report)
+            _reconcile(
+                conn,
+                local,
+                report,
+                link=links.get(local.track_id),
+                rows=open_rows.get(local.track_id, []),
+            )
         if report.uploads or report.replacements or report.moves:
             write_log(
                 conn,
@@ -252,13 +274,20 @@ def _held_tracks(store: RemoteStore) -> set[str]:
     return {str(row["track_id"]) for row in rows}
 
 
-def _reconcile(conn: sqlite3.Connection, local: _Local, report: DetectReport) -> None:
-    """Make the open queue rows of one track agree with what the track needs now."""
-    link = conn.execute(
-        "SELECT item_id, item_revision, local_sha256, server_path FROM remote_links"
-        " WHERE track_id = ?",
-        (local.track_id,),
-    ).fetchone()
+def _reconcile(
+    conn: sqlite3.Connection,
+    local: _Local,
+    report: DetectReport,
+    *,
+    link: sqlite3.Row | None,
+    rows: list[sqlite3.Row],
+) -> None:
+    """Make the open queue rows of one track agree with what the track needs now.
+
+    ``link`` and ``rows`` are the track's link and open queue rows, read for the whole pass by
+    ``_links_of`` and ``_open_rows_of`` in the same transaction: each call changes the rows of its
+    own track only, so the rows read for the others stay right.
+    """
     wanted: tuple[str, dict[str, Any], str | None] | None
     if link is None:
         wanted = (UPLOAD, _upload_payload(local), None)
@@ -269,7 +298,6 @@ def _reconcile(conn: sqlite3.Connection, local: _Local, report: DetectReport) ->
     else:
         wanted = None
 
-    rows = _open_rows(conn, local.track_id)
     wanted_kind = wanted[0] if wanted is not None else None
     for row in rows:
         if row["state"] == PENDING and row["kind"] != wanted_kind:
@@ -293,13 +321,37 @@ def _reconcile(conn: sqlite3.Connection, local: _Local, report: DetectReport) ->
         _refresh(conn, pending[0], payload, report)
 
 
-def _open_rows(conn: sqlite3.Connection, track_id: str) -> list[sqlite3.Row]:
-    placeholders = ", ".join("?" for _ in PUSH_KINDS)
-    return conn.execute(
-        "SELECT op_id, kind, state, payload_json FROM remote_queue WHERE track_id = ?"
-        f" AND kind IN ({placeholders}) AND state <> ? ORDER BY rowid",
-        (track_id, *PUSH_KINDS, DONE),
-    ).fetchall()
+def _links_of(conn: sqlite3.Connection, track_ids: list[str]) -> dict[str, sqlite3.Row]:
+    """The link of each track that has one, read in batches."""
+    found: dict[str, sqlite3.Row] = {}
+    for chunk in _batches(track_ids):
+        marks = ", ".join("?" for _ in chunk)
+        for row in conn.execute(
+            "SELECT track_id, item_id, item_revision, local_sha256, server_path FROM remote_links"
+            f" WHERE track_id IN ({marks})",
+            chunk,
+        ):
+            found[str(row["track_id"])] = row
+    return found
+
+
+def _open_rows_of(conn: sqlite3.Connection, track_ids: list[str]) -> dict[str, list[sqlite3.Row]]:
+    """The open push operations of each track, oldest first, read in batches."""
+    found: dict[str, list[sqlite3.Row]] = {}
+    kinds = ", ".join("?" for _ in PUSH_KINDS)
+    for chunk in _batches(track_ids):
+        marks = ", ".join("?" for _ in chunk)
+        for row in conn.execute(
+            "SELECT track_id, op_id, kind, state, payload_json FROM remote_queue"
+            f" WHERE track_id IN ({marks}) AND kind IN ({kinds}) AND state <> ? ORDER BY rowid",
+            (*chunk, *PUSH_KINDS, DONE),
+        ):
+            found.setdefault(str(row["track_id"]), []).append(row)
+    return found
+
+
+def _batches(values: list[str], size: int = 400) -> list[list[str]]:
+    return [values[start : start + size] for start in range(0, len(values), size)]
 
 
 def _enqueue(
