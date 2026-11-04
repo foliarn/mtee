@@ -83,11 +83,12 @@ def test_the_migration_keeps_existing_mappings_with_an_empty_local_subpath(
     tmp_path: Path,
 ) -> None:
     migrations = discover_migrations(PLUGIN_DIR / "remote" / "migrations")
-    assert [migration.file_name for migration in migrations][-1].startswith("006_local_subpath")
+    names = [migration.file_name for migration in migrations]
+    (index,) = [at for at, name in enumerate(names) if name.startswith("006_local_subpath")]
     database = Database(tmp_path / "mtee.sqlite3")
     database.migrate()
     # A database as the plugin left it before this milestone: migrations 001 to 005 only.
-    database.migrate_plugin("remote", migrations[:-1])
+    database.migrate_plugin("remote", migrations[:index])
     with database.transaction() as conn:
         conn.execute(
             "INSERT INTO remote_mappings (local_root_path, server_root_id, server_subpath)"
